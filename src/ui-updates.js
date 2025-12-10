@@ -24,15 +24,22 @@ export function updatePenInfo(info) {
 
 export function updateSelectionInfo() {
   const count = state.selectedStrokes.size;
+  const hasStrokes = state.strokes.length > 0;
+  const hasCredentials = elements.myscriptAppKey.value && elements.myscriptHmacKey.value;
+  
   if (count === 0) {
-    elements.selectionInfo.textContent = 'Click strokes to select • Ctrl+click to multi-select • Shift+click for range';
-    elements.selectionInfo.style.color = 'var(--text-secondary)';
-    elements.btnTranscribe.disabled = true;
+    if (hasStrokes) {
+      elements.selectionInfo.textContent = `No selection • Will transcribe all ${state.strokes.length} strokes`;
+      elements.selectionInfo.style.color = 'var(--text-secondary)';
+    } else {
+      elements.selectionInfo.textContent = 'Click strokes to select • Ctrl+click to multi-select • Shift+click for range';
+      elements.selectionInfo.style.color = 'var(--text-secondary)';
+    }
+    // Enable transcribe if we have strokes and credentials
+    elements.btnTranscribe.disabled = !hasStrokes || !hasCredentials;
   } else {
     elements.selectionInfo.textContent = `${count} stroke${count > 1 ? 's' : ''} selected • Export JSON or Transcribe`;
     elements.selectionInfo.style.color = 'var(--accent)';
-    // Enable transcribe if we have MyScript credentials
-    const hasCredentials = elements.myscriptAppKey.value && elements.myscriptHmacKey.value;
     elements.btnTranscribe.disabled = !hasCredentials;
   }
 }

@@ -12,7 +12,8 @@ import {
   updateStrokeList, 
   updateJsonViewer,
   updatePageSelect,
-  updateShapePreview
+  updateShapePreview,
+  updateSelectionInfo
 } from './ui-updates.js';
 
 export function setupPenCallbacks() {
@@ -229,6 +230,7 @@ function handleOfflineDataReceived(data) {
   updateStrokeList();
   updateJsonViewer();
   updatePageSelect();
+  updateSelectionInfo(); // Enable transcribe button
   elements.btnSendToLogseq.disabled = state.strokes.length === 0;
   
   // Run shape detection and line analysis

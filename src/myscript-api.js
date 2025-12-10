@@ -302,6 +302,7 @@ export class MyScriptAPI {
   
   /**
    * Parse MyScript result and add spatial analysis
+   * TRUSTS MyScript's line detection (\n in label), then calculates indentation from X positions
    * @param {Object} result - Raw MyScript response
    * @param {Array} originalStrokes - Original stroke data
    * @param {Object} bounds - Original coordinate bounds
@@ -312,38 +313,65 @@ export class MyScriptAPI {
       raw: result,
       text: '',
       words: [],
+      chars: [],
       lines: [],
-      commands: [] // Detected [command: value] patterns
+      commands: [],
+      lineMetrics: null
     };
     
-    // Extract plain text (already has \n for line breaks!)
+    // Extract plain text - MyScript already detected lines with \n!
     if (result.label) {
       parsed.text = result.label;
+    }
+    
+    // Parse character data if available
+    if (result.chars) {
+      parsed.chars = result.chars
+        .filter(char => char.label && char.label.trim() !== '' && char.label !== '\n')
+        .map(char => ({
+          label: char.label,
+          boundingBox: char['bounding-box'],
+          wordIndex: char.word,
+          hasDescender: this.isDescenderChar(char.label)
+        }));
     }
     
     // Parse words with bounding boxes
     if (result.words) {
       parsed.words = result.words
         .filter(word => word.label && word.label !== '\n' && word.label.trim() !== '')
-        .map(word => ({
-          text: word.label,
-          boundingBox: word['bounding-box'],
-          candidates: word.candidates,
-          firstChar: word['first-char'],
-          lastChar: word['last-char'],
-          // Convert back to Ncode coordinates if bounding box exists
-          ncodePosition: word['bounding-box'] ? {
-            x: (word['bounding-box'].x / this.mmToPixels / this.ncodeToMm) + bounds.minX,
-            y: (word['bounding-box'].y / this.mmToPixels / this.ncodeToMm) + bounds.minY
-          } : null
-        }));
+        .map((word, wordIndex) => {
+          const bbox = word['bounding-box'];
+          if (!bbox) return null;
+          
+          return {
+            text: word.label,
+            boundingBox: bbox,
+            candidates: word.candidates,
+            firstChar: word['first-char'],
+            lastChar: word['last-char'],
+            baseline: bbox.y + bbox.height, // Simple baseline for now
+            bottom: bbox.y + bbox.height,
+            ncodePosition: {
+              x: (bbox.x / this.mmToPixels / this.ncodeToMm) + bounds.minX,
+              y: (bbox.y / this.mmToPixels / this.ncodeToMm) + bounds.minY
+            }
+          };
+        })
+        .filter(w => w !== null);
     }
     
-    // Group words into lines based on Y position
-    parsed.lines = this.groupWordsIntoLines(parsed.words);
+    // KEY CHANGE: Use MyScript's line breaks, not our own grouping
+    parsed.lines = this.buildLinesFromLabel(parsed.text, parsed.words);
+    
+    // Calculate line metrics from the detected lines
+    parsed.lineMetrics = this.calculateLineMetricsFromLines(parsed.lines);
     
     // Detect indentation levels based on X position
-    parsed.lines = this.detectIndentation(parsed.lines);
+    parsed.lines = this.detectIndentation(parsed.lines, parsed.lineMetrics);
+    
+    // Build line hierarchy (parent/child relationships)
+    parsed.lines = this.buildLineHierarchy(parsed.lines);
     
     // Look for command patterns [command: value]
     parsed.commands = this.extractCommands(parsed.text, parsed.lines);
@@ -353,103 +381,370 @@ export class MyScriptAPI {
       totalLines: parsed.lines.length,
       totalWords: parsed.words.length,
       hasIndentation: parsed.lines.some(l => l.indentLevel > 0),
-      hasCommands: parsed.commands.length > 0
+      hasCommands: parsed.commands.length > 0,
+      lineMetrics: parsed.lineMetrics
     };
     
     return parsed;
   }
   
   /**
-   * Group words into lines based on Y position (bounding box)
+   * Build lines from MyScript's label (which has \n for line breaks)
+   * Then match words to lines for position data
+   * This TRUSTS MyScript's line detection instead of re-calculating
    */
-  groupWordsIntoLines(words) {
-    if (words.length === 0) return [];
+  buildLinesFromLabel(labelText, words) {
+    if (!labelText) return [];
     
-    // Sort by Y position first, then X
-    const sortedWords = [...words]
-      .filter(w => w.boundingBox) // Only words with position data
-      .sort((a, b) => {
-        const yDiff = a.boundingBox.y - b.boundingBox.y;
-        if (Math.abs(yDiff) > 3) return yDiff; // Different lines
-        return a.boundingBox.x - b.boundingBox.x; // Same line, sort by X
-      });
+    // Split by newlines - this is MyScript's line detection
+    const lineTexts = labelText.split('\n').filter(line => line.trim() !== '');
     
-    if (sortedWords.length === 0) return [];
+    // Create a copy of words to track which have been assigned
+    const availableWords = [...words];
     
-    const lines = [];
-    let currentLine = {
-      words: [sortedWords[0]],
-      y: sortedWords[0].boundingBox.y,
-      minX: sortedWords[0].boundingBox.x,
-      maxY: sortedWords[0].boundingBox.y + sortedWords[0].boundingBox.height
-    };
-    
-    // Threshold for considering words on the same line
-    // Use the height of the first word as reference
-    const lineThreshold = sortedWords[0].boundingBox.height * 0.6;
-    
-    for (let i = 1; i < sortedWords.length; i++) {
-      const word = sortedWords[i];
-      const wordY = word.boundingBox.y;
+    const lines = lineTexts.map((lineText, lineIndex) => {
+      // Find words that belong to this line by matching text
+      const lineWords = this.matchWordsToLine(lineText, availableWords);
       
-      // Check if this word is on the same line (Y position within threshold)
-      if (Math.abs(wordY - currentLine.y) < lineThreshold) {
-        currentLine.words.push(word);
-        currentLine.minX = Math.min(currentLine.minX, word.boundingBox.x);
-      } else {
-        // Finalize current line and start new one
-        lines.push(this.finalizeLine(currentLine));
-        currentLine = {
-          words: [word],
-          y: wordY,
-          minX: word.boundingBox.x,
-          maxY: wordY + word.boundingBox.height
-        };
-      }
-    }
+      // Remove matched words from available pool
+      lineWords.forEach(w => {
+        const idx = availableWords.indexOf(w);
+        if (idx !== -1) availableWords.splice(idx, 1);
+      });
+      
+      // Sort words by X position (left to right)
+      lineWords.sort((a, b) => a.boundingBox.x - b.boundingBox.x);
+      
+      // Calculate line position from its words
+      const minX = lineWords.length > 0 
+        ? Math.min(...lineWords.map(w => w.boundingBox.x))
+        : 0;
+      const avgBaseline = lineWords.length > 0
+        ? lineWords.reduce((sum, w) => sum + w.baseline, 0) / lineWords.length
+        : lineIndex * 10; // Fallback if no position data
+      
+      return {
+        text: lineText,
+        words: lineWords,
+        x: minX,
+        baseline: avgBaseline,
+        top: lineWords.length > 0 ? Math.min(...lineWords.map(w => w.boundingBox.y)) : 0,
+        bottom: lineWords.length > 0 ? Math.max(...lineWords.map(w => w.bottom)) : 0,
+        indentLevel: 0,
+        parent: null,
+        children: [],
+        lineIndex: lineIndex
+      };
+    });
     
-    // Don't forget the last line
-    if (currentLine.words.length > 0) {
-      lines.push(this.finalizeLine(currentLine));
+    console.log('Lines built from MyScript label:', {
+      lineCount: lines.length,
+      wordsMatched: words.length - availableWords.length,
+      wordsUnmatched: availableWords.length
+    });
+    
+    // Log any unmatched words for debugging
+    if (availableWords.length > 0) {
+      console.warn('Unmatched words:', availableWords.map(w => w.text));
     }
     
     return lines;
   }
   
   /**
-   * Finalize a line object - sort words by X and join text
+   * Match words to a line by finding words whose text appears in the line
+   * Uses a greedy approach to match words in order
    */
-  finalizeLine(line) {
-    // Sort words by X position within line
-    line.words.sort((a, b) => a.boundingBox.x - b.boundingBox.x);
+  matchWordsToLine(lineText, availableWords) {
+    const matchedWords = [];
+    
+    // Normalize line text for matching
+    const normalizedLine = lineText.toLowerCase();
+    
+    // Split line into expected words for better matching
+    const expectedWords = lineText.split(/\s+/).filter(w => w.trim());
+    
+    // Try to match each word in order of appearance in lineText
+    for (const word of availableWords) {
+      const normalizedWord = word.text.toLowerCase();
+      
+      // Check if this word appears in the line text
+      if (normalizedLine.includes(normalizedWord)) {
+        matchedWords.push(word);
+      }
+    }
+    
+    // Debug: Log if word count differs significantly from expected
+    if (Math.abs(matchedWords.length - expectedWords.length) > 2) {
+      console.warn('Word count mismatch for line:', {
+        lineText: lineText.substring(0, 50),
+        expected: expectedWords.length,
+        matched: matchedWords.length,
+        matchedWords: matchedWords.map(w => ({ text: w.text, x: w.boundingBox?.x?.toFixed(1) }))
+      });
+    }
+    
+    // If we got too many matches (word appears in multiple lines), 
+    // use position clustering to pick the right ones
+    if (matchedWords.length > expectedWords.length * 1.5) {
+      // Too many matches - fall back to position-based clustering
+      return this.clusterWordsByPosition(matchedWords, lineText);
+    }
+    
+    return matchedWords;
+  }
+  
+  /**
+   * When text matching gives too many results, cluster by Y position
+   * to find words that are actually on the same line
+   */
+  clusterWordsByPosition(words, lineText) {
+    if (words.length === 0) return [];
+    
+    // Expected word count from line text
+    const expectedCount = lineText.split(/\s+/).filter(w => w.trim()).length;
+    
+    // Sort by Y position (baseline)
+    const sorted = [...words].sort((a, b) => a.baseline - b.baseline);
+    
+    // Find clusters of words at similar Y positions
+    const clusters = [];
+    let currentCluster = [sorted[0]];
+    
+    for (let i = 1; i < sorted.length; i++) {
+      const yDiff = Math.abs(sorted[i].baseline - sorted[i-1].baseline);
+      const threshold = sorted[i].boundingBox.height * 0.5;
+      
+      if (yDiff < threshold) {
+        currentCluster.push(sorted[i]);
+      } else {
+        clusters.push(currentCluster);
+        currentCluster = [sorted[i]];
+      }
+    }
+    clusters.push(currentCluster);
+    
+    // Find the cluster closest to expected word count
+    let bestCluster = clusters[0];
+    let bestDiff = Math.abs(clusters[0].length - expectedCount);
+    
+    for (const cluster of clusters) {
+      const diff = Math.abs(cluster.length - expectedCount);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestCluster = cluster;
+      }
+    }
+    
+    return bestCluster;
+  }
+  
+  /**
+   * Characters that have descenders (drop below baseline)
+   */
+  isDescenderChar(char) {
+    return 'gjpqy'.includes(char.toLowerCase());
+  }
+  
+  /**
+   * Calculate the baseline Y position for a word
+   * Accounts for descender letters that drop below the baseline
+   * @param {Object} word - Word object from MyScript
+   * @param {Array} chars - All character data
+   * @param {number} wordIndex - Index of this word
+   * @returns {number} Estimated baseline Y position
+   */
+  calculateWordBaseline(word, chars, wordIndex) {
+    const bbox = word['bounding-box'];
+    if (!bbox) return 0;
+    
+    const wordBottom = bbox.y + bbox.height;
+    
+    // If we have character data, find non-descender characters in this word
+    const wordChars = chars.filter(c => c.wordIndex === wordIndex && c.boundingBox);
+    
+    if (wordChars.length > 0) {
+      // Find bottoms of non-descender characters
+      const nonDescenderBottoms = wordChars
+        .filter(c => !c.hasDescender)
+        .map(c => c.boundingBox.y + c.boundingBox.height);
+      
+      if (nonDescenderBottoms.length > 0) {
+        // Use the median bottom of non-descender chars as baseline
+        nonDescenderBottoms.sort((a, b) => a - b);
+        const median = nonDescenderBottoms[Math.floor(nonDescenderBottoms.length / 2)];
+        return median;
+      }
+    }
+    
+    // Fallback: Check if word contains descender letters
+    const hasDescender = word.label && /[gjpqy]/i.test(word.label);
+    if (hasDescender) {
+      // Estimate: descenders typically add ~20% to word height
+      // So baseline is roughly at 80% of the word bottom
+      return bbox.y + (bbox.height * 0.8);
+    }
+    
+    // No descenders: bottom of word IS the baseline
+    return wordBottom;
+  }
+  
+  /**
+   * Calculate line metrics from detected lines
+   * Uses X positions of lines to determine indent unit
+   * @param {Array} lines - Lines with position data
+   * @returns {Object} Line metrics
+   */
+  calculateLineMetricsFromLines(lines) {
+    if (lines.length === 0) {
+      return {
+        medianHeight: 10,
+        lineThreshold: 6,
+        indentUnit: 15,
+        baselineVariance: 3
+      };
+    }
+    
+    // Get word heights from all lines
+    const allWords = lines.flatMap(l => l.words || []);
+    const heights = allWords
+      .filter(w => w.boundingBox)
+      .map(w => w.boundingBox.height)
+      .sort((a, b) => a - b);
+    
+    const medianHeight = heights.length > 0 
+      ? heights[Math.floor(heights.length / 2)] 
+      : 10;
+    
+    // Calculate indent unit from X position differences
+    // Find the smallest non-trivial X difference between lines
+    const xPositions = lines
+      .map(l => l.x)
+      .filter(x => x > 0)
+      .sort((a, b) => a - b);
+    
+    let indentUnit = medianHeight * 2; // Default
+    
+    if (xPositions.length > 1) {
+      // Find X differences
+      const xDiffs = [];
+      const baseX = Math.min(...xPositions);
+      
+      for (const x of xPositions) {
+        const diff = x - baseX;
+        if (diff > medianHeight * 0.5) { // Significant difference
+          xDiffs.push(diff);
+        }
+      }
+      
+      if (xDiffs.length > 0) {
+        // Use the smallest significant difference as indent unit
+        xDiffs.sort((a, b) => a - b);
+        indentUnit = xDiffs[0];
+      }
+    }
+    
+    // Ensure reasonable indent unit (not too small or too large)
+    indentUnit = Math.max(indentUnit, medianHeight);
+    indentUnit = Math.min(indentUnit, medianHeight * 5);
+    
+    console.log('Line metrics calculated from lines:', {
+      medianHeight: medianHeight.toFixed(2),
+      indentUnit: indentUnit.toFixed(2),
+      lineCount: lines.length,
+      wordCount: allWords.length
+    });
     
     return {
-      text: line.words.map(w => w.text).join(' '),
-      words: line.words,
-      y: line.y,
-      x: line.minX,
-      indentLevel: 0 // Will be calculated in detectIndentation
+      medianHeight,
+      lineThreshold: medianHeight * 0.6,
+      indentUnit,
+      baselineVariance: medianHeight * 0.25
     };
   }
   
   /**
-   * Detect indentation levels based on X position of first word
+   * Detect indentation levels based on X position
+   * Uses dynamic indent unit calculated from word metrics
    */
-  detectIndentation(lines) {
+  detectIndentation(lines, metrics) {
     if (lines.length === 0) return lines;
+    
+    const { indentUnit } = metrics;
     
     // Find the leftmost X position (base indent = 0)
     const baseX = Math.min(...lines.map(l => l.x));
     
-    // Estimate indent unit from the data (or use default)
-    // In handwriting, typical indent is about 5-10mm
-    const indentUnit = 15; // pixels - adjust based on handwriting style
+    return lines.map((line, index) => {
+      const indentPixels = line.x - baseX;
+      const indentLevel = Math.round(indentPixels / indentUnit);
+      
+      return {
+        ...line,
+        lineIndex: index,
+        indentLevel: Math.max(0, indentLevel), // Never negative
+        indentPixels: indentPixels
+      };
+    });
+  }
+  
+  /**
+   * Build hierarchical parent/child relationships between lines
+   * Based on indentation levels - crucial for command scope
+   * @param {Array} lines - Lines with indent levels
+   * @returns {Array} Lines with parent/children references
+   */
+  buildLineHierarchy(lines) {
+    if (lines.length === 0) return lines;
     
-    return lines.map(line => ({
-      ...line,
-      indentLevel: Math.round((line.x - baseX) / indentUnit),
-      indentPixels: line.x - baseX
-    }));
+    // Process lines in order to build hierarchy
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      line.children = [];
+      line.parent = null;
+      
+      if (i === 0) continue; // First line has no parent
+      
+      // Look backwards for potential parent (lower indent level)
+      for (let j = i - 1; j >= 0; j--) {
+        if (lines[j].indentLevel < line.indentLevel) {
+          // Found parent
+          line.parent = j; // Store index reference
+          lines[j].children.push(i);
+          break;
+        } else if (lines[j].indentLevel === line.indentLevel) {
+          // Sibling - share the same parent
+          line.parent = lines[j].parent;
+          if (line.parent !== null) {
+            lines[line.parent].children.push(i);
+          }
+          break;
+        }
+        // If indent is higher, keep looking back
+      }
+    }
+    
+    return lines;
+  }
+  
+  /**
+   * Get all descendant line indices for a given line
+   * Useful for commands that affect "this line and all children"
+   * @param {Array} lines - All lines
+   * @param {number} lineIndex - Starting line index
+   * @returns {Array} Array of line indices (including the starting line)
+   */
+  getDescendants(lines, lineIndex) {
+    const descendants = [lineIndex];
+    const line = lines[lineIndex];
+    
+    if (line && line.children) {
+      for (const childIndex of line.children) {
+        descendants.push(...this.getDescendants(lines, childIndex));
+      }
+    }
+    
+    return descendants;
   }
   
   /**
