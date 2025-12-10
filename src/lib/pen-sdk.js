@@ -201,9 +201,21 @@ function processMessage(mac, type, args) {
     case PenMessageType.EVENT_DOT_PUI:
       log(`PUI touched: ${JSON.stringify(args)}`, 'info');
       break;
+    
+    case 26: // AVAILABLE_NOTE_RESPONSE - confirmation that note set was configured
+      if (args?.Result) {
+        console.log('Note set configured successfully');
+      }
+      break;
+    
+    case 18: // PEN_SETTING_CHANGE_RESPONSE - confirmation of setting change (e.g., hover enable)
+      if (args?.result) {
+        console.log('Pen setting updated:', args.SettingType);
+      }
+      break;
       
     default:
-      // Log unknown events
+      // Log unknown events for debugging
       console.log(`Unknown pen event ${type}:`, args);
   }
 }
@@ -220,7 +232,7 @@ function handleSettingInfo(mac, args) {
   log(`Pen settings received: Battery ${args.Battery}%`, 'info');
 }
 
-function handleAuthorized(mac) {
+async function handleAuthorized(mac) {
   setPenAuthorized(true);
   log('Pen authorized successfully', 'success');
   
@@ -230,8 +242,17 @@ function handleAuthorized(mac) {
   unsubscribe();
   
   if (controller) {
-    controller.RequestAvailableNotes([0], [0], null);
-    controller.SetHoverEnable(true);
+    // GATT operations must be serialized - add delays between commands
+    try {
+      controller.RequestAvailableNotes([0], [0], null);
+      // Wait for GATT operation to complete before next command
+      await new Promise(resolve => setTimeout(resolve, 300));
+      controller.SetHoverEnable(true);
+      log('Pen ready for real-time capture', 'info');
+    } catch (error) {
+      console.warn('GATT setup warning:', error);
+      // Non-fatal - pen may still work
+    }
   }
 }
 

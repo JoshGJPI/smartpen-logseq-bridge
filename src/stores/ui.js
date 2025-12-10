@@ -21,6 +21,9 @@ export const logMessages = writable([]);
 // Maximum log entries to keep
 const MAX_LOG_ENTRIES = 50;
 
+// Counter for unique log IDs (Date.now() alone can produce duplicates)
+let logIdCounter = 0;
+
 /**
  * Add a log message
  * @param {string} message 
@@ -28,7 +31,8 @@ const MAX_LOG_ENTRIES = 50;
  */
 export function log(message, level = 'info') {
   const time = new Date().toLocaleTimeString();
-  const entry = { time, message, level, id: Date.now() };
+  // Combine timestamp with counter to guarantee unique IDs
+  const entry = { time, message, level, id: `${Date.now()}-${logIdCounter++}` };
   
   logMessages.update(logs => {
     const newLogs = [entry, ...logs];
