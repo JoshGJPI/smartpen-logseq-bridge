@@ -316,79 +316,99 @@ export class MyScriptAPI {
       commands: [] // Detected [command: value] patterns
     };
     
-    // Extract plain text
+    // Extract plain text (already has \n for line breaks!)
     if (result.label) {
       parsed.text = result.label;
     }
     
-    // Parse JIIX format if available (has bounding boxes)
-    if (result.jiix) {
-      const jiix = typeof result.jiix === 'string' ? JSON.parse(result.jiix) : result.jiix;
-      parsed.jiix = jiix;
-      
-      // Extract words with positions
-      if (jiix.words) {
-        parsed.words = jiix.words.map(word => ({
+    // Parse words with bounding boxes
+    if (result.words) {
+      parsed.words = result.words
+        .filter(word => word.label && word.label !== '\n' && word.label.trim() !== '')
+        .map(word => ({
           text: word.label,
           boundingBox: word['bounding-box'],
           candidates: word.candidates,
-          // Convert back to Ncode coordinates for comparison
+          firstChar: word['first-char'],
+          lastChar: word['last-char'],
+          // Convert back to Ncode coordinates if bounding box exists
           ncodePosition: word['bounding-box'] ? {
             x: (word['bounding-box'].x / this.mmToPixels / this.ncodeToMm) + bounds.minX,
             y: (word['bounding-box'].y / this.mmToPixels / this.ncodeToMm) + bounds.minY
           } : null
         }));
-      }
-      
-      // Group words into lines based on Y position
-      parsed.lines = this.groupIntoLines(parsed.words, bounds);
-      
-      // Detect indentation levels
-      parsed.lines = this.detectIndentation(parsed.lines);
-      
-      // Look for command patterns [command: value]
-      parsed.commands = this.extractCommands(parsed.text, parsed.lines);
     }
+    
+    // Group words into lines based on Y position
+    parsed.lines = this.groupWordsIntoLines(parsed.words);
+    
+    // Detect indentation levels based on X position
+    parsed.lines = this.detectIndentation(parsed.lines);
+    
+    // Look for command patterns [command: value]
+    parsed.commands = this.extractCommands(parsed.text, parsed.lines);
+    
+    // Add summary
+    parsed.summary = {
+      totalLines: parsed.lines.length,
+      totalWords: parsed.words.length,
+      hasIndentation: parsed.lines.some(l => l.indentLevel > 0),
+      hasCommands: parsed.commands.length > 0
+    };
     
     return parsed;
   }
   
   /**
-   * Group words into lines based on vertical position
+   * Group words into lines based on Y position (bounding box)
    */
-  groupIntoLines(words, bounds) {
+  groupWordsIntoLines(words) {
     if (words.length === 0) return [];
     
-    // Sort by Y position
-    const sortedWords = [...words].sort((a, b) => {
-      const ay = a.boundingBox?.y || 0;
-      const by = b.boundingBox?.y || 0;
-      return ay - by;
-    });
+    // Sort by Y position first, then X
+    const sortedWords = [...words]
+      .filter(w => w.boundingBox) // Only words with position data
+      .sort((a, b) => {
+        const yDiff = a.boundingBox.y - b.boundingBox.y;
+        if (Math.abs(yDiff) > 3) return yDiff; // Different lines
+        return a.boundingBox.x - b.boundingBox.x; // Same line, sort by X
+      });
+    
+    if (sortedWords.length === 0) return [];
     
     const lines = [];
-    let currentLine = { words: [], y: 0, minX: Infinity };
-    const lineThreshold = 15; // pixels - adjust based on line height
+    let currentLine = {
+      words: [sortedWords[0]],
+      y: sortedWords[0].boundingBox.y,
+      minX: sortedWords[0].boundingBox.x,
+      maxY: sortedWords[0].boundingBox.y + sortedWords[0].boundingBox.height
+    };
     
-    sortedWords.forEach(word => {
-      const wordY = word.boundingBox?.y || 0;
-      const wordX = word.boundingBox?.x || 0;
+    // Threshold for considering words on the same line
+    // Use the height of the first word as reference
+    const lineThreshold = sortedWords[0].boundingBox.height * 0.6;
+    
+    for (let i = 1; i < sortedWords.length; i++) {
+      const word = sortedWords[i];
+      const wordY = word.boundingBox.y;
       
-      if (currentLine.words.length === 0) {
-        currentLine.y = wordY;
-        currentLine.minX = wordX;
+      // Check if this word is on the same line (Y position within threshold)
+      if (Math.abs(wordY - currentLine.y) < lineThreshold) {
         currentLine.words.push(word);
-      } else if (Math.abs(wordY - currentLine.y) < lineThreshold) {
-        // Same line
-        currentLine.minX = Math.min(currentLine.minX, wordX);
-        currentLine.words.push(word);
+        currentLine.minX = Math.min(currentLine.minX, word.boundingBox.x);
       } else {
-        // New line
+        // Finalize current line and start new one
         lines.push(this.finalizeLine(currentLine));
-        currentLine = { words: [word], y: wordY, minX: wordX };
+        currentLine = {
+          words: [word],
+          y: wordY,
+          minX: word.boundingBox.x,
+          maxY: wordY + word.boundingBox.height
+        };
       }
-    });
+    }
     
+    // Don't forget the last line
     if (currentLine.words.length > 0) {
       lines.push(this.finalizeLine(currentLine));
     }
@@ -397,38 +417,38 @@ export class MyScriptAPI {
   }
   
   /**
-   * Finalize a line object
+   * Finalize a line object - sort words by X and join text
    */
   finalizeLine(line) {
     // Sort words by X position within line
-    line.words.sort((a, b) => {
-      const ax = a.boundingBox?.x || 0;
-      const bx = b.boundingBox?.x || 0;
-      return ax - bx;
-    });
+    line.words.sort((a, b) => a.boundingBox.x - b.boundingBox.x);
     
     return {
       text: line.words.map(w => w.text).join(' '),
       words: line.words,
       y: line.y,
       x: line.minX,
-      indentLevel: 0 // Will be calculated later
+      indentLevel: 0 // Will be calculated in detectIndentation
     };
   }
   
   /**
-   * Detect indentation levels based on X position
+   * Detect indentation levels based on X position of first word
    */
   detectIndentation(lines) {
     if (lines.length === 0) return lines;
     
-    // Find the leftmost position (base indent)
+    // Find the leftmost X position (base indent = 0)
     const baseX = Math.min(...lines.map(l => l.x));
-    const indentUnit = 20; // pixels - approximate indent width
+    
+    // Estimate indent unit from the data (or use default)
+    // In handwriting, typical indent is about 5-10mm
+    const indentUnit = 15; // pixels - adjust based on handwriting style
     
     return lines.map(line => ({
       ...line,
-      indentLevel: Math.round((line.x - baseX) / indentUnit)
+      indentLevel: Math.round((line.x - baseX) / indentUnit),
+      indentPixels: line.x - baseX
     }));
   }
   
