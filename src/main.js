@@ -55,6 +55,7 @@ const elements = {
   btnExportSvg: document.getElementById('btnExportSvg'),
   btnExportJson: document.getElementById('btnExportJson'),
   btnTranscribe: document.getElementById('btnTranscribe'),
+  btnTestMyScript: document.getElementById('btnTestMyScript'),
   
   // Zoom controls
   btnZoomIn: document.getElementById('btnZoomIn'),
@@ -973,6 +974,53 @@ async function handleTranscribe() {
   }
 }
 
+async function handleTestMyScript() {
+  const appKey = elements.myscriptAppKey.value.trim();
+  const hmacKey = elements.myscriptHmacKey.value.trim();
+  
+  if (!appKey || !hmacKey) {
+    log('Please enter both Application Key and HMAC Key', 'warning');
+    return;
+  }
+  
+  // Initialize or update MyScript API
+  if (!myscriptApi) {
+    myscriptApi = new MyScriptAPI(appKey, hmacKey);
+  } else {
+    myscriptApi.setCredentials(appKey, hmacKey);
+  }
+  
+  try {
+    elements.btnTestMyScript.disabled = true;
+    elements.btnTestMyScript.textContent = '⏳ Testing...';
+    log('Testing MyScript credentials...', 'info');
+    
+    const result = await myscriptApi.testCredentials();
+    
+    console.log('Test result:', result);
+    
+    if (result.success) {
+      log('✅ MyScript credentials valid!', 'success');
+    } else {
+      if (result.status === 401) {
+        log(`❌ Authentication failed (401): ${result.error}`, 'error');
+        log('Check: 1) Keys are correct, 2) App is activated in MyScript dashboard, 3) Text recognition is enabled', 'warning');
+      } else if (result.isCorsError) {
+        log(`❌ CORS error - browser blocked the request`, 'error');
+        log('MyScript Cloud API may not support direct browser requests. Consider using a proxy.', 'warning');
+      } else {
+        log(`❌ Test failed: ${result.error}`, 'error');
+      }
+    }
+  } catch (error) {
+    log(`❌ Test error: ${error.message}`, 'error');
+    console.error('Test error:', error);
+  } finally {
+    elements.btnTestMyScript.disabled = false;
+    elements.btnTestMyScript.textContent = '🔑 Test MyScript Keys';
+  }
+}
+
 // ============================================================
 // Settings Persistence
 // ============================================================
@@ -1021,6 +1069,7 @@ function init() {
   elements.btnExportSvg.addEventListener('click', handleExportSvg);
   elements.btnExportJson.addEventListener('click', handleExportJson);
   elements.btnTranscribe.addEventListener('click', handleTranscribe);
+  elements.btnTestMyScript.addEventListener('click', handleTestMyScript);
   
   // Load saved API keys from localStorage
   loadSavedSettings();

@@ -10,8 +10,10 @@
 
 export class MyScriptAPI {
   constructor(applicationKey, hmacKey) {
-    this.applicationKey = applicationKey;
-    this.hmacKey = hmacKey;
+    // Trim any whitespace from keys
+    this.applicationKey = (applicationKey || '').trim();
+    this.hmacKey = (hmacKey || '').trim();
+    // Batch endpoint for offline/batch recognition
     this.baseUrl = 'https://cloud.myscript.com/api/v4.0/iink/batch';
     
     // Ncode coordinate scale - adjust based on your paper
@@ -25,8 +27,84 @@ export class MyScriptAPI {
    * Set API credentials
    */
   setCredentials(applicationKey, hmacKey) {
-    this.applicationKey = applicationKey;
-    this.hmacKey = hmacKey;
+    // Trim any whitespace from keys
+    this.applicationKey = (applicationKey || '').trim();
+    this.hmacKey = (hmacKey || '').trim();
+    
+    console.log('Credentials set:', {
+      appKeyLength: this.applicationKey.length,
+      hmacKeyLength: this.hmacKey.length,
+      appKeyFormat: this.applicationKey.includes('-') ? 'UUID' : 'other'
+    });
+  }
+  
+  /**
+   * Test API credentials with a minimal request
+   * @returns {Promise<Object>} Test result
+   */
+  async testCredentials() {
+    if (!this.hasCredentials()) {
+      return { success: false, error: 'Credentials not configured' };
+    }
+    
+    // Minimal test payload matching BatchInput schema
+    const testBody = JSON.stringify({
+      contentType: 'Text',
+      strokeGroups: [{
+        strokes: [{
+          x: [10, 20, 30, 40, 50],
+          y: [10, 10, 10, 10, 10]
+        }]
+      }],
+      xDPI: 96,
+      yDPI: 96,
+      width: 100,
+      height: 50
+    });
+    
+    const hmac = await this.generateHMAC(testBody);
+    
+    console.log('=== MyScript Credential Test ===' );
+    console.log('Endpoint:', this.baseUrl);
+    console.log('Application Key:', this.applicationKey);
+    console.log('HMAC Key:', this.hmacKey);
+    console.log('Combined Key (appKey+hmacKey) length:', (this.applicationKey + this.hmacKey).length);
+    console.log('HMAC Signature:', hmac);
+    console.log('Request Body:', testBody);
+    
+    try {
+      const response = await fetch(this.baseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/plain, application/json',
+          'applicationKey': this.applicationKey,
+          'hmac': hmac
+        },
+        body: testBody
+      });
+      
+      const responseText = await response.text();
+      console.log('Response status:', response.status);
+      console.log('Response body:', responseText);
+      
+      if (response.ok) {
+        return { success: true, status: response.status, response: responseText };
+      } else {
+        return { 
+          success: false, 
+          status: response.status, 
+          error: responseText
+        };
+      }
+    } catch (error) {
+      console.error('Fetch error:', error);
+      return { 
+        success: false, 
+        error: error.message,
+        isCorsError: error.message.includes('fetch') || error.message.includes('network')
+      };
+    }
   }
   
   /**
@@ -86,28 +164,44 @@ export class MyScriptAPI {
   
   /**
    * Generate HMAC signature for MyScript API
-   * @param {string} data - Data to sign
-   * @returns {Promise<string>} HMAC signature
+   * Per docs: Key = applicationKey + hmacKey, Message = payload
+   * @param {string} payload - Request body (the payload)
+   * @returns {Promise<string>} HMAC signature as hex string
    */
-  async generateHMAC(data) {
+  async generateHMAC(payload) {
     const encoder = new TextEncoder();
-    const keyData = encoder.encode(this.hmacKey);
-    const messageData = encoder.encode(data);
+    // Per MyScript docs: the signing key is applicationKey + hmacKey concatenated
+    const userKey = this.applicationKey + this.hmacKey;
+    const keyData = encoder.encode(userKey);
+    const messageData = encoder.encode(payload);
     
-    const cryptoKey = await crypto.subtle.importKey(
-      'raw',
-      keyData,
-      { name: 'HMAC', hash: 'SHA-512' },
-      false,
-      ['sign']
-    );
-    
-    const signature = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
-    
-    // Convert to hex string
-    return Array.from(new Uint8Array(signature))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
+    try {
+      const cryptoKey = await crypto.subtle.importKey(
+        'raw',
+        keyData,
+        { name: 'HMAC', hash: 'SHA-512' },
+        false,
+        ['sign']
+      );
+      
+      const signature = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
+      
+      // Convert to hex string
+      const hexSignature = Array.from(new Uint8Array(signature))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+      
+      console.log('HMAC generated:', {
+        userKeyLength: userKey.length,
+        payloadLength: payload.length,
+        signatureLength: hexSignature.length
+      });
+      
+      return hexSignature;
+    } catch (error) {
+      console.error('HMAC generation failed:', error);
+      throw new Error(`Failed to generate HMAC signature: ${error.message}`);
+    }
   }
   
   /**
@@ -184,9 +278,12 @@ export class MyScriptAPI {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json,application/vnd.myscript.jiix',
+        // Per docs: Must contain application/json + desired response format
+        'Accept': 'application/json, application/vnd.myscript.jiix, text/plain',
         'applicationKey': this.applicationKey,
-        'hmac': hmacSignature
+        'hmac': hmacSignature,
+        'myscript-client-name': 'smartpen-logseq-bridge',
+        'myscript-client-version': '0.1.0'
       },
       body: bodyString
     });
