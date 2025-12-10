@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NeoSmartpen → LogSeq Bridge</title>
+  <style>
+    :root {
+      --bg-primary: #1a1a2e;
+      --bg-secondary: #16213e;
+      --bg-tertiary: #0f3460;
+      --accent: #e94560;
+      --accent-hover: #ff6b6b;
+      --text-primary: #eaeaea;
+      --text-secondary: #a0a0a0;
+      --success: #4ade80;
+      --warning: #fbbf24;
+      --border: #2a2a4a;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 20px 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 20px;
+    }
+
+    header h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+    }
+
+    header h1 span {
+      color: var(--accent);
+    }
+
+    .status-bar {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.875rem;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--text-secondary);
+    }
+
+    .status-dot.connected {
+      background: var(--success);
+      box-shadow: 0 0 10px var(--success);
+    }
+
+    .status-dot.syncing {
+      background: var(--warning);
+      animation: pulse 1s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .main-grid {
+      display: grid;
+      grid-template-columns: 300px 1fr 350px;
+      gap: 20px;
+      min-height: calc(100vh - 150px);
+    }
+
+    .panel {
+      background: var(--bg-secondary);
+      border-radius: 12px;
+      padding: 20px;
+      border: 1px solid var(--border);
+    }
+
+    .panel-header {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* Control Panel */
+    .control-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+
+    .btn {
+      padding: 12px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: var(--accent-hover);
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background: var(--border);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-success {
+      background: var(--success);
+      color: var(--bg-primary);
+    }
+
+    /* Pen Info */
+    .pen-info {
+      background: var(--bg-tertiary);
+      border-radius: 8px;
+      padding: 15px;
+      margin-top: 10px;
+    }
+
+    .pen-info-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 5px 0;
+      font-size: 0.85rem;
+    }
+
+    .pen-info-label {
+      color: var(--text-secondary);
+    }
+
+    /* Canvas Area */
+    .canvas-panel {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .canvas-container {
+      flex: 1;
+      background: white;
+      border-radius: 8px;
+      position: relative;
+      min-height: 500px;
+      overflow: hidden;
+    }
+
+    #strokeCanvas {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+
+    .canvas-controls {
+      display: flex;
+      gap: 10px;
+      margin-top: 15px;
+    }
+
+    .page-selector {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 15px;
+      padding: 10px;
+      background: var(--bg-tertiary);
+      border-radius: 8px;
+    }
+
+    .page-selector select {
+      flex: 1;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      font-size: 0.875rem;
+    }
+
+    /* Data Panel */
+    .data-panel {
+      display: flex;
+      flex-direction: column;
+      max-height: calc(100vh - 150px);
+    }
+
+    .tabs {
+      display: flex;
+      gap: 5px;
+      margin-bottom: 15px;
+    }
+
+    .tab {
+      padding: 8px 16px;
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      cursor: pointer;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      transition: all 0.2s;
+    }
+
+    .tab.active {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+    }
+
+    .tab:hover:not(.active) {
+      color: var(--text-primary);
+    }
+
+    .data-content {
+      flex: 1;
+      overflow: auto;
+    }
+
+    .json-viewer {
+      background: var(--bg-primary);
+      border-radius: 8px;
+      padding: 15px;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 0.8rem;
+      overflow: auto;
+      max-height: 400px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .stroke-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .stroke-item {
+      background: var(--bg-tertiary);
+      border-radius: 8px;
+      padding: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .stroke-item:hover {
+      background: var(--border);
+    }
+
+    .stroke-item.selected {
+      border: 2px solid var(--accent);
+    }
+
+    .stroke-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 5px;
+    }
+
+    .stroke-id {
+      font-weight: 600;
+      font-size: 0.85rem;
+    }
+
+    .stroke-dots {
+      color: var(--text-secondary);
+      font-size: 0.75rem;
+    }
+
+    .stroke-meta {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+
+    /* LogSeq Settings */
+    .settings-group {
+      margin-bottom: 20px;
+    }
+
+    .settings-group label {
+      display: block;
+      font-size: 0.85rem;
+      margin-bottom: 5px;
+      color: var(--text-secondary);
+    }
+
+    .settings-group input {
+      width: 100%;
+      padding: 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      font-size: 0.875rem;
+    }
+
+    .settings-group input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    /* Messages / Log */
+    .message-log {
+      background: var(--bg-primary);
+      border-radius: 8px;
+      padding: 10px;
+      max-height: 150px;
+      overflow-y: auto;
+      font-size: 0.75rem;
+      font-family: monospace;
+    }
+
+    .log-entry {
+      padding: 3px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .log-entry:last-child {
+      border-bottom: none;
+    }
+
+    .log-time {
+      color: var(--text-secondary);
+      margin-right: 10px;
+    }
+
+    .log-info { color: var(--text-primary); }
+    .log-success { color: var(--success); }
+    .log-warning { color: var(--warning); }
+    .log-error { color: var(--accent); }
+
+    /* Responsive */
+    @media (max-width: 1200px) {
+      .main-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Shape Detection Preview */
+    .shape-preview {
+      margin-top: 15px;
+      padding: 15px;
+      background: var(--bg-tertiary);
+      border-radius: 8px;
+    }
+
+    .detected-shapes {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .shape-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px;
+      background: var(--bg-secondary);
+      border-radius: 6px;
+      font-size: 0.85rem;
+    }
+
+    .shape-type {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .shape-icon {
+      width: 20px;
+      height: 20px;
+      border: 2px solid var(--accent);
+      border-radius: 3px;
+    }
+
+    .shape-bounds {
+      color: var(--text-secondary);
+      font-size: 0.75rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>NeoSmartpen → <span>LogSeq</span> Bridge</h1>
+      <div class="status-bar">
+        <div class="status-indicator">
+          <div class="status-dot" id="penStatus"></div>
+          <span id="penStatusText">Disconnected</span>
+        </div>
+        <div class="status-indicator">
+          <div class="status-dot" id="logseqStatus"></div>
+          <span id="logseqStatusText">LogSeq: Unknown</span>
+        </div>
+      </div>
+    </header>
+
+    <div class="main-grid">
+      <!-- Left Panel: Controls -->
+      <div class="panel control-panel">
+        <div class="panel-header">Pen Connection</div>
+        
+        <button class="btn btn-primary" id="btnConnect">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M6.5 6.5L17.5 17.5M17.5 6.5L6.5 17.5M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/>
+          </svg>
+          Connect Pen
+        </button>
+        
+        <button class="btn btn-secondary" id="btnDisconnect" disabled>
+          Disconnect
+        </button>
+
+        <div class="pen-info" id="penInfo" style="display: none;">
+          <div class="pen-info-row">
+            <span class="pen-info-label">Model</span>
+            <span id="penModel">-</span>
+          </div>
+          <div class="pen-info-row">
+            <span class="pen-info-label">Battery</span>
+            <span id="penBattery">-</span>
+          </div>
+          <div class="pen-info-row">
+            <span class="pen-info-label">Memory</span>
+            <span id="penMemory">-</span>
+          </div>
+          <div class="pen-info-row">
+            <span class="pen-info-label">MAC</span>
+            <span id="penMac">-</span>
+          </div>
+        </div>
+
+        <div class="panel-header" style="margin-top: 20px;">Offline Data</div>
+        
+        <button class="btn btn-secondary" id="btnFetchOffline" disabled>
+          📥 Fetch Stored Notes
+        </button>
+        
+        <button class="btn btn-secondary" id="btnClearCanvas">
+          🗑️ Clear Canvas
+        </button>
+
+        <div class="panel-header" style="margin-top: 20px;">MyScript Transcription</div>
+        
+        <div class="settings-group">
+          <label>Application Key</label>
+          <input type="text" id="myscriptAppKey" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+        </div>
+        
+        <div class="settings-group">
+          <label>HMAC Key</label>
+          <input type="password" id="myscriptHmacKey" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+        </div>
+        
+        <button class="btn btn-primary" id="btnTranscribe" disabled>
+          ✍️ Transcribe Selected
+        </button>
+        
+        <div class="panel-header" style="margin-top: 20px;">LogSeq Settings</div>
+        
+        <div class="settings-group">
+          <label>API Host</label>
+          <input type="text" id="logseqHost" value="http://127.0.0.1:12315" placeholder="http://127.0.0.1:12315">
+        </div>
+        
+        <div class="settings-group">
+          <label>API Token (if required)</label>
+          <input type="password" id="logseqToken" placeholder="Optional">
+        </div>
+        
+        <button class="btn btn-secondary" id="btnTestLogseq">
+          🔗 Test Connection
+        </button>
+        
+        <button class="btn btn-success" id="btnSendToLogseq" disabled>
+          📤 Send to LogSeq
+        </button>
+
+        <div class="panel-header" style="margin-top: 20px;">Activity Log</div>
+        <div class="message-log" id="messageLog"></div>
+      </div>
+
+      <!-- Center: Canvas -->
+      <div class="panel canvas-panel">
+        <div class="panel-header">
+          Stroke Preview
+          <span id="strokeCount" style="float: right; color: var(--text-secondary); font-weight: normal;">0 strokes</span>
+        </div>
+        
+        <div class="canvas-container">
+          <canvas id="strokeCanvas"></canvas>
+        </div>
+        
+        <div class="canvas-controls" style="display: flex; gap: 10px; margin-top: 15px; align-items: center;">
+          <div style="display: flex; gap: 5px; align-items: center; background: var(--bg-tertiary); padding: 5px 10px; border-radius: 6px;">
+            <button class="btn btn-secondary" id="btnZoomOut" style="padding: 6px 10px; font-size: 1.1rem;">−</button>
+            <span id="zoomLevel" style="min-width: 50px; text-align: center; font-size: 0.85rem;">100%</span>
+            <button class="btn btn-secondary" id="btnZoomIn" style="padding: 6px 10px; font-size: 1.1rem;">+</button>
+          </div>
+          <button class="btn btn-secondary" id="btnFitContent" style="padding: 8px 12px;">
+            Fit
+          </button>
+          <button class="btn btn-secondary" id="btnResetView" style="padding: 8px 12px;">
+            Reset
+          </button>
+          <span style="color: var(--text-secondary); font-size: 0.75rem; margin-left: 10px;">Scroll to zoom • Shift+drag to pan</span>
+        </div>
+        
+        <div class="page-selector">
+          <label>Page:</label>
+          <select id="pageSelect">
+            <option value="">All Pages</option>
+          </select>
+          <button class="btn btn-secondary" id="btnExportSvg" style="padding: 8px 12px;">
+            Export SVG
+          </button>
+          <button class="btn btn-secondary" id="btnExportJson" style="padding: 8px 12px;">
+            Export JSON
+          </button>
+        </div>
+        
+        <div style="margin-top: 10px; padding: 10px; background: var(--bg-tertiary); border-radius: 8px; font-size: 0.8rem;">
+          <span id="selectionInfo" style="color: var(--text-secondary);">Click strokes to select • Ctrl+click to multi-select • Shift+click for range</span>
+        </div>
+        
+        <div class="shape-preview" id="shapePreview" style="display: none;">
+          <div class="panel-header" style="margin: 0 0 10px 0; padding: 0; border: none;">
+            Detected Shapes
+          </div>
+          <div class="detected-shapes" id="detectedShapes"></div>
+        </div>
+      </div>
+
+      <!-- Right Panel: Data Explorer -->
+      <div class="panel data-panel">
+        <div class="panel-header">Data Explorer</div>
+        
+        <div class="tabs">
+          <button class="tab active" data-tab="strokes">Strokes</button>
+          <button class="tab" data-tab="raw">Raw JSON</button>
+          <button class="tab" data-tab="analysis">Analysis</button>
+          <button class="tab" data-tab="transcription">Transcription</button>
+        </div>
+        
+        <div class="data-content">
+          <div id="tabStrokes" class="tab-content">
+            <div class="stroke-list" id="strokeList">
+              <p style="color: var(--text-secondary); text-align: center; padding: 20px;">
+                Connect pen and write to see strokes
+              </p>
+            </div>
+          </div>
+          
+          <div id="tabRaw" class="tab-content" style="display: none;">
+            <div class="json-viewer" id="jsonViewer">
+              // Connect pen to see data structure
+            </div>
+          </div>
+          
+          <div id="tabAnalysis" class="tab-content" style="display: none;">
+            <div class="json-viewer" id="analysisViewer">
+              // Stroke analysis will appear here
+            </div>
+          </div>
+          
+          <div id="tabTranscription" class="tab-content" style="display: none;">
+            <div id="transcriptionResult" style="padding: 10px;">
+              <p style="color: var(--text-secondary); text-align: center;">
+                Select strokes and click "Transcribe Selected" to convert handwriting to text.
+                <br><br>
+                <a href="https://developer.myscript.com/" target="_blank" style="color: var(--accent);">Get MyScript API keys (free tier: 2,000 requests/month)</a>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

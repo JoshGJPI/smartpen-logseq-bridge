@@ -1,0 +1,23 @@
+{
+  "name": "smartpen-logseq-bridge",
+  "version": "0.1.0",
+  "description": "Bridge app connecting NeoSmartpen to LogSeq via HTTP API",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "web_pen_sdk": "^0.7.8"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0",
+    "buffer": "^6.0.3",
+    "process": "^0.11.10",
+    "stream-browserify": "^3.0.0",
+    "util": "^0.12.5",
+    "browserify-zlib": "^0.2.0",
+    "pako": "^2.1.0"
+  }
+}
