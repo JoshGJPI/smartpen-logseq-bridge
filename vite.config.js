@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
@@ -38,7 +39,10 @@ function nprojPlugin() {
 }
 
 export default defineConfig({
-  plugins: [nprojPlugin()],
+  plugins: [
+    nprojPlugin(),
+    svelte()
+  ],
   server: {
     port: 3000,
     open: true
@@ -52,12 +56,17 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      // Node.js polyfills for browser
       stream: 'stream-browserify',
       buffer: 'buffer',
       util: 'util',
       process: 'process/browser',
       // Point zlib to our custom shim that uses pako
-      zlib: resolve(__dirname, 'src/zlib-shim.js')
+      zlib: resolve(__dirname, 'src/lib/zlib-shim.js'),
+      // Svelte-style aliases
+      '$lib': resolve(__dirname, 'src/lib'),
+      '$stores': resolve(__dirname, 'src/stores'),
+      '$components': resolve(__dirname, 'src/components')
     }
   },
   define: {

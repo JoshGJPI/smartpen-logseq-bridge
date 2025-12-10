@@ -1,6 +1,6 @@
 {
   "name": "smartpen-logseq-bridge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Bridge app connecting NeoSmartpen to LogSeq via HTTP API",
   "type": "module",
   "scripts": {
@@ -12,6 +12,8 @@
     "web_pen_sdk": "^0.7.8"
   },
   "devDependencies": {
+    "svelte": "^4.2.18",
+    "@sveltejs/vite-plugin-svelte": "^3.1.1",
     "vite": "^5.4.0",
     "buffer": "^6.0.3",
     "process": "^0.11.10",
