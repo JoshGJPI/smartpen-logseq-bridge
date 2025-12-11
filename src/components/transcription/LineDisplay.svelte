@@ -5,29 +5,31 @@
   export let line;
   export let index;
   
-  $: indentLevel = line.indent || 0;
+  $: indentLevel = line.indentLevel || 0;
   $: text = line.text || line.content || '';
   $: isCommand = line.isCommand || false;
+  $: hasChildren = line.children && line.children.length > 0;
 </script>
 
 <div 
   class="line-display" 
   class:command={isCommand}
+  class:has-children={hasChildren}
   style="padding-left: {indentLevel * 20 + 8}px"
 >
   <span class="line-number">{index + 1}</span>
   
   {#if indentLevel > 0}
-    <span class="indent-indicator">
-      {'└─'.repeat(1)}
+    <span class="indent-indicator" title="Indent level {indentLevel}">
+      {'  '.repeat(indentLevel)}└─
     </span>
   {/if}
   
   <span class="line-text">{text}</span>
   
-  {#if line.confidence}
-    <span class="confidence" title="Recognition confidence">
-      {Math.round(line.confidence * 100)}%
+  {#if hasChildren}
+    <span class="children-badge" title="{line.children.length} child line(s)">
+      {line.children.length}
     </span>
   {/if}
 </div>
@@ -52,6 +54,10 @@
     border-left: 3px solid var(--warning);
   }
 
+  .line-display.has-children {
+    font-weight: 500;
+  }
+
   .line-number {
     color: var(--text-secondary);
     font-size: 0.7rem;
@@ -70,11 +76,12 @@
     word-break: break-word;
   }
 
-  .confidence {
+  .children-badge {
     font-size: 0.7rem;
-    color: var(--text-secondary);
+    color: var(--accent);
     background: var(--bg-tertiary);
     padding: 2px 6px;
     border-radius: 10px;
+    font-weight: 600;
   }
 </style>

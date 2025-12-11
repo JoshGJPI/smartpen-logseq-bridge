@@ -17,8 +17,6 @@
   } from '$stores';
   import { sendToLogseq } from '$lib/logseq-api.js';
   
-  import LineDisplay from './LineDisplay.svelte';
-  import CommandList from './CommandList.svelte';
   import LogseqPreview from './LogseqPreview.svelte';
   
   let isSending = false;
@@ -109,23 +107,6 @@
           <span class="label">Commands</span>
         </div>
       </section>
-    {/if}
-    
-    <!-- Lines with Hierarchy -->
-    {#if $transcribedLines.length > 0}
-      <section class="section">
-        <h3>Lines with Hierarchy ({$transcribedLines.length})</h3>
-        <div class="lines-list">
-          {#each $transcribedLines as line, i (i)}
-            <LineDisplay {line} index={i} />
-          {/each}
-        </div>
-      </section>
-    {/if}
-    
-    <!-- Detected Commands -->
-    {#if $detectedCommands.length > 0}
-      <CommandList commands={$detectedCommands} />
     {/if}
     
     <!-- LogSeq Preview -->
@@ -242,14 +223,6 @@
     font-size: 0.7rem;
     color: var(--text-secondary);
     text-transform: uppercase;
-  }
-
-  .lines-list {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    max-height: 200px;
-    overflow-y: auto;
   }
 
   .metrics-details {

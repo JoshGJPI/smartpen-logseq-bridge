@@ -11,8 +11,8 @@
     if (!lines || lines.length === 0) return '';
     
     return lines.map(line => {
-      const indent = line.indent || 0;
-      const prefix = '\t'.repeat(indent) + '- ';
+      const indent = line.indentLevel || 0;
+      const prefix = '  '.repeat(indent) + '- ';
       let text = line.text || line.content || '';
       
       // Add TODO prefix if detected

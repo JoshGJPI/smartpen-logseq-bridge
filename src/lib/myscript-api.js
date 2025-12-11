@@ -40,6 +40,7 @@ function convertStrokesToMyScript(strokes) {
   let minY = Infinity, maxY = -Infinity;
   
   strokes.forEach(stroke => {
+    if (!stroke.dotArray || stroke.dotArray.length === 0) return;
     stroke.dotArray.forEach(dot => {
       if (dot.x < minX) minX = dot.x;
       if (dot.x > maxX) maxX = dot.x;
@@ -58,26 +59,33 @@ function convertStrokesToMyScript(strokes) {
   
   const padding = 10; // pixels
   
-  // Convert strokes
-  const strokeGroups = strokes.map(stroke => {
-    const x = [];
-    const y = [];
-    const t = [];
-    const p = [];
-    
-    stroke.dotArray.forEach(dot => {
-      // Convert Ncode coordinates to pixels with padding
-      const pixelX = (dot.x - minX) * NCODE_TO_PIXELS + padding;
-      const pixelY = (dot.y - minY) * NCODE_TO_PIXELS + padding;
+  // Convert strokes - filter out empty strokes
+  const msStrokes = strokes
+    .filter(stroke => stroke.dotArray && stroke.dotArray.length > 0)
+    .map(stroke => {
+      const x = [];
+      const y = [];
+      const t = [];
+      const p = [];
       
-      x.push(pixelX);
-      y.push(pixelY);
-      t.push(dot.timestamp || Date.now());
-      p.push((dot.f || 500) / 1000); // Normalize pressure 0-1
+      stroke.dotArray.forEach(dot => {
+        // Convert Ncode coordinates to pixels with padding
+        const pixelX = (dot.x - minX) * NCODE_TO_PIXELS + padding;
+        const pixelY = (dot.y - minY) * NCODE_TO_PIXELS + padding;
+        
+        x.push(pixelX);
+        y.push(pixelY);
+        t.push(dot.timestamp || Date.now());
+        p.push((dot.f || 500) / 1000); // Normalize pressure 0-1
+      });
+      
+      return { x, y, t, p };
     });
-    
-    return { x, y, t, p };
-  });
+  
+  // MyScript expects strokeGroups with strokes inside
+  const strokeGroups = [{
+    strokes: msStrokes
+  }];
   
   const width = (maxX - minX) * NCODE_TO_PIXELS + padding * 2;
   const height = (maxY - minY) * NCODE_TO_PIXELS + padding * 2;
@@ -123,61 +131,118 @@ function buildRequest(strokes, options = {}) {
  * Parse MyScript response and extract structured data
  */
 function parseMyScriptResponse(response) {
+  console.log('MyScript response:', response);
+  
   // MyScript returns the text with \n line breaks - TRUST THIS!
   const text = response.label || '';
   const words = response.words || [];
   
+  console.log('Text:', text);
+  console.log('Words count:', words.length);
+  
   // Split by MyScript's line breaks
-  const labelLines = text.split('\n');
+  const labelLines = text.split('\n').filter(l => l.trim());
+  console.log('Label lines:', labelLines);
   
   // Build lines with word data
   const lines = [];
-  let wordIndex = 0;
   
+  // Try to match words to lines based on Y position (baseline)
   labelLines.forEach((lineText, lineIdx) => {
-    if (!lineText.trim()) return;
-    
+    // Find words that match this line's text
     const lineWords = [];
-    const wordsInLine = lineText.split(/\s+/).filter(w => w.length > 0);
+    const lineTextWords = lineText.split(/\s+/).filter(w => w.length > 0);
     
-    // Match words to this line
-    for (let i = 0; i < wordsInLine.length && wordIndex < words.length; i++) {
-      const word = words[wordIndex];
-      if (word && word.label && word.label.trim()) {
-        lineWords.push(word);
-        wordIndex++;
+    // Try to find matching words in the words array
+    let searchStart = 0;
+    for (const textWord of lineTextWords) {
+      for (let i = searchStart; i < words.length; i++) {
+        const word = words[i];
+        if (word && word.label && word.label.toLowerCase() === textWord.toLowerCase()) {
+          lineWords.push(word);
+          searchStart = i + 1;
+          break;
+        }
       }
     }
     
+    // Calculate line position
+    let lineX = 0;
+    let lineY = lineIdx * 20;
+    
     if (lineWords.length > 0) {
-      // Calculate line position from leftmost word
+      // Use actual word positions
       const leftmostWord = lineWords.reduce((left, word) => 
         !left || word['bounding-box'].x < left['bounding-box'].x ? word : left
       , null);
       
-      lines.push({
-        text: lineText,
-        words: lineWords,
-        x: leftmostWord ? leftmostWord['bounding-box'].x : 0,
-        baseline: leftmostWord ? leftmostWord['bounding-box'].y : lineIdx * 20
-      });
+      lineX = leftmostWord['bounding-box'].x;
+      lineY = leftmostWord['bounding-box'].y;
+    } else if (words.length > 0) {
+      // Estimate position based on line index
+      lineX = Math.min(...words.map(w => w['bounding-box'].x));
+      lineY = lineIdx * 20;
     }
+    
+    lines.push({
+      text: lineText,
+      words: lineWords,
+      x: lineX,
+      baseline: lineY
+    });
   });
+  
+  console.log('Parsed lines:', lines);
   
   // Calculate indentation
   if (lines.length > 0) {
-    const baseX = Math.min(...lines.map(l => l.x));
+    // Get all unique X positions and sort them
+    const xPositions = [...new Set(lines.map(l => l.x))].sort((a, b) => a - b);
+    const baseX = xPositions[0];
+    
+    // Calculate indent unit from word heights
     const wordHeights = words
       .filter(w => w['bounding-box'])
       .map(w => w['bounding-box'].height);
     const medianHeight = wordHeights.length > 0 
       ? wordHeights.sort((a, b) => a - b)[Math.floor(wordHeights.length / 2)]
       : 20;
-    const indentUnit = medianHeight * 1.5;
+    const indentUnit = medianHeight * 0.75; // More sensitive to smaller indents
+    
+    console.log('Base X:', baseX, 'Indent unit:', indentUnit);
+    console.log('X positions:', xPositions);
+    
+    // Cluster X positions into indent levels
+    // Group positions that are within indentUnit/2 of each other
+    const indentLevels = [];
+    xPositions.forEach(x => {
+      const indentPixels = x - baseX;
+      const level = Math.round(indentPixels / indentUnit);
+      
+      // Find or create indent level
+      let existingLevel = indentLevels.find(l => Math.abs(l.level - level) < 0.5);
+      if (!existingLevel) {
+        existingLevel = { level, xPositions: [] };
+        indentLevels.push(existingLevel);
+      }
+      existingLevel.xPositions.push(x);
+    });
+    
+    // Sort by level and calculate average X for each level
+    indentLevels.sort((a, b) => a.level - b.level);
+    const levelMap = new Map();
+    indentLevels.forEach((levelData, idx) => {
+      levelData.xPositions.forEach(x => {
+        levelMap.set(x, idx);
+      });
+    });
+    
+    console.log('Indent levels:', indentLevels);
+    console.log('Level map:', levelMap);
     
     lines.forEach(line => {
-      const indentPixels = line.x - baseX;
-      line.indentLevel = Math.round(indentPixels / indentUnit);
+      line.indentLevel = levelMap.get(line.x) || 0;
+      console.log(`Line "${line.text}" - X: ${line.x}, Level: ${line.indentLevel}`);
     });
     
     // Build hierarchy
@@ -229,6 +294,9 @@ function parseMyScriptResponse(response) {
       });
     }
   });
+  
+  console.log('Final lines:', lines);
+  console.log('Commands:', commands);
   
   return {
     text,

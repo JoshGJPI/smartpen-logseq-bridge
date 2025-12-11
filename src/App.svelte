@@ -79,7 +79,7 @@
 
   .main-grid {
     display: grid;
-    grid-template-columns: 380px 1fr;
+    grid-template-columns: 450px 1fr;
     gap: 20px;
     flex: 1;
     min-height: 0;
@@ -95,7 +95,7 @@
   /* Responsive adjustments */
   @media (max-width: 1400px) {
     .main-grid {
-      grid-template-columns: 320px 1fr;
+      grid-template-columns: 380px 1fr;
     }
   }
 
