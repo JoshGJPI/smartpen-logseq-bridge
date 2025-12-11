@@ -2,10 +2,15 @@
   Header.svelte - Application header with status indicators, action buttons, and settings
 -->
 <script>
-  import { penConnected, penAuthorized, penBattery } from '$stores';
+  import { penConnected, penAuthorized, penBattery, penInfo, penMemory } from '$stores';
   import { logseqConnected, logseqStatusText } from '$stores';
   import ActionBar from '../header/ActionBar.svelte';
   import SettingsDropdown from '../header/SettingsDropdown.svelte';
+  
+  // Extract pen model name
+  $: penModel = $penInfo?.ModelName || $penInfo?.DeviceName || 'Pen';
+  $: batteryPercent = $penBattery ? $penBattery.replace('%', '') : '0';
+  $: memoryPercent = $penMemory ? $penMemory.replace('%', '') : '0';
 </script>
 
 <header class="header">
@@ -22,7 +27,23 @@
         ></div>
         <span class="status-text">
           {#if $penConnected && $penAuthorized}
-            Connected {$penBattery ? `(${$penBattery})` : ''}
+            Connected - {penModel}
+            {#if $penBattery || $penMemory}
+              <span class="pen-details">
+                ({#if $penBattery}<span class="detail-item" class:low-battery={parseInt(batteryPercent) < 20}>
+                  {batteryPercent}%
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon battery-icon">
+                    <rect x="2" y="6" width="18" height="12" rx="2" ry="2"/>
+                    <line x1="22" y1="10" x2="22" y2="14"/>
+                  </svg>
+                </span>{/if}{#if $penMemory}<span class="detail-item">
+                  {memoryPercent}%
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon memory-icon">
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                  </svg>
+                </span>{/if})
+              </span>
+            {/if}
           {:else if $penConnected}
             Authorizing...
           {:else}
@@ -119,6 +140,32 @@
 
   .status-text {
     color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .pen-details {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: 4px;
+  }
+
+  .detail-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 0.85rem;
+  }
+
+  .detail-item.low-battery {
+    color: var(--warning);
+  }
+
+  .icon {
+    flex-shrink: 0;
+    opacity: 0.7;
   }
 
   /* Responsive adjustments */

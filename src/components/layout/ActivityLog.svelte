@@ -38,7 +38,7 @@
     overflow-y: auto;
     font-size: 0.75rem;
     font-family: 'Consolas', 'Monaco', monospace;
-    max-height: 150px;
+    min-height: 200px;
   }
 
   .log-entry {

@@ -7,8 +7,7 @@
   
   // Layout components
   import Header from './components/layout/Header.svelte';
-  import Sidebar from './components/layout/Sidebar.svelte';
-  import TabContainer from './components/layout/TabContainer.svelte';
+  import LeftPanel from './components/layout/LeftPanel.svelte';
   
   // Canvas components
   import StrokeCanvas from './components/canvas/StrokeCanvas.svelte';
@@ -30,16 +29,13 @@
   <Header />
   
   <main class="main-grid">
-    <!-- Left Panel: Controls -->
-    <Sidebar />
+    <!-- Left Panel: Data Explorer & Activity Log -->
+    <LeftPanel />
     
-    <!-- Center: Canvas & Controls -->
+    <!-- Right: Canvas -->
     <div class="canvas-section">
       <StrokeCanvas />
     </div>
-    
-    <!-- Right Panel: Data Explorer -->
-    <TabContainer />
   </main>
 </div>
 
@@ -83,7 +79,7 @@
 
   .main-grid {
     display: grid;
-    grid-template-columns: 320px 1fr 380px;
+    grid-template-columns: 380px 1fr;
     gap: 20px;
     flex: 1;
     min-height: 0;
@@ -99,14 +95,14 @@
   /* Responsive adjustments */
   @media (max-width: 1400px) {
     .main-grid {
-      grid-template-columns: 280px 1fr 320px;
+      grid-template-columns: 320px 1fr;
     }
   }
 
-  @media (max-width: 1200px) {
+  @media (max-width: 1000px) {
     .main-grid {
       grid-template-columns: 1fr;
-      grid-template-rows: auto 1fr auto;
+      grid-template-rows: auto 1fr;
     }
   }
 
