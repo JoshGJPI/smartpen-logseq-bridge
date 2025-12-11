@@ -93,23 +93,56 @@ export function clearSelection() {
 }
 
 /**
+ * Set selection from box selection
+ * @param {number[]} indices - Array of stroke indices to select
+ * @param {string} mode - Selection mode: 'replace', 'add', or 'toggle'
+ */
+export function selectFromBox(indices, mode = 'replace') {
+  selectedIndices.update(sel => {
+    let newSel;
+    
+    if (mode === 'replace') {
+      // Replace selection with new indices
+      newSel = new Set(indices);
+    } else if (mode === 'add') {
+      // Add to existing selection
+      newSel = new Set(sel);
+      indices.forEach(i => newSel.add(i));
+    } else if (mode === 'toggle') {
+      // Toggle each index (add if not present, remove if present)
+      newSel = new Set(sel);
+      indices.forEach(i => {
+        if (newSel.has(i)) {
+          newSel.delete(i);
+        } else {
+          newSel.add(i);
+        }
+      });
+    } else {
+      // Default to replace if invalid mode
+      newSel = new Set(indices);
+    }
+    
+    return newSel;
+  });
+  
+  if (indices.length > 0) {
+    lastSelectedIndex.set(indices[indices.length - 1]);
+  }
+}
+
+/**
  * Handle stroke click with modifier keys
  * @param {number} index - Clicked stroke index
  * @param {boolean} ctrlKey - Whether Ctrl/Cmd was held
  * @param {boolean} shiftKey - Whether Shift was held
  */
 export function handleStrokeClick(index, ctrlKey, shiftKey) {
-  let lastIndex;
-  lastSelectedIndex.subscribe(v => lastIndex = v)();
-  
-  if (shiftKey && lastIndex !== null) {
-    // Range selection
-    selectRange(lastIndex, index, ctrlKey);
-  } else if (ctrlKey) {
-    // Toggle selection
+  if (shiftKey || ctrlKey) {
+    // Both Shift and Ctrl toggle individual stroke selection
     selectStroke(index, true);
   } else {
-    // Single selection
+    // Plain click = single selection
     selectStroke(index, false);
   }
   

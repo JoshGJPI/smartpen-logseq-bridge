@@ -4,7 +4,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { strokes, strokeCount, pages, clearStrokes } from '$stores';
-  import { selectedIndices, handleStrokeClick, clearSelection, selectAll, selectionCount } from '$stores';
+  import { selectedIndices, handleStrokeClick, clearSelection, selectAll, selectionCount, selectFromBox } from '$stores';
   import { canvasZoom, setCanvasZoom, log } from '$stores';
   import CanvasControls from './CanvasControls.svelte';
   import SelectionInfo from '../strokes/SelectionInfo.svelte';
@@ -31,6 +31,16 @@
   let panStartY = 0;
   let didPan = false; // Track if we actually panned (to distinguish from click)
   
+  // Box selection state
+  let isBoxSelecting = false;
+  let boxSelectPending = false; // Waiting to see if drag exceeds threshold
+  let didBoxSelect = false; // Track if we completed a box selection (to prevent click handler)
+  let boxStartX = 0;
+  let boxStartY = 0;
+  let boxCurrentX = 0;
+  let boxCurrentY = 0;
+  let dragThreshold = 5; // pixels before activating box selection
+  
   // Import renderer dynamically to avoid SSR issues
   onMount(async () => {
     const { CanvasRenderer } = await import('$lib/canvas-renderer.js');
@@ -48,8 +58,34 @@
     });
     resizeObserver.observe(containerElement);
     
+    // Keyboard shortcuts
+    const handleKeyDown = (e) => {
+      // Escape - cancel box selection
+      if (e.key === 'Escape' && (isBoxSelecting || boxSelectPending)) {
+        isBoxSelecting = false;
+        boxSelectPending = false;
+        didBoxSelect = false;
+        boxStartX = 0;
+        boxStartY = 0;
+        boxCurrentX = 0;
+        boxCurrentY = 0;
+        if (canvasElement) {
+          canvasElement.style.cursor = 'default';
+        }
+      }
+      
+      // Ctrl/Cmd+A - select all visible strokes
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a' && filteredStrokes.length > 0) {
+        e.preventDefault();
+        selectAll(filteredStrokes.length);
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    
     return () => {
       resizeObserver.disconnect();
+      window.removeEventListener('keydown', handleKeyDown);
     };
   });
   
@@ -106,18 +142,45 @@
   
   // Mouse down - start potential pan or selection
   function handleMouseDown(event) {
-    // Middle mouse button or left + space for panning
-    if (event.button === 1 || (event.button === 0 && event.shiftKey)) {
+    // Middle mouse button or Alt+left for panning
+    if (event.button === 1 || (event.button === 0 && event.altKey)) {
       event.preventDefault();
       isPanning = true;
       didPan = false;
       panStartX = event.clientX;
       panStartY = event.clientY;
       canvasElement.style.cursor = 'grabbing';
+      return;
+    }
+    
+    // Left button - start potential box selection or direct stroke selection
+    if (event.button === 0) {
+      event.preventDefault();
+      const rect = canvasElement.getBoundingClientRect();
+      boxStartX = event.clientX - rect.left;
+      boxStartY = event.clientY - rect.top;
+      boxCurrentX = boxStartX;
+      boxCurrentY = boxStartY;
+      
+      // Check if clicking directly on a stroke for Ctrl+click toggle
+      if (renderer && (event.ctrlKey || event.metaKey)) {
+        const strokeIndex = renderer.hitTest(boxStartX, boxStartY, filteredStrokes);
+        if (strokeIndex !== -1) {
+          // Ctrl+click on stroke - toggle it immediately
+          handleStrokeClick(strokeIndex, true, false);
+          boxStartX = 0;
+          boxStartY = 0;
+          return;
+        }
+      }
+      
+      // Otherwise, prepare for potential box selection
+      boxSelectPending = true;
+      isBoxSelecting = false;
     }
   }
   
-  // Mouse move - pan if dragging
+  // Mouse move - pan or update box selection
   function handleMouseMove(event) {
     if (isPanning && renderer) {
       const deltaX = event.clientX - panStartX;
@@ -130,29 +193,102 @@
         panStartX = event.clientX;
         panStartY = event.clientY;
       }
+      return;
+    }
+    
+    // Update box selection if we're in selection mode or pending
+    if (boxSelectPending || isBoxSelecting) {
+      const rect = canvasElement.getBoundingClientRect();
+      boxCurrentX = event.clientX - rect.left;
+      boxCurrentY = event.clientY - rect.top;
+      
+      const dx = boxCurrentX - boxStartX;
+      const dy = boxCurrentY - boxStartY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      
+      // Activate box selection once drag exceeds threshold
+      if (boxSelectPending && distance > dragThreshold) {
+        isBoxSelecting = true;
+        boxSelectPending = false;
+        canvasElement.style.cursor = 'crosshair';
+      }
     }
   }
   
-  // Mouse up - end pan
+  // Mouse up - end pan or complete box selection
   function handleMouseUp(event) {
     if (isPanning) {
       isPanning = false;
       canvasElement.style.cursor = 'default';
+      return;
+    }
+    
+    if (isBoxSelecting && renderer) {
+      // Complete box selection
+      const rect = {
+        left: Math.min(boxStartX, boxCurrentX),
+        top: Math.min(boxStartY, boxCurrentY),
+        right: Math.max(boxStartX, boxCurrentX),
+        bottom: Math.max(boxStartY, boxCurrentY)
+      };
+      
+      const intersectingIndices = renderer.findStrokesInRect(filteredStrokes, rect);
+      
+      if (intersectingIndices.length > 0) {
+        // Ctrl = add to selection, Shift = toggle, neither = replace selection
+        const mode = (event.ctrlKey || event.metaKey) ? 'add' : event.shiftKey ? 'toggle' : 'replace';
+        selectFromBox(intersectingIndices, mode);
+        didBoxSelect = true; // Mark that we completed a box selection
+      } else if (!event.ctrlKey && !event.metaKey && !event.shiftKey) {
+        // Empty box with no modifiers - clear selection
+        clearSelection();
+        didBoxSelect = true;
+      }
+      
+      // Reset box selection state
+      isBoxSelecting = false;
+      boxSelectPending = false;
+      boxStartX = 0;
+      boxStartY = 0;
+      boxCurrentX = 0;
+      boxCurrentY = 0;
+      canvasElement.style.cursor = 'default';
+      return;
+    }
+    
+    // If we had a pending selection but didn't drag enough, treat as click
+    if (boxSelectPending) {
+      boxSelectPending = false;
+      boxStartX = 0;
+      boxStartY = 0;
+      // Let the click handler deal with it
     }
   }
   
-  // Mouse leave - cancel pan
+  // Mouse leave - cancel pan or box selection
   function handleMouseLeave(event) {
     if (isPanning) {
       isPanning = false;
       canvasElement.style.cursor = 'default';
     }
+    
+    if (isBoxSelecting || boxSelectPending) {
+      isBoxSelecting = false;
+      boxSelectPending = false;
+      didBoxSelect = false;
+      boxStartX = 0;
+      boxStartY = 0;
+      boxCurrentX = 0;
+      boxCurrentY = 0;
+      canvasElement.style.cursor = 'default';
+    }
   }
   
-  // Canvas click - select stroke (only if we didn't pan)
+  // Canvas click - select stroke (only if we didn't pan or box select)
   function handleCanvasClick(event) {
-    if (didPan) {
+    if (didPan || didBoxSelect) {
       didPan = false;
+      didBoxSelect = false;
       return;
     }
     
@@ -254,7 +390,20 @@
       on:click={handleCanvasClick}
       on:wheel={handleWheel}
     ></canvas>
-    <div class="pan-hint">Shift+drag or middle-click to pan • Scroll to pan • Ctrl+scroll to zoom</div>
+    
+    {#if isBoxSelecting}
+      <div 
+        class="selection-box"
+        style="
+          left: {Math.min(boxStartX, boxCurrentX)}px;
+          top: {Math.min(boxStartY, boxCurrentY)}px;
+          width: {Math.abs(boxCurrentX - boxStartX)}px;
+          height: {Math.abs(boxCurrentY - boxStartY)}px;
+        "
+      ></div>
+    {/if}
+    
+    <div class="pan-hint">Drag to select • Ctrl/Shift to add/toggle • Alt+drag to pan • Ctrl+scroll to zoom</div>
   </div>
   
   <CanvasControls 
@@ -316,6 +465,14 @@
     width: 100%;
     height: 100%;
     cursor: default;
+  }
+  
+  .selection-box {
+    position: absolute;
+    border: 2px dashed var(--accent);
+    background: rgba(233, 69, 96, 0.1);
+    pointer-events: none;
+    z-index: 10;
   }
   
   .pan-hint {

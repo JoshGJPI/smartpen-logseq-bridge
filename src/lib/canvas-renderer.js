@@ -346,6 +346,64 @@ export class CanvasRenderer {
   }
   
   /**
+   * Get bounding box for a stroke in screen coordinates
+   * @param {Object} stroke - Stroke object
+   * @returns {Object} Bounds object with left, top, right, bottom
+   */
+  getStrokeBounds(stroke) {
+    const dots = stroke.dotArray || stroke.dots || [];
+    if (dots.length === 0) {
+      return { left: 0, top: 0, right: 0, bottom: 0 };
+    }
+    
+    let minX = Infinity, minY = Infinity;
+    let maxX = -Infinity, maxY = -Infinity;
+    
+    dots.forEach(dot => {
+      const screen = this.ncodeToScreen(dot);
+      minX = Math.min(minX, screen.x);
+      minY = Math.min(minY, screen.y);
+      maxX = Math.max(maxX, screen.x);
+      maxY = Math.max(maxY, screen.y);
+    });
+    
+    return { 
+      left: minX, 
+      top: minY, 
+      right: maxX, 
+      bottom: maxY 
+    };
+  }
+  
+  /**
+   * Check if stroke bounding box intersects with rectangle
+   * @param {Object} stroke - Stroke object
+   * @param {Object} rect - Rectangle with left, top, right, bottom
+   * @returns {boolean} True if intersects
+   */
+  strokeIntersectsBox(stroke, rect) {
+    const bounds = this.getStrokeBounds(stroke);
+    
+    return !(bounds.right < rect.left || 
+             bounds.left > rect.right ||
+             bounds.bottom < rect.top ||
+             bounds.top > rect.bottom);
+  }
+  
+  /**
+   * Find all stroke indices that intersect with a rectangle
+   * @param {Array} strokes - Array of stroke objects
+   * @param {Object} rect - Rectangle with left, top, right, bottom
+   * @returns {number[]} Array of intersecting stroke indices
+   */
+  findStrokesInRect(strokes, rect) {
+    return strokes
+      .map((stroke, index) => ({ stroke, index }))
+      .filter(({ stroke }) => this.strokeIntersectsBox(stroke, rect))
+      .map(({ index }) => index);
+  }
+  
+  /**
    * Hit test to find stroke at coordinates
    * @param {number} x - Screen X coordinate
    * @param {number} y - Screen Y coordinate

@@ -26,7 +26,8 @@ export {
   selectRange,
   selectAll,
   clearSelection,
-  handleStrokeClick
+  handleStrokeClick,
+  selectFromBox
 } from './selection.js';
 
 // Pen
