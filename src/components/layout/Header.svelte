@@ -1,41 +1,50 @@
 <!--
-  Header.svelte - Application header with status indicators
+  Header.svelte - Application header with status indicators, action buttons, and settings
 -->
 <script>
   import { penConnected, penAuthorized, penBattery } from '$stores';
   import { logseqConnected, logseqStatusText } from '$stores';
+  import ActionBar from '../header/ActionBar.svelte';
+  import SettingsDropdown from '../header/SettingsDropdown.svelte';
 </script>
 
 <header class="header">
-  <h1 class="title">NeoSmartpen → <span class="accent">LogSeq</span> Bridge</h1>
-  
-  <div class="status-bar">
-    <!-- Pen Status -->
-    <div class="status-indicator">
-      <div 
-        class="status-dot" 
-        class:connected={$penConnected && $penAuthorized}
-        class:connecting={$penConnected && !$penAuthorized}
-      ></div>
-      <span class="status-text">
-        {#if $penConnected && $penAuthorized}
-          Connected {$penBattery ? `(${$penBattery})` : ''}
-        {:else if $penConnected}
-          Authorizing...
-        {:else}
-          Disconnected
-        {/if}
-      </span>
-    </div>
+  <div class="header-left">
+    <h1 class="title">NeoSmartpen → <span class="accent">LogSeq</span> Bridge</h1>
     
-    <!-- LogSeq Status -->
-    <div class="status-indicator">
-      <div 
-        class="status-dot"
-        class:connected={$logseqConnected}
-      ></div>
-      <span class="status-text">{$logseqStatusText}</span>
+    <div class="status-bar">
+      <!-- Pen Status -->
+      <div class="status-indicator">
+        <div 
+          class="status-dot" 
+          class:connected={$penConnected && $penAuthorized}
+          class:connecting={$penConnected && !$penAuthorized}
+        ></div>
+        <span class="status-text">
+          {#if $penConnected && $penAuthorized}
+            Connected {$penBattery ? `(${$penBattery})` : ''}
+          {:else if $penConnected}
+            Authorizing...
+          {:else}
+            Disconnected
+          {/if}
+        </span>
+      </div>
+      
+      <!-- LogSeq Status -->
+      <div class="status-indicator">
+        <div 
+          class="status-dot"
+          class:connected={$logseqConnected}
+        ></div>
+        <span class="status-text">{$logseqStatusText}</span>
+      </div>
     </div>
+  </div>
+  
+  <div class="header-right">
+    <ActionBar />
+    <SettingsDropdown />
   </div>
 </header>
 
@@ -47,6 +56,20 @@
     padding: 20px 0;
     border-bottom: 1px solid var(--border);
     margin-bottom: 20px;
+    gap: 20px;
+  }
+
+  .header-left {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex: 1;
+  }
+
+  .header-right {
+    display: flex;
+    gap: 12px;
+    align-items: center;
   }
 
   .title {
@@ -96,5 +119,31 @@
 
   .status-text {
     color: var(--text-secondary);
+  }
+
+  /* Responsive adjustments */
+  @media (max-width: 1400px) {
+    .header {
+      flex-wrap: wrap;
+    }
+    
+    .header-left {
+      flex: 0 0 100%;
+    }
+    
+    .header-right {
+      flex: 1;
+      justify-content: flex-end;
+    }
+  }
+
+  @media (max-width: 1200px) {
+    .title {
+      font-size: 1.3rem;
+    }
+    
+    .status-bar {
+      gap: 15px;
+    }
   }
 </style>

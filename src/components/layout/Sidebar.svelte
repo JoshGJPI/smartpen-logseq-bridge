@@ -1,35 +1,20 @@
 <!--
-  Sidebar.svelte - Left panel with controls and settings
+  Sidebar.svelte - Simplified left panel with pen info and activity log
 -->
 <script>
-  import PenControls from '../pen/PenControls.svelte';
   import PenInfo from '../pen/PenInfo.svelte';
-  import MyScriptSettings from '../settings/MyScriptSettings.svelte';
-  import LogseqSettings from '../settings/LogseqSettings.svelte';
   import ActivityLog from './ActivityLog.svelte';
   
   import { penConnected } from '$stores';
 </script>
 
 <aside class="sidebar panel">
-  <section class="control-section">
-    <div class="panel-header">Pen Connection</div>
-    <PenControls />
-    
-    {#if $penConnected}
+  {#if $penConnected}
+    <section class="control-section">
+      <div class="panel-header">Pen Information</div>
       <PenInfo />
-    {/if}
-  </section>
-  
-  <section class="control-section">
-    <div class="panel-header">MyScript Transcription</div>
-    <MyScriptSettings />
-  </section>
-  
-  <section class="control-section">
-    <div class="panel-header">LogSeq Settings</div>
-    <LogseqSettings />
-  </section>
+    </section>
+  {/if}
   
   <section class="control-section log-section">
     <div class="panel-header">Activity Log</div>
@@ -60,7 +45,7 @@
 
   .log-section {
     flex: 1;
-    min-height: 150px;
+    min-height: 200px;
     display: flex;
     flex-direction: column;
   }

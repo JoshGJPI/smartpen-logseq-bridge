@@ -10,12 +10,43 @@
     detectedCommands,
     transcriptionSummary,
     lineMetrics,
-    isTranscribing
+    isTranscribing,
+    logseqConnected,
+    log,
+    getLogseqSettings
   } from '$stores';
+  import { sendToLogseq } from '$lib/logseq-api.js';
   
   import LineDisplay from './LineDisplay.svelte';
   import CommandList from './CommandList.svelte';
   import LogseqPreview from './LogseqPreview.svelte';
+  
+  let isSending = false;
+  
+  async function handleSendToLogseq() {
+    if (!$hasTranscription) {
+      log('No transcription to send. Transcribe strokes first.', 'warning');
+      return;
+    }
+    
+    isSending = true;
+    log('Sending transcription to LogSeq...', 'info');
+    
+    try {
+      const { host, token } = getLogseqSettings();
+      const result = await sendToLogseq($transcribedLines, host, token);
+      
+      if (result.success) {
+        log(`Sent ${result.blockCount} blocks to LogSeq`, 'success');
+      } else {
+        log(`Failed to send to LogSeq: ${result.error}`, 'error');
+      }
+    } catch (error) {
+      log(`Send error: ${error.message}`, 'error');
+    } finally {
+      isSending = false;
+    }
+  }
 </script>
 
 <div class="transcription-view">
@@ -34,6 +65,24 @@
       </p>
     </div>
   {:else}
+    <!-- Send to LogSeq Button -->
+    <div class="send-section">
+      <button 
+        class="btn btn-success send-btn"
+        on:click={handleSendToLogseq}
+        disabled={isSending || !$logseqConnected}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19"/>
+          <polyline points="19 12 12 19 5 12"/>
+        </svg>
+        {isSending ? 'Sending...' : 'Send to LogSeq'}
+      </button>
+      {#if !$logseqConnected}
+        <p class="hint">Configure LogSeq connection in Settings</p>
+      {/if}
+    </div>
+    
     <!-- Transcribed Text -->
     <section class="section">
       <h3>Transcribed Text</h3>
@@ -222,5 +271,45 @@
     display: flex;
     flex-direction: column;
     gap: 5px;
+  }
+
+  .send-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .send-btn {
+    width: 100%;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: var(--success);
+    color: var(--bg-primary);
+  }
+
+  .send-btn:hover:not(:disabled) {
+    background: #22c55e;
+    transform: translateY(-1px);
+  }
+
+  .send-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .send-section .hint {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    text-align: center;
   }
 </style>
