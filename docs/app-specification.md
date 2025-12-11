@@ -564,10 +564,6 @@ Commands embedded in handwritten notes will control how content is routed and pr
 [page: Meeting Notes]
   - Discussed Q1 roadmap
   - Action items below
-
-[project: Website Redesign]
-  [todo: Review mockups]
-  [deadline: 2024-12-15]
 ```
 
 ### Planned Commands
@@ -575,13 +571,7 @@ Commands embedded in handwritten notes will control how content is routed and pr
 | Command | Syntax | Effect |
 |---------|--------|--------|
 | `page` | `[page: Page Name]` | Route this line and children to specified page |
-| `project` | `[project: Name]` | Add `[[Project/Name]]` reference |
-| `todo` | `[todo: Task]` | Prefix with `TODO ` |
-| `done` | `[done: Task]` | Prefix with `DONE ` |
-| `deadline` | `[deadline: YYYY-MM-DD]` | Add `DEADLINE: <date>` property |
-| `scheduled` | `[scheduled: YYYY-MM-DD]` | Add `SCHEDULED: <date>` property |
-| `tag` | `[tag: TagName]` | Add `#TagName` to line |
-| `ref` | `[ref: Page Name]` | Add `[[Page Name]]` reference |
+| `sketch` | `[sketch:]` | Render strokes enclosed in this box as an image rather than transcribing them |
 
 ### Command Scope
 
