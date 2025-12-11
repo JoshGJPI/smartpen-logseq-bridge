@@ -8,6 +8,7 @@ A bridge application for syncing handwritten notes from NeoSmartpen (Lamy Safari
 - **Bluetooth Connection**: Connect to your Lamy smartpen via Web Bluetooth API
 - **Real-time Preview**: See strokes as you write on the canvas
 - **Offline Sync**: Download stored notes from the pen's memory
+- **Box Selection**: Drag to select multiple strokes with multiple modes
 - **Shape Detection**: Automatically detect rectangles/boxes drawn around content
 - **SVG Export**: Export drawings as scalable vector graphics
 - **JSON Export**: Export stroke data for analysis or backup
@@ -48,7 +49,7 @@ npm install
 npm run dev
 ```
 
-This opens the app at `http://localhost:3000`
+This opens the app at `http://localhost:5173`
 
 ### 3. Configure MyScript API
 
@@ -75,18 +76,67 @@ This opens the app at `http://localhost:3000`
 
 ## Usage
 
+### Canvas Controls & Selection
+
+The canvas provides intuitive ways to select and interact with your strokes:
+
+#### Box Selection (Drag to Select)
+
+**Plain drag** - Click and drag to create a selection rectangle
+- All strokes intersecting the box are selected
+- Previous selection is cleared
+- Perfect for selecting a region of strokes
+
+**Ctrl+drag** - Add to existing selection
+- Hold `Ctrl` (or `Cmd` on Mac) while dragging
+- New strokes are added without clearing previous selection
+- Great for building complex selections across multiple areas
+
+**Shift+drag** - Toggle strokes in selection box
+- Hold `Shift` while dragging
+- Selected strokes become unselected, unselected become selected
+- Useful for refining selections
+
+#### Individual Stroke Selection
+
+- **Click** - Select single stroke (clears all others)
+- **Ctrl+click** or **Shift+click** - Toggle individual stroke
+  - Adds stroke if not selected
+  - Removes stroke if already selected
+  - Other selections remain unchanged
+
+#### Canvas Navigation
+
+- **Alt+drag** - Pan the canvas
+- **Middle-click drag** - Pan the canvas (alternative)
+- **Scroll** - Pan vertically/horizontally
+- **Ctrl+scroll** - Zoom in/out
+- **Fit button** - Auto-fit all strokes in view
+
+#### Keyboard Shortcuts
+
+- **Ctrl+A** or **Cmd+A** - Select all visible strokes
+- **Escape** - Cancel active box selection
+- **Click empty space** - Clear all selections
+
 ### Real-time Writing
+
 Once connected, write on Ncode paper and see strokes appear on the canvas in real-time.
 
 ### Offline Sync
+
 1. Click **Fetch Stored Notes** to retrieve notes stored in the pen's memory
 2. Notes will be downloaded and rendered on the canvas
 3. Stroke count and transcribe button will update automatically
 
 ### Handwriting Transcription
-1. Load strokes (real-time or offline)
-2. Optionally select specific strokes (Ctrl+click, Shift+click for range)
-3. Click **Transcribe** (transcribes all strokes if none selected)
+
+1. Capture strokes (real-time or offline)
+2. Select specific strokes using:
+   - Box selection (drag to select)
+   - Individual selection (Ctrl+click)
+   - Or transcribe all strokes (no selection needed)
+3. Click **Transcribe** button
 4. View results in the **Transcription** tab:
    - Raw transcribed text
    - Lines with hierarchy analysis
@@ -94,6 +144,7 @@ Once connected, write on Ncode paper and see strokes appear on the canvas in rea
    - Detected commands
 
 ### Shape Detection
+
 The app automatically detects hand-drawn rectangles. These can be used to:
 - Mark regions of text for specific routing
 - Create visual boundaries around related content
@@ -155,24 +206,36 @@ The app automatically detects hand-drawn rectangles. These can be used to:
 
 ```
 smartpen-logseq-bridge/
-├── index.html              # Main UI
+├── index.html              # Entry HTML
 ├── src/
-│   ├── main.js             # Application entry point
-│   ├── state.js            # Global state management
-│   ├── elements.js         # DOM element references
-│   ├── ui-updates.js       # UI update functions
-│   ├── pen-handlers.js     # Pen SDK callbacks
-│   ├── button-handlers.js  # Click event handlers
-│   ├── transcription-view.js # Transcription display
-│   ├── settings.js         # LocalStorage persistence
-│   ├── myscript-api.js     # MyScript API client
-│   ├── stroke-analyzer.js  # Shape detection
-│   ├── canvas-renderer.js  # Stroke rendering
-│   ├── logseq-api.js       # LogSeq API client
-│   └── logger.js           # Console logging
+│   ├── App.svelte          # Root Svelte component
+│   ├── main-svelte.js      # Application entry point
+│   ├── components/         # Svelte 4 components
+│   │   ├── canvas/         # Canvas and rendering
+│   │   ├── pen/            # Pen controls and info
+│   │   ├── settings/       # MyScript & LogSeq config
+│   │   ├── strokes/        # Stroke list and selection
+│   │   ├── transcription/  # Transcription display
+│   │   └── layout/         # App layout components
+│   ├── stores/             # Svelte stores (state)
+│   │   ├── strokes.js      # Stroke data
+│   │   ├── selection.js    # Selection state
+│   │   ├── pen.js          # Pen connection
+│   │   ├── transcription.js # Transcription results
+│   │   ├── settings.js     # Persisted settings
+│   │   └── ui.js           # UI state
+│   ├── lib/                # Business logic
+│   │   ├── pen-sdk.js      # NeoSmartpen SDK wrapper
+│   │   ├── canvas-renderer.js # Canvas drawing engine
+│   │   ├── myscript-api.js # MyScript API client
+│   │   └── logseq-api.js   # LogSeq API client
+│   └── utils/              # Helpers
 ├── docs/
-│   ├── line-detection-algorithm.md  # How line/indent detection works
-│   └── svelte-migration-spec.md     # Future Svelte 4 migration plan
+│   ├── app-specification.md        # Full technical spec
+│   ├── line-detection-algorithm.md # Line/indent detection
+│   ├── svelte-migration-spec.md    # Architecture docs
+│   ├── selection-behavior-final.md # Selection system docs
+│   └── box-selection-user-guide.md # Selection user guide
 ├── package.json
 ├── vite.config.js
 └── README.md
@@ -180,9 +243,15 @@ smartpen-logseq-bridge/
 
 ## Documentation
 
+- **[Technical Specification](docs/app-specification.md)**: Complete technical documentation of the system architecture, data flows, and APIs.
+
 - **[Line Detection Algorithm](docs/line-detection-algorithm.md)**: Explains how the app determines line boundaries and calculates indentation from MyScript recognition results.
 
-- **[Svelte Migration Spec](docs/svelte-migration-spec.md)**: Detailed plan for migrating to Svelte 4, including component architecture, stores, and implementation phases.
+- **[Selection System Guide](docs/selection-behavior-final.md)**: Technical documentation of the selection system including box selection and keyboard shortcuts.
+
+- **[Box Selection User Guide](docs/box-selection-user-guide.md)**: User-facing guide for all selection features and workflows.
+
+- **[Svelte Migration Spec](docs/svelte-migration-spec.md)**: Architecture documentation for the Svelte 4 implementation.
 
 ## Troubleshooting
 
@@ -209,6 +278,11 @@ smartpen-logseq-bridge/
 - Check the pen tip is working (LED should blink while writing)
 - Try fetching offline data to test the connection
 
+### "Box selection not working"
+- Make sure you're dragging at least 5 pixels (small movements are treated as clicks)
+- Use Alt+drag for panning, not Shift+drag
+- Plain drag selects, Ctrl/Shift+drag modifies selection
+
 ### "Words on wrong lines"
 - This can happen with common short words ("the", "and", "1")
 - The app trusts MyScript's line detection, which is generally accurate
@@ -223,20 +297,27 @@ smartpen-logseq-bridge/
 - [x] Line detection with hierarchy
 - [x] Indentation analysis
 - [x] LogSeq preview formatting
+- [x] Svelte 4 migration
+- [x] Box selection with multiple modes (replace/add/toggle)
+- [x] Individual stroke toggle selection
+- [x] Keyboard shortcuts (Ctrl+A, Escape)
+- [x] Pan and zoom controls
 
 ### In Progress 🔄
 - [ ] Command detection and processing (`[page:]`, `[project:]`, etc.)
 - [ ] Interactive line guides for manual adjustment
 
 ### Planned 📋
-- [ ] Svelte 4 migration (see [migration spec](docs/svelte-migration-spec.md))
-- [ ] Box selection for stroke groups
 - [ ] Direct LogSeq block insertion
 - [ ] Custom Ncode paper templates
 - [ ] Multi-page document handling
+- [ ] Selection history (undo/redo)
+- [ ] Lasso/freehand selection
+- [ ] Smart selection (by time, color, properties)
 
 ## Tech Stack
 
+- **Svelte 4** - UI framework (reactive components)
 - **Vite** - Build tool and dev server
 - **web_pen_sdk** - NeoSmartpen Web SDK
 - **MyScript Cloud API** - Handwriting recognition
@@ -256,3 +337,24 @@ MIT
 ## Contributing
 
 This is a personal project for integrating handwritten notes into a LogSeq-based workflow. Contributions and suggestions are welcome!
+
+## Quick Reference
+
+### Selection Modes
+| Action | Result |
+|--------|--------|
+| Drag | Select strokes in box (replace) |
+| Ctrl+Drag | Add strokes in box to selection |
+| Shift+Drag | Toggle strokes in box |
+| Click | Select single stroke |
+| Ctrl/Shift+Click | Toggle individual stroke |
+| Ctrl+A | Select all |
+| Escape | Cancel box selection |
+
+### Navigation
+| Action | Result |
+|--------|--------|
+| Alt+Drag | Pan canvas |
+| Middle-Click Drag | Pan canvas |
+| Scroll | Pan vertically/horizontally |
+| Ctrl+Scroll | Zoom in/out |
