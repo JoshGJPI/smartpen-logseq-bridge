@@ -37,6 +37,7 @@ export class CanvasRenderer {
   /**
    * Set zoom level
    * @param {number} level - Zoom level
+   * @returns {boolean} - Whether zoom changed
    */
   setZoom(level) {
     const newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, level));
@@ -47,8 +48,11 @@ export class CanvasRenderer {
       this.panX = centerX - (centerX - this.panX) * zoomRatio;
       this.panY = centerY - (centerY - this.panY) * zoomRatio;
       this.zoom = newZoom;
-      this.redraw();
+      // Don't call redraw here - let the component handle re-rendering
+      // This ensures store strokes are also redrawn
+      return true;
     }
+    return false;
   }
   
   /**
@@ -66,17 +70,39 @@ export class CanvasRenderer {
   }
   
   /**
-   * Reset zoom and pan to fit content
+   * Reset zoom and pan to defaults
+   * Note: Does not redraw - caller should trigger re-render
    */
   resetView() {
     this.zoom = 1;
     this.panX = 0;
     this.panY = 0;
-    this.redraw();
+    // Don't call redraw - let the component handle it
   }
   
   /**
-   * Fit all content in view
+   * Pan the view by delta amounts
+   * Note: Does not redraw - caller should trigger re-render
+   * @param {number} deltaX - Horizontal pan amount
+   * @param {number} deltaY - Vertical pan amount
+   */
+  pan(deltaX, deltaY) {
+    this.panX += deltaX;
+    this.panY += deltaY;
+    // Don't call redraw - let the component handle it
+  }
+  
+  /**
+   * Get current pan position
+   */
+  getPan() {
+    return { x: this.panX, y: this.panY };
+  }
+  
+  /**
+   * Fit all content in view and center on strokes
+   * Note: Does not redraw - caller should trigger re-render
+   * @returns {number|undefined} - New zoom level if changed
    */
   fitToContent() {
     if (this.bounds.minX === Infinity) {
@@ -91,15 +117,27 @@ export class CanvasRenderer {
     const availWidth = this.viewWidth - padding * 2;
     const availHeight = this.viewHeight - padding * 2;
     
+    if (contentWidth <= 0 || contentHeight <= 0) {
+      this.resetView();
+      return;
+    }
+    
     const scaleX = availWidth / contentWidth;
     const scaleY = availHeight / contentHeight;
     this.zoom = Math.min(scaleX, scaleY, this.maxZoom);
     
-    // Center content
-    this.panX = (this.viewWidth - contentWidth * this.zoom) / 2;
-    this.panY = (this.viewHeight - contentHeight * this.zoom) / 2;
+    // Center the content in the viewport
+    // The content's top-left in screen space would be at (0,0) after ncodeToScreen subtracts bounds.min
+    // We need to offset so content is centered
+    const scaledContentWidth = contentWidth * this.zoom;
+    const scaledContentHeight = contentHeight * this.zoom;
     
-    this.redraw();
+    this.panX = (this.viewWidth - scaledContentWidth) / 2;
+    this.panY = (this.viewHeight - scaledContentHeight) / 2;
+    
+    // Don't call redraw - let the component handle it
+    
+    return this.zoom;
   }
   
   /**
@@ -128,22 +166,58 @@ export class CanvasRenderer {
   }
   
   /**
-   * Clear canvas and reset state
+   * Clear canvas and optionally reset state
+   * @param {boolean} resetBounds - Whether to reset bounds tracking (default: true)
    */
-  clear() {
+  clear(resetBounds = true) {
     this.ctx.fillStyle = 'white';
     this.ctx.fillRect(0, 0, this.viewWidth || this.canvas.width, this.viewHeight || this.canvas.height);
     this.strokes = [];
     this.currentStroke = null;
+    
+    if (resetBounds) {
+      this.bounds = {
+        minX: Infinity,
+        minY: Infinity,
+        maxX: -Infinity,
+        maxY: -Infinity
+      };
+      this.zoom = 1;
+      this.panX = 0;
+      this.panY = 0;
+    }
+  }
+  
+  /**
+   * Calculate bounds from an array of strokes without drawing
+   * Call this before drawStroke to ensure consistent coordinate transformation
+   * @param {Array} strokes - Array of stroke objects
+   */
+  calculateBounds(strokes) {
     this.bounds = {
       minX: Infinity,
       minY: Infinity,
       maxX: -Infinity,
       maxY: -Infinity
     };
-    this.zoom = 1;
-    this.panX = 0;
-    this.panY = 0;
+    
+    strokes.forEach(stroke => {
+      const dots = stroke.dotArray || stroke.dots || [];
+      dots.forEach(dot => {
+        this.bounds.minX = Math.min(this.bounds.minX, dot.x);
+        this.bounds.minY = Math.min(this.bounds.minY, dot.y);
+        this.bounds.maxX = Math.max(this.bounds.maxX, dot.x);
+        this.bounds.maxY = Math.max(this.bounds.maxY, dot.y);
+      });
+    });
+  }
+  
+  /**
+   * Clear canvas without resetting zoom/pan/bounds (for redraws)
+   */
+  clearForRedraw() {
+    this.ctx.fillStyle = 'white';
+    this.ctx.fillRect(0, 0, this.viewWidth || this.canvas.width, this.viewHeight || this.canvas.height);
   }
   
   /**
@@ -304,8 +378,7 @@ export class CanvasRenderer {
    * Redraw all strokes (called after clear or zoom change)
    */
   redraw() {
-    this.ctx.fillStyle = 'white';
-    this.ctx.fillRect(0, 0, this.viewWidth, this.viewHeight);
+    this.clearForRedraw();
     
     // Draw grid for reference at high zoom levels
     if (this.zoom >= 2) {

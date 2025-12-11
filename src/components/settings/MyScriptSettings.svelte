@@ -3,6 +3,7 @@
 -->
 <script>
   import { myscriptAppKey, myscriptHmacKey, hasMyScriptCredentials, log, getMyScriptCredentials } from '$stores';
+  import { strokes, strokeCount } from '$stores';
   import { selectedStrokes, selectionCount, hasSelection } from '$stores';
   import { setTranscription, setIsTranscribing, isTranscribing } from '$stores';
   import { setActiveTab } from '$stores';
@@ -10,6 +11,11 @@
   
   let showKeys = false;
   let isTesting = false;
+  
+  // Determine which strokes to transcribe (selected or all)
+  $: strokesToTranscribe = $hasSelection ? $selectedStrokes : $strokes;
+  $: transcribeCount = $hasSelection ? $selectionCount : $strokeCount;
+  $: hasStrokes = $strokeCount > 0;
   
   async function handleTestMyScript() {
     if (!$hasMyScriptCredentials) {
@@ -40,17 +46,18 @@
       return;
     }
     
-    if (!$hasSelection) {
-      log('No strokes selected for transcription', 'warning');
+    if (!hasStrokes) {
+      log('No strokes available for transcription', 'warning');
       return;
     }
     
     setIsTranscribing(true);
-    log(`Transcribing ${$selectionCount} strokes...`, 'info');
+    const transcribeLabel = $hasSelection ? 'selected' : 'all';
+    log(`Transcribing ${transcribeCount} ${transcribeLabel} strokes...`, 'info');
     
     try {
       const { appKey, hmacKey } = getMyScriptCredentials();
-      const result = await transcribeStrokes($selectedStrokes, appKey, hmacKey);
+      const result = await transcribeStrokes(strokesToTranscribe, appKey, hmacKey);
       
       setTranscription(result);
       setActiveTab('transcription');
@@ -62,8 +69,8 @@
     }
   }
   
-  // Reactive check for valid credentials
-  $: canTranscribe = $hasMyScriptCredentials && $hasSelection && !$isTranscribing;
+  // Reactive check for valid credentials and available strokes
+  $: canTranscribe = $hasMyScriptCredentials && hasStrokes && !$isTranscribing;
 </script>
 
 <div class="myscript-settings">
@@ -128,10 +135,7 @@
       {#if $isTranscribing}
         Transcribing...
       {:else}
-        ✍️ Transcribe Selected
-        {#if $hasSelection}
-          ({$selectionCount})
-        {/if}
+        ✍️ Transcribe {$hasSelection ? 'Selected' : 'All'} ({transcribeCount})
       {/if}
     </button>
   </div>
