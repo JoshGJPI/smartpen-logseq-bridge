@@ -13,13 +13,23 @@
     isTranscribing,
     logseqConnected,
     log,
-    getLogseqSettings
+    getLogseqSettings,
+    strokes,
+    selectedStrokes
   } from '$stores';
-  import { sendToLogseq } from '$lib/logseq-api.js';
+  import { sendToLogseq, updatePageTranscription } from '$lib/logseq-api.js';
+  import { 
+    storageStatus, 
+    storageStatusMessage,
+    setStorageSaving,
+    recordSuccessfulSave,
+    recordStorageError
+  } from '$stores/storage.js';
   
   import LogseqPreview from './LogseqPreview.svelte';
   
   let isSending = false;
+  let isSavingStorage = false;
   
   async function handleSendToLogseq() {
     if (!$hasTranscription) {
@@ -45,6 +55,55 @@
       isSending = false;
     }
   }
+  
+  async function handleSaveToStorage() {
+    if (!$hasTranscription) {
+      log('No transcription to save. Transcribe strokes first.', 'warning');
+      return;
+    }
+    
+    // Get page info from strokes
+    const relevantStrokes = $selectedStrokes.length > 0 ? $selectedStrokes : $strokes;
+    if (relevantStrokes.length === 0) {
+      log('No strokes to associate with transcription', 'warning');
+      return;
+    }
+    
+    const pageInfo = relevantStrokes[0].pageInfo;
+    if (!pageInfo || !pageInfo.book || !pageInfo.page) {
+      log('Invalid page information', 'error');
+      return;
+    }
+    
+    isSavingStorage = true;
+    setStorageSaving(true);
+    log(`Saving transcription to Smartpen Data/B${pageInfo.book}/P${pageInfo.page}...`, 'info');
+    
+    try {
+      const { host, token } = getLogseqSettings();
+      const result = await updatePageTranscription(
+        pageInfo.book,
+        pageInfo.page,
+        $lastTranscription,
+        relevantStrokes.length,
+        host,
+        token
+      );
+      
+      if (result.success) {
+        recordSuccessfulSave(`B${pageInfo.book}/P${pageInfo.page}`, result);
+        log(`Saved transcription to ${result.page} (${result.lineCount} lines)`, 'success');
+      } else {
+        recordStorageError(result.error);
+        log(`Failed to save transcription: ${result.error}`, 'error');
+      }
+    } catch (error) {
+      recordStorageError(error.message);
+      log(`Save error: ${error.message}`, 'error');
+    } finally {
+      isSavingStorage = false;
+    }
+  }
 </script>
 
 <div class="transcription-view">
@@ -63,21 +122,43 @@
       </p>
     </div>
   {:else}
-    <!-- Send to LogSeq Button -->
-    <div class="send-section">
+    <!-- Action Buttons -->
+    <div class="action-section">
+      <button 
+        class="btn btn-primary save-storage-btn"
+        on:click={handleSaveToStorage}
+        disabled={isSavingStorage || !$logseqConnected}
+        title="Save to Smartpen Data archive page"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+          <polyline points="17 21 17 13 7 13 7 21"/>
+          <polyline points="7 3 7 8 15 8"/>
+        </svg>
+        {isSavingStorage ? 'Saving...' : 'Save to Storage'}
+      </button>
+      
       <button 
         class="btn btn-success send-btn"
         on:click={handleSendToLogseq}
         disabled={isSending || !$logseqConnected}
+        title="Send to today's journal page"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="12" y1="5" x2="12" y2="19"/>
           <polyline points="19 12 12 19 5 12"/>
         </svg>
-        {isSending ? 'Sending...' : 'Send to LogSeq'}
+        {isSending ? 'Sending...' : 'Send to Journal'}
       </button>
+      
       {#if !$logseqConnected}
         <p class="hint">Configure LogSeq connection in Settings</p>
+      {/if}
+      
+      {#if $storageStatusMessage}
+        <p class="storage-status" class:error={$storageStatus.lastError}>
+          {$storageStatusMessage}
+        </p>
       {/if}
     </div>
     
@@ -246,14 +327,13 @@
     gap: 5px;
   }
 
-  .send-section {
+  .action-section {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    align-items: center;
   }
 
-  .send-btn {
+  .btn {
     width: 100%;
     padding: 12px 20px;
     border: none;
@@ -266,23 +346,51 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
+  }
+
+  .btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .save-storage-btn {
+    background: var(--accent);
+    color: var(--bg-primary);
+  }
+
+  .save-storage-btn:hover:not(:disabled) {
+    background: #3b82f6;
+  }
+
+  .send-btn {
     background: var(--success);
     color: var(--bg-primary);
   }
 
   .send-btn:hover:not(:disabled) {
     background: #22c55e;
-    transform: translateY(-1px);
   }
 
-  .send-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .send-section .hint {
+  .action-section .hint {
     font-size: 0.75rem;
     color: var(--text-secondary);
     text-align: center;
+  }
+  
+  .storage-status {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    text-align: center;
+    padding: 6px;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+  }
+  
+  .storage-status.error {
+    color: var(--error);
   }
 </style>

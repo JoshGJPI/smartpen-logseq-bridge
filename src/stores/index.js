@@ -89,3 +89,16 @@ export {
   toggleLineGuides,
   clearLog
 } from './ui.js';
+
+// Storage
+export {
+  storageStatus,
+  storageStats,
+  storageStatusMessage,
+  hasSavedPages,
+  setStorageSaving,
+  recordSuccessfulSave,
+  recordStorageError,
+  clearStorageStatus,
+  isPageSaved
+} from './storage.js';
