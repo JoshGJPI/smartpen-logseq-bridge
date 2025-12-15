@@ -27,6 +27,10 @@ export class CanvasRenderer {
       maxY: -Infinity
     };
     
+    // Page-based layout
+    this.pageOffsets = new Map(); // Map of "B{book}/P{page}" -> {offsetX, offsetY, bounds}
+    this.pageSpacing = 50; // mm between pages
+    
     this.viewWidth = 0;
     this.viewHeight = 0;
     
@@ -189,27 +193,90 @@ export class CanvasRenderer {
   }
   
   /**
-   * Calculate bounds from an array of strokes without drawing
-   * Call this before drawStroke to ensure consistent coordinate transformation
+   * Calculate bounds and page offsets from an array of strokes
+   * Groups strokes by page and positions them horizontally
    * @param {Array} strokes - Array of stroke objects
    */
   calculateBounds(strokes) {
+    // Reset
     this.bounds = {
       minX: Infinity,
       minY: Infinity,
       maxX: -Infinity,
       maxY: -Infinity
     };
+    this.pageOffsets.clear();
     
+    if (strokes.length === 0) return;
+    
+    // Group strokes by page
+    const pageGroups = new Map();
     strokes.forEach(stroke => {
-      const dots = stroke.dotArray || stroke.dots || [];
-      dots.forEach(dot => {
-        this.bounds.minX = Math.min(this.bounds.minX, dot.x);
-        this.bounds.minY = Math.min(this.bounds.minY, dot.y);
-        this.bounds.maxX = Math.max(this.bounds.maxX, dot.x);
-        this.bounds.maxY = Math.max(this.bounds.maxY, dot.y);
-      });
+      const pageInfo = stroke.pageInfo;
+      if (!pageInfo) return;
+      
+      const pageKey = `B${pageInfo.book}/P${pageInfo.page}`;
+      if (!pageGroups.has(pageKey)) {
+        pageGroups.set(pageKey, []);
+      }
+      pageGroups.get(pageKey).push(stroke);
     });
+    
+    // Calculate bounds for each page and assign horizontal offsets
+    let currentOffsetX = 0;
+    let globalMinY = Infinity;
+    let globalMaxY = -Infinity;
+    
+    Array.from(pageGroups.entries()).forEach(([pageKey, pageStrokes]) => {
+      // Calculate bounds for this page
+      let pageMinX = Infinity, pageMinY = Infinity;
+      let pageMaxX = -Infinity, pageMaxY = -Infinity;
+      
+      pageStrokes.forEach(stroke => {
+        const dots = stroke.dotArray || stroke.dots || [];
+        dots.forEach(dot => {
+          pageMinX = Math.min(pageMinX, dot.x);
+          pageMinY = Math.min(pageMinY, dot.y);
+          pageMaxX = Math.max(pageMaxX, dot.x);
+          pageMaxY = Math.max(pageMaxY, dot.y);
+        });
+      });
+      
+      const pageWidth = (pageMaxX - pageMinX);
+      
+      // Store page offset and bounds
+      this.pageOffsets.set(pageKey, {
+        offsetX: currentOffsetX,
+        offsetY: 0, // All pages aligned vertically
+        bounds: {
+          minX: pageMinX,
+          minY: pageMinY,
+          maxX: pageMaxX,
+          maxY: pageMaxY
+        }
+      });
+      
+      // Update global bounds (in transformed space)
+      this.bounds.minX = Math.min(this.bounds.minX, currentOffsetX);
+      this.bounds.minY = Math.min(this.bounds.minY, pageMinY);
+      this.bounds.maxX = Math.max(this.bounds.maxX, currentOffsetX + pageWidth);
+      this.bounds.maxY = Math.max(this.bounds.maxY, pageMaxY);
+      
+      globalMinY = Math.min(globalMinY, pageMinY);
+      globalMaxY = Math.max(globalMaxY, pageMaxY);
+      
+      // Move offset for next page (add page width + spacing)
+      currentOffsetX += pageWidth + this.pageSpacing;
+    });
+    
+    // Align all pages to same baseline
+    this.pageOffsets.forEach(offset => {
+      offset.offsetY = -globalMinY; // Align tops
+    });
+    
+    // Update global bounds with baseline offset
+    this.bounds.minY = 0;
+    this.bounds.maxY = globalMaxY - globalMinY;
   }
   
   /**
@@ -277,17 +344,36 @@ export class CanvasRenderer {
   }
   
   /**
-   * Convert ncode coordinates to screen coordinates with zoom and pan
+   * Convert ncode coordinates to screen coordinates with zoom, pan, and page offset
+   * @param {Object} dot - Dot with x, y coordinates
+   * @param {Object} pageInfo - Page information (book, page) to determine offset
    */
-  ncodeToScreen(dot) {
+  ncodeToScreen(dot, pageInfo = null) {
     let x, y;
+    
+    // Get page offset if available
+    let offsetX = 0;
+    let offsetY = 0;
+    let pageBounds = this.bounds;
+    
+    if (pageInfo && this.pageOffsets.size > 0) {
+      const pageKey = `B${pageInfo.book}/P${pageInfo.page}`;
+      const pageOffset = this.pageOffsets.get(pageKey);
+      
+      if (pageOffset) {
+        offsetX = pageOffset.offsetX;
+        offsetY = pageOffset.offsetY;
+        pageBounds = pageOffset.bounds;
+      }
+    }
     
     if (this.bounds.minX === Infinity) {
       x = dot.x * this.scale;
       y = dot.y * this.scale;
     } else {
-      x = (dot.x - this.bounds.minX) * this.scale;
-      y = (dot.y - this.bounds.minY) * this.scale;
+      // Transform relative to page bounds, then add page offset
+      x = (dot.x - pageBounds.minX + offsetX) * this.scale;
+      y = (dot.y - pageBounds.minY + offsetY) * this.scale;
     }
     
     return {
@@ -299,21 +385,14 @@ export class CanvasRenderer {
   
   /**
    * Draw a stroke from store data
-   * @param {Object} stroke - Stroke object with dotArray
+   * @param {Object} stroke - Stroke object with dotArray and pageInfo
    * @param {boolean} highlighted - Whether to highlight this stroke
    */
   drawStroke(stroke, highlighted = false) {
     const dots = stroke.dotArray || stroke.dots || [];
     if (dots.length < 2) return;
     
-    // Update bounds from stroke
-    dots.forEach(dot => {
-      this.bounds.minX = Math.min(this.bounds.minX, dot.x);
-      this.bounds.minY = Math.min(this.bounds.minY, dot.y);
-      this.bounds.maxX = Math.max(this.bounds.maxX, dot.x);
-      this.bounds.maxY = Math.max(this.bounds.maxY, dot.y);
-    });
-    
+    const pageInfo = stroke.pageInfo;
     const color = highlighted ? '#e94560' : '#000000';
     const baseWidth = highlighted ? 3 : 2;
     
@@ -323,12 +402,12 @@ export class CanvasRenderer {
     
     this.ctx.beginPath();
     const firstDot = dots[0];
-    const firstScreen = this.ncodeToScreen(firstDot);
+    const firstScreen = this.ncodeToScreen(firstDot, pageInfo);
     this.ctx.moveTo(firstScreen.x, firstScreen.y);
     
     for (let i = 1; i < dots.length; i++) {
       const dot = dots[i];
-      const screenDot = this.ncodeToScreen(dot);
+      const screenDot = this.ncodeToScreen(dot, pageInfo);
       this.ctx.lineWidth = Math.max(0.5, ((dot.f || 500) / 500) * baseWidth * this.zoom);
       this.ctx.lineTo(screenDot.x, screenDot.y);
     }
@@ -347,7 +426,7 @@ export class CanvasRenderer {
   
   /**
    * Get bounding box for a stroke in screen coordinates
-   * @param {Object} stroke - Stroke object
+   * @param {Object} stroke - Stroke object with pageInfo
    * @returns {Object} Bounds object with left, top, right, bottom
    */
   getStrokeBounds(stroke) {
@@ -356,11 +435,12 @@ export class CanvasRenderer {
       return { left: 0, top: 0, right: 0, bottom: 0 };
     }
     
+    const pageInfo = stroke.pageInfo;
     let minX = Infinity, minY = Infinity;
     let maxX = -Infinity, maxY = -Infinity;
     
     dots.forEach(dot => {
-      const screen = this.ncodeToScreen(dot);
+      const screen = this.ncodeToScreen(dot, pageInfo);
       minX = Math.min(minX, screen.x);
       minY = Math.min(minY, screen.y);
       maxX = Math.max(maxX, screen.x);
@@ -416,9 +496,10 @@ export class CanvasRenderer {
     for (let i = strokes.length - 1; i >= 0; i--) {
       const stroke = strokes[i];
       const dots = stroke.dotArray || stroke.dots || [];
+      const pageInfo = stroke.pageInfo;
       
       for (const dot of dots) {
-        const screenDot = this.ncodeToScreen(dot);
+        const screenDot = this.ncodeToScreen(dot, pageInfo);
         const dx = screenDot.x - x;
         const dy = screenDot.y - y;
         const distance = Math.sqrt(dx * dx + dy * dy);
