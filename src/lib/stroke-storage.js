@@ -175,15 +175,16 @@ export function getPageProperties(pageInfo) {
 }
 
 /**
- * Format transcribed text for LogSeq (plain text with indentation)
+ * Format transcribed text for LogSeq (with block dashes and indentation)
  * @param {Array} lines - Line objects with text and indentLevel
- * @returns {string} Formatted text with proper indentation
+ * @returns {string} Formatted text with LogSeq block syntax
  */
 export function formatTranscribedText(lines) {
   if (!lines || lines.length === 0) return '';
   
   return lines.map(line => {
     const indent = '  '.repeat(line.indentLevel || 0);
-    return indent + line.text;
+    const dash = '- ';
+    return indent + dash + line.text;
   }).join('\n');
 }

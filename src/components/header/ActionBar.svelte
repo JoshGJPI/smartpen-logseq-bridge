@@ -19,11 +19,13 @@
     setActiveTab,
     getMyScriptCredentials,
     logseqConnected,
-    getLogseqSettings
+    getLogseqSettings,
+    hasTranscription,
+    lastTranscription
   } from '$stores';
   import { connectPen, disconnectPen, fetchOfflineData } from '$lib/pen-sdk.js';
   import { transcribeStrokes } from '$lib/myscript-api.js';
-  import { updatePageStrokes } from '$lib/logseq-api.js';
+  import { updatePageStrokes, updatePageTranscription } from '$lib/logseq-api.js';
   import {
     setStorageSaving,
     recordSuccessfulSave,
@@ -32,7 +34,15 @@
   
   let isConnecting = false;
   let isFetchingOffline = false;
-  let isSavingStrokes = false;
+  let isSavingToLogseq = false;
+  
+  // Determine what data is available to save
+  $: hasSaveableData = $strokeCount > 0;
+  $: saveButtonText = (() => {
+    if (isSavingToLogseq) return 'Saving...';
+    if (!$hasTranscription) return 'Save to LogSeq (Strokes)';
+    return 'Save to LogSeq (Strokes + Text)';
+  })();
   
   // Determine which strokes to transcribe (selected or all)
   $: strokesToTranscribe = $hasSelection ? $selectedStrokes : $strokes;
@@ -104,75 +114,113 @@
     }
   }
   
-  async function handleSaveRawStrokes() {
+  async function handleSaveToLogseq() {
     if (!$logseqConnected) {
       log('Please configure LogSeq connection in Settings', 'warning');
       return;
     }
     
-    if (!hasStrokes) {
+    if (!$strokeCount) {
       log('No strokes to save', 'warning');
       return;
     }
     
-    // Group strokes by page
-    const strokesByPage = new Map();
-    $strokes.forEach(stroke => {
-      const pageInfo = stroke.pageInfo;
-      if (!pageInfo || !pageInfo.book || !pageInfo.page) return;
-      
-      const key = `${pageInfo.book}-${pageInfo.page}`;
-      if (!strokesByPage.has(key)) {
-        strokesByPage.set(key, []);
-      }
-      strokesByPage.get(key).push(stroke);
-    });
-    
-    if (strokesByPage.size === 0) {
-      log('No valid page information found in strokes', 'error');
-      return;
-    }
-    
-    isSavingStrokes = true;
+    isSavingToLogseq = true;
     setStorageSaving(true);
     
-    let savedCount = 0;
+    let savedStrokesCount = 0;
+    let savedTranscriptionCount = 0;
     let errorCount = 0;
     
-    for (const [key, pageStrokes] of strokesByPage) {
-      const pageInfo = pageStrokes[0].pageInfo;
-      const { book, page } = pageInfo;
-      
-      log(`Saving ${pageStrokes.length} strokes to Smartpen Data/B${book}/P${page}...`, 'info');
-      
-      try {
-        const { host, token } = getLogseqSettings();
-        const result = await updatePageStrokes(book, page, pageStrokes, host, token);
+    try {
+      // Step 1: Save strokes (grouped by page)
+      const strokesByPage = new Map();
+      $strokes.forEach(stroke => {
+        const pageInfo = stroke.pageInfo;
+        if (!pageInfo || !pageInfo.book || !pageInfo.page) return;
         
-        if (result.success) {
-          recordSuccessfulSave(`B${book}/P${page}`, result);
-          log(`Saved to ${result.page}: ${result.added} new, ${result.total} total`, 'success');
-          savedCount++;
-        } else {
-          recordStorageError(result.error);
-          log(`Failed to save page ${book}/${page}: ${result.error}`, 'error');
+        const key = `${pageInfo.book}-${pageInfo.page}`;
+        if (!strokesByPage.has(key)) {
+          strokesByPage.set(key, []);
+        }
+        strokesByPage.get(key).push(stroke);
+      });
+      
+      if (strokesByPage.size === 0) {
+        log('No valid page information found in strokes', 'error');
+        return;
+      }
+      
+      // Save strokes for each page
+      for (const [key, pageStrokes] of strokesByPage) {
+        const pageInfo = pageStrokes[0].pageInfo;
+        const { book, page } = pageInfo;
+        
+        log(`Saving ${pageStrokes.length} strokes to Smartpen Data/B${book}/P${page}...`, 'info');
+        
+        try {
+          const { host, token } = getLogseqSettings();
+          const strokeResult = await updatePageStrokes(book, page, pageStrokes, host, token);
+          
+          if (strokeResult.success) {
+            recordSuccessfulSave(`B${book}/P${page}`, strokeResult);
+            log(`Saved strokes to ${strokeResult.page}: ${strokeResult.added} new, ${strokeResult.total} total`, 'success');
+            savedStrokesCount++;
+            
+            // Step 2: If transcription exists for this page, save it too
+            if ($hasTranscription) {
+              // Check if transcription is for this page
+              const transcriptionStrokes = $selectedStrokes.length > 0 ? $selectedStrokes : $strokes;
+              const firstTranscriptionStroke = transcriptionStrokes[0];
+              
+              if (firstTranscriptionStroke && 
+                  firstTranscriptionStroke.pageInfo.book === book && 
+                  firstTranscriptionStroke.pageInfo.page === page) {
+                
+                log(`Saving transcription to ${strokeResult.page}...`, 'info');
+                
+                const transcriptionResult = await updatePageTranscription(
+                  book,
+                  page,
+                  $lastTranscription,
+                  transcriptionStrokes.length,
+                  host,
+                  token
+                );
+                
+                if (transcriptionResult.success) {
+                  log(`Saved transcription to ${transcriptionResult.page} (${transcriptionResult.lineCount} lines)`, 'success');
+                  savedTranscriptionCount++;
+                } else {
+                  log(`Failed to save transcription: ${transcriptionResult.error}`, 'warning');
+                }
+              }
+            }
+          } else {
+            recordStorageError(strokeResult.error);
+            log(`Failed to save page ${book}/${page}: ${strokeResult.error}`, 'error');
+            errorCount++;
+          }
+        } catch (error) {
+          recordStorageError(error.message);
+          log(`Error saving page ${book}/${page}: ${error.message}`, 'error');
           errorCount++;
         }
-      } catch (error) {
-        recordStorageError(error.message);
-        log(`Error saving page ${book}/${page}: ${error.message}`, 'error');
-        errorCount++;
       }
+      
+      // Summary
+      if (savedStrokesCount > 0) {
+        const summary = savedTranscriptionCount > 0 
+          ? `Saved ${savedStrokesCount} page(s) with strokes and transcription`
+          : `Saved ${savedStrokesCount} page(s) with strokes`;
+        log(summary, 'success');
+      }
+      if (errorCount > 0) {
+        log(`Failed to save ${errorCount} page(s)`, 'error');
+      }
+    } finally {
+      isSavingToLogseq = false;
     }
-    
-    if (savedCount > 0) {
-      log(`Saved ${savedCount} page(s) to LogSeq storage`, 'success');
-    }
-    if (errorCount > 0) {
-      log(`Failed to save ${errorCount} page(s)`, 'error');
-    }
-    
-    isSavingStrokes = false;
   }
 </script>
 
@@ -225,21 +273,17 @@
   </button>
   
   <button 
-    class="action-btn save-strokes-btn"
-    on:click={handleSaveRawStrokes}
-    disabled={!hasStrokes || isSavingStrokes || !$logseqConnected}
-    title="Save raw strokes to Smartpen Data archive"
+    class="action-btn save-logseq-btn"
+    on:click={handleSaveToLogseq}
+    disabled={!hasSaveableData || isSavingToLogseq || !$logseqConnected}
+    title="Save strokes and transcription (if available) to LogSeq storage"
   >
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
       <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
       <polyline points="17 21 17 13 7 13 7 21"/>
       <polyline points="7 3 7 8 15 8"/>
     </svg>
-    {#if isSavingStrokes}
-      Saving...
-    {:else}
-      Save Strokes
-    {/if}
+    {saveButtonText}
   </button>
   
   <button 
@@ -334,13 +378,13 @@
     border-color: var(--accent-hover);
   }
   
-  .save-strokes-btn {
+  .save-logseq-btn {
     background: var(--success);
     color: white;
     border-color: var(--success);
   }
   
-  .save-strokes-btn:hover:not(:disabled) {
+  .save-logseq-btn:hover:not(:disabled) {
     background: #22c55e;
     border-color: #22c55e;
   }
