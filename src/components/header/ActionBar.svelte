@@ -15,12 +15,15 @@
     hasMyScriptCredentials,
     isTranscribing,
     setTranscription,
+    setPageTranscription,
+    clearTranscription,
     setIsTranscribing,
     setActiveTab,
     getMyScriptCredentials,
     logseqConnected,
     getLogseqSettings,
     hasTranscription,
+    hasPageTranscriptions,
     lastTranscription
   } from '$stores';
   import { connectPen, disconnectPen, fetchOfflineData } from '$lib/pen-sdk.js';
@@ -98,114 +101,78 @@
     
     setIsTranscribing(true);
     const transcribeLabel = $hasSelection ? 'selected' : 'all';
-    log(`Transcribing ${transcribeCount} ${transcribeLabel} strokes...`, 'info');
+    
+    // Group strokes by page
+    const strokesByPage = new Map();
+    strokesToTranscribe.forEach(stroke => {
+      const pageInfo = stroke.pageInfo || {};
+      const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${pageInfo.book || 0}/P${pageInfo.page || 0}`;
+      
+      if (!strokesByPage.has(pageKey)) {
+        strokesByPage.set(pageKey, {
+          strokes: [],
+          pageInfo: {
+            section: pageInfo.section || 0,
+            owner: pageInfo.owner || 0,
+            book: pageInfo.book || 0,
+            page: pageInfo.page || 0
+          }
+        });
+      }
+      
+      strokesByPage.get(pageKey).strokes.push(stroke);
+    });
+    
+    const totalPages = strokesByPage.size;
+    log(`Transcribing ${transcribeCount} ${transcribeLabel} strokes from ${totalPages} page(s)...`, 'info');
+    
+    // Clear previous transcriptions
+    clearTranscription();
     
     try {
       const { appKey, hmacKey } = getMyScriptCredentials();
-      const result = await transcribeStrokes(strokesToTranscribe, appKey, hmacKey);
+      let successCount = 0;
+      let errorCount = 0;
       
-      // Analyze source pages from the strokes being transcribed
-      const sourcePages = analyzeSourcePages(strokesToTranscribe);
+      // Transcribe each page separately
+      for (const [pageKey, pageData] of strokesByPage) {
+        const { book, page } = pageData.pageInfo;
+        
+        try {
+          log(`Transcribing Book ${book}, Page ${page}...`, 'info');
+          const result = await transcribeStrokes(pageData.strokes, appKey, hmacKey);
+          
+          // Store transcription for this page
+          setPageTranscription(
+            pageKey, 
+            result, 
+            pageData.pageInfo,
+            pageData.strokes.length
+          );
+          
+          log(`✓ Book ${book}/Page ${page}: ${result.text?.length || 0} characters, ${result.lines?.length || 0} lines`, 'success');
+          successCount++;
+        } catch (error) {
+          log(`✗ Failed to transcribe Book ${book}/Page ${page}: ${error.message}`, 'error');
+          errorCount++;
+        }
+      }
       
-      // Enhance result with source page information
-      result.sourcePages = sourcePages;
-      result.pageGroups = groupTranscriptionByPage(result, strokesToTranscribe);
-      
-      setTranscription(result);
       setActiveTab('transcription');
-      log(`Transcription complete: ${result.text?.length || 0} characters from ${sourcePages.length} page(s)`, 'success');
+      
+      if (successCount > 0) {
+        log(`Transcription complete: ${successCount}/${totalPages} pages successful`, 'success');
+      }
+      if (errorCount > 0) {
+        log(`${errorCount} page(s) failed to transcribe`, 'error');
+      }
     } catch (error) {
       log(`Transcription failed: ${error.message}`, 'error');
     } finally {
       setIsTranscribing(false);
     }
   }
-  
-  /**
-   * Analyze source pages from strokes
-   */
-  function analyzeSourcePages(strokeList) {
-    const pagesMap = new Map();
-    
-    strokeList.forEach(stroke => {
-      const pageInfo = stroke.pageInfo || {};
-      const key = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${pageInfo.book || 0}/P${pageInfo.page || 0}`;
-      
-      if (!pagesMap.has(key)) {
-        pagesMap.set(key, {
-          key,
-          section: pageInfo.section || 0,
-          owner: pageInfo.owner || 0,
-          book: pageInfo.book || 0,
-          page: pageInfo.page || 0,
-          strokeCount: 0
-        });
-      }
-      
-      pagesMap.get(key).strokeCount++;
-    });
-    
-    return Array.from(pagesMap.values());
-  }
-  
-  /**
-   * Group transcription result by page (for multi-page transcriptions)
-   * Note: This is a simplified approach since MyScript doesn't track page boundaries.
-   * It groups based on the source strokes' page info.
-   */
-  function groupTranscriptionByPage(result, strokeList) {
-    const pageGroups = new Map();
-    
-    // Get unique pages
-    const pagesMap = new Map();
-    strokeList.forEach(stroke => {
-      const pageInfo = stroke.pageInfo || {};
-      const key = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${pageInfo.book || 0}/P${pageInfo.page || 0}`;
-      
-      if (!pagesMap.has(key)) {
-        pagesMap.set(key, {
-          key,
-          book: pageInfo.book || 0,
-          page: pageInfo.page || 0,
-          strokeCount: 0
-        });
-      }
-      pagesMap.get(key).strokeCount++;
-    });
-    
-    // If only one page, put all content under that page
-    if (pagesMap.size === 1) {
-      const [pageKey, pageData] = Array.from(pagesMap.entries())[0];
-      pageGroups.set(pageKey, {
-        ...pageData,
-        text: result.text,
-        lines: result.lines
-      });
-    } else {
-      // Multiple pages - for now, show combined text with page attribution
-      // Note: MyScript transcribes as a single unit, so we can't perfectly split by page
-      // We'll show combined text but note which pages were included
-      pagesMap.forEach((pageData, pageKey) => {
-        pageGroups.set(pageKey, {
-          ...pageData,
-          text: null, // Text is combined
-          lines: [] // Lines are combined
-        });
-      });
-      
-      // Add a "combined" entry with the full text
-      pageGroups.set('__combined__', {
-        key: '__combined__',
-        book: 'Multiple',
-        page: 'Combined',
-        strokeCount: strokeList.length,
-        text: result.text,
-        lines: result.lines
-      });
-    }
-    
-    return pageGroups;
-  }
+
   
   async function handleSaveToLogseq() {
     if (!$logseqConnected) {

@@ -1,10 +1,17 @@
 /**
  * Transcription Store - Manages transcription results from MyScript
+ * Supports per-page transcriptions for multi-page/book scenarios
  */
 import { writable, derived } from 'svelte/store';
 
-// Last transcription result
+// Last transcription result (legacy - combined view)
 export const lastTranscription = writable(null);
+
+// Per-page transcription results: Map<pageKey, transcriptionResult>
+export const pageTranscriptions = writable(new Map());
+
+// Selected pages for import (Set of pageKeys)
+export const selectedPagesForImport = writable(new Set());
 
 // Is transcription in progress?
 export const isTranscribing = writable(false);
@@ -51,23 +58,61 @@ export const hasTranscription = derived(
   $t => $t !== null
 );
 
-// Derived: Pages/Books info from transcription source strokes
+// Derived: Pages/Books info from transcription source strokes (from pageTranscriptions)
 export const transcriptionSourcePages = derived(
-  lastTranscription,
-  $t => $t?.sourcePages || []
-);
-
-// Derived: Transcription grouped by page
-export const transcriptionByPage = derived(
-  lastTranscription,
-  $t => {
-    if (!$t?.pageGroups) return new Map();
-    return $t.pageGroups;
+  pageTranscriptions,
+  $pt => {
+    const pages = [];
+    $pt.forEach((transcription, pageKey) => {
+      pages.push({
+        key: pageKey,
+        ...transcription.pageInfo,
+        strokeCount: transcription.strokeCount
+      });
+    });
+    return pages;
   }
 );
 
+// Derived: Transcription grouped by page (new structure)
+export const transcriptionByPage = derived(
+  pageTranscriptions,
+  $pt => $pt
+);
+
+// Derived: List of page transcriptions as array for easier iteration
+export const pageTranscriptionsArray = derived(
+  pageTranscriptions,
+  $pt => {
+    const arr = [];
+    $pt.forEach((transcription, pageKey) => {
+      arr.push({ pageKey, ...transcription });
+    });
+    // Sort by book then page
+    arr.sort((a, b) => {
+      if (a.pageInfo.book !== b.pageInfo.book) {
+        return a.pageInfo.book - b.pageInfo.book;
+      }
+      return a.pageInfo.page - b.pageInfo.page;
+    });
+    return arr;
+  }
+);
+
+// Derived: Count of pages with transcriptions
+export const pageTranscriptionCount = derived(
+  pageTranscriptions,
+  $pt => $pt.size
+);
+
+// Derived: Has any transcription data
+export const hasPageTranscriptions = derived(
+  pageTranscriptions,
+  $pt => $pt.size > 0
+);
+
 /**
- * Set transcription result
+ * Set transcription result (legacy - for backward compatibility)
  * @param {Object} result - Transcription result from MyScript
  */
 export function setTranscription(result) {
@@ -76,10 +121,88 @@ export function setTranscription(result) {
 }
 
 /**
- * Clear transcription
+ * Set transcription for a specific page
+ * @param {string} pageKey - Page identifier (e.g., "S0/O0/B1/P1")
+ * @param {Object} transcription - Transcription result from MyScript
+ * @param {Object} pageInfo - Page metadata { section, owner, book, page }
+ * @param {number} strokeCount - Number of strokes in this page
+ */
+export function setPageTranscription(pageKey, transcription, pageInfo, strokeCount) {
+  pageTranscriptions.update(pt => {
+    const newMap = new Map(pt);
+    newMap.set(pageKey, {
+      ...transcription,
+      pageInfo,
+      strokeCount,
+      timestamp: Date.now()
+    });
+    return newMap;
+  });
+  
+  // Auto-select newly transcribed page for import
+  selectedPagesForImport.update(sp => {
+    const newSet = new Set(sp);
+    newSet.add(pageKey);
+    return newSet;
+  });
+}
+
+/**
+ * Toggle page selection for import
+ * @param {string} pageKey - Page identifier
+ */
+export function togglePageSelection(pageKey) {
+  selectedPagesForImport.update(sp => {
+    const newSet = new Set(sp);
+    if (newSet.has(pageKey)) {
+      newSet.delete(pageKey);
+    } else {
+      newSet.add(pageKey);
+    }
+    return newSet;
+  });
+}
+
+/**
+ * Select all pages for import
+ */
+export function selectAllPages() {
+  pageTranscriptions.subscribe(pt => {
+    selectedPagesForImport.set(new Set(pt.keys()));
+  })();
+}
+
+/**
+ * Deselect all pages
+ */
+export function deselectAllPages() {
+  selectedPagesForImport.set(new Set());
+}
+
+/**
+ * Clear transcription (both legacy and per-page)
  */
 export function clearTranscription() {
   lastTranscription.set(null);
+  pageTranscriptions.set(new Map());
+  selectedPagesForImport.set(new Set());
+}
+
+/**
+ * Clear transcription for a specific page
+ * @param {string} pageKey - Page identifier
+ */
+export function clearPageTranscription(pageKey) {
+  pageTranscriptions.update(pt => {
+    const newMap = new Map(pt);
+    newMap.delete(pageKey);
+    return newMap;
+  });
+  selectedPagesForImport.update(sp => {
+    const newSet = new Set(sp);
+    newSet.delete(pageKey);
+    return newSet;
+  });
 }
 
 /**

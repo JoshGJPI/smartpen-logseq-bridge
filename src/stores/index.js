@@ -51,6 +51,8 @@ export {
 // Transcription
 export {
   lastTranscription,
+  pageTranscriptions,
+  selectedPagesForImport,
   isTranscribing,
   transcribedText,
   transcribedLines,
@@ -61,8 +63,16 @@ export {
   hasTranscription,
   transcriptionSourcePages,
   transcriptionByPage,
+  pageTranscriptionsArray,
+  pageTranscriptionCount,
+  hasPageTranscriptions,
   setTranscription,
+  setPageTranscription,
+  togglePageSelection,
+  selectAllPages,
+  deselectAllPages,
   clearTranscription,
+  clearPageTranscription,
   setIsTranscribing
 } from './transcription.js';
 
