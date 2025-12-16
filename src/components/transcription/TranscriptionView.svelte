@@ -21,21 +21,13 @@
   import LogseqPreview from './LogseqPreview.svelte';
   
   let isSending = false;
-  let expandedPages = new Set(); // Track which page details are expanded
+  // Track which pages are expanded - using object for better reactivity
+  let expandedPages = {};
   
   // Toggle page expansion
   function togglePageExpansion(pageKey) {
-    if (expandedPages.has(pageKey)) {
-      expandedPages.delete(pageKey);
-    } else {
-      expandedPages.add(pageKey);
-    }
-    expandedPages = new Set(expandedPages); // Trigger reactivity
-  }
-  
-  // Check if page is expanded
-  function isPageExpanded(pageKey) {
-    return expandedPages.has(pageKey);
+    expandedPages[pageKey] = !expandedPages[pageKey];
+    expandedPages = { ...expandedPages }; // Trigger reactivity
   }
   
   // Handle select all / deselect all
@@ -178,7 +170,7 @@
     <div class="page-list">
       {#each $pageTranscriptionsArray as pageData (pageData.pageKey)}
         {@const stats = getPageStats(pageData)}
-        {@const isExpanded = isPageExpanded(pageData.pageKey)}
+        {@const isExpanded = expandedPages[pageData.pageKey] || false}
         {@const isSelected = $selectedPagesForImport.has(pageData.pageKey)}
         
         <div class="page-card" class:selected={isSelected}>
