@@ -59,6 +59,8 @@ export {
   lineMetrics,
   transcribedWords,
   hasTranscription,
+  transcriptionSourcePages,
+  transcriptionByPage,
   setTranscription,
   clearTranscription,
   setIsTranscribing

@@ -7,20 +7,25 @@
   import { selectedIndices, handleStrokeClick, clearSelection, selectAll, selectionCount, selectFromBox } from '$stores';
   import { canvasZoom, setCanvasZoom, log } from '$stores';
   import CanvasControls from './CanvasControls.svelte';
+  import PageSelector from './PageSelector.svelte';
   import SelectionInfo from '../strokes/SelectionInfo.svelte';
   
   let canvasElement;
   let containerElement;
   let renderer = null;
   
-  // Page filtering
-  let selectedPage = '';
+  // Page filtering - now supports multiple selections
+  let selectedPages = new Set();
   $: pageOptions = Array.from($pages.keys());
   
-  // Filtered strokes based on page selection
-  $: filteredStrokes = selectedPage 
-    ? ($pages.get(selectedPage) || [])
-    : $strokes;
+  // Filtered strokes based on page selection (empty set = show all)
+  $: filteredStrokes = selectedPages.size === 0
+    ? $strokes
+    : $strokes.filter(stroke => {
+        const pageInfo = stroke.pageInfo || {};
+        const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${pageInfo.book || 0}/P${pageInfo.page || 0}`;
+        return selectedPages.has(pageKey);
+      });
   
   // Track previous stroke count for auto-fit
   let previousStrokeCount = 0;
@@ -135,6 +140,23 @@
   // Re-render when selection changes (don't reset bounds)
   $: if (renderer && $selectedIndices !== undefined) {
     renderStrokes(false);
+  }
+  
+  // Track previous page selection for change detection
+  let previousPageSelection = null;
+  
+  // Re-render when page filter changes (not on initial load)
+  $: {
+    const currentSelection = selectedPages.size > 0 ? Array.from(selectedPages).sort().join(',') : '';
+    if (renderer && previousPageSelection !== null && currentSelection !== previousPageSelection && !$batchMode) {
+      console.log('📄 Page filter changed, re-rendering', filteredStrokes.length, 'strokes');
+      renderStrokes(true);
+      // Auto-fit to show filtered content
+      setTimeout(() => {
+        fitContent();
+      }, 50);
+    }
+    previousPageSelection = currentSelection;
   }
   
   // Update renderer zoom when store changes and re-render
@@ -344,6 +366,11 @@
     }
   }
   
+  // Handle page selection change
+  function handlePageSelectionChange(event) {
+    selectedPages = event.detail.selectedPages;
+  }
+  
   // Zoom controls
   function zoomIn() {
     setCanvasZoom($canvasZoom + 0.25);
@@ -398,7 +425,13 @@
 <div class="canvas-panel panel">
   <div class="panel-header">
     Stroke Preview
-    <span class="stroke-count">{$strokeCount} strokes</span>
+    <span class="stroke-count">
+      {#if selectedPages.size > 0}
+        {filteredStrokes.length} of {$strokeCount} strokes (filtered)
+      {:else}
+        {$strokeCount} strokes
+      {/if}
+    </span>
   </div>
   
   <div class="canvas-container" bind:this={containerElement}>
@@ -427,25 +460,24 @@
     <div class="pan-hint">Drag to select • Ctrl/Shift to add/toggle • Alt+drag to pan • Ctrl+scroll to zoom</div>
   </div>
   
-  <CanvasControls 
-    zoom={$canvasZoom}
-    on:zoomIn={zoomIn}
-    on:zoomOut={zoomOut}
-    on:fit={fitContent}
-    on:reset={resetView}
-  />
-  
-  <div class="page-selector">
-    <label for="pageSelect">Page:</label>
-    <select id="pageSelect" bind:value={selectedPage}>
-      <option value="">All Pages</option>
-      {#each pageOptions as page (page)}
-        <option value={page}>{page}</option>
-      {/each}
-    </select>
+  <div class="canvas-controls-row">
+    <CanvasControls 
+      zoom={$canvasZoom}
+      on:zoomIn={zoomIn}
+      on:zoomOut={zoomOut}
+      on:fit={fitContent}
+      on:reset={resetView}
+    />
     
-    <button class="btn btn-secondary small" on:click={exportSvg}>Export SVG</button>
-    <button class="btn btn-secondary small" on:click={exportJson}>Export JSON</button>
+    <PageSelector 
+      {selectedPages}
+      on:change={handlePageSelectionChange}
+    />
+    
+    <div class="export-actions">
+      <button class="btn btn-secondary small" on:click={exportSvg}>SVG</button>
+      <button class="btn btn-secondary small" on:click={exportJson}>JSON</button>
+    </div>
   </div>
   
   <SelectionInfo 
@@ -507,35 +539,40 @@
     white-space: nowrap;
   }
 
-  .page-selector {
+  .export-actions {
     display: flex;
-    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  
+  .canvas-controls-row {
+    display: flex;
     gap: 10px;
-    margin-top: 10px;
-    padding: 10px;
-    background: var(--bg-tertiary);
-    border-radius: 8px;
+    align-items: flex-start;
     flex-wrap: wrap;
+    margin-top: 8px;
   }
-
-  .page-selector label {
-    font-size: 0.85rem;
-    color: var(--text-secondary);
-  }
-
-  .page-selector select {
+  
+  /* Let page selector grow but not too much */
+  .canvas-controls-row :global(.page-selector) {
     flex: 1;
     min-width: 150px;
-    padding: 8px;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    font-size: 0.875rem;
+    max-width: 400px;
   }
 
   .btn.small {
-    padding: 8px 12px;
-    font-size: 0.8rem;
+    padding: 6px 10px;
+    font-size: 0.75rem;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  
+  .btn.small:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--accent);
   }
 </style>

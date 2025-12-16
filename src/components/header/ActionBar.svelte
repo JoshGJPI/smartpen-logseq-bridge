@@ -104,14 +104,107 @@
       const { appKey, hmacKey } = getMyScriptCredentials();
       const result = await transcribeStrokes(strokesToTranscribe, appKey, hmacKey);
       
+      // Analyze source pages from the strokes being transcribed
+      const sourcePages = analyzeSourcePages(strokesToTranscribe);
+      
+      // Enhance result with source page information
+      result.sourcePages = sourcePages;
+      result.pageGroups = groupTranscriptionByPage(result, strokesToTranscribe);
+      
       setTranscription(result);
       setActiveTab('transcription');
-      log(`Transcription complete: ${result.text?.length || 0} characters`, 'success');
+      log(`Transcription complete: ${result.text?.length || 0} characters from ${sourcePages.length} page(s)`, 'success');
     } catch (error) {
       log(`Transcription failed: ${error.message}`, 'error');
     } finally {
       setIsTranscribing(false);
     }
+  }
+  
+  /**
+   * Analyze source pages from strokes
+   */
+  function analyzeSourcePages(strokeList) {
+    const pagesMap = new Map();
+    
+    strokeList.forEach(stroke => {
+      const pageInfo = stroke.pageInfo || {};
+      const key = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${pageInfo.book || 0}/P${pageInfo.page || 0}`;
+      
+      if (!pagesMap.has(key)) {
+        pagesMap.set(key, {
+          key,
+          section: pageInfo.section || 0,
+          owner: pageInfo.owner || 0,
+          book: pageInfo.book || 0,
+          page: pageInfo.page || 0,
+          strokeCount: 0
+        });
+      }
+      
+      pagesMap.get(key).strokeCount++;
+    });
+    
+    return Array.from(pagesMap.values());
+  }
+  
+  /**
+   * Group transcription result by page (for multi-page transcriptions)
+   * Note: This is a simplified approach since MyScript doesn't track page boundaries.
+   * It groups based on the source strokes' page info.
+   */
+  function groupTranscriptionByPage(result, strokeList) {
+    const pageGroups = new Map();
+    
+    // Get unique pages
+    const pagesMap = new Map();
+    strokeList.forEach(stroke => {
+      const pageInfo = stroke.pageInfo || {};
+      const key = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${pageInfo.book || 0}/P${pageInfo.page || 0}`;
+      
+      if (!pagesMap.has(key)) {
+        pagesMap.set(key, {
+          key,
+          book: pageInfo.book || 0,
+          page: pageInfo.page || 0,
+          strokeCount: 0
+        });
+      }
+      pagesMap.get(key).strokeCount++;
+    });
+    
+    // If only one page, put all content under that page
+    if (pagesMap.size === 1) {
+      const [pageKey, pageData] = Array.from(pagesMap.entries())[0];
+      pageGroups.set(pageKey, {
+        ...pageData,
+        text: result.text,
+        lines: result.lines
+      });
+    } else {
+      // Multiple pages - for now, show combined text with page attribution
+      // Note: MyScript transcribes as a single unit, so we can't perfectly split by page
+      // We'll show combined text but note which pages were included
+      pagesMap.forEach((pageData, pageKey) => {
+        pageGroups.set(pageKey, {
+          ...pageData,
+          text: null, // Text is combined
+          lines: [] // Lines are combined
+        });
+      });
+      
+      // Add a "combined" entry with the full text
+      pageGroups.set('__combined__', {
+        key: '__combined__',
+        book: 'Multiple',
+        page: 'Combined',
+        strokeCount: strokeList.length,
+        text: result.text,
+        lines: result.lines
+      });
+    }
+    
+    return pageGroups;
   }
   
   async function handleSaveToLogseq() {

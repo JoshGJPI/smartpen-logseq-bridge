@@ -51,6 +51,21 @@ export const hasTranscription = derived(
   $t => $t !== null
 );
 
+// Derived: Pages/Books info from transcription source strokes
+export const transcriptionSourcePages = derived(
+  lastTranscription,
+  $t => $t?.sourcePages || []
+);
+
+// Derived: Transcription grouped by page
+export const transcriptionByPage = derived(
+  lastTranscription,
+  $t => {
+    if (!$t?.pageGroups) return new Map();
+    return $t.pageGroups;
+  }
+);
+
 /**
  * Set transcription result
  * @param {Object} result - Transcription result from MyScript

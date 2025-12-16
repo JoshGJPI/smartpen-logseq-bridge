@@ -14,9 +14,10 @@
 <div class="canvas-controls">
   <div class="zoom-controls">
     <button 
-      class="btn btn-secondary zoom-btn" 
+      class="zoom-btn" 
       on:click={() => dispatch('zoomOut')}
       disabled={zoom <= 0.25}
+      title="Zoom out"
     >
       −
     </button>
@@ -24,63 +25,83 @@
     <span class="zoom-level">{zoomPercent}%</span>
     
     <button 
-      class="btn btn-secondary zoom-btn" 
+      class="zoom-btn" 
       on:click={() => dispatch('zoomIn')}
       disabled={zoom >= 10}
+      title="Zoom in"
     >
       +
     </button>
   </div>
   
-  <button class="btn btn-secondary view-btn" on:click={() => dispatch('fit')}>
+  <button class="view-btn" on:click={() => dispatch('fit')} title="Fit content">
     Fit
   </button>
   
-  <button class="btn btn-secondary view-btn" on:click={() => dispatch('reset')}>
+  <button class="view-btn" on:click={() => dispatch('reset')} title="Reset view">
     Reset
   </button>
-  
-  <span class="help-text">Ctrl+scroll to zoom • Shift+drag to pan</span>
 </div>
 
 <style>
   .canvas-controls {
     display: flex;
-    gap: 10px;
-    margin-top: 10px;
+    gap: 6px;
     align-items: center;
-    flex-wrap: wrap;
+    flex-shrink: 0;
   }
 
   .zoom-controls {
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 2px;
     background: var(--bg-tertiary);
-    padding: 5px 10px;
+    padding: 4px 6px;
     border-radius: 6px;
   }
 
   .zoom-btn {
-    padding: 6px 12px;
-    font-size: 1.1rem;
-    min-width: 36px;
+    padding: 4px 10px;
+    font-size: 1rem;
+    min-width: 28px;
+    border: none;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  
+  .zoom-btn:hover:not(:disabled) {
+    background: var(--accent);
+    color: white;
+  }
+  
+  .zoom-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 
   .zoom-level {
-    min-width: 50px;
+    min-width: 42px;
     text-align: center;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     color: var(--text-secondary);
   }
 
   .view-btn {
-    padding: 8px 12px;
-  }
-
-  .help-text {
-    color: var(--text-secondary);
+    padding: 6px 10px;
     font-size: 0.75rem;
-    margin-left: auto;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  
+  .view-btn:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--accent);
   }
 </style>

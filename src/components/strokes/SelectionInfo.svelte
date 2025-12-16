@@ -13,7 +13,7 @@
 <div class="selection-info">
   {#if $hasSelection}
     <span class="selection-text">
-      {$selectionCount} of {totalCount} strokes selected
+      {$selectionCount} of {totalCount} selected
     </span>
     <button class="action-btn" on:click={() => dispatch('clearSelection')}>
       Clear
@@ -23,10 +23,10 @@
     </button>
   {:else}
     <span class="help-text">
-      Click strokes to select • Ctrl+click to multi-select • Shift+click for range
+      Click to select • Ctrl+click multi • Shift+click range
     </span>
     {#if totalCount > 0}
-      <button class="action-btn" on:click={() => dispatch('selectAll')}>
+      <button class="action-btn select-all-btn" on:click={() => dispatch('selectAll')}>
         Select All ({totalCount})
       </button>
     {/if}
@@ -35,14 +35,14 @@
 
 <style>
   .selection-info {
-    margin-top: 10px;
-    padding: 10px;
+    margin-top: 6px;
+    padding: 6px 10px;
     background: var(--bg-tertiary);
-    border-radius: 8px;
-    font-size: 0.8rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     flex-wrap: wrap;
   }
 
@@ -57,18 +57,22 @@
   }
 
   .action-btn {
-    padding: 4px 10px;
+    padding: 3px 8px;
     background: transparent;
     border: 1px solid var(--border);
     color: var(--text-secondary);
     border-radius: 4px;
     cursor: pointer;
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     transition: all 0.2s;
   }
 
   .action-btn:hover {
     color: var(--text-primary);
     border-color: var(--text-secondary);
+  }
+  
+  .select-all-btn {
+    margin-left: auto;
   }
 </style>

@@ -1,5 +1,5 @@
 <!--
-  TranscriptionView.svelte - Main transcription display
+  TranscriptionView.svelte - Main transcription display with page groupings
 -->
 <script>
   import { 
@@ -13,13 +13,46 @@
     isTranscribing,
     logseqConnected,
     log,
-    getLogseqSettings
+    getLogseqSettings,
+    transcriptionSourcePages,
+    transcriptionByPage
   } from '$stores';
   import { sendToLogseq } from '$lib/logseq-api.js';
   
   import LogseqPreview from './LogseqPreview.svelte';
   
   let isSending = false;
+  
+  // Organize page groups for display
+  $: pageGroupsArray = (() => {
+    if (!$transcriptionByPage || $transcriptionByPage.size === 0) return [];
+    
+    const groups = [];
+    const combined = $transcriptionByPage.get('__combined__');
+    
+    // Add individual pages first (excluding combined)
+    $transcriptionByPage.forEach((data, key) => {
+      if (key !== '__combined__') {
+        groups.push({ key, ...data });
+      }
+    });
+    
+    // Sort by book then page
+    groups.sort((a, b) => {
+      if (a.book !== b.book) return a.book - b.book;
+      return a.page - b.page;
+    });
+    
+    // Add combined at the end if it exists and there are multiple pages
+    if (combined && groups.length > 1) {
+      groups.push({ key: '__combined__', ...combined, isCombined: true });
+    }
+    
+    return groups;
+  })();
+  
+  // Check if we have multiple source pages
+  $: hasMultiplePages = $transcriptionSourcePages && $transcriptionSourcePages.length > 1;
   
   async function handleSendToLogseq() {
     if (!$hasTranscription) {
@@ -44,6 +77,13 @@
     } finally {
       isSending = false;
     }
+  }
+  
+  function formatPageLabel(pageData) {
+    if (pageData.isCombined) {
+      return 'Combined View';
+    }
+    return `Book ${pageData.book} / Page ${pageData.page}`;
   }
 </script>
 
@@ -83,11 +123,62 @@
       {/if}
     </div>
     
-    <!-- Transcribed Text -->
-    <section class="section">
-      <h3>Transcribed Text</h3>
-      <pre class="text-output">{$transcribedText}</pre>
-    </section>
+    <!-- Source Pages Summary -->
+    {#if $transcriptionSourcePages && $transcriptionSourcePages.length > 0}
+      <section class="section source-pages">
+        <h3>Source Pages</h3>
+        <div class="page-tags">
+          {#each $transcriptionSourcePages as pageInfo (pageInfo.key)}
+            <span class="page-tag">
+              <span class="book-badge">B{pageInfo.book}</span>
+              <span class="page-number">P{pageInfo.page}</span>
+              <span class="stroke-count">{pageInfo.strokeCount} strokes</span>
+            </span>
+          {/each}
+        </div>
+      </section>
+    {/if}
+    
+    <!-- Transcribed Text by Page -->
+    {#if hasMultiplePages}
+      <!-- Multi-page view with tabs/sections -->
+      <section class="section">
+        <h3>Transcribed Text</h3>
+        <div class="page-groups">
+          {#each pageGroupsArray as pageGroup (pageGroup.key)}
+            <div class="page-group" class:combined={pageGroup.isCombined}>
+              <div class="page-group-header">
+                <span class="page-group-label">{formatPageLabel(pageGroup)}</span>
+                {#if !pageGroup.isCombined}
+                  <span class="page-group-strokes">{pageGroup.strokeCount} strokes</span>
+                {/if}
+              </div>
+              
+              {#if pageGroup.text}
+                <pre class="text-output">{pageGroup.text}</pre>
+              {:else}
+                <p class="no-individual-text">
+                  Text transcribed as part of combined view below
+                </p>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      </section>
+    {:else}
+      <!-- Single page view -->
+      <section class="section">
+        <h3>
+          Transcribed Text
+          {#if pageGroupsArray.length > 0 && !pageGroupsArray[0].isCombined}
+            <span class="section-subtitle">
+              (B{pageGroupsArray[0].book}/P{pageGroupsArray[0].page})
+            </span>
+          {/if}
+        </h3>
+        <pre class="text-output">{$transcribedText}</pre>
+      </section>
+    {/if}
     
     <!-- Summary Stats -->
     {#if $transcriptionSummary}
@@ -108,6 +199,12 @@
           <span class="value">{$detectedCommands.length || '—'}</span>
           <span class="label">Commands</span>
         </div>
+        {#if $transcriptionSourcePages}
+          <div class="stat">
+            <span class="value">{$transcriptionSourcePages.length}</span>
+            <span class="label">Pages</span>
+          </div>
+        {/if}
       </section>
     {/if}
     
@@ -187,6 +284,15 @@
     font-size: 0.9rem;
     margin-bottom: 10px;
     color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .section-subtitle {
+    font-size: 0.75rem;
+    font-weight: normal;
+    color: var(--text-secondary);
   }
 
   .text-output {
@@ -200,6 +306,101 @@
     margin: 0;
     max-height: 150px;
     overflow-y: auto;
+  }
+  
+  /* Source Pages Section */
+  .source-pages h3 {
+    margin-bottom: 8px;
+  }
+  
+  .page-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  
+  .page-tag {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    font-size: 0.8rem;
+  }
+  
+  .book-badge {
+    background: var(--accent);
+    color: white;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 0.7rem;
+  }
+  
+  .page-number {
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+  
+  .stroke-count {
+    color: var(--text-secondary);
+    font-size: 0.7rem;
+  }
+  
+  /* Page Groups for multi-page transcriptions */
+  .page-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .page-group {
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    padding: 10px;
+    border-left: 3px solid var(--accent);
+  }
+  
+  .page-group.combined {
+    border-left-color: var(--success);
+    background: var(--bg-primary);
+  }
+  
+  .page-group-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  
+  .page-group-label {
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--accent);
+  }
+  
+  .page-group.combined .page-group-label {
+    color: var(--success);
+  }
+  
+  .page-group-strokes {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+  }
+  
+  .page-group .text-output {
+    max-height: 100px;
+  }
+  
+  .no-individual-text {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    font-style: italic;
+    margin: 0;
+    padding: 8px;
   }
 
   .stats {
