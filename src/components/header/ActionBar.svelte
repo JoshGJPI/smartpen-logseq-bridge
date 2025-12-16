@@ -193,6 +193,7 @@
     let errorCount = 0;
     
     try {
+      const { host, token } = getLogseqSettings();
       // Step 1: Save strokes (grouped by page)
       const strokesByPage = new Map();
       $strokes.forEach(stroke => {
@@ -216,15 +217,18 @@
         const pageInfo = pageStrokes[0].pageInfo;
         const { book, page } = pageInfo;
         
-        log(`Saving ${pageStrokes.length} strokes to Smartpen Data/B${book}/P${page}...`, 'info');
-        
         try {
-          const { host, token } = getLogseqSettings();
-          const strokeResult = await updatePageStrokes(book, page, pageStrokes, host, token);
+          const result = await updatePageStrokes(book, page, pageStrokes, host, token);
           
-          if (strokeResult.success) {
-            recordSuccessfulSave(`B${book}/P${page}`, strokeResult);
-            log(`Saved strokes to ${strokeResult.page}: ${strokeResult.added} new, ${strokeResult.total} total`, 'success');
+          if (result.success) {
+            recordSuccessfulSave(`B${book}/P${page}`, result);
+            
+            // Show batching info if applicable
+            if (result.batched) {
+              log(`Saved strokes to ${result.page} in batches: ${result.added} new, ${result.total} total`, 'success');
+            } else {
+              log(`Saved strokes to ${result.page}: ${result.added} new, ${result.total} total`, 'success');
+            }
             savedStrokesCount++;
             
             // Step 2: If transcription exists for this page, save it too
@@ -237,7 +241,7 @@
                   firstTranscriptionStroke.pageInfo.book === book && 
                   firstTranscriptionStroke.pageInfo.page === page) {
                 
-                log(`Saving transcription to ${strokeResult.page}...`, 'info');
+                log(`Saving transcription to ${result.page}...`, 'info');
                 
                 const transcriptionResult = await updatePageTranscription(
                   book,
@@ -257,8 +261,8 @@
               }
             }
           } else {
-            recordStorageError(strokeResult.error);
-            log(`Failed to save page ${book}/${page}: ${strokeResult.error}`, 'error');
+            recordStorageError(result.error);
+            log(`Failed to save page ${book}/${page}: ${result.error}`, 'error');
             errorCount++;
           }
         } catch (error) {

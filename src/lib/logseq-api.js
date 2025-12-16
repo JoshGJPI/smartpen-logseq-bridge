@@ -16,9 +16,9 @@ import {
 } from './stroke-storage.js';
 
 /**
- * Make an API request to LogSeq
+ * Make an API request to LogSeq with retry logic
  */
-async function makeRequest(host, token, method, args = []) {
+async function makeRequest(host, token, method, args = [], retries = 3) {
   const headers = {
     'Content-Type': 'application/json',
   };
@@ -27,25 +27,53 @@ async function makeRequest(host, token, method, args = []) {
     headers['Authorization'] = `Bearer ${token}`;
   }
   
-  try {
-    const cleanHost = host.replace(/\/$/, ''); // Remove trailing slash
-    const response = await fetch(`${cleanHost}/api`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ method, args })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  let lastError;
+  
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const cleanHost = host.replace(/\/$/, ''); // Remove trailing slash
+      const response = await fetch(`${cleanHost}/api`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ method, args }),
+        signal: AbortSignal.timeout(30000) // 30 second timeout
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      lastError = error;
+      
+      // If it's a connection reset or timeout, retry
+      if (error.name === 'AbortError' || error.message.includes('ERR_CONNECTION_RESET')) {
+        console.warn(`Request attempt ${attempt + 1} failed, retrying...`, error.message);
+        if (attempt < retries - 1) {
+          // Exponential backoff: wait 1s, 2s, 4s
+          await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+          continue;
+        }
+      }
+      
+      // For other errors, don't retry
+      break;
     }
-    
-    return await response.json();
-  } catch (error) {
-    if (error.message.includes('Failed to fetch')) {
-      throw new Error('Cannot connect to LogSeq. Is the HTTP API enabled?');
-    }
-    throw error;
   }
+  
+  // All retries failed
+  if (lastError.message.includes('Failed to fetch') || lastError.name === 'TypeError') {
+    throw new Error('Cannot connect to LogSeq. Is the HTTP API enabled?');
+  }
+  if (lastError.name === 'AbortError') {
+    throw new Error('Request timed out. The data might be too large.');
+  }
+  if (lastError.message.includes('ERR_CONNECTION_RESET')) {
+    throw new Error('Connection reset by LogSeq. The payload might be too large.');
+  }
+  
+  throw lastError;
 }
 
 /**
@@ -312,6 +340,7 @@ export async function getPageStrokes(book, page, host, token = '') {
 
 /**
  * Update page strokes with incremental deduplication
+ * Automatically batches large stroke sets to avoid payload size limits
  * @param {number} book - Book ID
  * @param {number} page - Page number  
  * @param {Array} newStrokes - New raw strokes from pen
@@ -320,6 +349,60 @@ export async function getPageStrokes(book, page, host, token = '') {
  * @returns {Promise<Object>} Result with success status and stats
  */
 export async function updatePageStrokes(book, page, newStrokes, host, token = '') {
+  const BATCH_SIZE = 300; // Process 300 strokes at a time
+  
+  try {
+    // If we have a lot of strokes, batch them
+    if (newStrokes.length > BATCH_SIZE) {
+      console.log(`Large stroke set detected (${newStrokes.length} strokes). Processing in batches...`);
+      
+      let totalAdded = 0;
+      let currentTotal = 0;
+      
+      // Process in batches
+      for (let i = 0; i < newStrokes.length; i += BATCH_SIZE) {
+        const batch = newStrokes.slice(i, i + BATCH_SIZE);
+        const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(newStrokes.length / BATCH_SIZE);
+        
+        console.log(`Processing batch ${batchNum}/${totalBatches} (${batch.length} strokes)...`);
+        
+        const result = await updatePageStrokesSingle(book, page, batch, host, token);
+        
+        if (!result.success) {
+          return result; // Return error immediately
+        }
+        
+        totalAdded += result.added;
+        currentTotal = result.total;
+      }
+      
+      return {
+        success: true,
+        added: totalAdded,
+        total: currentTotal,
+        page: formatPageName(book, page),
+        batched: true
+      };
+    }
+    
+    // Normal path for small stroke sets
+    return await updatePageStrokesSingle(book, page, newStrokes, host, token);
+    
+  } catch (error) {
+    console.error('Failed to update page strokes:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Internal function to update page strokes (single batch)
+ * @private
+ */
+async function updatePageStrokesSingle(book, page, newStrokes, host, token = '') {
   try {
     // Get or create the page
     const pageObj = await getOrCreateSmartpenPage(book, page, host, token);
