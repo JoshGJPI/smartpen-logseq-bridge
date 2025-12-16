@@ -7,6 +7,9 @@ import { writable, derived } from 'svelte/store';
 // Raw stroke data
 export const strokes = writable([]);
 
+// Batch mode flag - when true, canvas updates are paused
+export const batchMode = writable(false);
+
 // Pages derived from strokes - groups strokes by page key
 export const pages = derived(strokes, $strokes => {
   const pageMap = new Map();
@@ -54,6 +57,20 @@ export function updateLastStroke(updater) {
  */
 export function addOfflineStrokes(offlineStrokes) {
   strokes.update(s => [...s, ...offlineStrokes]);
+}
+
+/**
+ * Start batch mode - pauses canvas updates during bulk imports
+ */
+export function startBatchMode() {
+  batchMode.set(true);
+}
+
+/**
+ * End batch mode - triggers canvas update after bulk import completes
+ */
+export function endBatchMode() {
+  batchMode.set(false);
 }
 
 /**

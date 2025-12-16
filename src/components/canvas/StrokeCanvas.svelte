@@ -3,7 +3,7 @@
 -->
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { strokes, strokeCount, pages, clearStrokes } from '$stores';
+  import { strokes, strokeCount, pages, clearStrokes, batchMode } from '$stores';
   import { selectedIndices, handleStrokeClick, clearSelection, selectAll, selectionCount, selectFromBox } from '$stores';
   import { canvasZoom, setCanvasZoom, log } from '$stores';
   import CanvasControls from './CanvasControls.svelte';
@@ -24,6 +24,9 @@
   
   // Track previous stroke count for auto-fit
   let previousStrokeCount = 0;
+  
+  // Track previous batch mode state for transition detection
+  let wasBatchMode = false;
   
   // Panning state
   let isPanning = false;
@@ -89,26 +92,44 @@
     };
   });
   
+  // Explicitly handle batch mode transitions
+  // This ensures canvas updates when batch mode ends, even if Svelte's reactivity has timing issues
+  $: {
+    const batchModeJustEnded = wasBatchMode && !$batchMode;
+    wasBatchMode = $batchMode;
+    
+    if (batchModeJustEnded && renderer && filteredStrokes.length > 0) {
+      console.log('🎨 Batch mode ended - forcing canvas update with', filteredStrokes.length, 'strokes');
+      // Schedule the update to happen after this reactive block completes
+      setTimeout(() => {
+        renderStrokes(true);
+        fitContent();
+        previousStrokeCount = filteredStrokes.length;
+      }, 50);
+    }
+  }
+  
   // Re-render when strokes change and auto-fit if new strokes added
-  $: if (renderer && filteredStrokes) {
+  // Skip updates when in batch mode (during offline import)
+  $: if (renderer && filteredStrokes && !$batchMode) {
     const currentCount = filteredStrokes.length;
+    const strokesAdded = currentCount > previousStrokeCount;
     const shouldAutoFit = currentCount > 0 && (previousStrokeCount === 0 || currentCount >= previousStrokeCount + 10);
     
-    // Full reset when strokes change significantly
-    if (previousStrokeCount !== currentCount) {
+    if (strokesAdded) {
+      console.log('📊 Strokes changed:', previousStrokeCount, '->', currentCount);
+      // Full reset when new strokes added
       renderStrokes(true);
-    } else {
-      renderStrokes(false);
+      
+      // Auto-fit when strokes are first loaded or batch added
+      if (shouldAutoFit) {
+        setTimeout(() => {
+          fitContent();
+        }, 100);
+      }
+      
+      previousStrokeCount = currentCount;
     }
-    
-    // Auto-fit when strokes are first loaded or batch added
-    if (shouldAutoFit) {
-      // Small delay to ensure bounds are updated
-      setTimeout(() => {
-        fitContent();
-      }, 100);
-    }
-    previousStrokeCount = currentCount;
   }
   
   // Re-render when selection changes (don't reset bounds)

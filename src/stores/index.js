@@ -8,9 +8,12 @@ export {
   pages, 
   strokeCount, 
   currentPageInfo,
+  batchMode,
   addStroke,
   updateLastStroke,
   addOfflineStrokes,
+  startBatchMode,
+  endBatchMode,
   clearStrokes,
   getStroke
 } from './strokes.js';

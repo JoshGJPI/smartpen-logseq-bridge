@@ -8,7 +8,9 @@ import {
   addStroke, 
   updateLastStroke, 
   addOfflineStrokes,
-  currentPageInfo 
+  currentPageInfo,
+  startBatchMode,
+  endBatchMode
 } from '$stores/strokes.js';
 import { 
   setPenConnected, 
@@ -181,21 +183,36 @@ function processMessage(mac, type, args) {
     case PenMessageType.OFFLINE_DATA_NOTE_LIST:
       handleOfflineNoteList(args);
       break;
+    
+    case 49: // OFFLINE_DATA_RESPONSE - pen tells us how much data to expect
+      handleOfflineDataResponse(args);
+      break;
       
     case PenMessageType.OFFLINE_DATA_SEND_START:
+      console.log('%c🚀 OFFLINE_DATA_SEND_START received', 'background: #4CAF50; color: white; padding: 2px 6px; border-radius: 3px;');
       log('Receiving offline data...', 'info');
       break;
       
     case PenMessageType.OFFLINE_DATA_SEND_STATUS:
-      log(`Offline sync: ${args}%`, 'info');
+      // Only log every 25% to reduce noise
+      if (args % 25 < 5 || args > 95) {
+        console.log(`📊 Progress: ${Math.round(args)}%`);
+      }
+      log(`Offline sync: ${Math.round(args)}%`, 'info');
       break;
       
     case PenMessageType.OFFLINE_DATA_SEND_SUCCESS:
+      console.log('%c✅ OFFLINE_DATA_SEND_SUCCESS - Processing data...', 'background: #2196F3; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold;');
       handleOfflineDataReceived(args);
       break;
       
     case PenMessageType.OFFLINE_DATA_SEND_FAILURE:
+      console.log('%c❌ OFFLINE_DATA_SEND_FAILURE', 'background: #f44336; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold;');
       log('Failed to receive offline data', 'error');
+      // Resolve the pending transfer with failure so we can move to the next book
+      if (offlineTransferResolver) {
+        offlineTransferResolver({ failed: true });
+      }
       break;
       
     case PenMessageType.EVENT_DOT_PUI:
@@ -244,11 +261,12 @@ async function handleAuthorized(mac) {
   if (controller) {
     // GATT operations must be serialized - add delays between commands
     try {
-      controller.RequestAvailableNotes([0], [0], null);
+      // Request ALL sections and owners (null means all)
+      controller.RequestAvailableNotes(null, null, null);
       // Wait for GATT operation to complete before next command
       await new Promise(resolve => setTimeout(resolve, 300));
       controller.SetHoverEnable(true);
-      log('Pen ready for real-time capture', 'info');
+      log('Pen ready for real-time capture (all notebooks)', 'info');
     } catch (error) {
       console.warn('GATT setup warning:', error);
       // Non-fatal - pen may still work
@@ -275,7 +293,62 @@ function handlePasswordRequest(args) {
   }
 }
 
-function handleOfflineNoteList(noteList) {
+// Track ongoing offline data transfers
+let pendingOfflineTransfer = null;  // String - normalized book ID
+let offlineTransferResolver = null;
+let expectedStrokesForBook = new Map(); // book (string) -> expected stroke count
+let receivedStrokesForBook = new Map(); // book (string) -> received stroke count
+let lastDataReceivedTime = null;  // Track when last data chunk arrived
+let dataReceivedForCurrentTransfer = false;  // Track if we've received ANY data
+
+/**
+ * Normalize book ID to string for consistent comparison
+ * @param {*} bookId - Book ID from note list or stroke data
+ * @returns {string} Normalized book ID as string
+ */
+function normalizeBookId(bookId) {
+  if (bookId === null || bookId === undefined) {
+    return 'unknown';
+  }
+  return String(bookId);
+}
+
+/**
+ * Handle OFFLINE_DATA_RESPONSE (message type 49)
+ * This tells us how much data to expect before the actual data arrives
+ */
+function handleOfflineDataResponse(args) {
+  console.log('%c📋 OFFLINE_DATA_RESPONSE received', 'background: #9C27B0; color: white; padding: 2px 6px; border-radius: 3px;', args);
+  
+  if (pendingOfflineTransfer) {
+    const strokeCount = args?.stroke;
+    const byteCount = args?.bytes;
+    
+    // Handle edge case where stroke count is 0 or missing
+    if (strokeCount !== undefined && strokeCount !== null) {
+      expectedStrokesForBook.set(pendingOfflineTransfer, strokeCount);
+      receivedStrokesForBook.set(pendingOfflineTransfer, 0);
+      console.log(`📊 Book ${pendingOfflineTransfer}: Expecting ${strokeCount} strokes (${byteCount || 'unknown'} bytes)`);
+      
+      // If expected count is 0, resolve immediately
+      if (strokeCount === 0) {
+        console.log(`📋 Book ${pendingOfflineTransfer} has 0 strokes - resolving immediately`);
+        if (offlineTransferResolver) {
+          offlineTransferResolver({ empty: true });
+        }
+      }
+    } else {
+      console.warn(`⚠️ OFFLINE_DATA_RESPONSE missing stroke count:`, args);
+    }
+  } else {
+    console.warn('⚠️ Received OFFLINE_DATA_RESPONSE but no pending transfer');
+  }
+}
+
+async function handleOfflineNoteList(noteList) {
+  console.log('%c===== OFFLINE NOTE LIST RECEIVED =====', 'background: #222; color: #bada55; font-size: 14px; padding: 4px;');
+  console.log('📚 Note list:', noteList);
+  
   if (!noteList || noteList.length === 0) {
     log('No offline notes found', 'warning');
     return;
@@ -287,34 +360,202 @@ function handleOfflineNoteList(noteList) {
   const unsubscribe = penController.subscribe(c => controller = c);
   unsubscribe();
   
-  // Show what we found
-  const noteInfo = noteList.map(n => `S${n.Section}/O${n.Owner}/B${n.Note}`).join(', ');
+  // Show what we found with type info for debugging
+  const noteInfo = noteList.map(n => {
+    const bookId = normalizeBookId(n.Note);
+    return `S${n.Section}/O${n.Owner}/B${bookId}`;
+  }).join(', ');
+  
+  console.log('📚 Note details with types:', noteList.map(n => ({
+    Section: n.Section,
+    Owner: n.Owner,
+    Note: n.Note,
+    NoteType: typeof n.Note,
+    PageCount: n.PageCount
+  })));
+  
   const download = confirm(`Found offline notes:\n${noteInfo}\n\nDownload all?`);
   
   if (download && controller) {
-    noteList.forEach(note => {
+    console.log('%c📥 Requesting offline data sequentially (waiting for each to complete)...', 'color: #4CAF50; font-weight: bold;');
+    
+    // CRITICAL: Request one book at a time and wait for its transfer to complete
+    for (let i = 0; i < noteList.length; i++) {
+      const note = noteList[i];
+      const normalizedBookId = normalizeBookId(note.Note);
+      
+      console.log(`%c📖 Requesting note ${i + 1}/${noteList.length}: S${note.Section}/O${note.Owner}/B${normalizedBookId}`, 'color: #2196F3; font-weight: bold;', {
+        Section: note.Section,
+        Owner: note.Owner,
+        Book: note.Note,
+        BookType: typeof note.Note,
+        NormalizedBookId: normalizedBookId,
+        PageCount: note.PageCount || 'unknown'
+      });
+      
+      // Reset per-transfer state
+      dataReceivedForCurrentTransfer = false;
+      lastDataReceivedTime = null;
+      
+      // Create a promise that resolves when this transfer completes
+      const transferComplete = new Promise((resolve, reject) => {
+        pendingOfflineTransfer = normalizedBookId; // Use normalized ID
+        offlineTransferResolver = resolve;
+        
+        // Enable batch mode to pause canvas updates during import
+        startBatchMode();
+        console.log(`📊 Batch mode enabled for book ${normalizedBookId}`);
+        
+        // Timeout after 30 seconds
+        const timeoutId = setTimeout(() => {
+          if (pendingOfflineTransfer === normalizedBookId) {
+            // Check if we received ANY data - if so, consider it a success
+            if (dataReceivedForCurrentTransfer) {
+              console.log(`⏰ Transfer timeout for book ${normalizedBookId}, but data was received - considering complete`);
+              resolve({ timedOutWithData: true });
+            } else {
+              console.warn(`⏰ Transfer timeout for book ${normalizedBookId} - no data received`);
+              reject(new Error(`Transfer timeout for book ${normalizedBookId}`));
+            }
+          }
+        }, 30000);
+        
+        // Also set up a "data idle" check - if no new data for 3 seconds after receiving some, consider complete
+        const idleCheckInterval = setInterval(() => {
+          if (pendingOfflineTransfer !== normalizedBookId) {
+            clearInterval(idleCheckInterval);
+            return;
+          }
+          
+          if (dataReceivedForCurrentTransfer && lastDataReceivedTime) {
+            const idleTime = Date.now() - lastDataReceivedTime;
+            if (idleTime > 3000) {
+              console.log(`📋 No new data for ${Math.round(idleTime/1000)}s - considering transfer complete`);
+              clearInterval(idleCheckInterval);
+              clearTimeout(timeoutId);
+              resolve({ idleTimeout: true });
+            }
+          }
+        }, 1000);
+      });
+      
+      // Request the data
       controller.RequestOfflineData(
         note.Section, 
         note.Owner, 
-        note.Note, 
+        note.Note,  // Use original value for SDK call
         false, // Don't delete after download
         []     // All pages
       );
-    });
+      
+      // Wait for this transfer to complete before requesting the next one
+      try {
+        const result = await transferComplete;
+        
+        if (result?.failed) {
+          console.error(`❌ Book ${normalizedBookId} transfer reported failure`);
+        } else if (result?.empty) {
+          console.log(`📋 Book ${normalizedBookId} was empty`);
+        } else if (result?.timedOutWithData) {
+          console.log(`⚠️ Book ${normalizedBookId} timed out but had data`);
+        } else if (result?.idleTimeout) {
+          console.log(`✅ Book ${normalizedBookId} completed via idle detection`);
+        } else {
+          console.log(`✅ Book ${normalizedBookId} transfer completed normally`);
+        }
+        
+        // Disable batch mode to trigger canvas update
+        endBatchMode();
+        console.log(`🎨 Batch mode disabled - canvas updating`);
+        
+        // Clean up tracking for this book
+        expectedStrokesForBook.delete(normalizedBookId);
+        receivedStrokesForBook.delete(normalizedBookId);
+        
+        // Small delay to ensure canvas update completes before next request
+        if (i < noteList.length - 1) {
+          console.log('⏳ Waiting 500ms before next request...');
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      } catch (error) {
+        console.error(`❌ Transfer failed for book ${normalizedBookId}:`, error);
+        // Disable batch mode even on failure
+        endBatchMode();
+        // Clean up even on failure
+        expectedStrokesForBook.delete(normalizedBookId);
+        receivedStrokesForBook.delete(normalizedBookId);
+        // Continue to next book even if this one failed
+      }
+    }
+    
+    pendingOfflineTransfer = null;
+    offlineTransferResolver = null;
+    dataReceivedForCurrentTransfer = false;
+    lastDataReceivedTime = null;
+    console.log('✅ All offline data transfers completed');
+  } else {
+    console.log('❌ Download cancelled by user');
   }
+  console.log('%c===== END OFFLINE NOTE LIST PROCESSING =====', 'background: #222; color: #bada55; font-size: 14px; padding: 4px;');
 }
 
 function handleOfflineDataReceived(data) {
-  if (!Array.isArray(data)) return;
+  console.log('%c===== OFFLINE DATA RECEIVED =====', 'background: #FF9800; color: white; font-size: 14px; padding: 4px;');
+  console.log('📦 Raw data type:', Array.isArray(data) ? 'array' : typeof data);
+  console.log('📦 Raw data length:', Array.isArray(data) ? data.length : 'N/A');
+  
+  // Update timing for idle detection
+  lastDataReceivedTime = Date.now();
+  dataReceivedForCurrentTransfer = true;
+  
+  if (!Array.isArray(data)) {
+    console.error('❌ Data is not an array!', data);
+    return;
+  }
   
   const convertedStrokes = [];
+  const bookStats = {}; // Track strokes per book
+  let skippedCount = 0;
+  let detectedBook = null;
+  let detectedBookRaw = null;  // Keep raw value for debugging
   
   // Process offline strokes
-  data.forEach(stroke => {
+  data.forEach((stroke, index) => {
     if (stroke.Dots && Array.isArray(stroke.Dots)) {
+      const firstDot = stroke.Dots[0];
+      const pageInfo = firstDot?.pageInfo || {};
+      const bookIdRaw = pageInfo.book;
+      const bookId = normalizeBookId(bookIdRaw);
+      
+      // Track which book this batch belongs to
+      if (!detectedBook) {
+        detectedBook = bookId;
+        detectedBookRaw = bookIdRaw;
+      }
+      
+      // Track which books we're seeing
+      if (!bookStats[bookId]) {
+        bookStats[bookId] = 0;
+      }
+      bookStats[bookId]++;
+      
+      // Log first stroke from each book for debugging
+      if (bookStats[bookId] === 1) {
+        console.log(`%c📖 First stroke from book B${bookId}`, 'color: #9C27B0; font-weight: bold;', {
+          strokeIndex: index,
+          section: pageInfo.section,
+          owner: pageInfo.owner,
+          book: bookIdRaw,
+          bookType: typeof bookIdRaw,
+          normalizedBook: bookId,
+          page: pageInfo.page,
+          dotCount: stroke.Dots.length
+        });
+      }
+      
       const convertedStroke = {
-        pageInfo: stroke.Dots[0]?.pageInfo || {},
-        startTime: stroke.Dots[0]?.timeStamp || 0,
+        pageInfo: pageInfo,
+        startTime: firstDot?.timeStamp || 0,
         endTime: stroke.Dots[stroke.Dots.length - 1]?.timeStamp || 0,
         dotArray: stroke.Dots.map(d => ({
           x: d.x,
@@ -327,14 +568,70 @@ function handleOfflineDataReceived(data) {
       
       convertedStrokes.push(convertedStroke);
       
-      // Render dots to canvas
-      if (canvasRenderer) {
+      // Skip canvas rendering during batch mode - will update once at the end
+      // Only render in real-time mode
+      if (canvasRenderer && !pendingOfflineTransfer) {
         stroke.Dots.forEach(dot => canvasRenderer.addDot(dot));
+      }
+    } else {
+      skippedCount++;
+      if (skippedCount <= 5) {
+        console.warn(`⚠️ Stroke ${index} has no Dots array (${skippedCount} total skipped so far)`);
       }
     }
   });
   
+  // Log final skipped count if more than 5
+  if (skippedCount > 5) {
+    console.warn(`⚠️ Total strokes skipped (no Dots array): ${skippedCount}`);
+  }
+  
+  console.log('%c📊 Book Statistics:', 'color: #00BCD4; font-weight: bold; font-size: 13px;', bookStats);
+  console.log(`✅ Total converted strokes: ${convertedStrokes.length}${skippedCount > 0 ? ` (${skippedCount} skipped)` : ''}`);
+  
+  // Debug: Log comparison values
+  console.log('%c🔍 Transfer Matching Debug:', 'color: #FF5722; font-weight: bold;', {
+    detectedBook,
+    detectedBookRaw,
+    detectedBookType: typeof detectedBookRaw,
+    pendingOfflineTransfer,
+    pendingType: typeof pendingOfflineTransfer,
+    match: detectedBook === pendingOfflineTransfer
+  });
+  
   // Add all strokes to store
   addOfflineStrokes(convertedStrokes);
-  log(`Received ${convertedStrokes.length} offline strokes`, 'success');
+  log(`Received ${convertedStrokes.length} offline strokes from ${Object.keys(bookStats).length} book(s)`, 'success');
+  console.log('%c===== END OFFLINE DATA PROCESSING =====', 'background: #FF9800; color: white; font-size: 14px; padding: 4px;');
+  
+  // Track progress toward expected stroke count
+  // Use normalized IDs for comparison
+  if (detectedBook && pendingOfflineTransfer && detectedBook === pendingOfflineTransfer) {
+    const currentCount = receivedStrokesForBook.get(detectedBook) || 0;
+    const newCount = currentCount + convertedStrokes.length;
+    receivedStrokesForBook.set(detectedBook, newCount);
+    
+    const expected = expectedStrokesForBook.get(detectedBook);
+    if (expected) {
+      console.log(`📊 Book ${detectedBook} progress: ${newCount}/${expected} strokes (${Math.round(newCount/expected*100)}%)`);
+      
+      // Resolve when we've received all expected strokes
+      if (newCount >= expected && offlineTransferResolver) {
+        console.log(`🎯 Transfer complete for book ${detectedBook}! (received ${newCount} of ${expected} expected)`);
+        offlineTransferResolver({ complete: true, received: newCount, expected });
+      }
+    } else {
+      // No expected count - we'll rely on idle detection to complete
+      console.log(`📋 Received ${convertedStrokes.length} strokes for book ${detectedBook} (no expected count - will complete via idle detection)`);
+    }
+  } else if (detectedBook && pendingOfflineTransfer && detectedBook !== pendingOfflineTransfer) {
+    // This is a problem - data doesn't match what we're waiting for
+    console.warn('%c⚠️ BOOK ID MISMATCH!', 'background: #f44336; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold;');
+    console.warn(`   Received data for book: ${detectedBook} (raw: ${detectedBookRaw}, type: ${typeof detectedBookRaw})`);
+    console.warn(`   But waiting for book: ${pendingOfflineTransfer} (type: ${typeof pendingOfflineTransfer})`);
+    console.warn(`   Data was still added to store - but transfer tracking may be broken`);
+    
+    // Even though there's a mismatch, data was received, so update the idle timer
+    // The idle detection will eventually complete the transfer
+  }
 }

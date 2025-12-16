@@ -209,13 +209,25 @@ export class CanvasRenderer {
     
     if (strokes.length === 0) return;
     
-    // Group strokes by page
+    // Group strokes by page (using full key to match pages store)
     const pageGroups = new Map();
     strokes.forEach(stroke => {
       const pageInfo = stroke.pageInfo;
-      if (!pageInfo) return;
       
-      const pageKey = `B${pageInfo.book}/P${pageInfo.page}`;
+      // Handle strokes without pageInfo or with incomplete pageInfo
+      if (!pageInfo || pageInfo.book === undefined || pageInfo.page === undefined) {
+        console.warn('Stroke missing valid pageInfo:', stroke);
+        // Use a default page for strokes without pageInfo
+        const fallbackKey = 'S0/O0/B0/P0';
+        if (!pageGroups.has(fallbackKey)) {
+          pageGroups.set(fallbackKey, []);
+        }
+        pageGroups.get(fallbackKey).push(stroke);
+        return;
+      }
+      
+      // Use full key format to match pages store: S{section}/O{owner}/B{book}/P{page}
+      const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${pageInfo.book}/P${pageInfo.page}`;
       if (!pageGroups.has(pageKey)) {
         pageGroups.set(pageKey, []);
       }
@@ -277,6 +289,8 @@ export class CanvasRenderer {
     // Update global bounds with baseline offset
     this.bounds.minY = 0;
     this.bounds.maxY = globalMaxY - globalMinY;
+    
+    console.log('Page offsets calculated:', Array.from(this.pageOffsets.keys()));
   }
   
   /**
@@ -346,7 +360,7 @@ export class CanvasRenderer {
   /**
    * Convert ncode coordinates to screen coordinates with zoom, pan, and page offset
    * @param {Object} dot - Dot with x, y coordinates
-   * @param {Object} pageInfo - Page information (book, page) to determine offset
+   * @param {Object} pageInfo - Page information (section, owner, book, page) to determine offset
    */
   ncodeToScreen(dot, pageInfo = null) {
     let x, y;
@@ -357,7 +371,8 @@ export class CanvasRenderer {
     let pageBounds = this.bounds;
     
     if (pageInfo && this.pageOffsets.size > 0) {
-      const pageKey = `B${pageInfo.book}/P${pageInfo.page}`;
+      // Use full key format to match pages store
+      const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${pageInfo.book}/P${pageInfo.page}`;
       const pageOffset = this.pageOffsets.get(pageKey);
       
       if (pageOffset) {
