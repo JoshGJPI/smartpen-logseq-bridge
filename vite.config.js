@@ -39,6 +39,7 @@ function nprojPlugin() {
 }
 
 export default defineConfig({
+  base: '/smartpen-logseq-bridge/',
   plugins: [
     nprojPlugin(),
     svelte()

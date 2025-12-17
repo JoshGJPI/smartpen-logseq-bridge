@@ -2,6 +2,19 @@
 
 A bridge application for syncing handwritten notes from NeoSmartpen (Lamy Safari) to LogSeq, featuring handwriting recognition via MyScript.
 
+## 🚀 Live Demo
+
+**Try it now:** [https://yourusername.github.io/smartpen-logseq-bridge/](https://yourusername.github.io/smartpen-logseq-bridge/)
+
+> **Note:** Replace `yourusername` with your actual GitHub username once deployed.
+
+### Quick Start (No Installation Required)
+1. Open the live demo in **Chrome or Edge browser** (required for Web Bluetooth)
+2. Click **Connect Pen** and pair your Lamy smartpen
+3. Write on Ncode paper and watch strokes appear in real-time
+4. For transcription, you'll need your own MyScript API keys (free tier available)
+5. For LogSeq integration, ensure LogSeq desktop app is running locally with HTTP API enabled
+
 ## Features
 
 ### Core Features
@@ -27,31 +40,47 @@ A bridge application for syncing handwritten notes from NeoSmartpen (Lamy Safari
 
 ## Prerequisites
 
+### For Using the Live Demo
 1. **Chrome or Edge browser** (Firefox doesn't support Web Bluetooth)
-2. **Node.js 18+** installed
+2. **HTTPS connection** (provided automatically by GitHub Pages)
 3. **NeoSmartpen** with Bluetooth capability (Lamy Safari / NWP-F80 tested)
 4. **Ncode paper** for the pen to track positions
-5. **LogSeq desktop app** with HTTP API enabled (optional)
+5. **LogSeq desktop app** with HTTP API enabled (optional, for integration)
 6. **MyScript Developer Account** for handwriting recognition (free tier: 2,000 requests/month)
+
+### For Local Development
+1. **Chrome or Edge browser** (Firefox doesn't support Web Bluetooth)
+2. **Node.js 18+** installed
+3. All of the above items from "Using the Live Demo"
 
 ## Setup
 
-### 1. Install Dependencies
+### Option 1: Use the Live Demo (Recommended for Most Users)
+
+Simply visit [https://yourusername.github.io/smartpen-logseq-bridge/](https://yourusername.github.io/smartpen-logseq-bridge/) in Chrome or Edge. No installation required!
+
+Skip to **Step 3** below to configure MyScript API keys.
+
+### Option 2: Run Locally
+
+#### 1. Install Dependencies
 
 ```bash
 cd smartpen-logseq-bridge
 npm install
 ```
 
-### 2. Start the Development Server
+#### 2. Start the Development Server
 
 ```bash
 npm run dev
 ```
 
-This opens the app at `http://localhost:5173`
+This opens the app at `http://localhost:3000` (configured in vite.config.js)
 
-### 3. Configure MyScript API
+> **Note:** Local development must use `localhost` (not `127.0.0.1`) for Web Bluetooth to work properly.
+
+#### 3. Configure MyScript API
 
 1. Create an account at [MyScript Developer](https://developer.myscript.com/)
 2. Create a new application
@@ -287,6 +316,68 @@ smartpen-logseq-bridge/
 - This can happen with common short words ("the", "and", "1")
 - The app trusts MyScript's line detection, which is generally accurate
 - Future versions will add interactive line adjustment
+
+## Deployment
+
+### Deploy to GitHub Pages
+
+The app is configured for automatic deployment to GitHub Pages using GitHub Actions.
+
+#### Initial Setup
+
+1. **Push your repository to GitHub** (if not already done):
+   ```bash
+   git add .
+   git commit -m "Add GitHub Pages deployment"
+   git push origin main
+   ```
+
+2. **Enable GitHub Pages in repository settings**:
+   - Go to your repository on GitHub
+   - Navigate to **Settings** → **Pages**
+   - Under "Source", select **GitHub Actions** (not "Deploy from a branch")
+   - Save the changes
+
+3. **Wait for deployment** (2-3 minutes):
+   - Go to the **Actions** tab in your repository
+   - Watch the "Deploy to GitHub Pages" workflow run
+   - Once complete, your app will be live!
+
+4. **Access your deployed app**:
+   - Visit `https://yourusername.github.io/smartpen-logseq-bridge/`
+   - Replace `yourusername` with your actual GitHub username
+
+#### Automatic Updates
+
+After the initial setup, every push to the `main` branch will automatically trigger a new deployment. No manual intervention needed!
+
+#### Manual Deployment
+
+You can also manually trigger a deployment:
+- Go to **Actions** tab in your repository
+- Select the "Deploy to GitHub Pages" workflow
+- Click **Run workflow**
+- Choose the branch (usually `main`)
+- Click **Run workflow**
+
+#### Local Preview of Production Build
+
+Before deploying, you can test the production build locally:
+
+```bash
+npm run build
+npm run preview
+```
+
+This will build and serve the app exactly as it will appear on GitHub Pages.
+
+### Important Notes for GitHub Pages Deployment
+
+- **HTTPS is automatic**: GitHub Pages provides HTTPS by default, which is required for Web Bluetooth
+- **Base path is configured**: The app is configured to work at `/smartpen-logseq-bridge/` path
+- **LogSeq must be local**: Users will need LogSeq running locally with HTTP API enabled
+- **MyScript keys**: Users should use their own MyScript API keys for production use
+- **Browser requirements**: Only Chrome and Edge support Web Bluetooth
 
 ## Roadmap
 
