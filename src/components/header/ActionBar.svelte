@@ -24,9 +24,10 @@
     getLogseqSettings,
     hasTranscription,
     hasPageTranscriptions,
-    lastTranscription
+    lastTranscription,
+    transferProgress
   } from '$stores';
-  import { connectPen, disconnectPen, fetchOfflineData } from '$lib/pen-sdk.js';
+  import { connectPen, disconnectPen, fetchOfflineData, cancelOfflineTransfer } from '$lib/pen-sdk.js';
   import { transcribeStrokes } from '$lib/myscript-api.js';
   import { updatePageStrokes, updatePageTranscription } from '$lib/logseq-api.js';
   import {
@@ -289,6 +290,31 @@
 </script>
 
 <div class="action-bar">
+  <!-- Transfer Progress Popup -->
+  {#if $transferProgress.active}
+    <div class="transfer-popup">
+      <div class="transfer-header">
+        <span>📥 Importing Offline Data</span>
+        {#if $transferProgress.canCancel}
+          <button class="cancel-btn" on:click={cancelOfflineTransfer} title="Cancel transfer">✕</button>
+        {/if}
+      </div>
+      <div class="transfer-bar">
+        <div class="transfer-fill indeterminate"></div>
+      </div>
+      <div class="transfer-stats">
+        <span>
+          {#if $transferProgress.currentBook > 0}
+            Book {$transferProgress.currentBook}/{$transferProgress.totalBooks}, {$transferProgress.receivedStrokes} strokes
+          {:else}
+            {$transferProgress.status === 'requesting' ? 'Requesting...' : 'Waiting...'}
+          {/if}
+        </span>
+        <span>{$transferProgress.elapsedSeconds}s</span>
+      </div>
+    </div>
+  {/if}
+
   {#if !$penConnected}
     <button 
       class="action-btn connect-btn" 
@@ -321,7 +347,7 @@
   <button 
     class="action-btn"
     on:click={handleFetchOffline}
-    disabled={!$penConnected || !$penAuthorized || isFetchingOffline}
+    disabled={!$penConnected || !$penAuthorized || isFetchingOffline || $transferProgress.active}
     title="Fetch offline notes from pen memory"
   >
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -329,7 +355,7 @@
       <polyline points="7 10 12 15 17 10"/>
       <line x1="12" y1="15" x2="12" y2="3"/>
     </svg>
-    {#if isFetchingOffline}
+    {#if isFetchingOffline || $transferProgress.active}
       Fetching...
     {:else}
       Fetch Notes
@@ -386,6 +412,7 @@
     display: flex;
     gap: 8px;
     align-items: center;
+    position: relative;
   }
 
   .action-btn {
@@ -474,5 +501,80 @@
     .action-btn svg {
       margin: 0;
     }
+  }
+
+  /* Transfer Progress Popup */
+  .transfer-popup {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    padding: 12px 16px;
+    min-width: 280px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    z-index: 100;
+  }
+
+  .transfer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: 0.9rem;
+    font-weight: 500;
+  }
+
+  .cancel-btn {
+    background: var(--error);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 2px 8px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: background 0.2s;
+  }
+
+  .cancel-btn:hover {
+    background: #dc2626;
+  }
+
+  .transfer-bar {
+    height: 8px;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+
+  .transfer-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--success), #22c55e);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+  }
+
+  .transfer-fill.indeterminate {
+    width: 30% !important;
+    animation: transfer-indeterminate 1.5s infinite ease-in-out;
+  }
+
+  @keyframes transfer-indeterminate {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(400%); }
+  }
+
+  .transfer-stats {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+  }
+
+  .transfer-stats span:first-child {
+    color: var(--success);
   }
 </style>

@@ -16,11 +16,9 @@ export const penController = writable(null);
 // Offline transfer progress
 export const transferProgress = writable({
   active: false,
-  currentBook: null,
-  currentBookIndex: 0,
-  totalBooks: 0,
-  expectedStrokes: 0,
-  receivedStrokes: 0,
+  currentBook: 0,           // Current book number (1-indexed for display)
+  totalBooks: 0,            // Total books to import
+  receivedStrokes: 0,       // Running total of strokes
   elapsedSeconds: 0,
   status: '', // 'requesting', 'receiving', 'processing', 'complete', 'error'
   canCancel: false
@@ -45,11 +43,9 @@ export const penMemory = derived(penInfo, $info => {
   return `${$info.UsedMem || 0}%`;
 });
 
-// Derived: Transfer percentage
-export const transferPercent = derived(transferProgress, $progress => {
-  if (!$progress.active || $progress.expectedStrokes === 0) return 0;
-  return Math.min(100, Math.round(($progress.receivedStrokes / $progress.expectedStrokes) * 100));
-});
+// Derived: Transfer percentage - no longer used since we don't have expected counts
+// Keeping for backwards compatibility but always returns 0
+export const transferPercent = derived(transferProgress, $progress => 0);
 
 /**
  * Set pen connected state
@@ -102,10 +98,8 @@ export function updateTransferProgress(updates) {
 export function resetTransferProgress() {
   transferProgress.set({
     active: false,
-    currentBook: null,
-    currentBookIndex: 0,
+    currentBook: 0,
     totalBooks: 0,
-    expectedStrokes: 0,
     receivedStrokes: 0,
     elapsedSeconds: 0,
     status: '',

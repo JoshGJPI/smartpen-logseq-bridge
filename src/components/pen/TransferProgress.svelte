@@ -1,5 +1,5 @@
 <script>
-  import { transferProgress, transferPercent } from '$stores';
+  import { transferProgress } from '$stores';
   import { cancelOfflineTransfer } from '$lib/pen-sdk.js';
   
   function handleCancel() {
@@ -9,10 +9,10 @@
   // Format status for display
   function getStatusText(status) {
     switch (status) {
-      case 'requesting': return 'Requesting data...';
+      case 'requesting': return 'Requesting...';
       case 'receiving': return 'Receiving strokes...';
       case 'processing': return 'Processing...';
-      case 'waiting': return 'Preparing next book...';
+      case 'waiting': return 'Preparing next...';
       case 'complete': return 'Complete!';
       case 'cancelled': return 'Cancelled';
       case 'error': return 'Error';
@@ -34,35 +34,18 @@
       {/if}
     </div>
     
-    <div class="progress-info">
-      <span class="book-info">
-        Book {$transferProgress.currentBookIndex}/{$transferProgress.totalBooks}
-        {#if $transferProgress.currentBook}
-          ({$transferProgress.currentBook})
-        {/if}
-      </span>
-      <span class="status">{getStatusText($transferProgress.status)}</span>
-    </div>
-    
     <div class="progress-bar-container">
-      <div 
-        class="progress-bar" 
-        class:indeterminate={$transferProgress.expectedStrokes === 0}
-        style="width: {$transferPercent}%"
-      ></div>
+      <div class="progress-bar indeterminate"></div>
     </div>
     
     <div class="progress-stats">
-      {#if $transferProgress.expectedStrokes > 0}
-        <span class="strokes">
-          {$transferProgress.receivedStrokes} / {$transferProgress.expectedStrokes} strokes
-          ({$transferPercent}%)
-        </span>
-      {:else if $transferProgress.receivedStrokes > 0}
-        <span class="strokes">
-          {$transferProgress.receivedStrokes} strokes received
-        </span>
-      {/if}
+      <span class="info">
+        {#if $transferProgress.currentBook > 0}
+          Book {$transferProgress.currentBook}/{$transferProgress.totalBooks}, {$transferProgress.receivedStrokes} strokes
+        {:else}
+          {getStatusText($transferProgress.status)}
+        {/if}
+      </span>
       <span class="elapsed">
         {$transferProgress.elapsedSeconds}s
       </span>
@@ -107,21 +90,6 @@
     background: #c82333;
   }
   
-  .progress-info {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 8px;
-    font-size: 0.85rem;
-  }
-  
-  .book-info {
-    color: #88ccff;
-  }
-  
-  .status {
-    color: #aaa;
-  }
-  
   .progress-bar-container {
     height: 8px;
     background: #333;
@@ -158,7 +126,7 @@
     color: #888;
   }
   
-  .strokes {
+  .info {
     color: #4CAF50;
   }
   
