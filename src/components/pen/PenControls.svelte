@@ -2,8 +2,9 @@
   PenControls.svelte - Pen connection buttons and offline data fetch
 -->
 <script>
-  import { penConnected, penAuthorized, log, clearStrokes, addOfflineStrokes } from '$stores';
+  import { penConnected, penAuthorized, transferProgress, log, clearStrokes, addOfflineStrokes } from '$stores';
   import { connectPen, disconnectPen, fetchOfflineData } from '$lib/pen-sdk.js';
+  import TransferProgress from './TransferProgress.svelte';
   
   let isConnecting = false;
   let isFetchingOffline = false;
@@ -66,6 +67,7 @@
     <button 
       class="btn btn-secondary" 
       on:click={handleDisconnect}
+      disabled={$transferProgress.active}
     >
       Disconnect
     </button>
@@ -74,9 +76,9 @@
   <button 
     class="btn btn-secondary" 
     on:click={handleFetchOffline}
-    disabled={!$penConnected || !$penAuthorized || isFetchingOffline}
+    disabled={!$penConnected || !$penAuthorized || isFetchingOffline || $transferProgress.active}
   >
-    {#if isFetchingOffline}
+    {#if isFetchingOffline || $transferProgress.active}
       Fetching...
     {:else}
       📥 Fetch Stored Notes
@@ -86,9 +88,13 @@
   <button 
     class="btn btn-secondary" 
     on:click={handleClearCanvas}
+    disabled={$transferProgress.active}
   >
     🗑️ Clear Canvas
   </button>
+  
+  <!-- Transfer Progress Bar -->
+  <TransferProgress />
 </div>
 
 <style>

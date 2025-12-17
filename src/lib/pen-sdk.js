@@ -17,7 +17,9 @@ import {
   setPenAuthorized, 
   setPenInfo, 
   setPenController,
-  penController 
+  penController,
+  updateTransferProgress,
+  resetTransferProgress
 } from '$stores/pen.js';
 import { log } from '$stores/ui.js';
 
@@ -300,6 +302,30 @@ let expectedStrokesForBook = new Map(); // book (string) -> expected stroke coun
 let receivedStrokesForBook = new Map(); // book (string) -> received stroke count
 let lastDataReceivedTime = null;  // Track when last data chunk arrived
 let dataReceivedForCurrentTransfer = false;  // Track if we've received ANY data
+let transferStartTime = null; // Track when transfer started for timing info
+let transferCancelled = false; // Flag to cancel transfer
+let elapsedTimerInterval = null; // Timer to update elapsed seconds
+
+// Configuration for timeouts (can be adjusted based on experience)
+const TRANSFER_CONFIG = {
+  IDLE_TIMEOUT_MS: 10000,      // 10 seconds of no data = complete (no global timeout!)
+  IDLE_CHECK_INTERVAL_MS: 1000, // Check idle status every second
+  INTER_BOOK_DELAY_MS: 1000,   // Wait 1 second between books
+};
+
+/**
+ * Cancel the current offline transfer
+ * @returns {boolean} True if a transfer was cancelled
+ */
+export function cancelOfflineTransfer() {
+  if (pendingOfflineTransfer && offlineTransferResolver) {
+    console.log('%c❌ Transfer cancelled by user', 'background: #f44336; color: white; padding: 2px 6px; border-radius: 3px;');
+    transferCancelled = true;
+    offlineTransferResolver({ cancelled: true });
+    return true;
+  }
+  return false;
+}
 
 /**
  * Normalize book ID to string for consistent comparison
@@ -329,6 +355,12 @@ function handleOfflineDataResponse(args) {
       expectedStrokesForBook.set(pendingOfflineTransfer, strokeCount);
       receivedStrokesForBook.set(pendingOfflineTransfer, 0);
       console.log(`📊 Book ${pendingOfflineTransfer}: Expecting ${strokeCount} strokes (${byteCount || 'unknown'} bytes)`);
+      
+      // Update progress with expected count
+      updateTransferProgress({
+        expectedStrokes: strokeCount,
+        status: 'receiving'
+      });
       
       // If expected count is 0, resolve immediately
       if (strokeCount === 0) {
@@ -379,8 +411,25 @@ async function handleOfflineNoteList(noteList) {
   if (download && controller) {
     console.log('%c📥 Requesting offline data sequentially (waiting for each to complete)...', 'color: #4CAF50; font-weight: bold;');
     
+    // Initialize transfer progress
+    transferCancelled = false;
+    updateTransferProgress({
+      active: true,
+      totalBooks: noteList.length,
+      currentBookIndex: 0,
+      status: 'requesting',
+      canCancel: true
+    });
+    
     // CRITICAL: Request one book at a time and wait for its transfer to complete
     for (let i = 0; i < noteList.length; i++) {
+      // Check for cancellation
+      if (transferCancelled) {
+        console.log('❌ Transfer cancelled - stopping');
+        log('Transfer cancelled', 'warning');
+        break;
+      }
+      
       const note = noteList[i];
       const normalizedBookId = normalizeBookId(note.Note);
       
@@ -396,32 +445,46 @@ async function handleOfflineNoteList(noteList) {
       // Reset per-transfer state
       dataReceivedForCurrentTransfer = false;
       lastDataReceivedTime = null;
+      transferStartTime = Date.now();
+      
+      // Update progress for this book
+      updateTransferProgress({
+        currentBook: `B${normalizedBookId}`,
+        currentBookIndex: i + 1,
+        expectedStrokes: 0,
+        receivedStrokes: 0,
+        elapsedSeconds: 0,
+        status: 'requesting'
+      });
+      
+      // Start elapsed timer
+      if (elapsedTimerInterval) clearInterval(elapsedTimerInterval);
+      elapsedTimerInterval = setInterval(() => {
+        if (transferStartTime) {
+          updateTransferProgress({
+            elapsedSeconds: Math.round((Date.now() - transferStartTime) / 1000)
+          });
+        }
+      }, 1000);
       
       // Create a promise that resolves when this transfer completes
       const transferComplete = new Promise((resolve, reject) => {
-        pendingOfflineTransfer = normalizedBookId; // Use normalized ID
+        pendingOfflineTransfer = normalizedBookId;
         offlineTransferResolver = resolve;
         
         // Enable batch mode to pause canvas updates during import
         startBatchMode();
         console.log(`📊 Batch mode enabled for book ${normalizedBookId}`);
         
-        // Timeout after 30 seconds
-        const timeoutId = setTimeout(() => {
-          if (pendingOfflineTransfer === normalizedBookId) {
-            // Check if we received ANY data - if so, consider it a success
-            if (dataReceivedForCurrentTransfer) {
-              console.log(`⏰ Transfer timeout for book ${normalizedBookId}, but data was received - considering complete`);
-              resolve({ timedOutWithData: true });
-            } else {
-              console.warn(`⏰ Transfer timeout for book ${normalizedBookId} - no data received`);
-              reject(new Error(`Transfer timeout for book ${normalizedBookId}`));
-            }
-          }
-        }, 30000);
-        
-        // Also set up a "data idle" check - if no new data for 3 seconds after receiving some, consider complete
+        // Only use idle detection - no global timeout!
+        // Transfer completes when no new data for IDLE_TIMEOUT_MS
         const idleCheckInterval = setInterval(() => {
+          // Check for cancellation
+          if (transferCancelled) {
+            clearInterval(idleCheckInterval);
+            return;
+          }
+          
           if (pendingOfflineTransfer !== normalizedBookId) {
             clearInterval(idleCheckInterval);
             return;
@@ -429,14 +492,23 @@ async function handleOfflineNoteList(noteList) {
           
           if (dataReceivedForCurrentTransfer && lastDataReceivedTime) {
             const idleTime = Date.now() - lastDataReceivedTime;
-            if (idleTime > 3000) {
-              console.log(`📋 No new data for ${Math.round(idleTime/1000)}s - considering transfer complete`);
+            const received = receivedStrokesForBook.get(normalizedBookId) || 0;
+            const expected = expectedStrokesForBook.get(normalizedBookId);
+            
+            // Log progress periodically (every 2-3 seconds of idle)
+            if (idleTime > 2000 && idleTime < 3000) {
+              const elapsed = Math.round((Date.now() - transferStartTime) / 1000);
+              console.log(`📊 Transfer status: ${received}${expected ? `/${expected}` : ''} strokes, ${elapsed}s elapsed, idle ${Math.round(idleTime/1000)}s`);
+            }
+            
+            if (idleTime > TRANSFER_CONFIG.IDLE_TIMEOUT_MS) {
+              const elapsed = Math.round((Date.now() - transferStartTime) / 1000);
+              console.log(`📋 No new data for ${Math.round(idleTime/1000)}s - considering transfer complete (${received} strokes in ${elapsed}s)`);
               clearInterval(idleCheckInterval);
-              clearTimeout(timeoutId);
-              resolve({ idleTimeout: true });
+              resolve({ idleTimeout: true, received, elapsed });
             }
           }
-        }, 1000);
+        }, TRANSFER_CONFIG.IDLE_CHECK_INTERVAL_MS);
       });
       
       // Request the data
@@ -452,14 +524,22 @@ async function handleOfflineNoteList(noteList) {
       try {
         const result = await transferComplete;
         
-        if (result?.failed) {
+        // Stop elapsed timer
+        if (elapsedTimerInterval) {
+          clearInterval(elapsedTimerInterval);
+          elapsedTimerInterval = null;
+        }
+        
+        if (result?.cancelled) {
+          console.log(`❌ Book ${normalizedBookId} transfer was cancelled`);
+          updateTransferProgress({ status: 'cancelled' });
+        } else if (result?.failed) {
           console.error(`❌ Book ${normalizedBookId} transfer reported failure`);
+          updateTransferProgress({ status: 'error' });
         } else if (result?.empty) {
           console.log(`📋 Book ${normalizedBookId} was empty`);
-        } else if (result?.timedOutWithData) {
-          console.log(`⚠️ Book ${normalizedBookId} timed out but had data`);
         } else if (result?.idleTimeout) {
-          console.log(`✅ Book ${normalizedBookId} completed via idle detection`);
+          console.log(`✅ Book ${normalizedBookId} completed via idle detection (${result.received} strokes)`);
         } else {
           console.log(`✅ Book ${normalizedBookId} transfer completed normally`);
         }
@@ -472,15 +552,25 @@ async function handleOfflineNoteList(noteList) {
         expectedStrokesForBook.delete(normalizedBookId);
         receivedStrokesForBook.delete(normalizedBookId);
         
-        // Small delay to ensure canvas update completes before next request
-        if (i < noteList.length - 1) {
-          console.log('⏳ Waiting 500ms before next request...');
-          await new Promise(resolve => setTimeout(resolve, 500));
+        // Longer delay between books to ensure BLE connection stabilizes
+        if (i < noteList.length - 1 && !transferCancelled) {
+          updateTransferProgress({ status: 'waiting' });
+          console.log(`⏳ Waiting ${TRANSFER_CONFIG.INTER_BOOK_DELAY_MS}ms before next request...`);
+          await new Promise(resolve => setTimeout(resolve, TRANSFER_CONFIG.INTER_BOOK_DELAY_MS));
         }
       } catch (error) {
         console.error(`❌ Transfer failed for book ${normalizedBookId}:`, error);
+        
+        // Stop elapsed timer
+        if (elapsedTimerInterval) {
+          clearInterval(elapsedTimerInterval);
+          elapsedTimerInterval = null;
+        }
+        
         // Disable batch mode even on failure
         endBatchMode();
+        updateTransferProgress({ status: 'error' });
+        
         // Clean up even on failure
         expectedStrokesForBook.delete(normalizedBookId);
         receivedStrokesForBook.delete(normalizedBookId);
@@ -488,10 +578,19 @@ async function handleOfflineNoteList(noteList) {
       }
     }
     
+    // Reset transfer state
     pendingOfflineTransfer = null;
     offlineTransferResolver = null;
     dataReceivedForCurrentTransfer = false;
     lastDataReceivedTime = null;
+    transferCancelled = false;
+    
+    // Clear progress after a short delay so user can see "complete" status
+    updateTransferProgress({ status: 'complete', canCancel: false });
+    setTimeout(() => {
+      resetTransferProgress();
+    }, 2000);
+    
     console.log('✅ All offline data transfers completed');
   } else {
     console.log('❌ Download cancelled by user');
@@ -500,7 +599,12 @@ async function handleOfflineNoteList(noteList) {
 }
 
 function handleOfflineDataReceived(data) {
+  const receiveTime = Date.now();
+  const timeSinceStart = transferStartTime ? Math.round((receiveTime - transferStartTime) / 1000) : 0;
+  const timeSinceLast = lastDataReceivedTime ? Math.round((receiveTime - lastDataReceivedTime) / 1000) : 0;
+  
   console.log('%c===== OFFLINE DATA RECEIVED =====', 'background: #FF9800; color: white; font-size: 14px; padding: 4px;');
+  console.log(`⏱️ Timing: ${timeSinceStart}s since start${timeSinceLast > 0 ? `, ${timeSinceLast}s since last chunk` : ''}`);
   console.log('📦 Raw data type:', Array.isArray(data) ? 'array' : typeof data);
   console.log('📦 Raw data length:', Array.isArray(data) ? data.length : 'N/A');
   
@@ -601,7 +705,10 @@ function handleOfflineDataReceived(data) {
   
   // Add all strokes to store
   addOfflineStrokes(convertedStrokes);
-  log(`Received ${convertedStrokes.length} offline strokes from ${Object.keys(bookStats).length} book(s)`, 'success');
+  
+  const elapsed = transferStartTime ? Math.round((Date.now() - transferStartTime) / 1000) : 0;
+  const rate = elapsed > 0 ? Math.round(convertedStrokes.length / elapsed) : convertedStrokes.length;
+  log(`Received ${convertedStrokes.length} strokes from ${Object.keys(bookStats).length} book(s) (${elapsed}s, ~${rate} strokes/sec)`, 'success');
   console.log('%c===== END OFFLINE DATA PROCESSING =====', 'background: #FF9800; color: white; font-size: 14px; padding: 4px;');
   
   // Track progress toward expected stroke count
@@ -610,6 +717,12 @@ function handleOfflineDataReceived(data) {
     const currentCount = receivedStrokesForBook.get(detectedBook) || 0;
     const newCount = currentCount + convertedStrokes.length;
     receivedStrokesForBook.set(detectedBook, newCount);
+    
+    // Update progress store
+    updateTransferProgress({
+      receivedStrokes: newCount,
+      status: 'receiving'
+    });
     
     const expected = expectedStrokesForBook.get(detectedBook);
     if (expected) {

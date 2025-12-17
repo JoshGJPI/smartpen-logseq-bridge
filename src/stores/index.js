@@ -42,10 +42,14 @@ export {
   penReady,
   penBattery,
   penMemory,
+  transferProgress,
+  transferPercent,
   setPenConnected,
   setPenAuthorized,
   setPenInfo,
-  setPenController
+  setPenController,
+  updateTransferProgress,
+  resetTransferProgress
 } from './pen.js';
 
 // Transcription

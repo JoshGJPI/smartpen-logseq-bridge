@@ -13,6 +13,19 @@ export const penInfo = writable(null);
 // Pen controller reference (for SDK calls)
 export const penController = writable(null);
 
+// Offline transfer progress
+export const transferProgress = writable({
+  active: false,
+  currentBook: null,
+  currentBookIndex: 0,
+  totalBooks: 0,
+  expectedStrokes: 0,
+  receivedStrokes: 0,
+  elapsedSeconds: 0,
+  status: '', // 'requesting', 'receiving', 'processing', 'complete', 'error'
+  canCancel: false
+});
+
 // Derived: Can we use the pen?
 export const penReady = derived(
   [penConnected, penAuthorized],
@@ -30,6 +43,12 @@ export const penBattery = derived(penInfo, $info => {
 export const penMemory = derived(penInfo, $info => {
   if (!$info) return null;
   return `${$info.UsedMem || 0}%`;
+});
+
+// Derived: Transfer percentage
+export const transferPercent = derived(transferProgress, $progress => {
+  if (!$progress.active || $progress.expectedStrokes === 0) return 0;
+  return Math.min(100, Math.round(($progress.receivedStrokes / $progress.expectedStrokes) * 100));
 });
 
 /**
@@ -67,4 +86,29 @@ export function setPenInfo(info) {
  */
 export function setPenController(controller) {
   penController.set(controller);
+}
+
+/**
+ * Update transfer progress
+ * @param {Object} updates - Partial progress object
+ */
+export function updateTransferProgress(updates) {
+  transferProgress.update(p => ({ ...p, ...updates }));
+}
+
+/**
+ * Reset transfer progress to initial state
+ */
+export function resetTransferProgress() {
+  transferProgress.set({
+    active: false,
+    currentBook: null,
+    currentBookIndex: 0,
+    totalBooks: 0,
+    expectedStrokes: 0,
+    receivedStrokes: 0,
+    elapsedSeconds: 0,
+    status: '',
+    canCancel: false
+  });
 }
