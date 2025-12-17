@@ -140,6 +140,13 @@ function parseMyScriptResponse(response) {
   console.log('Text:', text);
   console.log('Words count:', words.length);
   
+  // Filter words to only those with valid bounding boxes
+  const wordsWithBounds = words.filter(w => w && w['bounding-box'] && 
+    typeof w['bounding-box'].x === 'number' && 
+    typeof w['bounding-box'].y === 'number');
+  
+  console.log('Words with valid bounding boxes:', wordsWithBounds.length);
+  
   // Split by MyScript's line breaks
   const labelLines = text.split('\n').filter(l => l.trim());
   console.log('Label lines:', labelLines);
@@ -153,11 +160,11 @@ function parseMyScriptResponse(response) {
     const lineWords = [];
     const lineTextWords = lineText.split(/\s+/).filter(w => w.length > 0);
     
-    // Try to find matching words in the words array
+    // Try to find matching words in the words array (only those with bounding boxes)
     let searchStart = 0;
     for (const textWord of lineTextWords) {
-      for (let i = searchStart; i < words.length; i++) {
-        const word = words[i];
+      for (let i = searchStart; i < wordsWithBounds.length; i++) {
+        const word = wordsWithBounds[i];
         if (word && word.label && word.label.toLowerCase() === textWord.toLowerCase()) {
           lineWords.push(word);
           searchStart = i + 1;
@@ -171,16 +178,19 @@ function parseMyScriptResponse(response) {
     let lineY = lineIdx * 20;
     
     if (lineWords.length > 0) {
-      // Use actual word positions
-      const leftmostWord = lineWords.reduce((left, word) => 
-        !left || word['bounding-box'].x < left['bounding-box'].x ? word : left
-      , null);
+      // Use actual word positions - all words in lineWords have valid bounding boxes
+      const leftmostWord = lineWords.reduce((left, word) => {
+        if (!left) return word;
+        return word['bounding-box'].x < left['bounding-box'].x ? word : left;
+      }, null);
       
-      lineX = leftmostWord['bounding-box'].x;
-      lineY = leftmostWord['bounding-box'].y;
-    } else if (words.length > 0) {
-      // Estimate position based on line index
-      lineX = Math.min(...words.map(w => w['bounding-box'].x));
+      if (leftmostWord && leftmostWord['bounding-box']) {
+        lineX = leftmostWord['bounding-box'].x;
+        lineY = leftmostWord['bounding-box'].y;
+      }
+    } else if (wordsWithBounds.length > 0) {
+      // Estimate position based on first word with bounds and line index
+      lineX = Math.min(...wordsWithBounds.map(w => w['bounding-box'].x));
       lineY = lineIdx * 20;
     }
     
@@ -198,16 +208,17 @@ function parseMyScriptResponse(response) {
   if (lines.length > 0) {
     // Get all unique X positions and sort them
     const xPositions = [...new Set(lines.map(l => l.x))].sort((a, b) => a - b);
-    const baseX = xPositions[0];
+    const baseX = xPositions[0] || 0;
     
-    // Calculate indent unit from word heights
-    const wordHeights = words
-      .filter(w => w['bounding-box'])
-      .map(w => w['bounding-box'].height);
+    // Calculate indent unit from word heights (using pre-filtered wordsWithBounds)
+    const wordHeights = wordsWithBounds
+      .map(w => w['bounding-box'].height)
+      .filter(h => typeof h === 'number' && h > 0);
     const medianHeight = wordHeights.length > 0 
       ? wordHeights.sort((a, b) => a - b)[Math.floor(wordHeights.length / 2)]
       : 20;
-    const indentUnit = medianHeight * 0.75; // More sensitive to smaller indents
+    // Ensure indent unit is reasonable (minimum 5 pixels to avoid division issues)
+    const indentUnit = Math.max(medianHeight * 0.75, 5);
     
     console.log('Base X:', baseX, 'Indent unit:', indentUnit);
     console.log('X positions:', xPositions);
