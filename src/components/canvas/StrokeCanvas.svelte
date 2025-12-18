@@ -397,11 +397,11 @@
   
   // Zoom controls
   function zoomIn() {
-    setCanvasZoom($canvasZoom + 0.25);
+    setCanvasZoom($canvasZoom + 0.5);
   }
   
   function zoomOut() {
-    setCanvasZoom($canvasZoom - 0.25);
+    setCanvasZoom($canvasZoom - 0.5);
   }
   
   function fitContent() {

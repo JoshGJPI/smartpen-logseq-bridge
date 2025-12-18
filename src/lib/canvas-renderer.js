@@ -29,7 +29,7 @@ export class CanvasRenderer {
     
     // Page-based layout
     this.pageOffsets = new Map(); // Map of "B{book}/P{page}" -> {offsetX, offsetY, bounds}
-    this.pageSpacing = 50; // mm between pages
+    this.pageSpacing = 20; // mm between pages
     
     this.viewWidth = 0;
     this.viewHeight = 0;
