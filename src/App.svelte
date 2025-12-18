@@ -9,6 +9,9 @@
   import Header from './components/layout/Header.svelte';
   import LeftPanel from './components/layout/LeftPanel.svelte';
   
+  // Dialog components
+  import BookSelectionDialog from './components/dialog/BookSelectionDialog.svelte';
+  
   // Canvas components
   import StrokeCanvas from './components/canvas/StrokeCanvas.svelte';
   
@@ -37,6 +40,9 @@
       <StrokeCanvas />
     </div>
   </main>
+  
+  <!-- Dialogs -->
+  <BookSelectionDialog />
 </div>
 
 <style>

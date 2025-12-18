@@ -21,7 +21,7 @@ import {
   updateTransferProgress,
   resetTransferProgress
 } from '$stores/pen.js';
-import { log } from '$stores/ui.js';
+import { log, openBookSelectionDialog } from '$stores/ui.js';
 
 // Local state for tracking current stroke
 let currentStrokeData = null;
@@ -397,9 +397,16 @@ async function handleOfflineNoteList(noteList) {
     PageCount: n.PageCount
   })));
   
-  const download = confirm(`Found offline notes:\n${noteInfo}\n\nDownload all?`);
+  // Show book selection dialog
+  let selectedBooks;
+  try {
+    selectedBooks = await openBookSelectionDialog(noteList);
+  } catch (error) {
+    console.log('❌ Download cancelled by user');
+    return;
+  }
   
-  if (download && controller) {
+  if (selectedBooks && selectedBooks.length > 0 && controller) {
     console.log('%c📥 Requesting offline data sequentially (waiting for each to complete)...', 'color: #4CAF50; font-weight: bold;');
     
     // Initialize transfer progress
@@ -410,7 +417,7 @@ async function handleOfflineNoteList(noteList) {
     updateTransferProgress({
       active: true,
       currentBook: 0,
-      totalBooks: noteList.length,
+      totalBooks: selectedBooks.length,
       receivedStrokes: 0,
       elapsedSeconds: 0,
       status: 'requesting',
@@ -428,7 +435,7 @@ async function handleOfflineNoteList(noteList) {
     }, 1000);
     
     // CRITICAL: Request one book at a time and wait for its transfer to complete
-    for (let i = 0; i < noteList.length; i++) {
+    for (let i = 0; i < selectedBooks.length; i++) {
       // Check for cancellation
       if (transferCancelled) {
         console.log('❌ Transfer cancelled - stopping');
@@ -436,10 +443,10 @@ async function handleOfflineNoteList(noteList) {
         break;
       }
       
-      const note = noteList[i];
+      const note = selectedBooks[i];
       const normalizedBookId = normalizeBookId(note.Note);
       
-      console.log(`%c📖 Requesting note ${i + 1}/${noteList.length}: S${note.Section}/O${note.Owner}/B${normalizedBookId}`, 'color: #2196F3; font-weight: bold;', {
+      console.log(`%c📖 Requesting note ${i + 1}/${selectedBooks.length}: S${note.Section}/O${note.Owner}/B${normalizedBookId}`, 'color: #2196F3; font-weight: bold;', {
         Section: note.Section,
         Owner: note.Owner,
         Book: note.Note,
@@ -532,7 +539,7 @@ async function handleOfflineNoteList(noteList) {
         console.log(`🎨 Batch mode disabled - canvas updating`);
         
         // Longer delay between books to ensure BLE connection stabilizes
-        if (i < noteList.length - 1 && !transferCancelled) {
+        if (i < selectedBooks.length - 1 && !transferCancelled) {
           updateTransferProgress({ status: 'waiting' });
           console.log(`⏳ Waiting ${TRANSFER_CONFIG.INTER_BOOK_DELAY_MS}ms before next request...`);
           await new Promise(resolve => setTimeout(resolve, TRANSFER_CONFIG.INTER_BOOK_DELAY_MS));

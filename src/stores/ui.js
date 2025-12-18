@@ -18,6 +18,14 @@ export const showLineGuides = writable(false);
 // Log messages
 export const logMessages = writable([]);
 
+// Book selection dialog state
+export const bookSelectionDialog = writable({
+  isOpen: false,
+  books: [],
+  onConfirm: () => {},
+  onCancel: () => {}
+});
+
 // Maximum log entries to keep
 const MAX_LOG_ENTRIES = 50;
 
@@ -79,4 +87,36 @@ export function toggleLineGuides() {
  */
 export function clearLog() {
   logMessages.set([]);
+}
+
+/**
+ * Open book selection dialog
+ * @param {Array} books - Array of book objects from pen
+ * @returns {Promise<Array>} Promise that resolves with selected books or rejects if cancelled
+ */
+export function openBookSelectionDialog(books) {
+  return new Promise((resolve, reject) => {
+    bookSelectionDialog.set({
+      isOpen: true,
+      books,
+      onConfirm: (selectedBooks) => {
+        bookSelectionDialog.set({
+          isOpen: false,
+          books: [],
+          onConfirm: () => {},
+          onCancel: () => {}
+        });
+        resolve(selectedBooks);
+      },
+      onCancel: () => {
+        bookSelectionDialog.set({
+          isOpen: false,
+          books: [],
+          onConfirm: () => {},
+          onCancel: () => {}
+        });
+        reject(new Error('User cancelled'));
+      }
+    });
+  });
 }
