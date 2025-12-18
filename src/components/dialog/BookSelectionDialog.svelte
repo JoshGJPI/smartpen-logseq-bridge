@@ -2,6 +2,7 @@
   BookSelectionDialog.svelte - Modal dialog for selecting which books to import
 -->
 <script>
+  import { onMount, onDestroy } from 'svelte';
   import { bookSelectionDialog } from '$stores/ui.js';
   
   $: ({ isOpen, books, onConfirm, onCancel } = $bookSelectionDialog);
@@ -49,6 +50,25 @@
     onCancel();
   }
   
+  // Handle Escape key to close modal
+  function handleKeyDown(event) {
+    if (event.key === 'Escape' && isOpen) {
+      handleCancel();
+    }
+  }
+  
+  // Add/remove keyboard listener
+  $: if (isOpen) {
+    window.addEventListener('keydown', handleKeyDown);
+  } else {
+    window.removeEventListener('keydown', handleKeyDown);
+  }
+  
+  // Cleanup on unmount
+  onDestroy(() => {
+    window.removeEventListener('keydown', handleKeyDown);
+  });
+  
   function formatBookInfo(note) {
     return `Section ${note.Section} / Owner ${note.Owner} / Book ${note.Note}`;
   }
@@ -60,11 +80,21 @@
 
 {#if isOpen}
   <!-- Modal overlay -->
-  <div class="modal-overlay" on:click={handleCancel}>
+  <div 
+    class="modal-overlay" 
+    on:click={handleCancel}
+    role="presentation"
+  >
     <!-- Modal content -->
-    <div class="modal-content" on:click|stopPropagation>
+    <div 
+      class="modal-content" 
+      on:click|stopPropagation
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="dialog-title"
+    >
       <div class="modal-header">
-        <h2>📚 Select Books to Import</h2>
+        <h2 id="dialog-title">📚 Select Books to Import</h2>
         <button class="close-btn" on:click={handleCancel} aria-label="Close">×</button>
       </div>
       

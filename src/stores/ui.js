@@ -15,6 +15,9 @@ export const canvasZoom = writable(1);
 // Show line guides overlay
 export const showLineGuides = writable(false);
 
+// Show filtered decorative strokes
+export const showFilteredStrokes = writable(false);
+
 // Log messages
 export const logMessages = writable([]);
 
@@ -80,6 +83,13 @@ export function setCanvasZoom(level) {
  */
 export function toggleLineGuides() {
   showLineGuides.update(v => !v);
+}
+
+/**
+ * Toggle filtered strokes visualization
+ */
+export function toggleFilteredStrokes() {
+  showFilteredStrokes.update(v => !v);
 }
 
 /**

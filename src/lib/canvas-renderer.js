@@ -402,16 +402,32 @@ export class CanvasRenderer {
    * Draw a stroke from store data
    * @param {Object} stroke - Stroke object with dotArray and pageInfo
    * @param {boolean} highlighted - Whether to highlight this stroke
+   * @param {boolean} filtered - Whether this is a filtered decorative stroke
    */
-  drawStroke(stroke, highlighted = false) {
+  drawStroke(stroke, highlighted = false, filtered = false) {
     const dots = stroke.dotArray || stroke.dots || [];
     if (dots.length < 2) return;
     
     const pageInfo = stroke.pageInfo;
-    const color = highlighted ? '#e94560' : '#000000';
-    const baseWidth = highlighted ? 3 : 2;
+    
+    // Determine color and style based on state
+    let color, baseWidth;
+    
+    if (filtered) {
+      // Filtered decorative strokes are ALWAYS dashed
+      // Color depends on selection state
+      color = highlighted ? '#e94560' : '#000000'; // Red if selected, black if not
+      baseWidth = highlighted ? 3 : 2;
+      this.ctx.setLineDash([5, 5]); // Always dashed for filtered strokes
+    } else {
+      // Normal text strokes are always solid
+      color = highlighted ? '#e94560' : '#000000'; // Red if selected, black if not
+      baseWidth = highlighted ? 3 : 2;
+      this.ctx.setLineDash([]); // Solid line
+    }
     
     this.ctx.strokeStyle = color;
+    this.ctx.globalAlpha = 1; // Always full opacity
     this.ctx.lineCap = 'round';
     this.ctx.lineJoin = 'round';
     
@@ -428,6 +444,7 @@ export class CanvasRenderer {
     }
     
     this.ctx.stroke();
+    this.ctx.setLineDash([]); // Reset to solid for next stroke
   }
   
   /**

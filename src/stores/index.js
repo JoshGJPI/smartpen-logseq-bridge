@@ -100,12 +100,14 @@ export {
   sidebarCollapsed,
   canvasZoom,
   showLineGuides,
+  showFilteredStrokes,
   logMessages,
   log,
   setActiveTab,
   toggleSidebar,
   setCanvasZoom,
   toggleLineGuides,
+  toggleFilteredStrokes,
   clearLog
 } from './ui.js';
 
@@ -121,3 +123,12 @@ export {
   clearStorageStatus,
   isPageSaved
 } from './storage.js';
+
+// Filtered Strokes
+export {
+  filteredStrokes,
+  filterStats,
+  setFilteredStrokes,
+  clearFilteredStrokes,
+  getFilteredStrokeByIndex
+} from './filtered-strokes.js';

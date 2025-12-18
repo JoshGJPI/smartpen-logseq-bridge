@@ -3,6 +3,7 @@
  * Supports per-page transcriptions for multi-page/book scenarios
  */
 import { writable, derived } from 'svelte/store';
+import { setFilteredStrokes } from './filtered-strokes.js';
 
 // Last transcription result (legacy - combined view)
 export const lastTranscription = writable(null);
@@ -114,10 +115,16 @@ export const hasPageTranscriptions = derived(
 /**
  * Set transcription result (legacy - for backward compatibility)
  * @param {Object} result - Transcription result from MyScript
+ * @param {Array} filteredStrokes - Optional array of filtered decorative strokes
  */
-export function setTranscription(result) {
+export function setTranscription(result, filteredStrokes = null) {
   lastTranscription.set(result);
   isTranscribing.set(false);
+  
+  // Store filtered strokes if provided
+  if (filteredStrokes) {
+    setFilteredStrokes(filteredStrokes);
+  }
 }
 
 /**

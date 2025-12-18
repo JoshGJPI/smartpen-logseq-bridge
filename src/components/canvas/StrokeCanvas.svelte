@@ -5,10 +5,12 @@
   import { onMount, onDestroy } from 'svelte';
   import { strokes, strokeCount, pages, clearStrokes, batchMode } from '$stores';
   import { selectedIndices, handleStrokeClick, clearSelection, selectAll, selectionCount, selectFromBox } from '$stores';
-  import { canvasZoom, setCanvasZoom, log } from '$stores';
+  import { canvasZoom, setCanvasZoom, log, showFilteredStrokes } from '$stores';
+  import { filteredStrokes } from '$stores/filtered-strokes.js';
   import CanvasControls from './CanvasControls.svelte';
   import PageSelector from './PageSelector.svelte';
   import SelectionInfo from '../strokes/SelectionInfo.svelte';
+  import FilteredStrokesPanel from '../strokes/FilteredStrokesPanel.svelte';
   
   let canvasElement;
   let containerElement;
@@ -18,8 +20,8 @@
   let selectedPages = new Set();
   $: pageOptions = Array.from($pages.keys());
   
-  // Filtered strokes based on page selection (empty set = show all)
-  $: filteredStrokes = selectedPages.size === 0
+  // Visible strokes based on page selection (empty set = show all)
+  $: visibleStrokes = selectedPages.size === 0
     ? $strokes
     : $strokes.filter(stroke => {
         const pageInfo = stroke.pageInfo || {};
@@ -83,9 +85,9 @@
       }
       
       // Ctrl/Cmd+A - select all visible strokes
-      if ((e.ctrlKey || e.metaKey) && e.key === 'a' && filteredStrokes.length > 0) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a' && visibleStrokes.length > 0) {
         e.preventDefault();
-        selectAll(filteredStrokes.length);
+        selectAll(visibleStrokes.length);
       }
     };
     
@@ -103,21 +105,21 @@
     const batchModeJustEnded = wasBatchMode && !$batchMode;
     wasBatchMode = $batchMode;
     
-    if (batchModeJustEnded && renderer && filteredStrokes.length > 0) {
-      console.log('🎨 Batch mode ended - forcing canvas update with', filteredStrokes.length, 'strokes');
+    if (batchModeJustEnded && renderer && visibleStrokes.length > 0) {
+      console.log('🎨 Batch mode ended - forcing canvas update with', visibleStrokes.length, 'strokes');
       // Schedule the update to happen after this reactive block completes
       setTimeout(() => {
         renderStrokes(true);
         fitContent();
-        previousStrokeCount = filteredStrokes.length;
+        previousStrokeCount = visibleStrokes.length;
       }, 50);
     }
   }
   
   // Re-render when strokes change and auto-fit if new strokes added
   // Skip updates when in batch mode (during offline import)
-  $: if (renderer && filteredStrokes && !$batchMode) {
-    const currentCount = filteredStrokes.length;
+  $: if (renderer && visibleStrokes && !$batchMode) {
+    const currentCount = visibleStrokes.length;
     const strokesAdded = currentCount > previousStrokeCount;
     const shouldAutoFit = currentCount > 0 && (previousStrokeCount === 0 || currentCount >= previousStrokeCount + 10);
     
@@ -142,6 +144,16 @@
     renderStrokes(false);
   }
   
+  // Re-render when filtered strokes toggle changes
+  $: if (renderer && $showFilteredStrokes !== undefined && !$batchMode) {
+    renderStrokes(false);
+  }
+  
+  // Re-render when filtered strokes data changes
+  $: if (renderer && $filteredStrokes !== undefined && $showFilteredStrokes && !$batchMode) {
+    renderStrokes(false);
+  }
+  
   // Track previous page selection for change detection
   let previousPageSelection = null;
   
@@ -149,7 +161,7 @@
   $: {
     const currentSelection = selectedPages.size > 0 ? Array.from(selectedPages).sort().join(',') : '';
     if (renderer && previousPageSelection !== null && currentSelection !== previousPageSelection && !$batchMode) {
-      console.log('📄 Page filter changed, re-rendering', filteredStrokes.length, 'strokes');
+      console.log('📄 Page filter changed, re-rendering', visibleStrokes.length, 'strokes');
       renderStrokes(true);
       // Auto-fit to show filtered content
       setTimeout(() => {
@@ -173,14 +185,26 @@
     if (fullReset) {
       renderer.clear(true);
       // Pre-calculate bounds for consistent coordinate transformation
-      renderer.calculateBounds(filteredStrokes);
+      // Include decorative filtered strokes in bounds calculation if we're showing them
+      const allStrokes = $showFilteredStrokes && $filteredStrokes.length > 0
+        ? [...visibleStrokes, ...$filteredStrokes.map(fs => fs.stroke)]
+        : visibleStrokes;
+      renderer.calculateBounds(allStrokes);
     } else {
       renderer.clearForRedraw();
     }
     
-    filteredStrokes.forEach((stroke, index) => {
-      renderer.drawStroke(stroke, $selectedIndices.has(index));
+    // Draw normal text strokes
+    visibleStrokes.forEach((stroke, index) => {
+      renderer.drawStroke(stroke, $selectedIndices.has(index), false);
     });
+    
+    // Draw filtered decorative strokes if toggle is on
+    if ($showFilteredStrokes && $filteredStrokes.length > 0) {
+      $filteredStrokes.forEach(({ stroke }) => {
+        renderer.drawStroke(stroke, false, true);
+      });
+    }
   }
   
   // Mouse down - start potential pan or selection
@@ -207,7 +231,7 @@
       
       // Check if clicking directly on a stroke for Ctrl+click toggle
       if (renderer && (event.ctrlKey || event.metaKey)) {
-        const strokeIndex = renderer.hitTest(boxStartX, boxStartY, filteredStrokes);
+        const strokeIndex = renderer.hitTest(boxStartX, boxStartY, visibleStrokes);
         if (strokeIndex !== -1) {
           // Ctrl+click on stroke - toggle it immediately
           handleStrokeClick(strokeIndex, true, false);
@@ -275,7 +299,7 @@
         bottom: Math.max(boxStartY, boxCurrentY)
       };
       
-      const intersectingIndices = renderer.findStrokesInRect(filteredStrokes, rect);
+      const intersectingIndices = renderer.findStrokesInRect(visibleStrokes, rect);
       
       if (intersectingIndices.length > 0) {
         // Ctrl = add to selection, Shift = toggle, neither = replace selection
@@ -341,7 +365,7 @@
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     
-    const strokeIndex = renderer.hitTest(x, y, filteredStrokes);
+    const strokeIndex = renderer.hitTest(x, y, visibleStrokes);
     
     if (strokeIndex !== -1) {
       handleStrokeClick(strokeIndex, event.ctrlKey || event.metaKey, event.shiftKey);
@@ -402,12 +426,12 @@
   // Export functions
   function exportSvg() {
     if (!renderer) return;
-    const svg = renderer.exportSVG(filteredStrokes);
+    const svg = renderer.exportSVG(visibleStrokes);
     downloadFile(svg, 'strokes.svg', 'image/svg+xml');
   }
   
   function exportJson() {
-    const json = JSON.stringify(filteredStrokes, null, 2);
+    const json = JSON.stringify(visibleStrokes, null, 2);
     downloadFile(json, 'strokes.json', 'application/json');
   }
   
@@ -427,7 +451,7 @@
     Stroke Preview
     <span class="stroke-count">
       {#if selectedPages.size > 0}
-        {filteredStrokes.length} of {$strokeCount} strokes (filtered)
+        {visibleStrokes.length} of {$strokeCount} strokes (filtered)
       {:else}
         {$strokeCount} strokes
       {/if}
@@ -481,10 +505,12 @@
   </div>
   
   <SelectionInfo 
-    totalCount={filteredStrokes.length}
-    on:selectAll={() => selectAll(filteredStrokes.length)}
+    totalCount={visibleStrokes.length}
+    on:selectAll={() => selectAll(visibleStrokes.length)}
     on:clearSelection={clearSelection}
   />
+  
+  <FilteredStrokesPanel />
 </div>
 
 <style>

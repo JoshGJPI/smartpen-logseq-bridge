@@ -30,6 +30,7 @@
   import { connectPen, disconnectPen, fetchOfflineData, cancelOfflineTransfer } from '$lib/pen-sdk.js';
   import { transcribeStrokes } from '$lib/myscript-api.js';
   import { updatePageStrokes, updatePageTranscription } from '$lib/logseq-api.js';
+  import { setFilteredStrokes, clearFilteredStrokes } from '$stores/filtered-strokes.js';
   import {
     setStorageSaving,
     recordSuccessfulSave,
@@ -127,13 +128,17 @@
     const totalPages = strokesByPage.size;
     log(`Transcribing ${transcribeCount} ${transcribeLabel} strokes from ${totalPages} page(s)...`, 'info');
     
-    // Clear previous transcriptions
+    // Clear previous transcriptions and filtered strokes
     clearTranscription();
+    clearFilteredStrokes();
     
     try {
       const { appKey, hmacKey } = getMyScriptCredentials();
       let successCount = 0;
       let errorCount = 0;
+      
+      // Collect all decorative strokes across pages
+      const allDecorativeStrokes = [];
       
       // Transcribe each page separately
       for (const [pageKey, pageData] of strokesByPage) {
@@ -142,6 +147,11 @@
         try {
           log(`Transcribing Book ${book}, Page ${page}...`, 'info');
           const result = await transcribeStrokes(pageData.strokes, appKey, hmacKey);
+          
+          // Collect decorative strokes from this page
+          if (result.decorativeStrokes && result.decorativeStrokes.length > 0) {
+            allDecorativeStrokes.push(...result.decorativeStrokes);
+          }
           
           // Store transcription for this page
           setPageTranscription(
@@ -159,6 +169,9 @@
         }
       }
       
+      // Store all collected decorative strokes
+      setFilteredStrokes(allDecorativeStrokes);
+      
       setActiveTab('transcription');
       
       if (successCount > 0) {
@@ -169,6 +182,8 @@
       }
     } catch (error) {
       log(`Transcription failed: ${error.message}`, 'error');
+      // Clear decorative strokes on error
+      setFilteredStrokes([]);
     } finally {
       setIsTranscribing(false);
     }
