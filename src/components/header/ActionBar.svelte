@@ -25,6 +25,7 @@
     hasTranscription,
     hasPageTranscriptions,
     lastTranscription,
+    pageTranscriptions,
     transferProgress
   } from '$stores';
   import { connectPen, disconnectPen, fetchOfflineData, cancelOfflineTransfer } from '$lib/pen-sdk.js';
@@ -45,8 +46,9 @@
   $: hasSaveableData = $strokeCount > 0;
   $: saveButtonText = (() => {
     if (isSavingToLogseq) return 'Saving...';
-    if (!$hasTranscription) return 'Save to LogSeq (Strokes)';
-    return 'Save to LogSeq (Strokes + Text)';
+    // Check if any page has transcription available
+    if ($hasPageTranscriptions || $hasTranscription) return 'Save to LogSeq (Strokes + Text)';
+    return 'Save to LogSeq (Strokes)';
   })();
   
   // Determine which strokes to transcribe (selected or all)
@@ -225,16 +227,36 @@
           if (result.success) {
             recordSuccessfulSave(`B${book}/P${page}`, result);
             
-            // Show batching info if applicable
-            if (result.batched) {
-              log(`Saved strokes to ${result.page} in batches: ${result.added} new, ${result.total} total`, 'success');
-            } else {
-              log(`Saved strokes to ${result.page}: ${result.added} new, ${result.total} total`, 'success');
-            }
+            // Show chunk info if using chunked storage
+            const chunkInfo = result.chunks ? ` (${result.chunks} chunks)` : '';
+            log(`Saved strokes to ${result.page}: ${result.added} new, ${result.total} total${chunkInfo}`, 'success');
             savedStrokesCount++;
             
-            // Step 2: If transcription exists for this page, save it too
-            if ($hasTranscription) {
+            // Step 2: Check for page-specific transcription
+            const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${book}/P${page}`;
+            const pageTranscription = $pageTranscriptions.get(pageKey);
+            
+            if (pageTranscription) {
+              // Save page-specific transcription
+              log(`Saving transcription to ${result.page}...`, 'info');
+              
+              const transcriptionResult = await updatePageTranscription(
+                book,
+                page,
+                pageTranscription,
+                pageTranscription.strokeCount,
+                host,
+                token
+              );
+              
+              if (transcriptionResult.success) {
+                log(`Saved transcription to ${transcriptionResult.page} (${transcriptionResult.lineCount} lines)`, 'success');
+                savedTranscriptionCount++;
+              } else {
+                log(`Failed to save transcription: ${transcriptionResult.error}`, 'warning');
+              }
+            } else if ($hasTranscription) {
+              // Fallback to legacy single transcription if no page-specific one exists
               // Check if transcription is for this page
               const transcriptionStrokes = $selectedStrokes.length > 0 ? $selectedStrokes : $strokes;
               const firstTranscriptionStroke = transcriptionStrokes[0];

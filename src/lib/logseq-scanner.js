@@ -3,6 +3,7 @@
  */
 import { get } from 'svelte/store';
 import { getLogseqSettings, logseqConnected, setLogseqPages, setScanning, log } from '$stores';
+import { parseJsonBlock, parseChunkedJsonBlocks } from './stroke-storage.js';
 
 /**
  * Make an API request to LogSeq
@@ -232,6 +233,7 @@ export async function scanLogSeqPages() {
 
 /**
  * Fetch stroke data for a specific page (lazy loading)
+ * Handles both legacy single-block and new chunked formats
  * @param {string} pageName - Page name
  * @returns {Promise<Object|null>} Stroke data or null
  */
@@ -253,9 +255,17 @@ export async function fetchStrokeData(pageName) {
       return null;
     }
     
-    // Get first child (the JSON block)
-    const jsonBlock = strokeBlock.children[0];
-    return extractJsonFromBlock(jsonBlock.content);
+    // Check if this is chunked format (first child has metadata.chunks)
+    const firstChild = parseJsonBlock(strokeBlock.children[0].content);
+    if (firstChild && firstChild.metadata && firstChild.metadata.chunks !== undefined) {
+      // New chunked format - parse all child blocks
+      console.log(`Reading chunked format: ${firstChild.metadata.chunks} chunks, ${firstChild.metadata.totalStrokes} total strokes`);
+      return parseChunkedJsonBlocks(strokeBlock.children);
+    } else {
+      // Old single-block format - just parse first child
+      console.log('Reading legacy single-block format');
+      return firstChild;
+    }
     
   } catch (error) {
     console.error(`Failed to fetch stroke data for ${pageName}:`, error);

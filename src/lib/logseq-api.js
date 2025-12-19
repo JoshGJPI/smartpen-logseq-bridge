@@ -12,7 +12,9 @@ import {
   convertToStorageFormat,
   deduplicateStrokes,
   formatTranscribedText,
-  getPageProperties
+  getPageProperties,
+  buildChunkedStorageObjects,
+  parseChunkedJsonBlocks
 } from './stroke-storage.js';
 
 /**
@@ -323,10 +325,21 @@ export async function getPageStrokes(book, page, host, token = '') {
     // Find "Raw Stroke Data" section
     for (const block of blocks) {
       if (block.content && block.content.includes('## Raw Stroke Data')) {
-        // JSON should be in a child block
-        if (block.children && block.children.length > 0) {
-          const jsonBlock = block.children[0];
-          return parseJsonBlock(jsonBlock.content);
+        // Check if we have child blocks
+        if (!block.children || block.children.length === 0) {
+          return null;
+        }
+        
+        // Check if this is chunked format (first child has metadata.chunks)
+        const firstChild = parseJsonBlock(block.children[0].content);
+        if (firstChild && firstChild.metadata && firstChild.metadata.chunks !== undefined) {
+          // New chunked format
+          console.log(`Reading chunked format: ${firstChild.metadata.chunks} chunks, ${firstChild.metadata.totalStrokes} total strokes`);
+          return parseChunkedJsonBlocks(block.children);
+        } else {
+          // Old single-block format (backward compatible)
+          console.log('Reading legacy single-block format');
+          return firstChild;
         }
       }
     }
@@ -349,44 +362,9 @@ export async function getPageStrokes(book, page, host, token = '') {
  * @returns {Promise<Object>} Result with success status and stats
  */
 export async function updatePageStrokes(book, page, newStrokes, host, token = '') {
-  const BATCH_SIZE = 300; // Process 300 strokes at a time
-  
   try {
-    // If we have a lot of strokes, batch them
-    if (newStrokes.length > BATCH_SIZE) {
-      console.log(`Large stroke set detected (${newStrokes.length} strokes). Processing in batches...`);
-      
-      let totalAdded = 0;
-      let currentTotal = 0;
-      
-      // Process in batches
-      for (let i = 0; i < newStrokes.length; i += BATCH_SIZE) {
-        const batch = newStrokes.slice(i, i + BATCH_SIZE);
-        const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-        const totalBatches = Math.ceil(newStrokes.length / BATCH_SIZE);
-        
-        console.log(`Processing batch ${batchNum}/${totalBatches} (${batch.length} strokes)...`);
-        
-        const result = await updatePageStrokesSingle(book, page, batch, host, token);
-        
-        if (!result.success) {
-          return result; // Return error immediately
-        }
-        
-        totalAdded += result.added;
-        currentTotal = result.total;
-      }
-      
-      return {
-        success: true,
-        added: totalAdded,
-        total: currentTotal,
-        page: formatPageName(book, page),
-        batched: true
-      };
-    }
-    
-    // Normal path for small stroke sets
+    // No size limits anymore - chunked storage can handle unlimited strokes
+    // Process all strokes in a single operation
     return await updatePageStrokesSingle(book, page, newStrokes, host, token);
     
   } catch (error) {
@@ -403,12 +381,14 @@ export async function updatePageStrokes(book, page, newStrokes, host, token = ''
  * @private
  */
 async function updatePageStrokesSingle(book, page, newStrokes, host, token = '') {
+  const CHUNK_SIZE = 200; // Strokes per chunk (reduced to avoid payload size errors)
+  
   try {
     // Get or create the page
     const pageObj = await getOrCreateSmartpenPage(book, page, host, token);
     const pageName = pageObj.name || pageObj.originalName;
     
-    // Get existing strokes
+    // Get existing strokes (handles both old and new format)
     const existingData = await getPageStrokes(book, page, host, token);
     
     // Convert new strokes to storage format
@@ -440,73 +420,75 @@ async function updatePageStrokesSingle(book, page, newStrokes, host, token = '')
       allStrokes = simplifiedStrokes;
     }
     
-    // Build storage object
-    const storageData = buildPageStorageObject(pageInfo, allStrokes);
+    // Build chunked storage objects
+    const { metadata, strokeChunks } = buildChunkedStorageObjects(pageInfo, allStrokes, CHUNK_SIZE);
+    
+    console.log(`Writing ${allStrokes.length} strokes in ${strokeChunks.length} chunks`);
     
     // Get page blocks
     const blocks = await makeRequest(host, token, 'logseq.Editor.getPageBlocksTree', [pageName]);
     
-    if (!blocks || blocks.length === 0) {
-      // New page - properties were already set during creation
-      // Create "Raw Stroke Data" parent block with collapsed property
-      const parentBlock = await makeRequest(host, token, 'logseq.Editor.appendBlockInPage', [
-        pageName,
-        '## Raw Stroke Data',
-        { properties: { collapsed: true } }
-      ]);
-      
-      if (!parentBlock) {
-        throw new Error('Failed to create parent block');
-      }
-      
-      // Add JSON as child block
-      await makeRequest(host, token, 'logseq.Editor.insertBlock', [
-        parentBlock.uuid,
-        formatJsonBlock(storageData),
-        { sibling: false } // Insert as child
-      ]);
-    } else {
-      // Update existing page - don't touch properties
-      // Find and remove old "Raw Stroke Data" block
-      let rawDataBlock = null;
+    // Remove old "Raw Stroke Data" block if it exists
+    if (blocks && blocks.length > 0) {
       for (const block of blocks) {
         if (block.content && block.content.includes('## Raw Stroke Data')) {
-          rawDataBlock = block;
+          await makeRequest(host, token, 'logseq.Editor.removeBlock', [block.uuid]);
           break;
         }
       }
+    }
+    
+    // Create new "Raw Stroke Data" parent block
+    const parentBlock = await makeRequest(host, token, 'logseq.Editor.appendBlockInPage', [
+      pageName,
+      '## Raw Stroke Data',
+      { properties: { collapsed: true } }
+    ]);
+    
+    if (!parentBlock) {
+      throw new Error('Failed to create parent block');
+    }
+    
+    // Write metadata block as first child
+    await makeRequest(host, token, 'logseq.Editor.insertBlock', [
+      parentBlock.uuid,
+      formatJsonBlock(metadata),
+      { sibling: false }
+    ]);
+    
+    // Write stroke chunks as subsequent children
+    // Note: We append them to the parent, not to each other
+    let previousBlockUuid = null;
+    for (let i = 0; i < strokeChunks.length; i++) {
+      const chunk = strokeChunks[i];
       
-      if (rawDataBlock) {
-        await makeRequest(host, token, 'logseq.Editor.removeBlock', [rawDataBlock.uuid]);
-      }
-      
-      // Create new "Raw Stroke Data" block
-      const parentBlock = await makeRequest(host, token, 'logseq.Editor.appendBlockInPage', [
-        pageName,
-        '## Raw Stroke Data',
-        { properties: { collapsed: true } }
+      const chunkBlock = await makeRequest(host, token, 'logseq.Editor.insertBlock', [
+        previousBlockUuid || parentBlock.uuid,
+        formatJsonBlock(chunk),
+        { sibling: previousBlockUuid !== null } // First chunk is child, rest are siblings
       ]);
       
-      if (!parentBlock) {
-        throw new Error('Failed to create parent block');
+      if (!chunkBlock) {
+        throw new Error(`Failed to create chunk block ${chunk.chunkIndex}`);
       }
       
-      // Add JSON as child block
-      await makeRequest(host, token, 'logseq.Editor.insertBlock', [
-        parentBlock.uuid,
-        formatJsonBlock(storageData),
-        { sibling: false }
-      ]);
+      previousBlockUuid = chunkBlock.uuid;
+      
+      // Add delay between chunks to avoid overwhelming LogSeq (except after last chunk)
+      if (i < strokeChunks.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay
+      }
     }
     
     const addedCount = isUpdate ? (allStrokes.length - (existingData?.strokes?.length || 0)) : allStrokes.length;
     
-    console.log(`Updated ${pageName}: ${addedCount} new strokes, ${allStrokes.length} total`);
+    console.log(`Updated ${pageName}: ${addedCount} new strokes, ${allStrokes.length} total (${strokeChunks.length} chunks)`);
     
     return {
       success: true,
       added: addedCount,
       total: allStrokes.length,
+      chunks: strokeChunks.length,
       page: pageName
     };
     

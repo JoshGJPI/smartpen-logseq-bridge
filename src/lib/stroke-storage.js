@@ -1,4 +1,90 @@
 /**
+ * Split strokes into chunks for multi-block storage
+ * @param {Array} strokes - Simplified strokes array
+ * @param {number} chunkSize - Maximum strokes per chunk (default 200)
+ * @returns {Array<Array>} Array of stroke chunks
+ */
+export function splitStrokesIntoChunks(strokes, chunkSize = 200) {
+  const chunks = [];
+  for (let i = 0; i < strokes.length; i += chunkSize) {
+    chunks.push(strokes.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
+
+/**
+ * Build chunked storage objects (metadata + stroke blocks)
+ * @param {Object} pageInfo - Page info from pen
+ * @param {Array} strokes - All simplified strokes
+ * @param {number} chunkSize - Maximum strokes per chunk (default 200)
+ * @returns {Object} { metadata, strokeChunks }
+ */
+export function buildChunkedStorageObjects(pageInfo, strokes, chunkSize = 200) {
+  const bounds = calculateBounds(strokes);
+  const chunks = splitStrokesIntoChunks(strokes, chunkSize);
+  
+  const metadata = {
+    version: "1.0",
+    pageInfo: {
+      section: pageInfo.section,
+      owner: pageInfo.owner,
+      book: pageInfo.book,
+      page: pageInfo.page
+    },
+    metadata: {
+      lastUpdated: Date.now(),
+      totalStrokes: strokes.length,
+      bounds: bounds,
+      chunks: chunks.length,
+      chunkSize: chunkSize
+    }
+  };
+  
+  const strokeChunks = chunks.map((chunk, index) => ({
+    chunkIndex: index,
+    strokeCount: chunk.length,
+    strokes: chunk
+  }));
+  
+  return { metadata, strokeChunks };
+}
+
+/**
+ * Parse chunked JSON blocks from LogSeq
+ * @param {Array} childBlocks - All child blocks under "Raw Stroke Data"
+ * @returns {Object|null} Reconstructed storage object or null
+ */
+export function parseChunkedJsonBlocks(childBlocks) {
+  if (!childBlocks || childBlocks.length === 0) return null;
+  
+  try {
+    // First block is metadata
+    const metadata = parseJsonBlock(childBlocks[0].content);
+    if (!metadata) return null;
+    
+    // Remaining blocks are stroke chunks
+    const allStrokes = [];
+    for (let i = 1; i < childBlocks.length; i++) {
+      const chunk = parseJsonBlock(childBlocks[i].content);
+      if (chunk && chunk.strokes) {
+        allStrokes.push(...chunk.strokes);
+      }
+    }
+    
+    // Reconstruct original format for backward compatibility
+    return {
+      version: metadata.version,
+      pageInfo: metadata.pageInfo,
+      strokes: allStrokes,
+      metadata: metadata.metadata
+    };
+  } catch (error) {
+    console.error('Failed to parse chunked blocks:', error);
+    return null;
+  }
+}
+
+/**
  * Stroke Storage Utilities
  * Transforms pen stroke data into LogSeq-optimized format
  */
