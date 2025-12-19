@@ -7,14 +7,18 @@
   import { selectedIndices, handleStrokeClick, clearSelection, selectAll, selectionCount, selectFromBox } from '$stores';
   import { canvasZoom, setCanvasZoom, log, showFilteredStrokes } from '$stores';
   import { filteredStrokes } from '$stores/filtered-strokes.js';
+  import { deselectIndices } from '$stores/selection.js';
+  import { detectDecorativeIndices } from '$lib/stroke-filter.js';
   import CanvasControls from './CanvasControls.svelte';
   import PageSelector from './PageSelector.svelte';
-  import SelectionInfo from '../strokes/SelectionInfo.svelte';
   import FilteredStrokesPanel from '../strokes/FilteredStrokesPanel.svelte';
   
   let canvasElement;
   let containerElement;
   let renderer = null;
+  
+  // Decorative detection state
+  let isDetecting = false;
   
   // Page filtering - now supports multiple selections
   let selectedPages = new Set();
@@ -229,12 +233,26 @@
       boxCurrentX = boxStartX;
       boxCurrentY = boxStartY;
       
-      // Check if clicking directly on a stroke for Ctrl+click toggle
-      if (renderer && (event.ctrlKey || event.metaKey)) {
+      // Check if clicking directly on a stroke for Ctrl/Shift
+      if (renderer && (event.ctrlKey || event.metaKey || event.shiftKey)) {
         const strokeIndex = renderer.hitTest(boxStartX, boxStartY, visibleStrokes);
         if (strokeIndex !== -1) {
-          // Ctrl+click on stroke - toggle it immediately
-          handleStrokeClick(strokeIndex, true, false);
+          // Ctrl+click = add, Shift+click = remove
+          if (event.shiftKey) {
+            // Remove from selection
+            selectedIndices.update(sel => {
+              const newSel = new Set(sel);
+              newSel.delete(strokeIndex);
+              return newSel;
+            });
+          } else {
+            // Add to selection (Ctrl/Cmd)
+            selectedIndices.update(sel => {
+              const newSel = new Set(sel);
+              newSel.add(strokeIndex);
+              return newSel;
+            });
+          }
           boxStartX = 0;
           boxStartY = 0;
           return;
@@ -302,10 +320,19 @@
       const intersectingIndices = renderer.findStrokesInRect(visibleStrokes, rect);
       
       if (intersectingIndices.length > 0) {
-        // Ctrl = add to selection, Shift = toggle, neither = replace selection
-        const mode = (event.ctrlKey || event.metaKey) ? 'add' : event.shiftKey ? 'toggle' : 'replace';
-        selectFromBox(intersectingIndices, mode);
-        didBoxSelect = true; // Mark that we completed a box selection
+        // Ctrl = add to selection, Shift = remove from selection, neither = replace
+        const mode = (event.ctrlKey || event.metaKey) ? 'add' : event.shiftKey ? 'remove' : 'replace';
+        
+        if (mode === 'replace') {
+          selectFromBox(intersectingIndices, 'replace');
+        } else if (mode === 'add') {
+          selectFromBox(intersectingIndices, 'add');
+        } else if (mode === 'remove') {
+          // Deselect the intersecting strokes
+          deselectIndices(intersectingIndices);
+        }
+        
+        didBoxSelect = true;
       } else if (!event.ctrlKey && !event.metaKey && !event.shiftKey) {
         // Empty box with no modifiers - clear selection
         clearSelection();
@@ -368,7 +395,25 @@
     const strokeIndex = renderer.hitTest(x, y, visibleStrokes);
     
     if (strokeIndex !== -1) {
-      handleStrokeClick(strokeIndex, event.ctrlKey || event.metaKey, event.shiftKey);
+      // Ctrl = add, Shift = remove, neither = replace
+      if (event.shiftKey) {
+        // Remove from selection
+        selectedIndices.update(sel => {
+          const newSel = new Set(sel);
+          newSel.delete(strokeIndex);
+          return newSel;
+        });
+      } else if (event.ctrlKey || event.metaKey) {
+        // Add to selection
+        selectedIndices.update(sel => {
+          const newSel = new Set(sel);
+          newSel.add(strokeIndex);
+          return newSel;
+        });
+      } else {
+        // Replace selection with just this stroke
+        selectedIndices.set(new Set([strokeIndex]));
+      }
     } else if (!event.ctrlKey && !event.metaKey && !event.shiftKey) {
       clearSelection();
     }
@@ -444,18 +489,93 @@
     a.click();
     URL.revokeObjectURL(url);
   }
+  
+  // Handle deselect decorative strokes
+  async function handleDeselectDecorative() {
+    isDetecting = true;
+    try {
+      const allStrokes = $strokes;
+      
+      if (!allStrokes || allStrokes.length === 0) {
+        log('No strokes available for detection', 'warning');
+        return;
+      }
+      
+      // Detect decorative strokes
+      const result = detectDecorativeIndices(allStrokes);
+      
+      if (result.indices.length === 0) {
+        log('No decorative strokes detected', 'info');
+        return;
+      }
+      
+      // If nothing is currently selected, select all first
+      if ($selectionCount === 0) {
+        selectAll(visibleStrokes.length);
+        // Wait a tick for the selection to update
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      
+      // Deselect the detected indices
+      deselectIndices(result.indices);
+      
+      // Log the results
+      log(`Deselected ${result.indices.length} decorative strokes (${result.stats.boxes} boxes, ${result.stats.underlines} underlines, ${result.stats.circles} circles)`, 'success');
+      
+    } catch (error) {
+      log(`Failed to detect decorative strokes: ${error.message}`, 'error');
+      console.error('Decorative detection error:', error);
+    } finally {
+      isDetecting = false;
+    }
+  }
 </script>
 
 <div class="canvas-panel panel">
   <div class="panel-header">
-    Stroke Preview
-    <span class="stroke-count">
-      {#if selectedPages.size > 0}
-        {visibleStrokes.length} of {$strokeCount} strokes (filtered)
-      {:else}
-        {$strokeCount} strokes
+    <div class="header-left">
+      <span class="header-title">Stroke Preview</span>
+    </div>
+    
+    <div class="header-actions">
+      {#if $strokeCount > 0}
+        <button 
+          class="header-btn" 
+          on:click={() => clearSelection()}
+          disabled={$selectionCount === 0}
+          title="Clear selection"
+        >
+          Clear
+        </button>
+        <button 
+          class="header-btn" 
+          on:click={() => selectAll(visibleStrokes.length)}
+          title="Select all strokes"
+        >
+          Select All
+        </button>
+        <button 
+          class="header-btn decorative-btn" 
+          on:click={handleDeselectDecorative}
+          disabled={isDetecting}
+          title="Deselect boxes, underlines, and circles"
+        >
+          {isDetecting ? 'Detecting...' : '🎨 Deselect Decorative'}
+        </button>
       {/if}
-    </span>
+    </div>
+    
+    <div class="header-right">
+      <span class="stroke-count">
+        {#if $selectionCount > 0}
+          <span class="selection-indicator">{$selectionCount} of {$strokeCount} selected</span>
+        {:else if selectedPages.size > 0}
+          {visibleStrokes.length} of {$strokeCount} strokes (filtered)
+        {:else}
+          {$strokeCount} strokes
+        {/if}
+      </span>
+    </div>
   </div>
   
   <div class="canvas-container" bind:this={containerElement}>
@@ -481,7 +601,7 @@
       ></div>
     {/if}
     
-    <div class="pan-hint">Drag to select • Ctrl/Shift to add/toggle • Alt+drag to pan • Ctrl+scroll to zoom</div>
+    <div class="canvas-hint">Drag to select • Ctrl+click to add • Shift+click to deselect • Alt+drag to pan • Ctrl+scroll to zoom</div>
   </div>
   
   <div class="canvas-controls-row">
@@ -504,12 +624,6 @@
     </div>
   </div>
   
-  <SelectionInfo 
-    totalCount={visibleStrokes.length}
-    on:selectAll={() => selectAll(visibleStrokes.length)}
-    on:clearSelection={clearSelection}
-  />
-  
   <FilteredStrokesPanel />
 </div>
 
@@ -521,11 +635,87 @@
     min-height: 0;
   }
 
+  .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding-bottom: 10px;
+    margin-bottom: 15px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .header-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    justify-content: center;
+  }
+  
+  .header-right {
+    display: flex;
+    align-items: center;
+  }
+  
+  .header-btn {
+    padding: 4px 10px;
+    font-size: 0.75rem;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  
+  .header-btn:hover:not(:disabled) {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+    background: var(--bg-tertiary);
+  }
+  
+  .header-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  
+  .decorative-btn {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+  
+  .decorative-btn:hover:not(:disabled) {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+  
   .stroke-count {
-    float: right;
+    font-size: 0.85rem;
     color: var(--text-secondary);
     font-weight: normal;
-    font-size: 0.85rem;
+    white-space: nowrap;
+  }
+  
+  .selection-indicator {
+    color: var(--accent);
+    font-weight: 600;
   }
 
   .canvas-container {
@@ -554,15 +744,16 @@
     z-index: 10;
   }
   
-  .pan-hint {
+  .canvas-hint {
     position: absolute;
     bottom: 8px;
     left: 50%;
     transform: translateX(-50%);
     font-size: 0.7rem;
-    color: rgba(0, 0, 0, 0.4);
+    color: #000000;
     pointer-events: none;
     white-space: nowrap;
+    opacity: 0.5;
   }
 
   .export-actions {

@@ -1,6 +1,7 @@
 <!--
-  FilterSettings.svelte - Adjust stroke filter thresholds
-  Optional component for advanced users to fine-tune detection
+  FilterSettings.svelte - Adjust decorative stroke detection thresholds
+  Optional component for advanced users to fine-tune the detection algorithm
+  Used by the "Deselect Decorative" button in SelectionInfo
 -->
 <script>
   import { config } from '$lib/stroke-filter.js';
@@ -52,7 +53,8 @@
   {#if isExpanded}
     <div class="settings-content">
       <div class="settings-info">
-        <strong>⚠️ Experimental:</strong> Adjusting these values changes how decorative strokes are detected.
+        <strong>⚠️ Experimental:</strong> These settings control the "Deselect Decorative" detection algorithm.
+        Adjusting these values changes how boxes, underlines, and circles are identified.
         Start with small adjustments and test with your handwriting samples.
       </div>
       
@@ -150,7 +152,7 @@
           Reset to Defaults
         </button>
         <div class="action-hint">
-          Note: Changes apply on next transcription
+          Note: Changes apply when you next use "Deselect Decorative"
         </div>
       </div>
     </div>

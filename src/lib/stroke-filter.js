@@ -388,6 +388,47 @@ export function filterDecorativeStrokes(strokes) {
 }
 
 /**
+ * Detect decorative strokes and return their indices
+ * Useful for user-controlled deselection rather than automatic filtering
+ * 
+ * @param {Array} strokes - Array of stroke objects
+ * @returns {Object} {indices: number[], stats: {boxes, underlines, circles}}
+ */
+export function detectDecorativeIndices(strokes) {
+  if (!strokes || strokes.length === 0) {
+    return {
+      indices: [],
+      stats: { boxes: 0, underlines: 0, circles: 0 }
+    };
+  }
+  
+  // Step 1: Detect 2-stroke boxes with content
+  const { boxIndices, boxPatterns } = detect2StrokeBoxes(strokes);
+  
+  // Step 2: Detect standalone underlines (not part of boxes)
+  const underlineIndices = detectUnderlines(strokes, boxIndices);
+  
+  // Step 3: Detect circles/ovals with content (not part of boxes)
+  const circleIndices = detectCircles(strokes, boxIndices);
+  
+  // Combine all decorative indices
+  const allIndices = [
+    ...Array.from(boxIndices),
+    ...underlineIndices,
+    ...circleIndices
+  ];
+  
+  return {
+    indices: allIndices,
+    stats: {
+      boxes: boxPatterns.length,
+      underlines: underlineIndices.length,
+      circles: circleIndices.length
+    }
+  };
+}
+
+/**
  * Export configuration constants for external access/tuning
  */
 export const config = {

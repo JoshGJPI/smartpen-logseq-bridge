@@ -2,7 +2,7 @@
  * Selection Store - Manages selected stroke indices
  * Supports multi-select with Ctrl+click and range with Shift+click
  */
-import { writable, derived } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 import { strokes } from './strokes.js';
 
 // Set of selected stroke indices
@@ -147,4 +147,28 @@ export function handleStrokeClick(index, ctrlKey, shiftKey) {
   }
   
   lastSelectedIndex.set(index);
+}
+
+/**
+ * Deselect specific indices
+ * @param {number[]} indices - Array of stroke indices to deselect
+ */
+export function deselectIndices(indices) {
+  selectedIndices.update(sel => {
+    const newSel = new Set(sel);
+    indices.forEach(i => newSel.delete(i));
+    return newSel;
+  });
+}
+
+/**
+ * Add specific indices to selection
+ * @param {number[]} indices - Array of stroke indices to select
+ */
+export function selectIndices(indices) {
+  selectedIndices.update(sel => {
+    const newSel = new Set(sel);
+    indices.forEach(i => newSel.add(i));
+    return newSel;
+  });
 }

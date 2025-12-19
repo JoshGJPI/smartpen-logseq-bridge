@@ -3,8 +3,6 @@
  * Handles handwriting recognition via MyScript's REST API
  */
 
-import { filterDecorativeStrokes } from './stroke-filter.js';
-
 const MYSCRIPT_API_URL = 'https://cloud.myscript.com/api/v4.0/iink/batch';
 
 /**
@@ -389,44 +387,9 @@ export async function transcribeStrokes(strokes, appKey, hmacKey, options = {}) 
       throw new Error('MyScript API credentials not configured');
     }
     
-    // Filter decorative strokes
-    const filterResult = filterDecorativeStrokes(strokes);
-    const { textStrokes, decorativeStrokes, stats } = filterResult;
-    
-    // Log filtering results
-    if (stats.decorative > 0) {
-      console.log(`📊 Stroke filtering: ${stats.decorative}/${stats.total} decorative strokes removed`);
-      console.log(`   ├─ Boxes: ${stats.boxes} patterns (${stats.boxes * 2} strokes)`);
-      console.log(`   ├─ Underlines: ${stats.underlines}`);
-      console.log(`   └─ Circles: ${stats.circles}`);
-      
-      if (decorativeStrokes.length > 0) {
-        const typeBreakdown = decorativeStrokes.reduce((acc, item) => {
-          acc[item.type] = (acc[item.type] || 0) + 1;
-          return acc;
-        }, {});
-        console.log(`🎨 Filtered strokes by type:`, typeBreakdown);
-      }
-    } else {
-      console.log(`📊 Stroke filtering: No decorative strokes detected`);
-    }
-    
-    // Handle case where all strokes were filtered
-    if (textStrokes.length === 0) {
-      console.warn('⚠️  All strokes filtered as decorative - nothing to transcribe');
-      return {
-        text: '',
-        lines: [],
-        words: [],
-        commands: [],
-        raw: null,
-        filterStats: stats,
-        decorativeStrokes: decorativeStrokes
-      };
-    }
-    
-    // Build request with filtered strokes
-    const requestBody = buildRequest(textStrokes, options);
+    // Build request with strokes
+    // Note: Decorative stroke filtering is now user-controlled via deselection
+    const requestBody = buildRequest(strokes, options);
     const message = JSON.stringify(requestBody);
     
     // Generate signature
@@ -452,13 +415,7 @@ export async function transcribeStrokes(strokes, appKey, hmacKey, options = {}) 
     const data = await response.json();
     
     // Parse and return structured result
-    const result = parseMyScriptResponse(data);
-    
-    // Include filter stats and decorative strokes in the result
-    result.filterStats = stats;
-    result.decorativeStrokes = decorativeStrokes;
-    
-    return result;
+    return parseMyScriptResponse(data);
     
   } catch (error) {
     console.error('MyScript transcription error:', error);

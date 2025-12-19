@@ -30,7 +30,9 @@ export {
   selectAll,
   clearSelection,
   handleStrokeClick,
-  selectFromBox
+  selectFromBox,
+  deselectIndices,
+  selectIndices
 } from './selection.js';
 
 // Pen
