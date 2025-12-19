@@ -9,13 +9,22 @@
   export let page; // LogSeqPageData object
   
   let importing = false;
+  let importProgress = { current: 0, total: 0 };
   
   async function handleImport() {
     importing = true;
+    importProgress = { current: 0, total: page.strokeCount || 0 };
+    
     try {
-      await importStrokesFromLogSeq(page);
+      // Show progress during import
+      const result = await importStrokesFromLogSeq(page, (current, total) => {
+        console.log(`Import progress: ${current}/${total}`);
+        importProgress = { current, total };
+      });
+      console.log('Import complete:', result);
     } finally {
       importing = false;
+      importProgress = { current: 0, total: 0 };
     }
   }
   
@@ -62,7 +71,11 @@
     >
       {#if importing}
         <span class="spinner">⏳</span>
-        Importing...
+        {#if importProgress.total > 0}
+          Importing... {importProgress.current}/{importProgress.total}
+        {:else}
+          Importing...
+        {/if}
       {:else}
         Import Strokes
       {/if}
@@ -72,11 +85,17 @@
 
 <style>
   .page-card {
-    background: var(--bg-secondary);
-    border-radius: 8px;
-    padding: 16px;
-    margin-bottom: 12px;
-    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+    background: transparent;
+    border-radius: 6px;
+    padding: 14px;
+    margin-bottom: 10px;
+    border: none;
+    border-bottom: 2px solid rgba(255, 255, 255, 0.08);
+  }
+  
+  .page-card:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
   }
   
   .page-header {
@@ -123,11 +142,12 @@
   
   .no-transcription {
     padding: 12px;
-    background: var(--bg-tertiary);
+    background: rgba(255, 255, 255, 0.03);
     border-radius: 6px;
     color: var(--text-tertiary);
     font-size: 0.875rem;
     margin-bottom: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
   }
   
   .page-actions {

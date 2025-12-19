@@ -312,8 +312,8 @@ export class CanvasRenderer {
     this.bounds.maxX = Math.max(this.bounds.maxX, dot.x);
     this.bounds.maxY = Math.max(this.bounds.maxY, dot.y);
     
-    // Convert ncode coordinates to screen coordinates
-    const screenDot = this.ncodeToScreen(dot);
+    // Convert ncode coordinates to screen coordinates WITH pageInfo
+    const screenDot = this.ncodeToScreen(dot, dot.pageInfo);
     
     switch (dot.dotType) {
       case 0: // Pen Down
@@ -368,7 +368,7 @@ export class CanvasRenderer {
     // Get page offset if available
     let offsetX = 0;
     let offsetY = 0;
-    let pageBounds = this.bounds;
+    let pageBounds = null;
     
     if (pageInfo && this.pageOffsets.size > 0) {
       // Use full key format to match pages store
@@ -382,13 +382,17 @@ export class CanvasRenderer {
       }
     }
     
-    if (this.bounds.minX === Infinity) {
+    // Use simple scaling if:
+    // 1. No bounds calculated yet (first strokes), OR
+    // 2. Page offset not found (real-time strokes on new page)
+    if (this.bounds.minX === Infinity || (pageInfo && !pageBounds)) {
       x = dot.x * this.scale;
       y = dot.y * this.scale;
     } else {
-      // Transform relative to page bounds, then add page offset
-      x = (dot.x - pageBounds.minX + offsetX) * this.scale;
-      y = (dot.y - pageBounds.minY + offsetY) * this.scale;
+      // Transform relative to page bounds (or global bounds if no page offset)
+      const bounds = pageBounds || this.bounds;
+      x = (dot.x - bounds.minX + offsetX) * this.scale;
+      y = (dot.y - bounds.minY + offsetY) * this.scale;
     }
     
     return {

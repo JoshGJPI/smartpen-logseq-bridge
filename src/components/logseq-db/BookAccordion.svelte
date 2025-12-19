@@ -15,7 +15,11 @@
 </script>
 
 <div class="book-accordion">
-  <button class="book-header" on:click={toggleExpanded}>
+  <button 
+    class="book-header" 
+    class:expanded
+    on:click={toggleExpanded}
+  >
     <span class="book-icon">📚</span>
     <span class="book-title">Book {bookId}</span>
     <span class="page-count">{pages.length} {pages.length === 1 ? 'page' : 'pages'}</span>
@@ -51,7 +55,12 @@
     transition: all 0.2s;
   }
   
-  .book-header:hover {
+  .book-header.expanded {
+    border-radius: 8px 8px 0 0; /* Round only top corners when expanded */
+    border-bottom: none; /* Remove bottom border when expanded */
+  }
+  
+  .book-header:hover:not(.expanded) {
     background: var(--bg-tertiary);
   }
   
@@ -79,8 +88,11 @@
   }
   
   .book-content {
-    padding: 8px 0 0 16px;
-    margin-left: 12px;
-    border-left: 2px solid var(--bg-tertiary);
+    padding: 16px;
+    margin-top: 0; /* No gap - connect to header */
+    background: var(--bg-secondary);
+    border: 2px solid rgba(100, 150, 255, 0.4); /* Blue tinted border */
+    border-top: none; /* No top border - connects to header */
+    border-radius: 0 0 8px 8px; /* Round only bottom corners */
   }
 </style>

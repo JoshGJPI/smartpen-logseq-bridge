@@ -1,6 +1,7 @@
 /**
  * NeoSmartpen → LogSeq Bridge
  * Svelte App Entry Point
+ * Force rebuild timestamp: 2024-12-19
  */
 
 // Load polyfills first (required by web_pen_sdk)

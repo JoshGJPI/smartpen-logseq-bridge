@@ -21,16 +21,23 @@ function getStrokeId(stroke) {
 /**
  * Transform simplified storage format to canvas-renderable format
  * @param {Object} storedData - Full JSON object from LogSeq
+ * @param {Function} onProgress - Optional callback(current, total)
  * @returns {Array} Array of strokes in raw pen format
  */
-function transformStoredToCanvasFormat(storedData) {
+function transformStoredToCanvasFormat(storedData, onProgress = null) {
   const { pageInfo, strokes: storedStrokes } = storedData;
   
   if (!storedStrokes || !Array.isArray(storedStrokes)) {
     throw new Error('Invalid stroke data: missing strokes array');
   }
   
-  return storedStrokes.map(stroke => {
+  const total = storedStrokes.length;
+  
+  return storedStrokes.map((stroke, index) => {
+    // Report progress every 10 strokes or on last stroke
+    if (onProgress && (index % 10 === 0 || index === total - 1)) {
+      onProgress(index + 1, total);
+    }
     const points = stroke.points;
     
     if (!points || !Array.isArray(points)) {
@@ -57,7 +64,7 @@ function transformStoredToCanvasFormat(storedData) {
         return {
           x,
           y,
-          f: 200,           // Default pressure (lighter handwriting)
+          f: 100,           // Default pressure (very light handwriting)
           dotType,
           timestamp,
           pageInfo: { ...pageInfo }
@@ -109,9 +116,10 @@ function mergeStrokes(existingStrokes, newStrokes) {
 /**
  * Import strokes from LogSeq into the canvas
  * @param {Object} pageData - Page data object from logseqPages store
+ * @param {Function} onProgress - Optional callback(current, total) for progress updates
  * @returns {Promise<Object>} Result with import stats
  */
-export async function importStrokesFromLogSeq(pageData) {
+export async function importStrokesFromLogSeq(pageData, onProgress = null) {
   try {
     // Fetch stroke JSON if not already loaded
     let strokeData = pageData.strokeData;
@@ -129,7 +137,7 @@ export async function importStrokesFromLogSeq(pageData) {
     }
     
     // Transform to canvas format
-    const canvasStrokes = transformStoredToCanvasFormat(strokeData);
+    const canvasStrokes = transformStoredToCanvasFormat(strokeData, onProgress);
     
     if (canvasStrokes.length === 0) {
       throw new Error('No strokes to import');
