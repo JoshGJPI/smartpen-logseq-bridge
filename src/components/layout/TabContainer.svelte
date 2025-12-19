@@ -6,14 +6,14 @@
   
   import StrokeList from '../strokes/StrokeList.svelte';
   import RawJsonViewer from '../strokes/RawJsonViewer.svelte';
-  import AnalysisView from '../strokes/AnalysisView.svelte';
+  import LogSeqDbTab from '../logseq-db/LogSeqDbTab.svelte';
   import TranscriptionView from '../transcription/TranscriptionView.svelte';
   
   const tabs = [
     { id: 'strokes', label: 'Strokes' },
-    { id: 'raw', label: 'Raw JSON' },
-    { id: 'analysis', label: 'Analysis' },
-    { id: 'transcription', label: 'Transcription' }
+    { id: 'transcription', label: 'Transcription' },
+    { id: 'logseq-db', label: 'LogSeq DB' },
+    { id: 'raw', label: 'Raw JSON' }
   ];
 </script>
 
@@ -35,12 +35,12 @@
   <div class="tab-content">
     {#if $activeTab === 'strokes'}
       <StrokeList />
-    {:else if $activeTab === 'raw'}
-      <RawJsonViewer />
-    {:else if $activeTab === 'analysis'}
-      <AnalysisView />
     {:else if $activeTab === 'transcription'}
       <TranscriptionView />
+    {:else if $activeTab === 'logseq-db'}
+      <LogSeqDbTab />
+    {:else if $activeTab === 'raw'}
+      <RawJsonViewer />
     {/if}
   </div>
 </aside>

@@ -132,3 +132,16 @@ export {
   clearFilteredStrokes,
   getFilteredStrokeByIndex
 } from './filtered-strokes.js';
+
+// LogSeq Pages
+export {
+  logseqPages,
+  isScanning,
+  lastScanTime,
+  pagesByBook,
+  bookIds,
+  setLogseqPages,
+  setScanning,
+  clearLogseqPages,
+  updatePageSyncStatus
+} from './logseqPages.js';
