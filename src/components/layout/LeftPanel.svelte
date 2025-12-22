@@ -166,30 +166,7 @@
     flex: 1;
     display: flex;
     flex-direction: column;
-    overflow-y: auto;
     min-height: 0;
-  }
-
-  /* Scrollbar styling */
-  .explorer-content::-webkit-scrollbar,
-  .log-content::-webkit-scrollbar {
-    width: 8px;
-  }
-
-  .explorer-content::-webkit-scrollbar-track,
-  .log-content::-webkit-scrollbar-track {
-    background: var(--bg-tertiary);
-    border-radius: 4px;
-  }
-
-  .explorer-content::-webkit-scrollbar-thumb,
-  .log-content::-webkit-scrollbar-thumb {
-    background: var(--border);
-    border-radius: 4px;
-  }
-
-  .explorer-content::-webkit-scrollbar-thumb:hover,
-  .log-content::-webkit-scrollbar-thumb:hover {
-    background: var(--accent);
+    /* Remove overflow - let children handle it */
   }
 </style>

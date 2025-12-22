@@ -25,13 +25,29 @@
   $: pageOptions = Array.from($pages.keys());
   
   // Visible strokes based on page selection (empty set = show all)
-  $: visibleStrokes = selectedPages.size === 0
-    ? $strokes
-    : $strokes.filter(stroke => {
+  // Also track mapping from visible index to full stroke array index
+  let visibleStrokes = [];
+  let visibleToFullIndexMap = [];
+  
+  $: {
+    if (selectedPages.size === 0) {
+      visibleStrokes = $strokes;
+      // Build 1:1 mapping
+      visibleToFullIndexMap = $strokes.map((_, index) => index);
+    } else {
+      // Filter and build mapping
+      visibleStrokes = [];
+      visibleToFullIndexMap = [];
+      $strokes.forEach((stroke, fullIndex) => {
         const pageInfo = stroke.pageInfo || {};
         const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${pageInfo.book || 0}/P${pageInfo.page || 0}`;
-        return selectedPages.has(pageKey);
+        if (selectedPages.has(pageKey)) {
+          visibleStrokes.push(stroke);
+          visibleToFullIndexMap.push(fullIndex);
+        }
       });
+    }
+  }
   
   // Track previous stroke count for auto-fit
   let previousStrokeCount = 0;
@@ -88,10 +104,11 @@
         }
       }
       
-      // Ctrl/Cmd+A - select all visible strokes
+      // Ctrl/Cmd+A - select all visible strokes (using full indices)
       if ((e.ctrlKey || e.metaKey) && e.key === 'a' && visibleStrokes.length > 0) {
         e.preventDefault();
-        selectAll(visibleStrokes.length);
+        // Select using full indices from the mapping
+        selectedIndices.set(new Set(visibleToFullIndexMap));
       }
     };
     
@@ -198,9 +215,12 @@
       renderer.clearForRedraw();
     }
     
+    // Draw page borders
+    renderer.drawPageBorders();
+    
     // Draw normal text strokes
     visibleStrokes.forEach((stroke, index) => {
-      renderer.drawStroke(stroke, $selectedIndices.has(index), false);
+      renderer.drawStroke(stroke, $selectedIndices.has(visibleToFullIndexMap[index]), false);
     });
     
     // Draw filtered decorative strokes if toggle is on
@@ -235,21 +255,24 @@
       
       // Check if clicking directly on a stroke for Ctrl/Shift
       if (renderer && (event.ctrlKey || event.metaKey || event.shiftKey)) {
-        const strokeIndex = renderer.hitTest(boxStartX, boxStartY, visibleStrokes);
-        if (strokeIndex !== -1) {
+        const visibleIndex = renderer.hitTest(boxStartX, boxStartY, visibleStrokes);
+        if (visibleIndex !== -1) {
+          // Map visible index to full stroke array index
+          const fullIndex = visibleToFullIndexMap[visibleIndex];
+          
           // Ctrl+click = add, Shift+click = remove
           if (event.shiftKey) {
             // Remove from selection
             selectedIndices.update(sel => {
               const newSel = new Set(sel);
-              newSel.delete(strokeIndex);
+              newSel.delete(fullIndex);
               return newSel;
             });
           } else {
             // Add to selection (Ctrl/Cmd)
             selectedIndices.update(sel => {
               const newSel = new Set(sel);
-              newSel.add(strokeIndex);
+              newSel.add(fullIndex);
               return newSel;
             });
           }
@@ -265,7 +288,7 @@
     }
   }
   
-  // Mouse move - pan or update box selection
+  // Mouse move - pan or update box selection or hover
   function handleMouseMove(event) {
     if (isPanning && renderer) {
       const deltaX = event.clientX - panStartX;
@@ -297,6 +320,7 @@
         boxSelectPending = false;
         canvasElement.style.cursor = 'crosshair';
       }
+      return;
     }
   }
   
@@ -317,19 +341,22 @@
         bottom: Math.max(boxStartY, boxCurrentY)
       };
       
-      const intersectingIndices = renderer.findStrokesInRect(visibleStrokes, rect);
+      const visibleIndices = renderer.findStrokesInRect(visibleStrokes, rect);
       
-      if (intersectingIndices.length > 0) {
+      // Map visible indices to full stroke array indices
+      const fullIndices = visibleIndices.map(visIdx => visibleToFullIndexMap[visIdx]);
+      
+      if (fullIndices.length > 0) {
         // Ctrl = add to selection, Shift = remove from selection, neither = replace
         const mode = (event.ctrlKey || event.metaKey) ? 'add' : event.shiftKey ? 'remove' : 'replace';
         
         if (mode === 'replace') {
-          selectFromBox(intersectingIndices, 'replace');
+          selectFromBox(fullIndices, 'replace');
         } else if (mode === 'add') {
-          selectFromBox(intersectingIndices, 'add');
+          selectFromBox(fullIndices, 'add');
         } else if (mode === 'remove') {
           // Deselect the intersecting strokes
-          deselectIndices(intersectingIndices);
+          deselectIndices(fullIndices);
         }
         
         didBoxSelect = true;
@@ -392,27 +419,30 @@
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     
-    const strokeIndex = renderer.hitTest(x, y, visibleStrokes);
+    const visibleIndex = renderer.hitTest(x, y, visibleStrokes);
     
-    if (strokeIndex !== -1) {
+    if (visibleIndex !== -1) {
+      // Map visible index to full stroke array index
+      const fullIndex = visibleToFullIndexMap[visibleIndex];
+      
       // Ctrl = add, Shift = remove, neither = replace
       if (event.shiftKey) {
         // Remove from selection
         selectedIndices.update(sel => {
           const newSel = new Set(sel);
-          newSel.delete(strokeIndex);
+          newSel.delete(fullIndex);
           return newSel;
         });
       } else if (event.ctrlKey || event.metaKey) {
         // Add to selection
         selectedIndices.update(sel => {
           const newSel = new Set(sel);
-          newSel.add(strokeIndex);
+          newSel.add(fullIndex);
           return newSel;
         });
       } else {
         // Replace selection with just this stroke
-        selectedIndices.set(new Set([strokeIndex]));
+        selectedIndices.set(new Set([fullIndex]));
       }
     } else if (!event.ctrlKey && !event.metaKey && !event.shiftKey) {
       clearSelection();

@@ -34,6 +34,16 @@ export class CanvasRenderer {
     this.viewWidth = 0;
     this.viewHeight = 0;
     
+    // Page visualization settings
+    this.showPageBackgrounds = true; // Toggle for page borders
+    this.pageColors = [ // Colors for different pages
+      'rgba(233, 69, 96, 0.8)',   // Red
+      'rgba(75, 192, 192, 0.8)',  // Teal
+      'rgba(255, 205, 86, 0.8)',  // Yellow
+      'rgba(153, 102, 255, 0.8)', // Purple
+      'rgba(255, 159, 64, 0.8)',  // Orange
+    ];
+    
     this.resize();
     this.clear();
   }
@@ -550,10 +560,95 @@ export class CanvasRenderer {
   }
   
   /**
+   * Draw page borders and labels (above the border)
+   */
+  drawPageBorders() {
+    if (!this.showPageBackgrounds || this.pageOffsets.size === 0) return;
+    
+    let colorIndex = 0;
+    
+    this.pageOffsets.forEach((offset, pageKey) => {
+      const { offsetX, offsetY, bounds } = offset;
+      
+      // Calculate screen coordinates for page bounds
+      const left = offsetX * this.scale * this.zoom + this.panX;
+      const top = offsetY * this.scale * this.zoom + this.panY;
+      const width = (bounds.maxX - bounds.minX) * this.scale * this.zoom;
+      const height = (bounds.maxY - bounds.minY) * this.scale * this.zoom;
+      
+      // Get color for this page
+      const baseColor = this.pageColors[colorIndex % this.pageColors.length];
+      
+      // Parse RGB from rgba string
+      const match = baseColor.match(/rgba\(([^,]+),([^,]+),([^,]+),/);
+      let borderColor = 'rgba(200, 200, 200, 0.5)'; // Default gray
+      if (match) {
+        const r = match[1].trim();
+        const g = match[2].trim();
+        const b = match[3].trim();
+        // Use color at full opacity for border
+        borderColor = `rgba(${r},${g},${b},0.8)`;
+      }
+      
+      // Draw border (no fill)
+      this.ctx.strokeStyle = borderColor;
+      this.ctx.lineWidth = 2;
+      this.ctx.strokeRect(left, top, width, height);
+      
+      // Draw page label ABOVE the border
+      const fontSize = Math.max(11, 13 * this.zoom);
+      this.ctx.font = `600 ${fontSize}px 'Segoe UI', sans-serif`;
+      this.ctx.fillStyle = borderColor; // Match border color
+      
+      // Extract book and page from pageKey (format: S#/O#/B#/P#)
+      const parts = pageKey.match(/B(\d+)\/P(\d+)/);
+      if (parts) {
+        const book = parts[1];
+        const page = parts[2];
+        const label = `B${book} / P${page}`;
+        
+        // Position label above the top border with some padding
+        const labelY = top - 6;
+        this.ctx.fillText(label, left + 4, labelY);
+      }
+      
+      colorIndex++;
+    });
+  }
+  
+  /**
+   * Find page at screen coordinates (for hover tooltip)
+   * @param {number} x - Screen X coordinate
+   * @param {number} y - Screen Y coordinate
+   * @returns {string|null} Page key or null
+   */
+  getPageAtPosition(x, y) {
+    if (this.pageOffsets.size === 0) return null;
+    
+    for (const [pageKey, offset] of this.pageOffsets) {
+      const { offsetX, offsetY, bounds } = offset;
+      
+      const left = offsetX * this.scale * this.zoom + this.panX;
+      const top = offsetY * this.scale * this.zoom + this.panY;
+      const width = (bounds.maxX - bounds.minX) * this.scale * this.zoom;
+      const height = (bounds.maxY - bounds.minY) * this.scale * this.zoom;
+      
+      if (x >= left && x <= left + width && y >= top && y <= top + height) {
+        return pageKey;
+      }
+    }
+    
+    return null;
+  }
+  
+  /**
    * Redraw all strokes (called after clear or zoom change)
    */
   redraw() {
     this.clearForRedraw();
+    
+    // Draw page borders first
+    this.drawPageBorders();
     
     // Draw grid for reference at high zoom levels
     if (this.zoom >= 2) {

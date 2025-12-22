@@ -28,6 +28,19 @@
     pageTranscriptions,
     transferProgress
   } from '$stores';
+  import { writable } from 'svelte/store';
+  
+  // Transcription progress state
+  const transcriptionProgress = writable({
+    active: false,
+    currentPage: 0,
+    totalPages: 0,
+    currentBook: 0,
+    currentPageNum: 0,
+    successCount: 0,
+    errorCount: 0,
+    elapsedSeconds: 0
+  });
   import { connectPen, disconnectPen, fetchOfflineData, cancelOfflineTransfer } from '$lib/pen-sdk.js';
   import { transcribeStrokes } from '$lib/myscript-api.js';
   import { updatePageStrokes, updatePageTranscription } from '$lib/logseq-api.js';
@@ -133,14 +146,45 @@
     // Clear previous transcriptions
     clearTranscription();
     
+    // Start progress tracking
+    const startTime = Date.now();
+    let progressInterval;
+    
+    transcriptionProgress.set({
+      active: true,
+      currentPage: 0,
+      totalPages,
+      currentBook: 0,
+      currentPageNum: 0,
+      successCount: 0,
+      errorCount: 0,
+      elapsedSeconds: 0
+    });
+    
+    // Update elapsed time every second
+    progressInterval = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      transcriptionProgress.update(p => ({ ...p, elapsedSeconds: elapsed }));
+    }, 1000);
+    
     try {
       const { appKey, hmacKey } = getMyScriptCredentials();
       let successCount = 0;
       let errorCount = 0;
+      let currentPageIndex = 0;
       
       // Transcribe each page separately
       for (const [pageKey, pageData] of strokesByPage) {
+        currentPageIndex++;
         const { book, page } = pageData.pageInfo;
+        
+        // Update progress
+        transcriptionProgress.update(p => ({
+          ...p,
+          currentPage: currentPageIndex,
+          currentBook: book,
+          currentPageNum: page
+        }));
         
         try {
           log(`Transcribing Book ${book}, Page ${page}...`, 'info');
@@ -156,9 +200,13 @@
           
           log(`✓ Book ${book}/Page ${page}: ${result.text?.length || 0} characters, ${result.lines?.length || 0} lines`, 'success');
           successCount++;
+          
+          transcriptionProgress.update(p => ({ ...p, successCount }));
         } catch (error) {
           log(`✗ Failed to transcribe Book ${book}/Page ${page}: ${error.message}`, 'error');
           errorCount++;
+          
+          transcriptionProgress.update(p => ({ ...p, errorCount }));
         }
       }
       
@@ -173,6 +221,17 @@
     } catch (error) {
       log(`Transcription failed: ${error.message}`, 'error');
     } finally {
+      clearInterval(progressInterval);
+      transcriptionProgress.set({
+        active: false,
+        currentPage: 0,
+        totalPages: 0,
+        currentBook: 0,
+        currentPageNum: 0,
+        successCount: 0,
+        errorCount: 0,
+        elapsedSeconds: 0
+      });
       setIsTranscribing(false);
     }
   }
@@ -198,7 +257,35 @@
     
     try {
       const { host, token } = getLogseqSettings();
-      // Step 1: Save strokes (grouped by page)
+      
+      // Determine which strokes to save:
+      // - If there's a selection, only save pages that contain selected strokes
+      // - If no selection, save all strokes
+      const strokesToSave = $hasSelection ? $selectedStrokes : $strokes;
+      
+      // Get unique page keys from strokes to save
+      const pagesToSave = new Set();
+      strokesToSave.forEach(stroke => {
+        const pageInfo = stroke.pageInfo;
+        if (pageInfo && pageInfo.book !== undefined && pageInfo.page !== undefined) {
+          const key = `${pageInfo.book}-${pageInfo.page}`;
+          pagesToSave.add(key);
+        }
+      });
+      
+      if (pagesToSave.size === 0) {
+        log('No valid page information found in strokes', 'error');
+        return;
+      }
+      
+      // Log what we're saving
+      if ($hasSelection) {
+        log(`Saving ${pagesToSave.size} page(s) containing ${strokesToSave.length} selected strokes...`, 'info');
+      } else {
+        log(`Saving all ${pagesToSave.size} page(s) with ${strokesToSave.length} strokes...`, 'info');
+      }
+      
+      // Step 1: Group ALL strokes by page (we need full page data for each page we're saving)
       const strokesByPage = new Map();
       $strokes.forEach(stroke => {
         const pageInfo = stroke.pageInfo;
@@ -216,8 +303,12 @@
         return;
       }
       
-      // Save strokes for each page
+      // Save strokes only for pages we want to save
       for (const [key, pageStrokes] of strokesByPage) {
+        // Skip pages not in our save list
+        if (!pagesToSave.has(key)) {
+          continue;
+        }
         const pageInfo = pageStrokes[0].pageInfo;
         const { book, page } = pageInfo;
         
@@ -298,9 +389,16 @@
       
       // Summary
       if (savedStrokesCount > 0) {
-        const summary = savedTranscriptionCount > 0 
-          ? `Saved ${savedStrokesCount} page(s) with strokes and transcription`
-          : `Saved ${savedStrokesCount} page(s) with strokes`;
+        let summary;
+        if ($hasSelection) {
+          summary = savedTranscriptionCount > 0
+            ? `Saved ${savedStrokesCount} page(s) (from selection) with strokes and transcription`
+            : `Saved ${savedStrokesCount} page(s) (from selection) with strokes`;
+        } else {
+          summary = savedTranscriptionCount > 0 
+            ? `Saved ${savedStrokesCount} page(s) with strokes and transcription`
+            : `Saved ${savedStrokesCount} page(s) with strokes`;
+        }
         log(summary, 'success');
       }
       if (errorCount > 0) {
@@ -313,6 +411,40 @@
 </script>
 
 <div class="action-bar">
+  <!-- Transcription Progress Popup -->
+  {#if $transcriptionProgress.active}
+    <div class="transcription-popup">
+      <div class="transcription-header">
+        <span>✍️ Transcribing Handwriting</span>
+      </div>
+      <div class="transcription-bar">
+        <div 
+          class="transcription-fill" 
+          style="width: {($transcriptionProgress.currentPage / $transcriptionProgress.totalPages) * 100}%"
+        ></div>
+      </div>
+      <div class="transcription-stats">
+        <span>
+          Page {$transcriptionProgress.currentPage}/{$transcriptionProgress.totalPages}
+          {#if $transcriptionProgress.currentBook > 0}
+            - Book {$transcriptionProgress.currentBook}, Page {$transcriptionProgress.currentPageNum}
+          {/if}
+        </span>
+        <span>{$transcriptionProgress.elapsedSeconds}s</span>
+      </div>
+      {#if $transcriptionProgress.successCount > 0 || $transcriptionProgress.errorCount > 0}
+        <div class="transcription-results">
+          {#if $transcriptionProgress.successCount > 0}
+            <span class="success-count">✓ {$transcriptionProgress.successCount}</span>
+          {/if}
+          {#if $transcriptionProgress.errorCount > 0}
+            <span class="error-count">✗ {$transcriptionProgress.errorCount}</span>
+          {/if}
+        </div>
+      {/if}
+    </div>
+  {/if}
+  
   <!-- Transfer Progress Popup -->
   {#if $transferProgress.active}
     <div class="transfer-popup">
@@ -524,6 +656,75 @@
     .action-btn svg {
       margin: 0;
     }
+  }
+
+  /* Transcription Progress Popup */
+  .transcription-popup {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    padding: 12px 16px;
+    min-width: 300px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    z-index: 100;
+  }
+
+  .transcription-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: 0.9rem;
+    font-weight: 500;
+  }
+
+  .transcription-bar {
+    height: 8px;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+
+  .transcription-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+    border-radius: 4px;
+    transition: width 0.3s ease;
+  }
+
+  .transcription-stats {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+  }
+
+  .transcription-stats span:first-child {
+    color: var(--accent);
+  }
+  
+  .transcription-results {
+    display: flex;
+    gap: 12px;
+    font-size: 0.8rem;
+    padding-top: 6px;
+    border-top: 1px solid var(--border);
+  }
+  
+  .success-count {
+    color: var(--success);
+    font-weight: 600;
+  }
+  
+  .error-count {
+    color: var(--error);
+    font-weight: 600;
   }
 
   /* Transfer Progress Popup */

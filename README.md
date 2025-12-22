@@ -27,6 +27,8 @@ A bridge application for syncing handwritten notes from NeoSmartpen (Lamy Safari
 - **JSON Export**: Export stroke data for analysis or backup
 
 ### Handwriting Recognition (MyScript)
+- **Selective Transcription**: Transcribe only selected strokes or all strokes
+- **Progress Tracking**: Real-time progress modal showing page-by-page transcription status
 - **Text Transcription**: Convert handwritten strokes to text using MyScript Cloud API
 - **Line Detection**: Intelligent line grouping that trusts MyScript's recognition
 - **Indentation Analysis**: Automatic detection of hierarchical structure
@@ -34,9 +36,19 @@ A bridge application for syncing handwritten notes from NeoSmartpen (Lamy Safari
 - **LogSeq Preview**: See how transcribed notes will appear in LogSeq
 
 ### LogSeq Integration
+- **Selective Saving**: Save only pages containing selected strokes, or all pages if none selected
 - **HTTP API Connection**: Send notes directly to LogSeq
 - **Block Structure**: Preserves indentation as nested blocks
 - **Command Detection**: Recognize inline commands like `[page: Meeting Notes]`
+
+### Data Explorer
+- **Strokes Tab**: Browse strokes organized by page with collapsible headers
+  - Expandable page groups showing stroke counts
+  - Selection indicators showing selected/total strokes per page
+  - Smooth scrolling through all pages and strokes
+- **Transcription Tab**: View transcription results with hierarchy visualization
+- **LogSeq DB Tab**: Browse previously saved data in LogSeq
+- **Raw JSON Tab**: Inspect raw stroke data for debugging
 
 ## Prerequisites
 
@@ -152,6 +164,11 @@ The canvas provides intuitive ways to select and interact with your strokes:
 
 Once connected, write on Ncode paper and see strokes appear on the canvas in real-time.
 
+**Multi-page visualization**: If you write on multiple pages, each page is displayed with:
+- Colored borders to distinguish different pages
+- Book/Page labels (e.g., "B3017 / P42") positioned above each page region
+- Unique colors for easy visual identification
+
 ### Offline Sync
 
 1. Click **Fetch Stored Notes** to retrieve notes stored in the pen's memory
@@ -160,17 +177,31 @@ Once connected, write on Ncode paper and see strokes appear on the canvas in rea
 
 ### Handwriting Transcription
 
+**Transcribing Selected Strokes:**
 1. Capture strokes (real-time or offline)
 2. Select specific strokes using:
    - Box selection (drag to select)
    - Individual selection (Ctrl+click)
-   - Or transcribe all strokes (no selection needed)
+   - Page filtering (use page selector to show only certain pages)
 3. Click **Transcribe** button
-4. View results in the **Transcription** tab:
-   - Raw transcribed text
-   - Lines with hierarchy analysis
-   - LogSeq-formatted preview
-   - Detected commands
+4. A progress modal will appear showing:
+   - Current page being transcribed (e.g., "Page 2/5")
+   - Book and page numbers
+   - Success/error counts
+   - Elapsed time
+5. View results in the **Transcription** tab
+
+**Transcribing All Strokes:**
+- If no strokes are selected, clicking **Transcribe** will process all visible strokes
+- Each page is transcribed separately for accurate coordinate handling
+
+**Transcription Results:**
+The Transcription tab shows:
+- Raw transcribed text
+- Lines with hierarchy analysis
+- LogSeq-formatted preview
+- Detected commands
+- Organized by page with expandable cards
 
 ### Shape Detection
 
@@ -178,6 +209,77 @@ The app automatically detects hand-drawn rectangles. These can be used to:
 - Mark regions of text for specific routing
 - Create visual boundaries around related content
 - Identify command/action areas on your notes
+
+### Saving to LogSeq
+
+**Selective Saving:**
+The "Save to LogSeq" button behavior depends on your selection:
+
+- **With strokes selected**: Only saves pages that contain selected strokes
+  - Example: If you select strokes from Page 42 and Page 43, only those two pages are saved
+  - Other pages remain unchanged in LogSeq
+  - Useful for updating specific pages without re-saving everything
+
+- **No strokes selected**: Saves all pages with stroke data
+  - All pages are processed and sent to LogSeq
+  - Includes transcription data if available
+
+**What Gets Saved:**
+For each page being saved:
+1. Raw stroke data (for later import/reference)
+2. Transcription text (if transcribed)
+3. Hierarchical structure (indentation preserved)
+4. Metadata (timestamps, page info)
+
+**LogSeq Page Structure:**
+```
+smartpen/B3017/P42
+  properties::
+    book:: 3017
+    page:: 42
+    timestamp:: 2024-12-22
+  
+  - First line of transcription
+    - Indented child line
+  - Second line
+  
+  stroke-data:: [JSON]
+```
+
+### Using the Data Explorer
+
+The left panel contains a tabbed Data Explorer with four views:
+
+**Strokes Tab:**
+- Browse all captured strokes organized by page
+- Each page group shows:
+  - Book and page number (e.g., "B3017 P42")
+  - Total stroke count for that page
+  - Selection indicator (e.g., "8/42" = 8 of 42 selected)
+- Click page headers to expand/collapse stroke lists
+- Scroll smoothly through all pages and their strokes
+- Click individual strokes to select them on the canvas
+
+**Transcription Tab:**
+- View transcription results after running MyScript
+- Each transcribed page displays in a card with:
+  - Book/page identification
+  - Stroke count and word count
+  - Hierarchical text with indentation
+  - Detected commands highlighted
+- Expandable/collapsible for easy navigation
+
+**LogSeq DB Tab:**
+- Browse data previously saved to LogSeq
+- Click "Refresh" to scan LogSeq database
+- Organized by book with expandable page lists
+- "Lazy Import" buttons to re-import strokes without re-transcribing
+- Useful for retrieving old notes or working offline
+
+**Raw JSON Tab:**
+- Technical view of raw stroke data
+- Useful for debugging or data analysis
+- Copy/export JSON for external processing
 
 ## Data Structure
 
@@ -317,6 +419,18 @@ smartpen-logseq-bridge/
 - The app trusts MyScript's line detection, which is generally accurate
 - Future versions will add interactive line adjustment
 
+### "Transcription only processed some of my strokes"
+- Check if you have strokes selected (selection count shown in top-right)
+- Transcription processes only selected strokes when you have a selection
+- To transcribe everything: Clear selection (click empty canvas) then click Transcribe
+- You can also use the Page Selector to filter which pages are visible/transcribed
+
+### "Save to LogSeq didn't save all my pages"
+- Similar to transcription: Save respects your selection
+- With strokes selected: Only saves pages containing those strokes
+- To save everything: Clear selection before clicking "Save to LogSeq"
+- Check the activity log for confirmation of which pages were saved
+
 ## Deployment
 
 ### Deploy to GitHub Pages
@@ -393,6 +507,11 @@ This will build and serve the app exactly as it will appear on GitHub Pages.
 - [x] Individual stroke toggle selection
 - [x] Keyboard shortcuts (Ctrl+A, Escape)
 - [x] Pan and zoom controls
+- [x] Selective transcription (selected strokes only)
+- [x] Selective LogSeq saving (selected pages only)
+- [x] Real-time transcription progress modal
+- [x] Multi-page canvas visualization with colored borders
+- [x] Page-organized stroke browser with collapsible headers
 
 ### In Progress 🔄
 - [ ] Command detection and processing (`[page:]`, `[project:]`, etc.)
