@@ -502,6 +502,135 @@ async function updatePageStrokesSingle(book, page, newStrokes, host, token = '')
 }
 
 /**
+ * Get or create a book page (root page for a book)
+ * @param {number} book - Book ID
+ * @param {string} host - LogSeq API host
+ * @param {string} token - Optional auth token
+ * @returns {Promise<Object>} Page object
+ */
+export async function getOrCreateBookPage(book, host, token = '') {
+  const pageName = `Smartpen Data/B${book}`;
+  return await getOrCreatePage(host, token, pageName, { book });
+}
+
+/**
+ * Get book page properties including bookName
+ * @param {number} book - Book ID
+ * @param {string} host - LogSeq API host
+ * @param {string} token - Optional auth token
+ * @returns {Promise<Object|null>} Page properties or null
+ */
+export async function getBookPageProperties(book, host, token = '') {
+  try {
+    const pageName = `Smartpen Data/B${book}`;
+    const page = await makeRequest(host, token, 'logseq.Editor.getPage', [pageName]);
+    
+    if (!page) return null;
+    
+    return page.properties || {};
+  } catch (error) {
+    console.error(`Failed to get book page properties for B${book}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Update book page property (e.g., bookName)
+ * @param {number} book - Book ID
+ * @param {string} propertyName - Property name (e.g., 'bookName')
+ * @param {string} value - Property value
+ * @param {string} host - LogSeq API host
+ * @param {string} token - Optional auth token
+ * @returns {Promise<boolean>} Success status
+ */
+export async function updateBookPageProperty(book, propertyName, value, host, token = '') {
+  try {
+    // Get or create the book page
+    const pageObj = await getOrCreateBookPage(book, host, token);
+    const pageName = pageObj.name || pageObj.originalName;
+    
+    // Get the page's block tree
+    const blocks = await makeRequest(host, token, 'logseq.Editor.getPageBlocksTree', [pageName]);
+    
+    let firstBlockUuid;
+    
+    if (!blocks || blocks.length === 0) {
+      // No blocks exist yet - create the first block (properties block)
+      const firstBlock = await makeRequest(host, token, 'logseq.Editor.appendBlockInPage', [
+        pageName,
+        '', // Empty content - properties only
+        { properties: {} }
+      ]);
+      
+      if (!firstBlock) {
+        throw new Error('Failed to create properties block');
+      }
+      
+      firstBlockUuid = firstBlock.uuid;
+    } else {
+      // Use the first block's UUID
+      firstBlockUuid = blocks[0].uuid;
+    }
+    
+    // Update the property on the first block
+    await makeRequest(host, token, 'logseq.Editor.upsertBlockProperty', [
+      firstBlockUuid,
+      propertyName,
+      value
+    ]);
+    
+    console.log(`Updated ${propertyName} for B${book}: ${value}`);
+    return true;
+    
+  } catch (error) {
+    console.error(`Failed to update book page property for B${book}:`, error);
+    return false;
+  }
+}
+
+/**
+ * Scan all book pages and extract bookName properties
+ * @param {string} host - LogSeq API host
+ * @param {string} token - Optional auth token
+ * @returns {Promise<Object>} Map of bookId to bookName
+ */
+export async function scanBookAliases(host, token = '') {
+  try {
+    // Query for all pages under "Smartpen Data" that match B#### pattern
+    const allPages = await makeRequest(host, token, 'logseq.DB.datascriptQuery', [
+      `[:find (pull ?p [:block/name :block/original-name :block/properties])
+        :where [?p :block/name ?name]
+               [(re-matches #"smartpen data/b\\d+" ?name)]]`
+    ]);
+    
+    if (!allPages || allPages.length === 0) {
+      return {};
+    }
+    
+    const aliases = {};
+    
+    for (const [pageData] of allPages) {
+      const pageName = pageData['original-name'] || pageData.name;
+      const properties = pageData.properties || {};
+      
+      // Extract book ID from page name (e.g., "Smartpen Data/B3017" -> "3017")
+      const match = pageName.match(/B(\d+)$/i);
+      if (match && properties.bookName) {
+        const bookId = match[1];
+        aliases[bookId] = properties.bookName;
+      }
+    }
+    
+    console.log(`Found ${Object.keys(aliases).length} book aliases in LogSeq`);
+    return aliases;
+    
+  } catch (error) {
+    console.error('Failed to scan book aliases:', error);
+    return {};
+  }
+}
+
+/**
  * Update page transcription data
  * @param {number} book - Book ID
  * @param {number} page - Page number

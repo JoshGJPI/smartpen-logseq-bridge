@@ -2,6 +2,8 @@
   BookAccordion.svelte - Collapsible book section with pages
 -->
 <script>
+  import { bookAliases } from '$stores';
+  import { formatBookName } from '$utils/formatting.js';
   import PageCard from './PageCard.svelte';
   
   export let bookId; // Book number
@@ -21,7 +23,7 @@
     on:click={toggleExpanded}
   >
     <span class="book-icon">📚</span>
-    <span class="book-title">Book {bookId}</span>
+    <span class="book-title">{formatBookName(bookId, $bookAliases, 'full')}</span>
     <span class="page-count">{pages.length} {pages.length === 1 ? 'page' : 'pages'}</span>
     <span class="toggle-icon">{expanded ? '▼' : '▶'}</span>
   </button>

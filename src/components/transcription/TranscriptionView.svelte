@@ -16,7 +16,9 @@
     getLogseqSettings,
     pageTranscriptionCount
   } from '$stores';
+  import { bookAliases } from '$stores';
   import { sendToLogseq } from '$lib/logseq-api.js';
+  import { formatBookName } from '$utils/formatting.js';
   
   import LogseqPreview from './LogseqPreview.svelte';
   
@@ -97,9 +99,9 @@
     }
   }
   
-  // Format page label
+  // Format page label with alias
   function formatPageLabel(pageInfo) {
-    return `Book ${pageInfo.book} / Page ${pageInfo.page}`;
+    return `${formatBookName(pageInfo.book, $bookAliases, 'full')} / Page ${pageInfo.page}`;
   }
   
   // Get summary stats for a page
@@ -183,8 +185,8 @@
                 on:change={() => togglePageSelection(pageData.pageKey)}
               />
               <span class="page-title">
-                <span class="book-badge">B{pageData.pageInfo.book}</span>
-                <span class="page-number">P{pageData.pageInfo.page}</span>
+                <span class="book-name">{formatBookName(pageData.pageInfo.book, $bookAliases, 'full')}</span>
+                <span class="page-number">/ P{pageData.pageInfo.page}</span>
               </span>
             </label>
             
@@ -462,18 +464,16 @@
     font-size: 0.9rem;
   }
 
-  .book-badge {
-    background: var(--accent);
-    color: white;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    font-weight: 700;
+  .book-name {
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 0.85rem;
   }
 
   .page-number {
-    color: var(--text-primary);
-    font-weight: 600;
+    color: var(--text-secondary);
+    font-weight: 500;
+    font-size: 0.85rem;
   }
 
   .page-header-actions {

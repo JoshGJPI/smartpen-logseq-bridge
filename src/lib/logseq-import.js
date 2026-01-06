@@ -4,6 +4,7 @@
  */
 import { get } from 'svelte/store';
 import { strokes, log, updatePageSyncStatus } from '$stores';
+import { registerBookIds } from '$stores/book-aliases.js';
 import { fetchStrokeData } from './logseq-scanner.js';
 
 /**
@@ -141,6 +142,14 @@ export async function importStrokesFromLogSeq(pageData, onProgress = null) {
     
     if (canvasStrokes.length === 0) {
       throw new Error('No strokes to import');
+    }
+    
+    // Register book IDs from imported strokes
+    const bookIds = [...new Set(canvasStrokes
+      .map(s => s.pageInfo?.book)
+      .filter(Boolean))];
+    if (bookIds.length > 0) {
+      registerBookIds(bookIds);
     }
     
     // Get current strokes and merge with deduplication

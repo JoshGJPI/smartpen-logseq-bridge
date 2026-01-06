@@ -147,3 +147,17 @@ export {
   clearLogseqPages,
   updatePageSyncStatus
 } from './logseqPages.js';
+
+// Book Aliases
+export {
+  bookAliases,
+  knownBookIds,
+  booksWithoutAliases,
+  setBookAliases,
+  setBookAlias,
+  removeBookAlias,
+  getBookAlias,
+  registerBookId,
+  registerBookIds,
+  clearBookAliases
+} from './book-aliases.js';

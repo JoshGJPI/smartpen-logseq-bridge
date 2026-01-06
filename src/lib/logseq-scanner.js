@@ -3,7 +3,9 @@
  */
 import { get } from 'svelte/store';
 import { getLogseqSettings, logseqConnected, setLogseqPages, setScanning, log } from '$stores';
+import { setBookAliases, registerBookIds } from '$stores/book-aliases.js';
 import { parseJsonBlock, parseChunkedJsonBlocks } from './stroke-storage.js';
+import { scanBookAliases } from './logseq-api.js';
 
 /**
  * Make an API request to LogSeq
@@ -181,6 +183,14 @@ export async function scanLogSeqPages() {
     
     log('Scanning LogSeq for smartpen pages...', 'info');
     
+    // First, scan for book aliases
+    const aliases = await scanBookAliases(host, token);
+    setBookAliases(aliases);
+    
+    if (Object.keys(aliases).length > 0) {
+      log(`Loaded ${Object.keys(aliases).length} book aliases`, 'info');
+    }
+    
     // Get all pages in the graph
     const allPages = await makeRequest(host, token, 'logseq.DB.datascriptQuery', [
       `[:find (pull ?p [:block/name :block/original-name])
@@ -216,7 +226,13 @@ export async function scanLogSeqPages() {
     // Filter out any failed fetches
     const validPages = pageDetails.filter(p => p !== null);
     
-    log(`Loaded ${validPages.length} smartpen pages from LogSeq`, 'success');
+    // Extract all unique book IDs from the pages and register them
+    const uniqueBookIds = [...new Set(validPages.map(p => String(p.book)))];
+    if (uniqueBookIds.length > 0) {
+      registerBookIds(uniqueBookIds);
+    }
+    
+    log(`Loaded ${validPages.length} smartpen pages from LogSeq (${uniqueBookIds.length} books)`, 'success');
     
     setLogseqPages(validPages);
     

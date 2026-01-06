@@ -67,7 +67,8 @@ export default defineConfig({
       // Svelte-style aliases
       '$lib': resolve(__dirname, 'src/lib'),
       '$stores': resolve(__dirname, 'src/stores'),
-      '$components': resolve(__dirname, 'src/components')
+      '$components': resolve(__dirname, 'src/components'),
+      '$utils': resolve(__dirname, 'src/utils')
     }
   },
   define: {

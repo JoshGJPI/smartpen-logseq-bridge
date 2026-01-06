@@ -3,6 +3,7 @@
  * Svelte 4 writable and derived stores
  */
 import { writable, derived } from 'svelte/store';
+import { registerBookId, registerBookIds } from './book-aliases.js';
 
 // Raw stroke data
 export const strokes = writable([]);
@@ -35,6 +36,10 @@ export const currentPageInfo = writable(null);
  * @param {Object} stroke - Stroke object with pageInfo, dotArray, etc.
  */
 export function addStroke(stroke) {
+  // Register the book ID if present
+  if (stroke.pageInfo?.book) {
+    registerBookId(stroke.pageInfo.book);
+  }
   strokes.update(s => [...s, stroke]);
 }
 
@@ -56,6 +61,13 @@ export function updateLastStroke(updater) {
  * @param {Array} offlineStrokes - Array of stroke objects
  */
 export function addOfflineStrokes(offlineStrokes) {
+  // Register all unique book IDs
+  const bookIds = [...new Set(offlineStrokes
+    .map(s => s.pageInfo?.book)
+    .filter(Boolean))];
+  if (bookIds.length > 0) {
+    registerBookIds(bookIds);
+  }
   strokes.update(s => [...s, ...offlineStrokes]);
 }
 

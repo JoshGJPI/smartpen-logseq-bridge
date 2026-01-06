@@ -4,6 +4,8 @@
 <script>
   import { strokes, strokeCount, pages } from '$stores';
   import { selectedIndices, handleStrokeClick, selectionCount } from '$stores';
+  import { bookAliases } from '$stores';
+  import { formatBookName } from '$utils/formatting.js';
   import StrokeItem from './StrokeItem.svelte';
   
   // Track expanded pages (default: all expanded)
@@ -98,8 +100,8 @@
               >
                 <polyline points="6 9 12 15 18 9"/>
               </svg>
-              <span class="book-badge">B{group.book}</span>
-              <span class="page-number">P{group.page}</span>
+              <span class="book-name">{formatBookName(group.book, $bookAliases, 'full')}</span>
+              <span class="page-number">/ P{group.page}</span>
             </div>
             
             <div class="page-stats">
@@ -222,18 +224,16 @@
     transform: rotate(180deg);
   }
   
-  .book-badge {
-    background: var(--accent);
-    color: white;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    font-weight: 700;
+  .book-name {
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 0.85rem;
   }
   
   .page-number {
-    color: var(--text-primary);
-    font-weight: 600;
+    color: var(--text-secondary);
+    font-weight: 500;
+    font-size: 0.85rem;
   }
   
   .page-stats {

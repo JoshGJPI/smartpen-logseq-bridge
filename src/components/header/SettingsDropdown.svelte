@@ -16,6 +16,7 @@
   } from '$stores';
   import { testMyScriptCredentials } from '$lib/myscript-api.js';
   import { testLogseqConnection } from '$lib/logseq-api.js';
+  import BookAliasManager from '../settings/BookAliasManager.svelte';
   
   let isOpen = false;
   let showKeys = false;
@@ -200,6 +201,11 @@
         >
           {isTestingLogseq ? 'Testing...' : '🔗 Test LogSeq Connection'}
         </button>
+      </section>
+      
+      <!-- Book Aliases -->
+      <section class="settings-section">
+        <BookAliasManager />
       </section>
     </div>
   {/if}
