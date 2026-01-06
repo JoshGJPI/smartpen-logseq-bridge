@@ -580,8 +580,8 @@
     event.preventDefault();
     
     if (event.ctrlKey || event.metaKey) {
-      // Zoom
-      const delta = event.deltaY > 0 ? -0.1 : 0.1;
+      // Zoom - 25% per scroll tick for more responsive feel
+      const delta = event.deltaY > 0 ? -0.25 : 0.25;
       setCanvasZoom($canvasZoom + delta);
     } else {
       // Pan with scroll wheel
