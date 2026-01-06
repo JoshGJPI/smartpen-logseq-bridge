@@ -4,15 +4,57 @@
 <script>
   import { bookAliases } from '$stores';
   import { formatBookName } from '$utils/formatting.js';
+  import { importStrokesFromLogSeq } from '$lib/logseq-import.js';
   import PageCard from './PageCard.svelte';
   
   export let bookId; // Book number
   export let pages;  // Array of page data objects
   
   let expanded = false;
+  let importingAll = false;
+  let importProgress = { current: 0, total: 0, currentPage: 0, totalPages: 0 };
   
   function toggleExpanded() {
     expanded = !expanded;
+  }
+  
+  async function handleImportAll() {
+    importingAll = true;
+    const totalPages = pages.length;
+    importProgress = { current: 0, total: 0, currentPage: 0, totalPages };
+    
+    let successCount = 0;
+    let failCount = 0;
+    
+    for (let i = 0; i < pages.length; i++) {
+      const page = pages[i];
+      importProgress.currentPage = i + 1;
+      
+      try {
+        const result = await importStrokesFromLogSeq(page, (current, total) => {
+          importProgress = { 
+            current, 
+            total, 
+            currentPage: i + 1, 
+            totalPages 
+          };
+        });
+        
+        if (result.success) {
+          successCount++;
+        } else {
+          failCount++;
+        }
+      } catch (error) {
+        console.error(`Failed to import page ${page.page}:`, error);
+        failCount++;
+      }
+    }
+    
+    importingAll = false;
+    importProgress = { current: 0, total: 0, currentPage: 0, totalPages: 0 };
+    
+    console.log(`Import complete: ${successCount} successful, ${failCount} failed`);
   }
 </script>
 
@@ -24,7 +66,27 @@
   >
     <span class="book-icon">📚</span>
     <span class="book-title">{formatBookName(bookId, $bookAliases, 'full')}</span>
-    <span class="page-count">{pages.length} {pages.length === 1 ? 'page' : 'pages'}</span>
+    <button 
+      class="page-count-btn"
+      on:click|stopPropagation={handleImportAll}
+      disabled={importingAll || pages.length === 0}
+      title="Import all pages from this book"
+    >
+      {#if importingAll}
+        <span class="spinner">⏳</span>
+        {#if importProgress.totalPages > 0}
+          {importProgress.currentPage}/{importProgress.totalPages}
+          {#if importProgress.total > 0}
+            ({importProgress.current}/{importProgress.total})
+          {/if}
+        {:else}
+          Loading...
+        {/if}
+      {:else}
+        <span class="import-icon">📥</span>
+        {pages.length} {pages.length === 1 ? 'page' : 'pages'}
+      {/if}
+    </button>
     <span class="toggle-icon">{expanded ? '▼' : '▶'}</span>
   </button>
   
@@ -76,17 +138,49 @@
     flex: 1;
   }
   
-  .page-count {
+  .page-count-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
     font-size: 0.75rem;
     color: var(--text-tertiary);
-    padding: 2px 8px;
+    padding: 4px 10px;
     background: var(--bg-tertiary);
+    border: 1px solid transparent;
     border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-weight: 500;
+  }
+  
+  .page-count-btn:hover:not(:disabled) {
+    background: var(--accent-color, #2196f3);
+    color: white;
+    border-color: var(--accent-color, #2196f3);
+    transform: translateY(-1px);
+  }
+  
+  .page-count-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  
+  .import-icon {
+    font-size: 0.875rem;
   }
   
   .toggle-icon {
     font-size: 0.75rem;
     color: var(--text-secondary);
+  }
+  
+  .spinner {
+    animation: spin 1s linear infinite;
+  }
+  
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
   }
   
   .book-content {
