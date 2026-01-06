@@ -794,6 +794,102 @@ export class CanvasRenderer {
   }
   
   /**
+   * Draw transcribed text within a page's boundaries
+   * @param {string} pageKey - Page identifier
+   * @param {string} text - Transcribed text to render
+   */
+  drawPageText(pageKey, text) {
+    const pageBounds = this.getPageBoundsScreen(pageKey);
+    if (!pageBounds) return;
+    
+    const { left, top, width, height } = pageBounds;
+    
+    // Start with default sizing
+    let fontSize = Math.max(3, 4 * this.zoom);
+    let lineHeight = 5 * this.zoom;
+    let padding = 4 * this.zoom;
+    
+    // Helper function to calculate wrapped lines
+    const calculateWrappedLines = (text, fontSize, maxWidth) => {
+      this.ctx.font = `${fontSize}px 'Courier New', monospace`;
+      const lines = text.split('\n');
+      const wrappedLines = [];
+      
+      lines.forEach(line => {
+        if (line.trim() === '') {
+          wrappedLines.push('');
+          return;
+        }
+        
+        const metrics = this.ctx.measureText(line);
+        
+        if (metrics.width <= maxWidth) {
+          wrappedLines.push(line);
+        } else {
+          // Wrap line by words
+          const words = line.split(' ');
+          let currentLine = '';
+          
+          words.forEach(word => {
+            const testLine = currentLine + (currentLine ? ' ' : '') + word;
+            const testMetrics = this.ctx.measureText(testLine);
+            
+            if (testMetrics.width <= maxWidth) {
+              currentLine = testLine;
+            } else {
+              if (currentLine) wrappedLines.push(currentLine);
+              currentLine = word;
+            }
+          });
+          
+          if (currentLine) wrappedLines.push(currentLine);
+        }
+      });
+      
+      return wrappedLines;
+    };
+    
+    // Calculate if text fits with current sizing
+    const maxWidth = width - (padding * 2);
+    let wrappedLines = calculateWrappedLines(text, fontSize, maxWidth);
+    let requiredHeight = wrappedLines.length * lineHeight + (padding * 2);
+    
+    // If text doesn't fit, scale down until it does (or hit minimum)
+    const minFontSize = Math.max(2, 2 * this.zoom);
+    while (requiredHeight > height && fontSize > minFontSize) {
+      // Scale down by 0.5px
+      fontSize = Math.max(minFontSize, fontSize - 0.5);
+      lineHeight = fontSize * 1.25; // Maintain proportional line height
+      padding = fontSize; // Adjust padding proportionally
+      
+      // Recalculate
+      const newMaxWidth = width - (padding * 2);
+      wrappedLines = calculateWrappedLines(text, fontSize, newMaxWidth);
+      requiredHeight = wrappedLines.length * lineHeight + (padding * 2);
+    }
+    
+    // Set final text styling
+    this.ctx.font = `${fontSize}px 'Courier New', monospace`;
+    this.ctx.fillStyle = '#000000';
+    this.ctx.textBaseline = 'top';
+    
+    // Draw wrapped lines
+    let y = top + padding;
+    const maxY = top + height - padding;
+    
+    for (const line of wrappedLines) {
+      if (y + lineHeight > maxY) {
+        // Draw ellipsis if text still doesn't fit (shouldn't happen often now)
+        this.ctx.fillText('...', left + padding, y);
+        break;
+      }
+      
+      this.ctx.fillText(line, left + padding, y);
+      y += lineHeight;
+    }
+  }
+  
+  /**
    * Redraw all strokes (called after clear or zoom change)
    */
   redraw() {

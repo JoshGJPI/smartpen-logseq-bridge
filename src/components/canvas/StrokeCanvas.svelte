@@ -10,6 +10,10 @@
   import { pagePositions, useCustomPositions, setPagePosition, movePageBy, clearPagePositions } from '$stores';
   import { deselectIndices } from '$stores/selection.js';
   import { detectDecorativeIndices } from '$lib/stroke-filter.js';
+  import { pageTranscriptionsArray } from '$stores';
+  import { logseqPages } from '$stores';
+  import { bookAliases } from '$stores';
+  import { formatBookName } from '$utils/formatting.js';
   import CanvasControls from './CanvasControls.svelte';
   import PageSelector from './PageSelector.svelte';
   import FilteredStrokesPanel from '../strokes/FilteredStrokesPanel.svelte';
@@ -20,6 +24,9 @@
   
   // Decorative detection state
   let isDetecting = false;
+  
+  // Text view toggle state
+  let showTextView = false;
   
   // Page filtering - now supports multiple selections
   let selectedPages = new Set();
@@ -229,16 +236,22 @@
     // Draw page borders
     renderer.drawPageBorders();
     
-    // Draw normal text strokes
-    visibleStrokes.forEach((stroke, index) => {
-      renderer.drawStroke(stroke, $selectedIndices.has(visibleToFullIndexMap[index]), false);
-    });
-    
-    // Draw filtered decorative strokes if toggle is on
-    if ($showFilteredStrokes && $filteredStrokes.length > 0) {
-      $filteredStrokes.forEach(({ stroke }) => {
-        renderer.drawStroke(stroke, false, true);
+    if (showTextView) {
+      // Text view mode - render transcribed text inside page boundaries
+      renderTranscribedText();
+    } else {
+      // Stroke view mode - render strokes
+      // Draw normal text strokes
+      visibleStrokes.forEach((stroke, index) => {
+        renderer.drawStroke(stroke, $selectedIndices.has(visibleToFullIndexMap[index]), false);
       });
+      
+      // Draw filtered decorative strokes if toggle is on
+      if ($showFilteredStrokes && $filteredStrokes.length > 0) {
+        $filteredStrokes.forEach(({ stroke }) => {
+          renderer.drawStroke(stroke, false, true);
+        });
+      }
     }
   }
   
@@ -699,6 +712,149 @@
       isDetecting = false;
     }
   }
+  
+  // Toggle text view - check for data when clicked
+  function handleTextViewToggle() {
+    // If already showing text, just toggle back to strokes
+    if (showTextView) {
+      showTextView = false;
+      return;
+    }
+    
+    // Check if any visible pages have transcription data
+    const transcriptions = getVisibleTranscriptions();
+    
+    if (transcriptions.length === 0) {
+      log('No transcription data available for selected pages. Transcribe strokes first or import pages with transcription data.', 'warning');
+      return;
+    }
+    
+    // Show text view
+    showTextView = true;
+    log(`Displaying transcription text for ${transcriptions.length} page(s)`, 'info');
+  }
+  
+  // Get transcriptions for visible pages (from both MyScript and LogSeq)
+  // This function now matches pages more intelligently, handling section/owner mismatches
+  function getVisibleTranscriptions() {
+    const transcriptions = [];
+    
+    // Helper to match pages ignoring section/owner when needed
+    function matchesPage(pageKey, book, page) {
+      // Try exact match first
+      if (selectedPages.has(pageKey)) return true;
+      
+      // Try matching just by book/page (ignore section/owner)
+      for (const selectedKey of selectedPages) {
+        const match = selectedKey.match(/S\d+\/O\d+\/B(\d+)\/P(\d+)/);
+        if (match && parseInt(match[1]) === book && parseInt(match[2]) === page) {
+          return true;
+        }
+      }
+      
+      return false;
+    }
+    
+    // Add MyScript transcriptions
+    if ($pageTranscriptionsArray) {
+      $pageTranscriptionsArray.forEach(pt => {
+        if (matchesPage(pt.pageKey, pt.pageInfo.book, pt.pageInfo.page)) {
+          transcriptions.push({
+            pageKey: pt.pageKey,
+            text: pt.text,
+            pageInfo: pt.pageInfo,
+            strokeCount: pt.strokeCount,
+            source: 'myscript'
+          });
+        }
+      });
+    }
+    
+    // Add LogSeq imported pages (only if not already in MyScript transcriptions)
+    if ($logseqPages) {
+      $logseqPages.forEach(lsPage => {
+        if (!lsPage.transcriptionText) return;
+        
+        // Check if we already have this page from MyScript (match by book/page)
+        const alreadyExists = transcriptions.some(t => 
+          t.pageInfo.book === lsPage.book && t.pageInfo.page === lsPage.page
+        );
+        if (alreadyExists) return;
+        
+        // Use the LogSeq pageKey format, but check if it matches any selected page
+        const pageKey = `S${lsPage.section || 0}/O${lsPage.owner || 0}/B${lsPage.book}/P${lsPage.page}`;
+        
+        if (!matchesPage(pageKey, lsPage.book, lsPage.page)) return;
+        
+        transcriptions.push({
+          pageKey: pageKey,
+          text: lsPage.transcriptionText,
+          pageInfo: {
+            section: lsPage.section || 0,
+            owner: lsPage.owner || 0,
+            book: lsPage.book,
+            page: lsPage.page
+          },
+          strokeCount: lsPage.strokeCount || 0,
+          source: 'logseq'
+        });
+      });
+    }
+    
+    // Sort by book then page
+    return transcriptions.sort((a, b) => {
+      if (a.pageInfo.book !== b.pageInfo.book) {
+        return a.pageInfo.book - b.pageInfo.book;
+      }
+      return a.pageInfo.page - b.pageInfo.page;
+    });
+  }
+  
+  // Render transcribed text on canvas within page boundaries
+  function renderTranscribedText() {
+    if (!renderer) return;
+    
+    const visibleTranscriptions = getVisibleTranscriptions();
+    
+    console.log('📝 Rendering transcribed text for', visibleTranscriptions.length, 'pages');
+    
+    visibleTranscriptions.forEach(pageData => {
+      if (!pageData.text || !pageData.text.trim()) {
+        console.log('  ⚠️ No text for', pageData.pageKey);
+        return;
+      }
+      
+      // Need to find the actual pageKey used in the renderer
+      // The pageData.pageKey might be from LogSeq (S0/O0/...) but renderer has real pen data (S3/O1012/...)
+      const book = pageData.pageInfo.book;
+      const page = pageData.pageInfo.page;
+      
+      // Find matching pageKey in renderer's pageOffsets (fuzzy match by book/page)
+      let matchingPageKey = null;
+      for (const [rendererPageKey, offset] of renderer.pageOffsets) {
+        const match = rendererPageKey.match(/S\d+\/O\d+\/B(\d+)\/P(\d+)/);
+        if (match && parseInt(match[1]) === book && parseInt(match[2]) === page) {
+          matchingPageKey = rendererPageKey;
+          break;
+        }
+      }
+      
+      if (!matchingPageKey) {
+        console.log('  ❌ No matching page in renderer for B', book, 'P', page);
+        return;
+      }
+      
+      console.log('  ✅ Rendering text for', matchingPageKey, '(', pageData.text.length, 'chars )');
+      
+      // Render text inside the page boundaries using the correct pageKey
+      renderer.drawPageText(matchingPageKey, pageData.text);
+    });
+  }
+  
+  // Re-render when text view toggle changes
+  $: if (renderer && showTextView !== undefined) {
+    renderStrokes(false);
+  }
 </script>
 
 <div class="canvas-panel panel">
@@ -748,6 +904,15 @@
             📐 Reset Layout
           </button>
         {/if}
+        {#if $strokeCount > 0}
+          <button 
+            class="header-btn text-toggle-btn" 
+            on:click={handleTextViewToggle}
+            title={showTextView ? 'Show stroke view' : 'Show text view'}
+          >
+            {showTextView ? '✏️ Show Strokes' : '📝 Show Text'}
+          </button>
+        {/if}
       {/if}
     </div>
     
@@ -791,7 +956,12 @@
       {#if $useCustomPositions}
         <strong>Drag page labels to reposition</strong> • 
       {/if}
-      Drag to select • Ctrl+click to add • Shift+click to deselect • Alt+drag to pan • Ctrl+scroll to zoom
+      {#if showTextView}
+        Showing transcribed text • 
+      {:else}
+        Drag to select • Ctrl+click to add • Shift+click to deselect • 
+      {/if}
+      Alt+drag to pan • Ctrl+scroll to zoom
     </div>
   </div>
   
@@ -909,6 +1079,18 @@
     border-color: var(--success);
   }
   
+  .text-toggle-btn {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+  
+  .text-toggle-btn:hover:not(:disabled) {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+  
   .stroke-count {
     font-size: 0.85rem;
     color: var(--text-secondary);
@@ -995,4 +1177,6 @@
     background: var(--bg-tertiary);
     border-color: var(--accent);
   }
+  
+  /* No additional text view styles needed - rendering on canvas */
 </style>
