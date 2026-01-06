@@ -115,6 +115,122 @@ function mergeStrokes(existingStrokes, newStrokes) {
 }
 
 /**
+ * Import additional strokes for all currently loaded pages from LogSeq
+ * @param {Function} onProgress - Optional callback(message, current, total)
+ * @returns {Promise<Object>} Result with import stats
+ */
+export async function importStrokesForLoadedPages(onProgress = null) {
+  try {
+    // Get current strokes and identify unique pages
+    const currentStrokes = get(strokes);
+    
+    if (currentStrokes.length === 0) {
+      log('No strokes loaded to match against LogSeq', 'warning');
+      return {
+        success: false,
+        error: 'No strokes currently loaded'
+      };
+    }
+    
+    // Extract unique book/page combinations from current strokes
+    const loadedPages = new Map();
+    currentStrokes.forEach(stroke => {
+      const pageInfo = stroke.pageInfo || {};
+      const book = pageInfo.book || 0;
+      const page = pageInfo.page || 0;
+      const key = `B${book}/P${page}`;
+      
+      if (!loadedPages.has(key)) {
+        loadedPages.set(key, { book, page });
+      }
+    });
+    
+    log(`Found ${loadedPages.size} unique pages in current strokes`, 'info');
+    
+    // Get LogSeq pages from store
+    const { logseqPages: logseqPagesStore } = await import('$stores/logseqPages.js');
+    const allLogseqPages = get(logseqPagesStore);
+    
+    if (allLogseqPages.length === 0) {
+      log('No pages found in LogSeq DB. Scan LogSeq first.', 'warning');
+      return {
+        success: false,
+        error: 'No pages in LogSeq DB'
+      };
+    }
+    
+    // Find matching pages in LogSeq
+    const matchingPages = [];
+    for (const [key, pageRef] of loadedPages.entries()) {
+      const match = allLogseqPages.find(p => 
+        p.book === pageRef.book && p.page === pageRef.page
+      );
+      
+      if (match) {
+        matchingPages.push(match);
+      }
+    }
+    
+    if (matchingPages.length === 0) {
+      log('No matching pages found in LogSeq DB', 'info');
+      return {
+        success: true,
+        imported: 0,
+        duplicatesSkipped: 0,
+        pagesProcessed: 0
+      };
+    }
+    
+    log(`Found ${matchingPages.length} matching pages in LogSeq`, 'info');
+    
+    // Import strokes from each matching page
+    let totalImported = 0;
+    let totalDuplicates = 0;
+    let pagesProcessed = 0;
+    
+    for (const pageData of matchingPages) {
+      if (onProgress) {
+        onProgress(
+          `Importing B${pageData.book}/P${pageData.page}...`,
+          pagesProcessed + 1,
+          matchingPages.length
+        );
+      }
+      
+      const result = await importStrokesFromLogSeq(pageData, null);
+      
+      if (result.success) {
+        totalImported += result.imported;
+        totalDuplicates += result.duplicatesSkipped;
+        pagesProcessed++;
+      }
+    }
+    
+    // Final summary
+    const message = `Import complete: ${totalImported} new strokes from ${pagesProcessed} pages` +
+      (totalDuplicates > 0 ? ` (${totalDuplicates} duplicates skipped)` : '');
+    
+    log(message, 'success');
+    
+    return {
+      success: true,
+      imported: totalImported,
+      duplicatesSkipped: totalDuplicates,
+      pagesProcessed
+    };
+    
+  } catch (error) {
+    console.error('Failed to import strokes for loaded pages:', error);
+    log(`Import failed: ${error.message}`, 'error');
+    
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
  * Import strokes from LogSeq into the canvas
  * @param {Object} pageData - Page data object from logseqPages store
  * @param {Function} onProgress - Optional callback(current, total) for progress updates
