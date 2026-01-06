@@ -3,7 +3,7 @@
 -->
 <script>
   import { bookAliases } from '$stores';
-  import { formatBookName } from '$utils/formatting.js';
+  import { formatBookName, getBookColor } from '$utils/formatting.js';
   import StrokePageCard from './StrokePageCard.svelte';
   
   export let bookId;  // Book number
@@ -17,6 +17,13 @@
   
   // Calculate total strokes across all pages in this book
   $: totalStrokes = pages.reduce((sum, page) => sum + page.strokes.length, 0);
+  
+  // Get book color
+  $: bookColor = getBookColor(bookId, 1.0); // Full opacity for text
+  
+  // Format book name parts
+  $: bookAlias = $bookAliases[bookId];
+  $: bookIdText = `B${bookId}`;
 </script>
 
 <div class="book-accordion">
@@ -26,7 +33,13 @@
     on:click={toggleExpanded}
   >
     <span class="book-icon">📚</span>
-    <span class="book-title">{formatBookName(bookId, $bookAliases, 'full')}</span>
+    <span class="book-title">
+      {#if bookAlias}
+        {bookAlias} <span class="book-id" style="color: {bookColor}">({bookIdText})</span>
+      {:else}
+        <span class="book-id" style="color: {bookColor}">{bookIdText}</span>
+      {/if}
+    </span>
     <span class="page-count">
       {pages.length} {pages.length === 1 ? 'page' : 'pages'}
       <span class="stroke-count-inline">({totalStrokes} strokes)</span>
@@ -80,6 +93,10 @@
     font-weight: 600;
     font-size: 1rem;
     flex: 1;
+  }
+  
+  .book-id {
+    font-weight: 700;
   }
   
   .page-count {

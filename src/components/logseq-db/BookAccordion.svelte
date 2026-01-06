@@ -3,7 +3,7 @@
 -->
 <script>
   import { bookAliases } from '$stores';
-  import { formatBookName } from '$utils/formatting.js';
+  import { formatBookName, getBookColor } from '$utils/formatting.js';
   import { importStrokesFromLogSeq } from '$lib/logseq-import.js';
   import PageCard from './PageCard.svelte';
   
@@ -13,6 +13,13 @@
   let expanded = false;
   let importingAll = false;
   let importProgress = { current: 0, total: 0, currentPage: 0, totalPages: 0 };
+  
+  // Get book color
+  $: bookColor = getBookColor(bookId, 1.0); // Full opacity for text
+  
+  // Format book name parts
+  $: bookAlias = $bookAliases[bookId];
+  $: bookIdText = `B${bookId}`;
   
   function toggleExpanded() {
     expanded = !expanded;
@@ -65,7 +72,13 @@
     on:click={toggleExpanded}
   >
     <span class="book-icon">📚</span>
-    <span class="book-title">{formatBookName(bookId, $bookAliases, 'full')}</span>
+    <span class="book-title">
+      {#if bookAlias}
+        {bookAlias} <span class="book-id" style="color: {bookColor}">({bookIdText})</span>
+      {:else}
+        <span class="book-id" style="color: {bookColor}">{bookIdText}</span>
+      {/if}
+    </span>
     <button 
       class="page-count-btn"
       on:click|stopPropagation={handleImportAll}
@@ -136,6 +149,10 @@
     font-weight: 600;
     font-size: 1rem;
     flex: 1;
+  }
+  
+  .book-id {
+    font-weight: 700;
   }
   
   .page-count-btn {
