@@ -162,12 +162,14 @@ export {
   clearBookAliases
 } from './book-aliases.js';
 
-// Page Order
+// Page Positions (Spatial Layout)
 export {
-  customPageOrder,
-  useCustomOrder,
-  initializePageOrder,
-  setPageOrder,
-  resetPageOrder,
-  clearPageOrder
+  pagePositions,
+  useCustomPositions,
+  setPagePosition,
+  movePageBy,
+  getPagePosition,
+  resetPagePositions,
+  clearPagePositions,
+  autoArrangePages
 } from './page-order.js';

@@ -642,6 +642,94 @@ export class CanvasRenderer {
   }
   
   /**
+   * Check if click is on a page header/label area (draggable region)
+   * @param {number} x - Screen X coordinate
+   * @param {number} y - Screen Y coordinate
+   * @returns {string|null} Page key if clicking on header, null otherwise
+   */
+  hitTestPageHeader(x, y) {
+    if (this.pageOffsets.size === 0) return null;
+    
+    for (const [pageKey, offset] of this.pageOffsets) {
+      const { offsetX, offsetY, bounds } = offset;
+      
+      const left = offsetX * this.scale * this.zoom + this.panX;
+      const top = offsetY * this.scale * this.zoom + this.panY;
+      const width = (bounds.maxX - bounds.minX) * this.scale * this.zoom;
+      
+      // Draggable region is ONLY the label area above the border
+      // Label is drawn at top - 6, so check from top - 28 to top + 2
+      // This gives ~30px height for the label only, not extending into strokes
+      if (x >= left && x <= left + width && y >= top - 28 && y <= top + 2) {
+        return pageKey;
+      }
+    }
+    
+    return null;
+  }
+  
+  /**
+   * Apply custom positions from store to page offsets
+   * @param {Object} customPositions - Map of pageKey -> {x, y} positions
+   */
+  applyCustomPositions(customPositions) {
+    if (!customPositions || Object.keys(customPositions).length === 0) return;
+    
+    this.pageOffsets.forEach((offset, pageKey) => {
+      const customPos = customPositions[pageKey];
+      if (customPos) {
+        // Apply custom offset (these are in Ncode space, already accounted for in calculation)
+        offset.offsetX = customPos.x;
+        offset.offsetY = customPos.y;
+      }
+    });
+    
+    // Recalculate global bounds based on custom positions
+    this.bounds = {
+      minX: Infinity,
+      minY: Infinity,
+      maxX: -Infinity,
+      maxY: -Infinity
+    };
+    
+    this.pageOffsets.forEach((offset) => {
+      const { offsetX, offsetY, bounds } = offset;
+      const pageWidth = bounds.maxX - bounds.minX;
+      const pageHeight = bounds.maxY - bounds.minY;
+      
+      this.bounds.minX = Math.min(this.bounds.minX, offsetX);
+      this.bounds.minY = Math.min(this.bounds.minY, offsetY);
+      this.bounds.maxX = Math.max(this.bounds.maxX, offsetX + pageWidth);
+      this.bounds.maxY = Math.max(this.bounds.maxY, offsetY + pageHeight);
+    });
+  }
+  
+  /**
+   * Get page bounds in screen coordinates
+   * @param {string} pageKey - Page identifier
+   * @returns {Object|null} Object with {left, top, right, bottom, width, height}
+   */
+  getPageBoundsScreen(pageKey) {
+    const offset = this.pageOffsets.get(pageKey);
+    if (!offset) return null;
+    
+    const { offsetX, offsetY, bounds } = offset;
+    const left = offsetX * this.scale * this.zoom + this.panX;
+    const top = offsetY * this.scale * this.zoom + this.panY;
+    const width = (bounds.maxX - bounds.minX) * this.scale * this.zoom;
+    const height = (bounds.maxY - bounds.minY) * this.scale * this.zoom;
+    
+    return {
+      left,
+      top,
+      right: left + width,
+      bottom: top + height,
+      width,
+      height
+    };
+  }
+  
+  /**
    * Redraw all strokes (called after clear or zoom change)
    */
   redraw() {

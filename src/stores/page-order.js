@@ -1,75 +1,113 @@
 /**
- * Page Order Store - Manages custom ordering of pages in stroke list
- * Persists to localStorage so user's preferred order survives page refreshes
+ * Page Order Store - Manages custom spatial positioning of pages on canvas
+ * Each page can be positioned anywhere with X,Y coordinates
+ * Persists to localStorage so layout survives page refreshes
  */
 import { writable, get } from 'svelte/store';
 
-// Load saved order from localStorage
-const savedOrder = localStorage.getItem('customPageOrder');
-const savedUseCustom = localStorage.getItem('useCustomPageOrder');
+// Load saved positions from localStorage
+const savedPositions = localStorage.getItem('pagePositions');
 
-// Custom page order (array of pageKeys in desired order)
-export const customPageOrder = writable(
-  savedOrder ? JSON.parse(savedOrder) : []
+// Map of pageKey -> {x, y} positions in Ncode space
+export const pagePositions = writable(
+  savedPositions ? JSON.parse(savedPositions) : {}
 );
 
-// Flag to indicate if custom order is active (vs auto-sort)
-export const useCustomOrder = writable(
-  savedUseCustom === 'true' // Convert string to boolean
+// Flag to indicate if custom positioning is active
+export const useCustomPositions = writable(
+  localStorage.getItem('useCustomPositions') === 'true'
 );
 
 // Subscribe to changes and persist to localStorage
-customPageOrder.subscribe(order => {
-  localStorage.setItem('customPageOrder', JSON.stringify(order));
+pagePositions.subscribe(positions => {
+  localStorage.setItem('pagePositions', JSON.stringify(positions));
 });
 
-useCustomOrder.subscribe(value => {
-  localStorage.setItem('useCustomPageOrder', value.toString());
+useCustomPositions.subscribe(value => {
+  localStorage.setItem('useCustomPositions', value.toString());
 });
 
 /**
- * Initialize page order with current pages (called when pages change)
- * @param {Array} pageKeys - Array of page keys in default sort order
+ * Set position for a specific page
+ * @param {string} pageKey - Page identifier (S#/O#/B#/P#)
+ * @param {number} x - X position in Ncode space
+ * @param {number} y - Y position in Ncode space
  */
-export function initializePageOrder(pageKeys) {
-  const currentOrder = get(customPageOrder);
-  const currentUseCustom = get(useCustomOrder);
+export function setPagePosition(pageKey, x, y) {
+  pagePositions.update(positions => ({
+    ...positions,
+    [pageKey]: { x, y }
+  }));
+  useCustomPositions.set(true);
+}
+
+/**
+ * Move a page by delta amounts
+ * @param {string} pageKey - Page identifier
+ * @param {number} deltaX - Change in X position
+ * @param {number} deltaY - Change in Y position
+ */
+export function movePageBy(pageKey, deltaX, deltaY) {
+  pagePositions.update(positions => {
+    const current = positions[pageKey] || { x: 0, y: 0 };
+    return {
+      ...positions,
+      [pageKey]: {
+        x: current.x + deltaX,
+        y: current.y + deltaY
+      }
+    };
+  });
+  useCustomPositions.set(true);
+}
+
+/**
+ * Get position for a specific page
+ * @param {string} pageKey - Page identifier
+ * @returns {{x: number, y: number}|null} Position or null if not set
+ */
+export function getPagePosition(pageKey) {
+  const positions = get(pagePositions);
+  return positions[pageKey] || null;
+}
+
+/**
+ * Reset to automatic horizontal layout
+ */
+export function resetPagePositions() {
+  useCustomPositions.set(false);
+  // Keep the positions data but disable custom positioning
+}
+
+/**
+ * Clear all custom positioning data
+ */
+export function clearPagePositions() {
+  pagePositions.set({});
+  useCustomPositions.set(false);
+  localStorage.removeItem('pagePositions');
+  localStorage.removeItem('useCustomPositions');
+}
+
+/**
+ * Auto-arrange pages in a grid layout
+ * @param {Array<string>} pageKeys - Array of page keys to arrange
+ * @param {number} columns - Number of columns (default: 3)
+ * @param {number} spacing - Spacing between pages in Ncode units (default: 1000)
+ */
+export function autoArrangePages(pageKeys, columns = 3, spacing = 1000) {
+  const positions = {};
   
-  // If no custom order exists yet, or if pages have changed significantly
-  if (currentOrder.length === 0 || !currentUseCustom) {
-    customPageOrder.set(pageKeys);
-  } else {
-    // Merge new pages with existing order
-    // Keep existing order for pages we know about, append new pages at end
-    const existingPages = currentOrder.filter(key => pageKeys.includes(key));
-    const newPages = pageKeys.filter(key => !currentOrder.includes(key));
-    customPageOrder.set([...existingPages, ...newPages]);
-  }
-}
-
-/**
- * Update page order after drag and drop
- * @param {Array} newOrder - New array of page keys in desired order
- */
-export function setPageOrder(newOrder) {
-  customPageOrder.set(newOrder);
-  useCustomOrder.set(true);
-}
-
-/**
- * Reset to automatic sorting (by book and page number)
- */
-export function resetPageOrder() {
-  useCustomOrder.set(false);
-  // Keep the array but disable custom ordering
-}
-
-/**
- * Clear all custom ordering data
- */
-export function clearPageOrder() {
-  customPageOrder.set([]);
-  useCustomOrder.set(false);
-  localStorage.removeItem('customPageOrder');
-  localStorage.removeItem('useCustomPageOrder');
+  pageKeys.forEach((pageKey, index) => {
+    const col = index % columns;
+    const row = Math.floor(index / columns);
+    
+    positions[pageKey] = {
+      x: col * spacing,
+      y: row * spacing
+    };
+  });
+  
+  pagePositions.set(positions);
+  useCustomPositions.set(true);
 }

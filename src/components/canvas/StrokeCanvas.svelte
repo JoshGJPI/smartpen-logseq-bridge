@@ -7,6 +7,7 @@
   import { selectedIndices, handleStrokeClick, clearSelection, selectAll, selectionCount, selectFromBox } from '$stores';
   import { canvasZoom, setCanvasZoom, log, showFilteredStrokes } from '$stores';
   import { filteredStrokes } from '$stores/filtered-strokes.js';
+  import { pagePositions, useCustomPositions, setPagePosition, movePageBy, clearPagePositions } from '$stores';
   import { deselectIndices } from '$stores/selection.js';
   import { detectDecorativeIndices } from '$lib/stroke-filter.js';
   import CanvasControls from './CanvasControls.svelte';
@@ -70,6 +71,14 @@
   let boxCurrentX = 0;
   let boxCurrentY = 0;
   let dragThreshold = 5; // pixels before activating box selection
+  
+  // Page dragging state
+  let isDraggingPage = false;
+  let draggedPageKey = null;
+  let pageDragStartX = 0;
+  let pageDragStartY = 0;
+  let pageOriginalNcodeX = 0; // Store original Ncode position at drag start
+  let pageOriginalNcodeY = 0; // Store original Ncode position at drag start
   
   // Import renderer dynamically to avoid SSR issues
   onMount(async () => {
@@ -211,6 +220,11 @@
         ? [...visibleStrokes, ...$filteredStrokes.map(fs => fs.stroke)]
         : visibleStrokes;
       renderer.calculateBounds(allStrokes);
+      
+      // Apply custom positions if enabled
+      if ($useCustomPositions && Object.keys($pagePositions).length > 0) {
+        renderer.applyCustomPositions($pagePositions);
+      }
     } else {
       renderer.clearForRedraw();
     }
@@ -231,8 +245,12 @@
     }
   }
   
-  // Mouse down - start potential pan or selection
+  // Mouse down - start potential pan, page drag, or selection
   function handleMouseDown(event) {
+    const rect = canvasElement.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    
     // Middle mouse button or Alt+left for panning
     if (event.button === 1 || (event.button === 0 && event.altKey)) {
       event.preventDefault();
@@ -242,6 +260,35 @@
       panStartY = event.clientY;
       canvasElement.style.cursor = 'grabbing';
       return;
+    }
+    
+    // Left button - check for page header click first (unless Ctrl/Shift held)
+    if (event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && renderer) {
+      const pageKey = renderer.hitTestPageHeader(x, y);
+      if (pageKey) {
+        event.preventDefault();
+        isDraggingPage = true;
+        draggedPageKey = pageKey;
+        pageDragStartX = event.clientX;
+        pageDragStartY = event.clientY;
+        
+        // Store the ORIGINAL Ncode position at drag start
+        const offset = renderer.pageOffsets.get(pageKey);
+        if (offset) {
+          // If page has custom position, use that; otherwise use current offset
+          const customPos = $pagePositions[pageKey];
+          if (customPos) {
+            pageOriginalNcodeX = customPos.x;
+            pageOriginalNcodeY = customPos.y;
+          } else {
+            pageOriginalNcodeX = offset.offsetX;
+            pageOriginalNcodeY = offset.offsetY;
+          }
+        }
+        
+        canvasElement.style.cursor = 'grabbing';
+        return;
+      }
     }
     
     // Left button - start potential box selection or direct stroke selection
@@ -288,8 +335,38 @@
     }
   }
   
-  // Mouse move - pan or update box selection or hover
+  // Mouse move - page drag, pan, or update box selection
   function handleMouseMove(event) {
+    const rect = canvasElement.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    
+    // Handle page dragging
+    if (isDraggingPage && renderer && draggedPageKey) {
+      const deltaX = event.clientX - pageDragStartX;
+      const deltaY = event.clientY - pageDragStartY;
+      
+      // Convert screen delta to Ncode delta
+      const ncodeDeltaX = deltaX / (renderer.scale * renderer.zoom);
+      const ncodeDeltaY = deltaY / (renderer.scale * renderer.zoom);
+      
+      // Calculate new position from ORIGINAL position + delta
+      const newNcodeX = pageOriginalNcodeX + ncodeDeltaX;
+      const newNcodeY = pageOriginalNcodeY + ncodeDeltaY;
+      
+      // Update page position in renderer for visual feedback
+      renderer.applyCustomPositions({
+        ...$pagePositions,
+        [draggedPageKey]: {
+          x: newNcodeX,
+          y: newNcodeY
+        }
+      });
+      renderStrokes();
+      
+      return;
+    }
+    
     if (isPanning && renderer) {
       const deltaX = event.clientX - panStartX;
       const deltaY = event.clientY - panStartY;
@@ -322,10 +399,48 @@
       }
       return;
     }
+    
+    // Update cursor based on what's under the mouse (when not actively doing something)
+    if (!isPanning && !isDraggingPage && !isBoxSelecting && !boxSelectPending && renderer) {
+      // Check if hovering over a page header (draggable area)
+      const pageKey = renderer.hitTestPageHeader(x, y);
+      if (pageKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+        canvasElement.style.cursor = 'grab';
+      } else if (canvasElement.style.cursor === 'grab') {
+        // Only reset if it was set to grab (don't override other cursors)
+        canvasElement.style.cursor = 'default';
+      }
+    }
   }
   
-  // Mouse up - end pan or complete box selection
+  // Mouse up - end page drag, pan, or complete box selection
   function handleMouseUp(event) {
+    // Handle page drag completion
+    if (isDraggingPage && draggedPageKey && renderer) {
+      const deltaX = event.clientX - pageDragStartX;
+      const deltaY = event.clientY - pageDragStartY;
+      
+      if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) {
+        // Convert screen delta to Ncode delta
+        const ncodeDeltaX = deltaX / (renderer.scale * renderer.zoom);
+        const ncodeDeltaY = deltaY / (renderer.scale * renderer.zoom);
+        
+        // Save final position = original + delta
+        const newNcodeX = pageOriginalNcodeX + ncodeDeltaX;
+        const newNcodeY = pageOriginalNcodeY + ncodeDeltaY;
+        
+        setPagePosition(draggedPageKey, newNcodeX, newNcodeY);
+        log(`Moved ${draggedPageKey} to new position`, 'info');
+      }
+      
+      isDraggingPage = false;
+      draggedPageKey = null;
+      pageOriginalNcodeX = 0;
+      pageOriginalNcodeY = 0;
+      canvasElement.style.cursor = 'default';
+      return;
+    }
+    
     if (isPanning) {
       isPanning = false;
       canvasElement.style.cursor = 'default';
@@ -386,8 +501,20 @@
     }
   }
   
-  // Mouse leave - cancel pan or box selection
+  // Mouse leave - cancel page drag, pan, or box selection
   function handleMouseLeave(event) {
+    if (isDraggingPage) {
+      isDraggingPage = false;
+      draggedPageKey = null;
+      pageOriginalNcodeX = 0;
+      pageOriginalNcodeY = 0;
+      canvasElement.style.cursor = 'default';
+      // Re-render to remove drag preview
+      if (renderer) {
+        renderStrokes(true);
+      }
+    }
+    
     if (isPanning) {
       isPanning = false;
       canvasElement.style.cursor = 'default';
@@ -592,6 +719,22 @@
         >
           {isDetecting ? 'Detecting...' : '🎨 Deselect Decorative'}
         </button>
+        {#if $useCustomPositions}
+          <button 
+            class="header-btn layout-btn" 
+            on:click={() => {
+              clearPagePositions(); // Clear stored positions, not just disable
+              if (renderer) {
+                renderStrokes(true);
+                setTimeout(() => fitContent(), 50);
+              }
+              log('Reset to automatic layout', 'info');
+            }}
+            title="Reset pages to automatic horizontal layout"
+          >
+            📐 Reset Layout
+          </button>
+        {/if}
       {/if}
     </div>
     
@@ -631,7 +774,12 @@
       ></div>
     {/if}
     
-    <div class="canvas-hint">Drag to select • Ctrl+click to add • Shift+click to deselect • Alt+drag to pan • Ctrl+scroll to zoom</div>
+    <div class="canvas-hint">
+      {#if $useCustomPositions}
+        <strong>Drag page labels to reposition</strong> • 
+      {/if}
+      Drag to select • Ctrl+click to add • Shift+click to deselect • Alt+drag to pan • Ctrl+scroll to zoom
+    </div>
   </div>
   
   <div class="canvas-controls-row">
@@ -734,6 +882,18 @@
     background: var(--accent);
     color: white;
     border-color: var(--accent);
+  }
+  
+  .layout-btn {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+  
+  .layout-btn:hover:not(:disabled) {
+    background: var(--success);
+    color: var(--bg-primary);
+    border-color: var(--success);
   }
   
   .stroke-count {
