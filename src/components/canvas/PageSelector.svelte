@@ -13,6 +13,36 @@
   // Derive page options from the pages store
   $: pageOptions = Array.from($pages.keys());
   
+  // Track which pages have been seen to auto-add new pages
+  let previousPageOptions = [];
+  
+  // Auto-add new pages to selection when they appear
+  $: {
+    // On first load, select all pages
+    if (pageOptions.length > 0 && previousPageOptions.length === 0) {
+      selectedPages = new Set(pageOptions);
+      dispatch('change', { selectedPages: new Set(pageOptions) });
+      previousPageOptions = [...pageOptions];
+    } 
+    // On subsequent updates, add any new pages that weren't previously tracked
+    else if (pageOptions.length > previousPageOptions.length) {
+      const newPages = pageOptions.filter(p => !previousPageOptions.includes(p));
+      if (newPages.length > 0) {
+        selectedPages = new Set([...selectedPages, ...newPages]);
+        dispatch('change', { selectedPages: new Set([...selectedPages]) });
+        previousPageOptions = [...pageOptions];
+      }
+    }
+    // Handle case where pages are removed (e.g., strokes cleared)
+    else if (pageOptions.length < previousPageOptions.length) {
+      // Clean up selectedPages to only include pages that still exist
+      const validPages = pageOptions.filter(p => selectedPages.has(p));
+      selectedPages = new Set(validPages);
+      dispatch('change', { selectedPages: new Set(validPages) });
+      previousPageOptions = [...pageOptions];
+    }
+  }
+  
   // Group pages by book for better organization
   $: pagesByBook = (() => {
     const grouped = new Map();
@@ -100,7 +130,7 @@
     dispatch('change', { selectedPages: newSelected });
   }
   
-  // Clear all selections (show all)
+  // Clear all selections (hide all)
   function clearAll() {
     selectedPages = new Set();
     dispatch('change', { selectedPages: new Set() });
@@ -109,7 +139,7 @@
   // Count selected pages
   $: selectedCount = selectedPages.size;
   $: totalCount = pageOptions.length;
-  $: showingAll = selectedCount === 0;
+  $: showingAll = selectedCount === totalCount && totalCount > 0;
 </script>
 
 <div class="page-selector">
@@ -122,8 +152,8 @@
         {selectedCount}/{totalCount}
       {/if}
     </span>
-    <button class="mini-btn" on:click={selectAll} title="Select all">All</button>
-    <button class="mini-btn" on:click={clearAll} title="Clear (show all)">Clear</button>
+    <button class="mini-btn" on:click={selectAll} title="Select all (show all)">All</button>
+    <button class="mini-btn" on:click={clearAll} title="Clear all (hide all)">None</button>
   </div>
   
   {#if pageOptions.length === 0}

@@ -31,23 +31,18 @@
   let visibleToFullIndexMap = [];
   
   $: {
-    if (selectedPages.size === 0) {
-      visibleStrokes = $strokes;
-      // Build 1:1 mapping
-      visibleToFullIndexMap = $strokes.map((_, index) => index);
-    } else {
-      // Filter and build mapping
-      visibleStrokes = [];
-      visibleToFullIndexMap = [];
-      $strokes.forEach((stroke, fullIndex) => {
-        const pageInfo = stroke.pageInfo || {};
-        const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${pageInfo.book || 0}/P${pageInfo.page || 0}`;
-        if (selectedPages.has(pageKey)) {
-          visibleStrokes.push(stroke);
-          visibleToFullIndexMap.push(fullIndex);
-        }
-      });
-    }
+    // Always filter by selectedPages - if all are selected, all strokes show
+    // If none are selected, no strokes show
+    visibleStrokes = [];
+    visibleToFullIndexMap = [];
+    $strokes.forEach((stroke, fullIndex) => {
+      const pageInfo = stroke.pageInfo || {};
+      const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${pageInfo.book || 0}/P${pageInfo.page || 0}`;
+      if (selectedPages.has(pageKey)) {
+        visibleStrokes.push(stroke);
+        visibleToFullIndexMap.push(fullIndex);
+      }
+    });
   }
   
   // Track previous stroke count for auto-fit
@@ -192,11 +187,10 @@
     const currentSelection = selectedPages.size > 0 ? Array.from(selectedPages).sort().join(',') : '';
     if (renderer && previousPageSelection !== null && currentSelection !== previousPageSelection && !$batchMode) {
       console.log('📄 Page filter changed, re-rendering', visibleStrokes.length, 'strokes');
-      renderStrokes(true);
-      // Auto-fit to show filtered content
-      setTimeout(() => {
-        fitContent();
-      }, 50);
+      // Update renderer with visible page keys
+      renderer.setVisiblePageKeys(selectedPages);
+      // Use false to avoid recalculating bounds/zoom - just redraw with current view
+      renderStrokes(false);
     }
     previousPageSelection = currentSelection;
   }
@@ -220,6 +214,9 @@
         ? [...visibleStrokes, ...$filteredStrokes.map(fs => fs.stroke)]
         : visibleStrokes;
       renderer.calculateBounds(allStrokes);
+      
+      // Set visible page keys for border rendering
+      renderer.setVisiblePageKeys(selectedPages);
       
       // Apply custom positions if enabled
       if ($useCustomPositions && Object.keys($pagePositions).length > 0) {
@@ -758,7 +755,7 @@
       <span class="stroke-count">
         {#if $selectionCount > 0}
           <span class="selection-indicator">{$selectionCount} of {$strokeCount} selected</span>
-        {:else if selectedPages.size > 0}
+        {:else if visibleStrokes.length < $strokeCount}
           {visibleStrokes.length} of {$strokeCount} strokes (filtered)
         {:else}
           {$strokeCount} strokes

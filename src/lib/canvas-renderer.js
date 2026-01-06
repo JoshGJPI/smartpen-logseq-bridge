@@ -36,13 +36,19 @@ export class CanvasRenderer {
     
     // Page visualization settings
     this.showPageBackgrounds = true; // Toggle for page borders
-    this.pageColors = [ // Colors for different pages
+    this.pageColors = [ // Colors for different books (10 distinct colors)
       'rgba(233, 69, 96, 0.8)',   // Red
       'rgba(75, 192, 192, 0.8)',  // Teal
       'rgba(255, 205, 86, 0.8)',  // Yellow
       'rgba(153, 102, 255, 0.8)', // Purple
       'rgba(255, 159, 64, 0.8)',  // Orange
+      'rgba(54, 162, 235, 0.8)',  // Blue
+      'rgba(255, 99, 132, 0.8)',  // Pink
+      'rgba(76, 175, 80, 0.8)',   // Green
+      'rgba(121, 85, 72, 0.8)',   // Brown
+      'rgba(158, 158, 158, 0.8)', // Gray
     ];
+    this.visiblePageKeys = null; // Set of visible page keys (for filtering borders)
     
     this.resize();
     this.clear();
@@ -250,11 +256,34 @@ export class CanvasRenderer {
     });
     
     // Calculate bounds for each page and assign horizontal offsets
+    // Sort pages by book then page number for consistent left-to-right layout
+    const sortedPageEntries = Array.from(pageGroups.entries()).sort((a, b) => {
+      const keyA = a[0];
+      const keyB = b[0];
+      
+      // Extract book and page numbers from keys (format: S#/O#/B#/P#)
+      const matchA = keyA.match(/B(\d+)\/P(\d+)/);
+      const matchB = keyB.match(/B(\d+)\/P(\d+)/);
+      
+      if (!matchA || !matchB) return 0;
+      
+      const bookA = parseInt(matchA[1]);
+      const pageA = parseInt(matchA[2]);
+      const bookB = parseInt(matchB[1]);
+      const pageB = parseInt(matchB[2]);
+      
+      // Sort by book first, then by page
+      if (bookA !== bookB) {
+        return bookA - bookB;
+      }
+      return pageA - pageB;
+    });
+    
     let currentOffsetX = 0;
     let globalMinY = Infinity;
     let globalMaxY = -Infinity;
     
-    Array.from(pageGroups.entries()).forEach(([pageKey, pageStrokes]) => {
+    sortedPageEntries.forEach(([pageKey, pageStrokes]) => {
       // Calculate bounds for this page
       let pageMinX = Infinity, pageMinY = Infinity;
       let pageMaxX = -Infinity, pageMaxY = -Infinity;
@@ -565,14 +594,40 @@ export class CanvasRenderer {
   }
   
   /**
+   * Set which page keys should be visible (for filtering borders)
+   * @param {Set|null} pageKeys - Set of visible page keys, or null for all
+   */
+  setVisiblePageKeys(pageKeys) {
+    this.visiblePageKeys = pageKeys;
+  }
+  
+  /**
+   * Get color index for a book ID (consistent across pages)
+   * @param {string} bookId - Book ID (e.g., "123")
+   * @returns {number} Color index
+   */
+  getBookColorIndex(bookId) {
+    // Simple hash of book ID to get consistent color
+    let hash = 0;
+    const str = String(bookId);
+    for (let i = 0; i < str.length; i++) {
+      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return Math.abs(hash) % this.pageColors.length;
+  }
+  
+  /**
    * Draw page borders and labels (above the border)
+   * Only draws borders for pages that are currently visible
    */
   drawPageBorders() {
     if (!this.showPageBackgrounds || this.pageOffsets.size === 0) return;
     
-    let colorIndex = 0;
-    
     this.pageOffsets.forEach((offset, pageKey) => {
+      // Skip if page is not visible (filtered out)
+      if (this.visiblePageKeys && !this.visiblePageKeys.has(pageKey)) {
+        return;
+      }
       const { offsetX, offsetY, bounds } = offset;
       
       // Calculate screen coordinates for page bounds
@@ -581,8 +636,13 @@ export class CanvasRenderer {
       const width = (bounds.maxX - bounds.minX) * this.scale * this.zoom;
       const height = (bounds.maxY - bounds.minY) * this.scale * this.zoom;
       
-      // Get color for this page
-      const baseColor = this.pageColors[colorIndex % this.pageColors.length];
+      // Extract book ID from pageKey (format: S#/O#/B#/P#)
+      const bookMatch = pageKey.match(/B(\d+)/);
+      const bookId = bookMatch ? bookMatch[1] : '0';
+      
+      // Get color based on book ID (consistent across all pages in the book)
+      const colorIndex = this.getBookColorIndex(bookId);
+      const baseColor = this.pageColors[colorIndex];
       
       // Parse RGB from rgba string
       const match = baseColor.match(/rgba\(([^,]+),([^,]+),([^,]+),/);
@@ -617,7 +677,6 @@ export class CanvasRenderer {
         this.ctx.fillText(label, left + 4, labelY);
       }
       
-      colorIndex++;
     });
   }
   
