@@ -4,7 +4,8 @@
 <script>
   import { logseqHost, logseqToken, logseqConnected, setLogseqStatus, log, getLogseqSettings } from '$stores';
   import { hasTranscription, transcribedLines } from '$stores';
-  import { testLogseqConnection, sendToLogseq } from '$lib/logseq-api.js';
+  import { testLogseqConnection, sendToLogseq, scanBookAliases } from '$lib/logseq-api.js';
+  import { setBookAliases } from '$stores/book-aliases.js';
   
   let isTesting = false;
   let isSending = false;
@@ -19,6 +20,18 @@
       if (result.success) {
         setLogseqStatus(true, `LogSeq: ${result.graphName || 'Connected'}`);
         log(`Connected to LogSeq graph: ${result.graphName}`, 'success');
+        
+        // Load book aliases when connection succeeds
+        try {
+          const aliases = await scanBookAliases(host, token);
+          if (Object.keys(aliases).length > 0) {
+            setBookAliases(aliases);
+            log(`Loaded ${Object.keys(aliases).length} book aliases`, 'info');
+          }
+        } catch (aliasError) {
+          console.warn('Failed to load book aliases:', aliasError);
+          // Don't fail connection test if aliases can't be loaded
+        }
       } else {
         setLogseqStatus(false, 'LogSeq: Failed');
         log(`LogSeq connection failed: ${result.error}`, 'error');

@@ -46,7 +46,7 @@
     // Update LogSeq if connected
     if ($logseqConnected) {
       const { host, token } = getLogseqSettings();
-      const success = await updateBookPageProperty(Number(bookId), 'bookName', alias, host, token);
+      const success = await updateBookPageProperty(Number(bookId), 'bookname', alias, host, token);
       
       if (success) {
         log(`Saved alias for B${bookId}: ${alias}`, 'success');
@@ -77,7 +77,7 @@
     // Update LogSeq if connected
     if ($logseqConnected) {
       const { host, token } = getLogseqSettings();
-      const success = await updateBookPageProperty(Number(bookId), 'bookName', '', host, token);
+      const success = await updateBookPageProperty(Number(bookId), 'bookname', '', host, token);
       
       if (success) {
         log(`Removed alias for B${bookId}`, 'success');
@@ -118,7 +118,7 @@
     
     for (const [bookId, alias] of aliasEntries) {
       try {
-        const success = await updateBookPageProperty(Number(bookId), 'bookName', alias, host, token);
+        const success = await updateBookPageProperty(Number(bookId), 'bookname', alias, host, token);
         if (success) {
           successCount++;
         } else {

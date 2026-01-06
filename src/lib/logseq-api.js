@@ -514,7 +514,7 @@ export async function getOrCreateBookPage(book, host, token = '') {
 }
 
 /**
- * Get book page properties including bookName
+ * Get book page properties including bookname
  * @param {number} book - Book ID
  * @param {string} host - LogSeq API host
  * @param {string} token - Optional auth token
@@ -535,9 +535,9 @@ export async function getBookPageProperties(book, host, token = '') {
 }
 
 /**
- * Update book page property (e.g., bookName)
+ * Update book page property (e.g., bookname)
  * @param {number} book - Book ID
- * @param {string} propertyName - Property name (e.g., 'bookName')
+ * @param {string} propertyName - Property name (e.g., 'bookname')
  * @param {string} value - Property value
  * @param {string} host - LogSeq API host
  * @param {string} token - Optional auth token
@@ -589,35 +589,60 @@ export async function updateBookPageProperty(book, propertyName, value, host, to
 }
 
 /**
- * Scan all book pages and extract bookName properties
+ * Scan all book pages and extract bookname properties
  * @param {string} host - LogSeq API host
  * @param {string} token - Optional auth token
- * @returns {Promise<Object>} Map of bookId to bookName
+ * @returns {Promise<Object>} Map of bookId to bookname
  */
 export async function scanBookAliases(host, token = '') {
   try {
-    // Query for all pages under "Smartpen Data" that match B#### pattern
-    const allPages = await makeRequest(host, token, 'logseq.DB.datascriptQuery', [
+    // Query for all pages under "Smartpen Data" namespace
+    const response = await makeRequest(host, token, 'logseq.DB.datascriptQuery', [
       `[:find (pull ?p [:block/name :block/original-name :block/properties])
         :where [?p :block/name ?name]
-               [(re-matches #"smartpen data/b\\d+" ?name)]]`
+               [(clojure.string/starts-with? ?name "smartpen data/")]]`
     ]);
     
-    if (!allPages || allPages.length === 0) {
+    // LogSeq returns the query result directly (may be array or object)
+    // Check if response is valid and iterable
+    if (!response) {
+      console.log('No response from book alias query');
+      return {};
+    }
+    
+    // Handle different response formats
+    let allPages;
+    if (Array.isArray(response)) {
+      allPages = response;
+    } else if (response.result && Array.isArray(response.result)) {
+      allPages = response.result;
+    } else {
+      console.warn('Unexpected response format from scanBookAliases:', response);
+      return {};
+    }
+    
+    if (allPages.length === 0) {
       return {};
     }
     
     const aliases = {};
     
-    for (const [pageData] of allPages) {
+    for (const pageEntry of allPages) {
+      // Handle both array format [pageData] and direct pageData
+      const pageData = Array.isArray(pageEntry) ? pageEntry[0] : pageEntry;
+      
+      if (!pageData) continue;
+      
       const pageName = pageData['original-name'] || pageData.name;
       const properties = pageData.properties || {};
       
+      if (!pageName) continue;
+      
       // Extract book ID from page name (e.g., "Smartpen Data/B3017" -> "3017")
       const match = pageName.match(/B(\d+)$/i);
-      if (match && properties.bookName) {
+      if (match && properties.bookname) {
         const bookId = match[1];
-        aliases[bookId] = properties.bookName;
+        aliases[bookId] = properties.bookname;
       }
     }
     
