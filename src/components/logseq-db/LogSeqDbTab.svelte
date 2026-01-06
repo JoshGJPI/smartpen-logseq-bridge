@@ -4,17 +4,62 @@
 <script>
   import { onMount } from 'svelte';
   import { logseqPages, pagesByBook, bookIds, isScanning, lastScanTime } from '$stores';
-  import { logseqConnected } from '$stores';
+  import { logseqConnected, setLogseqStatus, getLogseqSettings, log } from '$stores';
   import { scanLogSeqPages } from '$lib/logseq-scanner.js';
+  import { testLogseqConnection, scanBookAliases } from '$lib/logseq-api.js';
+  import { setBookAliases } from '$stores/book-aliases.js';
   import DbHeader from './DbHeader.svelte';
   import BookAccordion from './BookAccordion.svelte';
   
-  // Auto-scan on mount if connected and no pages loaded
-  onMount(() => {
-    if ($logseqConnected && $logseqPages.length === 0) {
-      handleRefresh();
+  let isConnecting = false;
+  
+  // Auto-connect and scan on mount if not already connected
+  onMount(async () => {
+    if (!$logseqConnected) {
+      await attemptConnection();
+    } else if ($logseqPages.length === 0) {
+      // Already connected but no pages loaded - just scan
+      await handleRefresh();
     }
   });
+  
+  async function attemptConnection() {
+    isConnecting = true;
+    
+    try {
+      const { host, token } = getLogseqSettings();
+      
+      // Try to connect
+      const result = await testLogseqConnection(host, token);
+      
+      if (result.success) {
+        setLogseqStatus(true, `LogSeq: ${result.graphName || 'Connected'}`);
+        log(`Connected to LogSeq graph: ${result.graphName}`, 'success');
+        
+        // Load book aliases
+        try {
+          const aliases = await scanBookAliases(host, token);
+          if (Object.keys(aliases).length > 0) {
+            setBookAliases(aliases);
+            log(`Loaded ${Object.keys(aliases).length} book aliases`, 'info');
+          }
+        } catch (aliasError) {
+          console.warn('Failed to load book aliases:', aliasError);
+        }
+        
+        // Scan for pages
+        await handleRefresh();
+      } else {
+        setLogseqStatus(false, 'LogSeq: Not Connected');
+        // Don't log error on auto-connect failure - it's expected if LogSeq isn't running
+      }
+    } catch (error) {
+      setLogseqStatus(false, 'LogSeq: Error');
+      console.error('Auto-connect error:', error);
+    } finally {
+      isConnecting = false;
+    }
+  }
   
   async function handleRefresh() {
     await scanLogSeqPages();
@@ -29,11 +74,17 @@
     on:refresh={handleRefresh}
   />
   
-  {#if !$logseqConnected}
+  {#if isConnecting}
+    <div class="connecting">
+      <span class="spinner">🔌</span>
+      <span>Attempting to connect to LogSeq...</span>
+    </div>
+  {:else if !$logseqConnected}
     <div class="empty-state">
       <div class="icon">🔌</div>
       <p class="title">Connect to LogSeq</p>
-      <p class="hint">Configure connection in Settings to browse stored smartpen data.</p>
+      <p class="hint">Make sure LogSeq is running with HTTP API enabled.</p>
+      <button class="retry-btn" on:click={attemptConnection}>Try Again</button>
     </div>
   {:else if $isScanning}
     <div class="scanning">
@@ -65,6 +116,25 @@
     flex-direction: column;
   }
   
+  .connecting {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 40px 20px;
+    color: var(--text-secondary);
+  }
+  
+  .connecting .spinner {
+    font-size: 1.5rem;
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.95); }
+  }
+  
   .empty-state {
     flex: 1;
     display: flex;
@@ -92,6 +162,24 @@
     font-size: 0.875rem;
     color: var(--text-tertiary);
     max-width: 300px;
+    margin-bottom: 16px;
+  }
+  
+  .retry-btn {
+    padding: 8px 16px;
+    background: var(--accent-color, #2196f3);
+    border: none;
+    border-radius: 6px;
+    color: white;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all 0.2s;
+  }
+  
+  .retry-btn:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
   }
   
   .scanning {
