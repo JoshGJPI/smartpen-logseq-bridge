@@ -1,66 +1,60 @@
 <!--
-  StrokeList.svelte - List view of strokes grouped by page with collapsible headers
+  StrokeList.svelte - List view of strokes grouped by book and page with collapsible headers
 -->
 <script>
-  import { strokes, strokeCount, pages } from '$stores';
-  import { selectedIndices, handleStrokeClick, selectionCount } from '$stores';
-  import { bookAliases } from '$stores';
-  import { formatBookName } from '$utils/formatting.js';
-  import StrokeItem from './StrokeItem.svelte';
+  import { strokes, strokeCount } from '$stores';
+  import { selectionCount } from '$stores';
+  import StrokeBookAccordion from './StrokeBookAccordion.svelte';
   
-  // Track expanded pages (default: all expanded)
-  let expandedPages = {};
-  
-  // Group strokes by page with their original indices
-  $: strokesByPage = (() => {
-    const grouped = new Map();
+  // Group strokes by book, then by page
+  $: strokesByBook = (() => {
+    const bookMap = new Map();
     
     $strokes.forEach((stroke, index) => {
       const pageInfo = stroke.pageInfo || {};
-      const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${pageInfo.book || 0}/P${pageInfo.page || 0}`;
+      const book = pageInfo.book || 0;
+      const page = pageInfo.page || 0;
+      const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${book}/P${page}`;
       
-      if (!grouped.has(pageKey)) {
-        grouped.set(pageKey, {
+      // Create book entry if it doesn't exist
+      if (!bookMap.has(book)) {
+        bookMap.set(book, {
+          bookId: book,
+          pages: new Map()
+        });
+      }
+      
+      const bookEntry = bookMap.get(book);
+      
+      // Create page entry if it doesn't exist
+      if (!bookEntry.pages.has(pageKey)) {
+        bookEntry.pages.set(pageKey, {
           pageInfo,
           pageKey,
           strokes: [],
           indices: [],
-          book: pageInfo.book || 0,
-          page: pageInfo.page || 0
+          book,
+          page
         });
       }
       
-      const group = grouped.get(pageKey);
-      group.strokes.push(stroke);
-      group.indices.push(index);
+      const pageEntry = bookEntry.pages.get(pageKey);
+      pageEntry.strokes.push(stroke);
+      pageEntry.indices.push(index);
     });
     
-    // Sort by book, then page
-    return Array.from(grouped.values()).sort((a, b) => {
-      if (a.book !== b.book) return a.book - b.book;
-      return a.page - b.page;
-    });
+    // Convert to array and sort
+    const booksArray = Array.from(bookMap.values()).map(bookEntry => ({
+      bookId: bookEntry.bookId,
+      pages: Array.from(bookEntry.pages.values()).sort((a, b) => a.page - b.page)
+    }));
+    
+    // Sort books by ID
+    return booksArray.sort((a, b) => a.bookId - b.bookId);
   })();
   
-  // Initialize expanded state for all pages
-  $: if (strokesByPage.length > 0) {
-    strokesByPage.forEach(group => {
-      if (expandedPages[group.pageKey] === undefined) {
-        expandedPages[group.pageKey] = true; // Default: expanded
-      }
-    });
-  }
-  
-  // Toggle page expansion
-  function togglePage(pageKey) {
-    expandedPages[pageKey] = !expandedPages[pageKey];
-    expandedPages = { ...expandedPages }; // Trigger reactivity
-  }
-  
-  // Get selection count for a page
-  function getPageSelectionCount(indices) {
-    return indices.filter(i => $selectedIndices.has(i)).length;
-  }
+  // Calculate total page count
+  $: totalPages = strokesByBook.reduce((sum, book) => sum + book.pages.length, 0);
 </script>
 
 <div class="stroke-list">
@@ -70,63 +64,21 @@
     </p>
   {:else}
     <div class="list-header">
-      <span>{$strokeCount} strokes across {strokesByPage.length} page{strokesByPage.length !== 1 ? 's' : ''}</span>
+      <span>
+        {$strokeCount} strokes across {strokesByBook.length} {strokesByBook.length === 1 ? 'book' : 'books'}
+        ({totalPages} {totalPages === 1 ? 'page' : 'pages'})
+      </span>
       {#if $selectionCount > 0}
         <span class="selection-badge">{$selectionCount} selected</span>
       {/if}
     </div>
     
-    <div class="page-groups">
-      {#each strokesByPage as group (group.pageKey)}
-        {@const isExpanded = expandedPages[group.pageKey]}
-        {@const selectedCount = getPageSelectionCount(group.indices)}
-        
-        <div class="page-group" class:expanded={isExpanded}>
-          <!-- Page Header -->
-          <button 
-            class="page-header"
-            on:click={() => togglePage(group.pageKey)}
-          >
-            <div class="page-title">
-              <svg 
-                width="16" 
-                height="16" 
-                viewBox="0 0 24 24" 
-                fill="none" 
-                stroke="currentColor" 
-                stroke-width="2"
-                class="expand-icon"
-                class:rotated={isExpanded}
-              >
-                <polyline points="6 9 12 15 18 9"/>
-              </svg>
-              <span class="book-name">{formatBookName(group.book, $bookAliases, 'full')}</span>
-              <span class="page-number">/ P{group.page}</span>
-            </div>
-            
-            <div class="page-stats">
-              {#if selectedCount > 0}
-                <span class="selected-indicator">{selectedCount}/{group.strokes.length}</span>
-              {:else}
-                <span class="stroke-count">{group.strokes.length}</span>
-              {/if}
-            </div>
-          </button>
-          
-          <!-- Stroke List (collapsible) -->
-          {#if isExpanded}
-            <div class="stroke-items">
-              {#each group.strokes as stroke, i (group.indices[i])}
-                <StrokeItem 
-                  {stroke}
-                  index={group.indices[i]}
-                  selected={$selectedIndices.has(group.indices[i])}
-                  on:click={(e) => handleStrokeClick(group.indices[i], e.detail.ctrlKey, e.detail.shiftKey)}
-                />
-              {/each}
-            </div>
-          {/if}
-        </div>
+    <div class="book-list">
+      {#each strokesByBook as book (book.bookId)}
+        <StrokeBookAccordion 
+          bookId={book.bookId} 
+          pages={book.pages}
+        />
       {/each}
     </div>
   {/if}
@@ -166,135 +118,27 @@
     font-size: 0.75rem;
   }
 
-  .page-groups {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    overflow-y: auto;
+  .book-list {
     flex: 1;
-    min-height: 0;
-    padding-right: 4px;
-  }
-  
-  .page-group {
-    background: var(--bg-tertiary);
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    overflow: hidden;
-    transition: all 0.2s;
-    flex-shrink: 0;
-  }
-  
-  .page-group.expanded {
-    border-color: var(--accent);
-  }
-  
-  .page-header {
-    width: 100%;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px 12px;
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    color: var(--text-primary);
-    transition: background 0.2s;
-  }
-  
-  .page-header:hover {
-    background: var(--bg-secondary);
-  }
-  
-  .page-title {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-weight: 600;
-    font-size: 0.9rem;
-  }
-  
-  .expand-icon {
-    transition: transform 0.2s;
-    color: var(--text-secondary);
-    flex-shrink: 0;
-  }
-  
-  .expand-icon.rotated {
-    transform: rotate(180deg);
-  }
-  
-  .book-name {
-    color: var(--text-primary);
-    font-weight: 600;
-    font-size: 0.85rem;
-  }
-  
-  .page-number {
-    color: var(--text-secondary);
-    font-weight: 500;
-    font-size: 0.85rem;
-  }
-  
-  .page-stats {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  
-  .stroke-count {
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-  }
-  
-  .selected-indicator {
-    font-size: 0.8rem;
-    color: var(--success);
-    font-weight: 600;
-  }
-  
-  .stroke-items {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 8px 12px 12px 12px;
-    background: var(--bg-secondary);
-    max-height: 400px;
     overflow-y: auto;
+    padding: 0;
   }
   
-  .stroke-items::-webkit-scrollbar {
-    width: 6px;
-  }
-  
-  .stroke-items::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  
-  .stroke-items::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 3px;
-  }
-  
-  .stroke-items::-webkit-scrollbar-thumb:hover {
-    background: var(--accent);
-  }
-  
-  .page-groups::-webkit-scrollbar {
+  .book-list::-webkit-scrollbar {
     width: 8px;
   }
   
-  .page-groups::-webkit-scrollbar-track {
+  .book-list::-webkit-scrollbar-track {
     background: var(--bg-tertiary);
     border-radius: 4px;
   }
   
-  .page-groups::-webkit-scrollbar-thumb {
+  .book-list::-webkit-scrollbar-thumb {
     background: var(--border);
     border-radius: 4px;
   }
   
-  .page-groups::-webkit-scrollbar-thumb:hover {
+  .book-list::-webkit-scrollbar-thumb:hover {
     background: var(--accent);
   }
 </style>
