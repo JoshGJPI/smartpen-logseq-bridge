@@ -580,9 +580,25 @@
     event.preventDefault();
     
     if (event.ctrlKey || event.metaKey) {
-      // Zoom - 25% per scroll tick for more responsive feel
+      // Zoom - 25% per scroll tick, centered on cursor position
       const delta = event.deltaY > 0 ? -0.25 : 0.25;
-      setCanvasZoom($canvasZoom + delta);
+      const newZoom = $canvasZoom + delta;
+      
+      if (renderer) {
+        // Get cursor position relative to canvas
+        const rect = canvasElement.getBoundingClientRect();
+        const cursorX = event.clientX - rect.left;
+        const cursorY = event.clientY - rect.top;
+        
+        // Zoom toward cursor position
+        renderer.setZoom(newZoom, { x: cursorX, y: cursorY });
+        
+        // Update store to keep in sync
+        setCanvasZoom(newZoom);
+        
+        // Re-render with new zoom
+        renderStrokes();
+      }
     } else {
       // Pan with scroll wheel
       if (renderer) {

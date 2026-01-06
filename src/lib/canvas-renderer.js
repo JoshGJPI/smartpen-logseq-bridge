@@ -49,21 +49,26 @@ export class CanvasRenderer {
   }
   
   /**
-   * Set zoom level
+   * Set zoom level, optionally centered on a specific point
    * @param {number} level - Zoom level
+   * @param {Object} centerPoint - Optional {x, y} in screen coordinates to zoom toward
    * @returns {boolean} - Whether zoom changed
    */
-  setZoom(level) {
+  setZoom(level, centerPoint = null) {
     const newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, level));
     if (newZoom !== this.zoom) {
-      const centerX = this.viewWidth / 2;
-      const centerY = this.viewHeight / 2;
       const zoomRatio = newZoom / this.zoom;
+      
+      // If no center point provided, zoom toward viewport center
+      const centerX = centerPoint ? centerPoint.x : this.viewWidth / 2;
+      const centerY = centerPoint ? centerPoint.y : this.viewHeight / 2;
+      
+      // Adjust pan to keep the center point fixed in world space
+      // The point under the cursor should stay at the same screen position
       this.panX = centerX - (centerX - this.panX) * zoomRatio;
       this.panY = centerY - (centerY - this.panY) * zoomRatio;
+      
       this.zoom = newZoom;
-      // Don't call redraw here - let the component handle re-rendering
-      // This ensures store strokes are also redrawn
       return true;
     }
     return false;
