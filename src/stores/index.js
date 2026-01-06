@@ -161,3 +161,13 @@ export {
   registerBookIds,
   clearBookAliases
 } from './book-aliases.js';
+
+// Page Order
+export {
+  customPageOrder,
+  useCustomOrder,
+  initializePageOrder,
+  setPageOrder,
+  resetPageOrder,
+  clearPageOrder
+} from './page-order.js';
