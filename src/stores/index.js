@@ -173,3 +173,19 @@ export {
   clearPagePositions,
   autoArrangePages
 } from './page-order.js';
+
+// Pending Changes (Deletions & Undo)
+export {
+  deletedIndices,
+  deletedCount,
+  hasPendingDeletions,
+  canUndo,
+  pendingChanges,
+  hasPendingChanges,
+  markStrokesDeleted,
+  undoLastDeletion,
+  clearDeletedIndices,
+  isStrokeDeleted,
+  getActiveStrokesForPage,
+  getPendingChangesSummary
+} from './pending-changes.js';

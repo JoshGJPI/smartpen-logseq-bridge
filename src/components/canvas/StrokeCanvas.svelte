@@ -5,6 +5,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { strokes, strokeCount, pages, clearStrokes, batchMode } from '$stores';
   import { selectedIndices, handleStrokeClick, clearSelection, selectAll, selectionCount, selectFromBox } from '$stores';
+  import { deletedIndices } from '$stores';
   import { canvasZoom, setCanvasZoom, log, showFilteredStrokes } from '$stores';
   import { filteredStrokes } from '$stores/filtered-strokes.js';
   import { pagePositions, useCustomPositions, setPagePosition, movePageBy, clearPagePositions } from '$stores';
@@ -186,6 +187,11 @@
     renderStrokes(false);
   }
   
+  // Re-render when deleted indices change
+  $: if (renderer && $deletedIndices !== undefined) {
+    renderStrokes(false);
+  }
+  
   // Track previous page selection for change detection
   let previousPageSelection = null;
   
@@ -243,7 +249,10 @@
       // Stroke view mode - render strokes
       // Draw normal text strokes
       visibleStrokes.forEach((stroke, index) => {
-        renderer.drawStroke(stroke, $selectedIndices.has(visibleToFullIndexMap[index]), false);
+        const fullIndex = visibleToFullIndexMap[index];
+        const isSelected = $selectedIndices.has(fullIndex);
+        const isDeleted = $deletedIndices.has(fullIndex);
+        renderer.drawStroke(stroke, isSelected, false, isDeleted);
       });
       
       // Draw filtered decorative strokes if toggle is on

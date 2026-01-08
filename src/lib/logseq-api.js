@@ -397,24 +397,33 @@ async function updatePageStrokesSingle(book, page, newStrokes, host, token = '')
     
     let allStrokes;
     let isUpdate = false;
+    let addedCount = 0;
+    let deletedCount = 0;
     
     if (existingData && existingData.strokes) {
-      // Deduplicate and merge
+      // Check what changed
       const uniqueStrokes = deduplicateStrokes(existingData.strokes, simplifiedStrokes);
+      addedCount = uniqueStrokes.length;
+      deletedCount = Math.max(0, existingData.strokes.length - simplifiedStrokes.length);
       
-      if (uniqueStrokes.length === 0) {
-        console.log('No new strokes to add');
+      if (addedCount === 0 && deletedCount === 0) {
+        console.log('No changes to strokes');
         return {
           success: true,
           added: 0,
+          deleted: 0,
           total: existingData.strokes.length,
           page: pageName
         };
       }
       
-      allStrokes = [...existingData.strokes, ...uniqueStrokes]
-        .sort((a, b) => a.startTime - b.startTime);
+      // Use simplifiedStrokes as the source of truth
+      // This handles both additions and deletions correctly
+      // simplifiedStrokes contains ALL active strokes (both existing and new)
+      allStrokes = simplifiedStrokes.sort((a, b) => a.startTime - b.startTime);
       isUpdate = true;
+      
+      console.log(`Changes detected: ${addedCount} added, ${deletedCount} deleted`);
     } else {
       // First time - use all strokes
       allStrokes = simplifiedStrokes;
@@ -480,13 +489,14 @@ async function updatePageStrokesSingle(book, page, newStrokes, host, token = '')
       }
     }
     
-    const addedCount = isUpdate ? (allStrokes.length - (existingData?.strokes?.length || 0)) : allStrokes.length;
+    const finalAddedCount = isUpdate ? addedCount : allStrokes.length;
     
-    console.log(`Updated ${pageName}: ${addedCount} new strokes, ${allStrokes.length} total (${strokeChunks.length} chunks)`);
+    console.log(`Updated ${pageName}: ${finalAddedCount} new, ${deletedCount} deleted, ${allStrokes.length} total (${strokeChunks.length} chunks)`);
     
     return {
       success: true,
-      added: addedCount,
+      added: finalAddedCount,
+      deleted: deletedCount,
       total: allStrokes.length,
       chunks: strokeChunks.length,
       page: pageName
@@ -724,6 +734,54 @@ export async function updatePageTranscription(book, page, transcription, strokeC
     return {
       success: false,
       error: error.message
+    };
+  }
+}
+
+/**
+ * Compute actual changes for a page (for confirmation dialog)
+ * Compares active strokes against what's in LogSeq
+ * @param {number} book - Book ID
+ * @param {number} page - Page number
+ * @param {Array} activeStrokes - Current active strokes (excluding deleted)
+ * @param {string} host - LogSeq API host
+ * @param {string} token - Optional auth token
+ * @returns {Promise<Object>} { additions, deletions, total }
+ */
+export async function computePageChanges(book, page, activeStrokes, host, token = '') {
+  try {
+    const existingData = await getPageStrokes(book, page, host, token);
+    
+    if (!existingData || !existingData.strokes) {
+      // No existing data - all strokes are additions
+      return {
+        additions: activeStrokes.length,
+        deletions: 0,
+        total: activeStrokes.length
+      };
+    }
+    
+    // Convert to storage format for comparison
+    const simplifiedStrokes = convertToStorageFormat(activeStrokes);
+    
+    // Find new strokes
+    const uniqueStrokes = deduplicateStrokes(existingData.strokes, simplifiedStrokes);
+    
+    // Calculate deletions
+    const deletedCount = Math.max(0, existingData.strokes.length - simplifiedStrokes.length);
+    
+    return {
+      additions: uniqueStrokes.length,
+      deletions: deletedCount,
+      total: simplifiedStrokes.length
+    };
+  } catch (error) {
+    console.error(`Failed to compute changes for B${book}/P${page}:`, error);
+    // Return conservative estimate
+    return {
+      additions: activeStrokes.length,
+      deletions: 0,
+      total: activeStrokes.length
     };
   }
 }

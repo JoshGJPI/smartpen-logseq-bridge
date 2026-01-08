@@ -11,6 +11,8 @@
     hasSelection,
     selectionCount,
     selectedStrokes,
+    selectedIndices,
+    clearSelection,
     strokes,
     hasMyScriptCredentials,
     isTranscribing,
@@ -26,9 +28,17 @@
     hasPageTranscriptions,
     lastTranscription,
     pageTranscriptions,
-    transferProgress
+    transferProgress,
+    hasPendingDeletions,
+    canUndo,
+    markStrokesDeleted,
+    undoLastDeletion,
+    clearDeletedIndices,
+    getActiveStrokesForPage,
+    hasPendingChanges
   } from '$stores';
   import { writable } from 'svelte/store';
+  import SaveConfirmDialog from '$components/dialog/SaveConfirmDialog.svelte';
   
   // Transcription progress state
   const transcriptionProgress = writable({
@@ -54,11 +64,15 @@
   let isConnecting = false;
   let isFetchingOffline = false;
   let isSavingToLogseq = false;
+  let showSaveConfirmDialog = false;
   
   // Determine what data is available to save
   $: hasSaveableData = $strokeCount > 0;
+  $: canDelete = $hasSelection;
   $: saveButtonText = (() => {
     if (isSavingToLogseq) return 'Saving...';
+    // Check if there are pending changes
+    if ($hasPendingChanges) return 'Save Changes to LogSeq';
     // Check if any page has transcription available
     if ($hasPageTranscriptions || $hasTranscription) return 'Save to LogSeq (Strokes + Text)';
     return 'Save to LogSeq (Strokes)';
@@ -102,7 +116,42 @@
   
   function handleClearCanvas() {
     clearStrokes();
+    clearDeletedIndices();
     log('Canvas cleared', 'info');
+  }
+  
+  function handleDeleteSelected() {
+    const indices = Array.from($selectedIndices);
+    if (indices.length === 0) return;
+    
+    markStrokesDeleted(indices);
+    clearSelection();
+    log(`Marked ${indices.length} stroke(s) for deletion`, 'info');
+  }
+  
+  function handleUndo() {
+    const success = undoLastDeletion();
+    if (success) {
+      log('Undid last deletion', 'info');
+    }
+  }
+  
+  function handleShowSaveDialog() {
+    if (!$logseqConnected) {
+      log('Please configure LogSeq connection in Settings', 'warning');
+      return;
+    }
+    
+    if (!$strokeCount) {
+      log('No strokes to save', 'warning');
+      return;
+    }
+    
+    showSaveConfirmDialog = true;
+  }
+  
+  function handleCancelSave() {
+    showSaveConfirmDialog = false;
   }
   
   async function handleTranscribe() {
@@ -238,15 +287,8 @@
 
   
   async function handleSaveToLogseq() {
-    if (!$logseqConnected) {
-      log('Please configure LogSeq connection in Settings', 'warning');
-      return;
-    }
-    
-    if (!$strokeCount) {
-      log('No strokes to save', 'warning');
-      return;
-    }
+    // Close dialog
+    showSaveConfirmDialog = false;
     
     isSavingToLogseq = true;
     setStorageSaving(true);
@@ -258,73 +300,66 @@
     try {
       const { host, token } = getLogseqSettings();
       
-      // Determine which strokes to save:
-      // - If there's a selection, only save pages that contain selected strokes
-      // - If no selection, save all strokes
-      const strokesToSave = $hasSelection ? $selectedStrokes : $strokes;
+      // Get all pages with changes (additions or deletions)
+      const pagesToSave = new Map();
       
-      // Get unique page keys from strokes to save
-      const pagesToSave = new Set();
-      strokesToSave.forEach(stroke => {
+      // Group strokes by page, filtering out deleted ones
+      $strokes.forEach((stroke, index) => {
         const pageInfo = stroke.pageInfo;
-        if (pageInfo && pageInfo.book !== undefined && pageInfo.page !== undefined) {
-          const key = `${pageInfo.book}-${pageInfo.page}`;
-          pagesToSave.add(key);
+        if (!pageInfo || pageInfo.book === undefined || pageInfo.page === undefined) return;
+        
+        const key = `${pageInfo.book}-${pageInfo.page}`;
+        if (!pagesToSave.has(key)) {
+          pagesToSave.set(key, {
+            book: pageInfo.book,
+            page: pageInfo.page,
+            strokes: []
+          });
         }
+        
+        pagesToSave.get(key).strokes.push(stroke);
       });
       
       if (pagesToSave.size === 0) {
-        log('No valid page information found in strokes', 'error');
+        log('No pages to save', 'error');
         return;
       }
       
-      // Log what we're saving
-      if ($hasSelection) {
-        log(`Saving ${pagesToSave.size} page(s) containing ${strokesToSave.length} selected strokes...`, 'info');
-      } else {
-        log(`Saving all ${pagesToSave.size} page(s) with ${strokesToSave.length} strokes...`, 'info');
-      }
+      log(`Saving ${pagesToSave.size} page(s)...`, 'info');
       
-      // Step 1: Group ALL strokes by page (we need full page data for each page we're saving)
-      const strokesByPage = new Map();
-      $strokes.forEach(stroke => {
-        const pageInfo = stroke.pageInfo;
-        if (!pageInfo || !pageInfo.book || !pageInfo.page) return;
+      // Save each page
+      for (const [key, pageData] of pagesToSave) {
+        const { book, page, strokes: pageStrokes } = pageData;
         
-        const key = `${pageInfo.book}-${pageInfo.page}`;
-        if (!strokesByPage.has(key)) {
-          strokesByPage.set(key, []);
-        }
-        strokesByPage.get(key).push(stroke);
-      });
-      
-      if (strokesByPage.size === 0) {
-        log('No valid page information found in strokes', 'error');
-        return;
-      }
-      
-      // Save strokes only for pages we want to save
-      for (const [key, pageStrokes] of strokesByPage) {
-        // Skip pages not in our save list
-        if (!pagesToSave.has(key)) {
+        // Get active strokes (excluding deleted ones) for this page
+        const activeStrokes = getActiveStrokesForPage(book, page);
+        
+        if (activeStrokes.length === 0) {
+          log(`Skipping B${book}/P${page} (no active strokes)`, 'info');
           continue;
         }
-        const pageInfo = pageStrokes[0].pageInfo;
-        const { book, page } = pageInfo;
         
         try {
-          const result = await updatePageStrokes(book, page, pageStrokes, host, token);
+          const result = await updatePageStrokes(book, page, activeStrokes, host, token);
           
           if (result.success) {
             recordSuccessfulSave(`B${book}/P${page}`, result);
             
             // Show chunk info if using chunked storage
             const chunkInfo = result.chunks ? ` (${result.chunks} chunks)` : '';
-            log(`Saved strokes to ${result.page}: ${result.added} new, ${result.total} total${chunkInfo}`, 'success');
+            
+            // Build message showing actual changes
+            const parts = [];
+            if (result.added > 0) parts.push(`+${result.added} new`);
+            if (result.deleted > 0) parts.push(`-${result.deleted} deleted`);
+            const changes = parts.length > 0 ? parts.join(', ') + ', ' : '';
+            
+            log(`Saved ${result.page}: ${changes}${result.total} total${chunkInfo}`, 'success');
             savedStrokesCount++;
             
             // Step 2: Check for page-specific transcription
-            const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${book}/P${page}`;
+            const pageInfo = activeStrokes[0]?.pageInfo || { section: 0, owner: 0, book, page };
+          const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${book}/P${page}`;
             const pageTranscription = $pageTranscriptions.get(pageKey);
             
             if (pageTranscription) {
@@ -389,17 +424,13 @@
       
       // Summary
       if (savedStrokesCount > 0) {
-        let summary;
-        if ($hasSelection) {
-          summary = savedTranscriptionCount > 0
-            ? `Saved ${savedStrokesCount} page(s) (from selection) with strokes and transcription`
-            : `Saved ${savedStrokesCount} page(s) (from selection) with strokes`;
-        } else {
-          summary = savedTranscriptionCount > 0 
-            ? `Saved ${savedStrokesCount} page(s) with strokes and transcription`
-            : `Saved ${savedStrokesCount} page(s) with strokes`;
-        }
+        const summary = savedTranscriptionCount > 0 
+          ? `Saved ${savedStrokesCount} page(s) with strokes and transcription`
+          : `Saved ${savedStrokesCount} page(s) with strokes`;
         log(summary, 'success');
+        
+        // Clear deleted indices after successful save
+        clearDeletedIndices();
       }
       if (errorCount > 0) {
         log(`Failed to save ${errorCount} page(s)`, 'error');
@@ -409,6 +440,13 @@
     }
   }
 </script>
+
+<!-- Save Confirmation Dialog -->
+<SaveConfirmDialog 
+  visible={showSaveConfirmDialog} 
+  on:confirm={handleSaveToLogseq}
+  on:cancel={handleCancelSave}
+/>
 
 <div class="action-bar">
   <!-- Transcription Progress Popup -->
@@ -519,7 +557,7 @@
   
   <button 
     class="action-btn save-logseq-btn"
-    on:click={handleSaveToLogseq}
+    on:click={handleShowSaveDialog}
     disabled={!hasSaveableData || isSavingToLogseq || !$logseqConnected}
     title="Save strokes and transcription (if available) to LogSeq storage"
   >
@@ -529,6 +567,34 @@
       <polyline points="7 3 7 8 15 8"/>
     </svg>
     {saveButtonText}
+  </button>
+  
+  <button 
+    class="action-btn delete-btn"
+    on:click={handleDeleteSelected}
+    disabled={!canDelete}
+    title="Delete selected strokes (can be undone)"
+  >
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <polyline points="3 6 5 6 21 6"/>
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+      <line x1="10" y1="11" x2="10" y2="17"/>
+      <line x1="14" y1="11" x2="14" y2="17"/>
+    </svg>
+    Delete ({$selectionCount})
+  </button>
+  
+  <button 
+    class="action-btn undo-btn"
+    on:click={handleUndo}
+    disabled={!$canUndo}
+    title="Undo last deletion"
+  >
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M3 7v6h6"/>
+      <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>
+    </svg>
+    Undo
   </button>
   
   <button 
@@ -633,6 +699,23 @@
   .save-logseq-btn:hover:not(:disabled) {
     background: #22c55e;
     border-color: #22c55e;
+  }
+  
+  .delete-btn {
+    background: var(--error);
+    color: white;
+    border-color: var(--error);
+  }
+  
+  .delete-btn:hover:not(:disabled) {
+    background: #dc2626;
+    border-color: #dc2626;
+  }
+  
+  .undo-btn:hover:not(:disabled) {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
   }
 
   .divider {

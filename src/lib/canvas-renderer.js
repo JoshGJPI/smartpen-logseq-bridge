@@ -451,31 +451,40 @@ export class CanvasRenderer {
    * @param {Object} stroke - Stroke object with dotArray and pageInfo
    * @param {boolean} highlighted - Whether to highlight this stroke
    * @param {boolean} filtered - Whether this is a filtered decorative stroke
+   * @param {boolean} deleted - Whether this stroke is marked for deletion
    */
-  drawStroke(stroke, highlighted = false, filtered = false) {
+  drawStroke(stroke, highlighted = false, filtered = false, deleted = false) {
     const dots = stroke.dotArray || stroke.dots || [];
     if (dots.length < 2) return;
     
     const pageInfo = stroke.pageInfo;
     
     // Determine color and style based on state
-    let color, baseWidth;
+    let color, baseWidth, opacity;
     
-    if (filtered) {
+    if (deleted) {
+      // Deleted strokes: gray with reduced opacity and dashed
+      color = '#888888';
+      baseWidth = 2;
+      opacity = 0.4;
+      this.ctx.setLineDash([3, 3]); // Dashed to indicate deletion
+    } else if (filtered) {
       // Filtered decorative strokes are ALWAYS dashed
       // Color depends on selection state
       color = highlighted ? '#e94560' : '#000000'; // Red if selected, black if not
       baseWidth = highlighted ? 3 : 2;
+      opacity = 1;
       this.ctx.setLineDash([5, 5]); // Always dashed for filtered strokes
     } else {
       // Normal text strokes are always solid
       color = highlighted ? '#e94560' : '#000000'; // Red if selected, black if not
       baseWidth = highlighted ? 3 : 2;
+      opacity = 1;
       this.ctx.setLineDash([]); // Solid line
     }
     
     this.ctx.strokeStyle = color;
-    this.ctx.globalAlpha = 1; // Always full opacity
+    this.ctx.globalAlpha = opacity;
     this.ctx.lineCap = 'round';
     this.ctx.lineJoin = 'round';
     
