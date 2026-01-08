@@ -15,7 +15,7 @@ export {
   startBatchMode,
   endBatchMode,
   clearStrokes,
-  getStroke
+  removeStrokesByIndices
 } from './strokes.js';
 
 // Selection
@@ -32,7 +32,8 @@ export {
   handleStrokeClick,
   selectFromBox,
   deselectIndices,
-  selectIndices
+  selectIndices,
+  adjustSelectionAfterDeletion
 } from './selection.js';
 
 // Pen

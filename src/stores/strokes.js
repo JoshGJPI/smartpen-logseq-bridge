@@ -94,13 +94,16 @@ export function clearStrokes() {
 }
 
 /**
- * Get a specific stroke by index (one-time read)
- * @param {number} index 
+ * Remove strokes by indices
+ * @param {number[]} indices - Array of stroke indices to remove
  */
-export function getStroke(index) {
-  let result;
-  strokes.subscribe(s => {
-    result = s[index];
-  })();
-  return result;
+export function removeStrokesByIndices(indices) {
+  if (!indices || indices.length === 0) return;
+  
+  strokes.update(s => {
+    // Create a Set for O(1) lookup
+    const indicesToRemove = new Set(indices);
+    // Filter out the strokes at those indices
+    return s.filter((stroke, index) => !indicesToRemove.has(index));
+  });
 }

@@ -68,6 +68,28 @@ export function selectRange(fromIndex, toIndex, addToExisting = false) {
     }
     return newSel;
   });
+  
+  // Also adjust lastSelectedIndex if needed
+  lastSelectedIndex.update(lastIndex => {
+    if (lastIndex === null) return null;
+    
+    // If the last selected index was deleted, clear it
+    if (removedIndices.includes(lastIndex)) {
+      return null;
+    }
+    
+    // Count how many removed indices are before it
+    let shift = 0;
+    for (const removedIndex of sorted) {
+      if (removedIndex < lastIndex) {
+        shift++;
+      } else {
+        break;
+      }
+    }
+    
+    return lastIndex - shift;
+  });
 }
 
 /**
@@ -169,6 +191,41 @@ export function selectIndices(indices) {
   selectedIndices.update(sel => {
     const newSel = new Set(sel);
     indices.forEach(i => newSel.add(i));
+    return newSel;
+  });
+}
+
+/**
+ * Adjust selection indices after strokes are deleted
+ * When strokes are removed, all indices after them shift down
+ * @param {number[]} removedIndices - Sorted array of removed indices
+ */
+export function adjustSelectionAfterDeletion(removedIndices) {
+  if (!removedIndices || removedIndices.length === 0) return;
+  
+  // Sort removed indices to process in order
+  const sorted = [...removedIndices].sort((a, b) => a - b);
+  
+  selectedIndices.update(sel => {
+    const newSel = new Set();
+    
+    sel.forEach(index => {
+      // Count how many removed indices are before this one
+      let shift = 0;
+      for (const removedIndex of sorted) {
+        if (removedIndex < index) {
+          shift++;
+        } else {
+          break;
+        }
+      }
+      
+      // Add the adjusted index (if not in removed list)
+      if (!removedIndices.includes(index)) {
+        newSel.add(index - shift);
+      }
+    });
+    
     return newSel;
   });
 }

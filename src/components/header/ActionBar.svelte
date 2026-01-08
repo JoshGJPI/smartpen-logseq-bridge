@@ -13,7 +13,9 @@
     selectedStrokes,
     selectedIndices,
     clearSelection,
+    adjustSelectionAfterDeletion,
     strokes,
+    removeStrokesByIndices,
     hasMyScriptCredentials,
     isTranscribing,
     setTranscription,
@@ -35,7 +37,8 @@
     undoLastDeletion,
     clearDeletedIndices,
     getActiveStrokesForPage,
-    hasPendingChanges
+    hasPendingChanges,
+    deletedIndices
   } from '$stores';
   import { writable } from 'svelte/store';
   import SaveConfirmDialog from '$components/dialog/SaveConfirmDialog.svelte';
@@ -429,7 +432,19 @@
           : `Saved ${savedStrokesCount} page(s) with strokes`;
         log(summary, 'success');
         
-        // Clear deleted indices after successful save
+        // Remove deleted strokes from the store after successful save
+        const deletedStrokeIndices = Array.from($deletedIndices).sort((a, b) => b - a);
+        if (deletedStrokeIndices.length > 0) {
+          // First adjust selection to account for removal
+          adjustSelectionAfterDeletion(deletedStrokeIndices);
+          
+          // Then remove the strokes
+          removeStrokesByIndices(deletedStrokeIndices);
+          
+          log(`Removed ${deletedStrokeIndices.length} deleted stroke(s) from canvas`, 'info');
+        }
+        
+        // Clear deleted indices after removal
         clearDeletedIndices();
       }
       if (errorCount > 0) {
