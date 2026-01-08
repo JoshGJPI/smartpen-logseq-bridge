@@ -119,7 +119,27 @@ This opens the app at `http://localhost:3000` (configured in vite.config.js)
 
 ### Canvas Controls & Selection
 
-The canvas provides intuitive ways to select and interact with your strokes:
+The canvas provides intuitive ways to select, navigate, and manipulate your strokes:
+
+#### Page Positioning & Resizing
+
+**Drag page labels** - Click and drag the "B#/P#" labels above pages to reposition them
+- Enables custom layouts with pages side-by-side or any arrangement
+- Positions are saved and persist across sessions
+- Click "Reset Layout" to return to automatic horizontal arrangement
+
+**Drag corner handles** - Click and drag the corner handle on page borders to resize
+- Colored circular handle appears at bottom-right corner of each page
+- Handle color matches the page/book border color for easy identification
+- Top-left corner stays anchored (doesn't move during resize)
+- Plain drag: Free resize (can change aspect ratio)
+- **Shift+drag**: Constrained resize (maintains original aspect ratio)
+- Scale range: 25% to 500% of original size
+- Scale percentage appears in page label (e.g., "B3017 / P42 (150%)")
+- Click "Reset Sizes" to return all pages to 100% scale
+- **Escape** key cancels active resize operation
+
+**Note**: Page positioning and resizing only affect display—original stroke data remains unchanged. This non-destructive approach means transcription and exports always use original coordinates.
 
 #### Box Selection (Drag to Select)
 
@@ -512,6 +532,8 @@ This will build and serve the app exactly as it will appear on GitHub Pages.
 - [x] Real-time transcription progress modal
 - [x] Multi-page canvas visualization with colored borders
 - [x] Page-organized stroke browser with collapsible headers
+- [x] Drag page labels to reposition pages
+- [x] Drag corner handles to resize pages (with aspect ratio lock)
 
 ### In Progress 🔄
 - [ ] Command detection and processing (`[page:]`, `[project:]`, etc.)
@@ -560,6 +582,15 @@ This is a personal project for integrating handwritten notes into a LogSeq-based
 | Ctrl/Shift+Click | Toggle individual stroke |
 | Ctrl+A | Select all |
 | Escape | Cancel box selection |
+
+### Page Manipulation
+| Action | Result |
+|--------|--------|
+| Drag page label | Reposition entire page |
+| Drag bottom-right corner | Resize page (free, top-left anchored) |
+| Shift+Drag corner | Resize page (constrained aspect ratio) |
+| Reset Layout button | Return to automatic layout |
+| Reset Sizes button | Return all pages to 100% scale |
 
 ### Navigation
 | Action | Result |

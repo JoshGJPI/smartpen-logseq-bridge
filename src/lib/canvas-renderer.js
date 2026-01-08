@@ -12,6 +12,10 @@ export class CanvasRenderer {
     this.currentStroke = null;
     this.scale = 2.371; // Ncode to mm conversion
     
+    // Per-page scale factors (non-destructive display scaling)
+    this.pageScales = {}; // Map of pageKey -> scale factor
+    this.tempPageScales = {}; // Temporary scales during drag preview
+    
     // Zoom and pan state
     this.zoom = 1;
     this.minZoom = 0.25;
@@ -36,6 +40,11 @@ export class CanvasRenderer {
     
     // Page visualization settings
     this.showPageBackgrounds = true; // Toggle for page borders
+    // Corner handle visualization
+    this.showCornerHandles = true; // Toggle for corner resize handles
+    this.cornerHandles = new Map(); // Map of pageKey -> array of handle objects
+    this.handleSize = 8; // Size of corner handles in pixels
+    
     this.pageColors = [ // Colors for different books (10 distinct colors)
       'rgba(233, 69, 96, 0.8)',   // Red
       'rgba(75, 192, 192, 0.8)',  // Teal
@@ -402,7 +411,7 @@ export class CanvasRenderer {
   }
   
   /**
-   * Convert ncode coordinates to screen coordinates with zoom, pan, and page offset
+   * Convert ncode coordinates to screen coordinates with zoom, pan, page offset, and page scale
    * @param {Object} dot - Dot with x, y coordinates
    * @param {Object} pageInfo - Page information (section, owner, book, page) to determine offset
    */
@@ -413,10 +422,11 @@ export class CanvasRenderer {
     let offsetX = 0;
     let offsetY = 0;
     let pageBounds = null;
+    let pageKey = null;
     
     if (pageInfo && this.pageOffsets.size > 0) {
       // Use full key format to match pages store
-      const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${pageInfo.book}/P${pageInfo.page}`;
+      pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${pageInfo.book}/P${pageInfo.page}`;
       const pageOffset = this.pageOffsets.get(pageKey);
       
       if (pageOffset) {
@@ -426,17 +436,20 @@ export class CanvasRenderer {
       }
     }
     
+    // Get per-page scale factor (default: 1.0)
+    const pageScale = pageKey ? this.getEffectiveScale(pageKey) : 1.0;
+    
     // Use simple scaling if:
     // 1. No bounds calculated yet (first strokes), OR
     // 2. Page offset not found (real-time strokes on new page)
     if (this.bounds.minX === Infinity || (pageInfo && !pageBounds)) {
-      x = dot.x * this.scale;
-      y = dot.y * this.scale;
+      x = dot.x * this.scale * pageScale;
+      y = dot.y * this.scale * pageScale;
     } else {
       // Transform relative to page bounds (or global bounds if no page offset)
       const bounds = pageBounds || this.bounds;
-      x = (dot.x - bounds.minX + offsetX) * this.scale;
-      y = (dot.y - bounds.minY + offsetY) * this.scale;
+      x = (dot.x - bounds.minX + offsetX) * this.scale * pageScale;
+      y = (dot.y - bounds.minY + offsetY) * this.scale * pageScale;
     }
     
     return {
@@ -611,6 +624,39 @@ export class CanvasRenderer {
   }
   
   /**
+   * Set page scale factors from store
+   * @param {Object} scales - Map of pageKey -> scale factor
+   */
+  setPageScales(scales) {
+    this.pageScales = scales || {};
+  }
+  
+  /**
+   * Set temporary page scale (for drag preview)
+   * @param {string} pageKey - Page identifier
+   * @param {number} scale - Temporary scale factor
+   */
+  setTempPageScale(pageKey, scale) {
+    this.tempPageScales[pageKey] = scale;
+  }
+  
+  /**
+   * Clear all temporary page scales
+   */
+  clearTempPageScale() {
+    this.tempPageScales = {};
+  }
+  
+  /**
+   * Get effective scale for a page (temp overrides permanent)
+   * @param {string} pageKey - Page identifier
+   * @returns {number} Scale factor (default: 1.0)
+   */
+  getEffectiveScale(pageKey) {
+    return this.tempPageScales[pageKey] || this.pageScales[pageKey] || 1.0;
+  }
+  
+  /**
    * Get color index for a book ID (consistent across pages)
    * @param {string} bookId - Book ID (e.g., "123")
    * @returns {number} Color index
@@ -639,11 +685,14 @@ export class CanvasRenderer {
       }
       const { offsetX, offsetY, bounds } = offset;
       
-      // Calculate screen coordinates for page bounds
-      const left = offsetX * this.scale * this.zoom + this.panX;
-      const top = offsetY * this.scale * this.zoom + this.panY;
-      const width = (bounds.maxX - bounds.minX) * this.scale * this.zoom;
-      const height = (bounds.maxY - bounds.minY) * this.scale * this.zoom;
+      // Get per-page scale factor
+      const pageScale = this.getEffectiveScale(pageKey);
+      
+      // Calculate screen coordinates for page bounds (with per-page scale)
+      const left = offsetX * this.scale * pageScale * this.zoom + this.panX;
+      const top = offsetY * this.scale * pageScale * this.zoom + this.panY;
+      const width = (bounds.maxX - bounds.minX) * this.scale * pageScale * this.zoom;
+      const height = (bounds.maxY - bounds.minY) * this.scale * pageScale * this.zoom;
       
       // Extract book ID from pageKey (format: S#/O#/B#/P#)
       const bookMatch = pageKey.match(/B(\d+)/);
@@ -679,7 +728,13 @@ export class CanvasRenderer {
       if (parts) {
         const book = parts[1];
         const page = parts[2];
-        const label = `B${book} / P${page}`;
+        let label = `B${book} / P${page}`;
+        
+        // Add scale percentage if not 1.0
+        if (pageScale !== 1.0) {
+          const scalePercent = Math.round(pageScale * 100);
+          label += ` (${scalePercent}%)`;
+        }
         
         // Position label above the top border with some padding
         const labelY = top - 6;
@@ -687,6 +742,109 @@ export class CanvasRenderer {
       }
       
     });
+    
+    // Draw corner handles if enabled
+    if (this.showCornerHandles) {
+      this.drawCornerHandles();
+    }
+  }
+  
+  /**
+   * Draw corner handles for all visible pages
+   * Only shows bottom-right corner (top-left is anchor)
+   */
+  drawCornerHandles() {
+    // Clear previous handle data
+    this.cornerHandles.clear();
+    
+    this.pageOffsets.forEach((offset, pageKey) => {
+      // Skip if page is not visible (filtered out)
+      if (this.visiblePageKeys && !this.visiblePageKeys.has(pageKey)) {
+        return;
+      }
+      
+      const bounds = this.getPageBoundsScreen(pageKey);
+      if (!bounds) return;
+      
+      const { left, top, width, height } = bounds;
+      
+      // Extract book ID for color matching
+      const bookMatch = pageKey.match(/B(\d+)/);
+      const bookId = bookMatch ? bookMatch[1] : '0';
+      const colorIndex = this.getBookColorIndex(bookId);
+      const baseColor = this.pageColors[colorIndex];
+      
+      // Parse RGB from base color for handle
+      const match = baseColor.match(/rgba\(([^,]+),([^,]+),([^,]+),/);
+      let handleColor = 'rgba(233, 69, 96, 0.9)'; // Default red
+      if (match) {
+        const r = match[1].trim();
+        const g = match[2].trim();
+        const b = match[3].trim();
+        handleColor = `rgba(${r},${g},${b},0.9)`;
+      }
+      
+      // Only bottom-right corner (SE) - top-left is anchor
+      const corner = {
+        x: left + width,
+        y: top + height,
+        corner: 'se',
+        cursor: 'nwse-resize'
+      };
+      
+      // Draw corner handle
+      const handleRadius = this.handleSize / 2;
+      this.ctx.fillStyle = handleColor;
+      this.ctx.strokeStyle = 'white';
+      this.ctx.lineWidth = 2;
+      
+      this.ctx.beginPath();
+      this.ctx.arc(corner.x, corner.y, handleRadius, 0, Math.PI * 2);
+      this.ctx.fill();
+      this.ctx.stroke();
+      
+      // Store handle data for hit testing
+      this.cornerHandles.set(pageKey, [{
+        x: corner.x,
+        y: corner.y,
+        corner: corner.corner,
+        cursor: corner.cursor,
+        radius: handleRadius + 2 // Slightly larger hit area
+      }]);
+    });
+  }
+  
+  /**
+   * Hit test to find corner handle at coordinates
+   * @param {number} x - Screen X coordinate
+   * @param {number} y - Screen Y coordinate
+   * @returns {Object|null} {pageKey, corner, handle, cursor} if hit, null otherwise
+   */
+  hitTestCorner(x, y) {
+    if (!this.cornerHandles || this.cornerHandles.size === 0) return null;
+    
+    // Check in reverse order (top pages first)
+    const entries = Array.from(this.cornerHandles.entries());
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const [pageKey, handles] = entries[i];
+      
+      for (const handle of handles) {
+        const dx = x - handle.x;
+        const dy = y - handle.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance <= handle.radius) {
+          return {
+            pageKey,
+            corner: handle.corner,
+            handle,
+            cursor: handle.cursor
+          };
+        }
+      }
+    }
+    
+    return null;
   }
   
   /**
@@ -725,10 +883,11 @@ export class CanvasRenderer {
     
     for (const [pageKey, offset] of this.pageOffsets) {
       const { offsetX, offsetY, bounds } = offset;
+      const pageScale = this.getEffectiveScale(pageKey);
       
-      const left = offsetX * this.scale * this.zoom + this.panX;
-      const top = offsetY * this.scale * this.zoom + this.panY;
-      const width = (bounds.maxX - bounds.minX) * this.scale * this.zoom;
+      const left = offsetX * this.scale * pageScale * this.zoom + this.panX;
+      const top = offsetY * this.scale * pageScale * this.zoom + this.panY;
+      const width = (bounds.maxX - bounds.minX) * this.scale * pageScale * this.zoom;
       
       // Draggable region is ONLY the label area above the border
       // Label is drawn at top - 6, so check from top - 28 to top + 2
@@ -778,7 +937,7 @@ export class CanvasRenderer {
   }
   
   /**
-   * Get page bounds in screen coordinates
+   * Get page bounds in screen coordinates (accounting for per-page scale)
    * @param {string} pageKey - Page identifier
    * @returns {Object|null} Object with {left, top, right, bottom, width, height}
    */
@@ -786,11 +945,12 @@ export class CanvasRenderer {
     const offset = this.pageOffsets.get(pageKey);
     if (!offset) return null;
     
+    const pageScale = this.getEffectiveScale(pageKey);
     const { offsetX, offsetY, bounds } = offset;
-    const left = offsetX * this.scale * this.zoom + this.panX;
-    const top = offsetY * this.scale * this.zoom + this.panY;
-    const width = (bounds.maxX - bounds.minX) * this.scale * this.zoom;
-    const height = (bounds.maxY - bounds.minY) * this.scale * this.zoom;
+    const left = offsetX * this.scale * pageScale * this.zoom + this.panX;
+    const top = offsetY * this.scale * pageScale * this.zoom + this.panY;
+    const width = (bounds.maxX - bounds.minX) * this.scale * pageScale * this.zoom;
+    const height = (bounds.maxY - bounds.minY) * this.scale * pageScale * this.zoom;
     
     return {
       left,

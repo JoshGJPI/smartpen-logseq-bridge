@@ -9,6 +9,7 @@
   import { canvasZoom, setCanvasZoom, log, showFilteredStrokes } from '$stores';
   import { filteredStrokes } from '$stores/filtered-strokes.js';
   import { pagePositions, useCustomPositions, setPagePosition, movePageBy, clearPagePositions } from '$stores';
+  import { pageScales, setPageScale, getPageScale, resetPageScale, resetAllPageScales, hasScaledPages } from '$stores';
   import { deselectIndices } from '$stores/selection.js';
   import { detectDecorativeIndices } from '$lib/stroke-filter.js';
   import { pageTranscriptionsArray } from '$stores';
@@ -86,6 +87,17 @@
   let pageOriginalNcodeX = 0; // Store original Ncode position at drag start
   let pageOriginalNcodeY = 0; // Store original Ncode position at drag start
   
+  // Page resize state
+  let isResizingPage = false;
+  let resizePageKey = null;
+  let resizeCorner = null;
+  let resizeStartX = 0;
+  let resizeStartY = 0;
+  let resizeOriginalBounds = null;
+  let resizeOriginalScale = 1.0;
+  let resizePreviewScale = 1.0;
+  let resizeOriginalOffset = null; // Store original Ncode offset
+  
   // Import renderer dynamically to avoid SSR issues
   onMount(async () => {
     const { CanvasRenderer } = await import('$lib/canvas-renderer.js');
@@ -105,17 +117,32 @@
     
     // Keyboard shortcuts
     const handleKeyDown = (e) => {
-      // Escape - cancel box selection
-      if (e.key === 'Escape' && (isBoxSelecting || boxSelectPending)) {
-        isBoxSelecting = false;
-        boxSelectPending = false;
-        didBoxSelect = false;
-        boxStartX = 0;
-        boxStartY = 0;
-        boxCurrentX = 0;
-        boxCurrentY = 0;
-        if (canvasElement) {
-          canvasElement.style.cursor = 'default';
+      // Escape - cancel box selection or resize
+      if (e.key === 'Escape') {
+        if (isBoxSelecting || boxSelectPending) {
+          isBoxSelecting = false;
+          boxSelectPending = false;
+          didBoxSelect = false;
+          boxStartX = 0;
+          boxStartY = 0;
+          boxCurrentX = 0;
+          boxCurrentY = 0;
+          if (canvasElement) {
+            canvasElement.style.cursor = 'default';
+          }
+        }
+        if (isResizingPage) {
+          isResizingPage = false;
+          resizePageKey = null;
+          resizeCorner = null;
+          resizeOriginalOffset = null;
+          if (canvasElement) {
+            canvasElement.style.cursor = 'default';
+          }
+          if (renderer) {
+            renderer.clearTempPageScale();
+            renderStrokes(false);  // Redraw without resetting view
+          }
         }
       }
       
@@ -219,6 +246,12 @@
     }
   }
   
+  // Update renderer with page scales when they change
+  $: if (renderer && $pageScales) {
+    renderer.setPageScales($pageScales);
+    renderStrokes(false);
+  }
+  
   function renderStrokes(fullReset = false) {
     if (!renderer) return;
     
@@ -267,7 +300,7 @@
     }
   }
   
-  // Mouse down - start potential pan, page drag, or selection
+  // Mouse down - start potential pan, page drag, page resize, or selection
   function handleMouseDown(event) {
     const rect = canvasElement.getBoundingClientRect();
     const x = event.clientX - rect.left;
@@ -284,7 +317,38 @@
       return;
     }
     
-    // Left button - check for page header click first (unless Ctrl/Shift held)
+    // Left button - check for corner handle first (highest priority)
+    if (event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && renderer) {
+      const cornerHit = renderer.hitTestCorner(x, y);
+      if (cornerHit) {
+        event.preventDefault();
+        isResizingPage = true;
+        resizePageKey = cornerHit.pageKey;
+        resizeCorner = cornerHit.corner;
+        resizeStartX = event.clientX;
+        resizeStartY = event.clientY;
+        resizeOriginalBounds = renderer.getPageBoundsScreen(resizePageKey);
+        resizeOriginalScale = getPageScale(resizePageKey);
+        resizePreviewScale = resizeOriginalScale;
+        
+        // Store original Ncode offset for anchor calculation
+        const pageOffset = renderer.pageOffsets.get(resizePageKey);
+        if (pageOffset) {
+          // Check if custom position exists
+          const customPos = $pagePositions[resizePageKey];
+          if (customPos) {
+            resizeOriginalOffset = { x: customPos.x, y: customPos.y };
+          } else {
+            resizeOriginalOffset = { x: pageOffset.offsetX, y: pageOffset.offsetY };
+          }
+        }
+        
+        canvasElement.style.cursor = cornerHit.cursor;
+        return;
+      }
+    }
+    
+    // Left button - check for page header click (unless Ctrl/Shift held)
     if (event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && renderer) {
       const pageKey = renderer.hitTestPageHeader(x, y);
       if (pageKey) {
@@ -357,20 +421,61 @@
     }
   }
   
-  // Mouse move - page drag, pan, or update box selection
+  // Mouse move - page resize, page drag, pan, or update box selection
   function handleMouseMove(event) {
     const rect = canvasElement.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
+    
+    // Handle page resizing
+    if (isResizingPage && renderer && resizePageKey && resizeOriginalOffset) {
+      const deltaX = event.clientX - resizeStartX;
+      const deltaY = event.clientY - resizeStartY;
+      
+      // Calculate new scale based on corner and delta
+      const newScale = calculateScaleFromDrag(
+        resizeCorner,
+        deltaX,
+        deltaY,
+        resizeOriginalBounds,
+        resizeOriginalScale,
+        event.shiftKey  // Maintain aspect ratio
+      );
+      
+      // Calculate adjusted offset to keep top-left corner anchored
+      // As scale changes, we need to adjust offset proportionally to keep
+      // the top-left corner at the same screen position
+      const scaleRatio = resizeOriginalScale / newScale;
+      const adjustedOffset = {
+        x: resizeOriginalOffset.x * scaleRatio,
+        y: resizeOriginalOffset.y * scaleRatio
+      };
+      
+      // Update preview with new scale and adjusted position
+      resizePreviewScale = newScale;
+      renderer.setTempPageScale(resizePageKey, newScale);
+      
+      // Apply temporary custom position for preview
+      renderer.applyCustomPositions({
+        ...$pagePositions,
+        [resizePageKey]: adjustedOffset
+      });
+      
+      renderStrokes();
+      return;
+    }
     
     // Handle page dragging
     if (isDraggingPage && renderer && draggedPageKey) {
       const deltaX = event.clientX - pageDragStartX;
       const deltaY = event.clientY - pageDragStartY;
       
-      // Convert screen delta to Ncode delta
-      const ncodeDeltaX = deltaX / (renderer.scale * renderer.zoom);
-      const ncodeDeltaY = deltaY / (renderer.scale * renderer.zoom);
+      // Get current page scale to account for scaled coordinate space
+      const pageScale = getPageScale(draggedPageKey);
+      
+      // Convert screen delta to Ncode delta (accounting for scale and page scale)
+      const ncodeDeltaX = deltaX / (renderer.scale * pageScale * renderer.zoom);
+      const ncodeDeltaY = deltaY / (renderer.scale * pageScale * renderer.zoom);
       
       // Calculate new position from ORIGINAL position + delta
       const newNcodeX = pageOriginalNcodeX + ncodeDeltaX;
@@ -423,29 +528,69 @@
     }
     
     // Update cursor based on what's under the mouse (when not actively doing something)
-    if (!isPanning && !isDraggingPage && !isBoxSelecting && !boxSelectPending && renderer) {
-      // Check if hovering over a page header (draggable area)
-      const pageKey = renderer.hitTestPageHeader(x, y);
-      if (pageKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
-        canvasElement.style.cursor = 'grab';
-      } else if (canvasElement.style.cursor === 'grab') {
-        // Only reset if it was set to grab (don't override other cursors)
-        canvasElement.style.cursor = 'default';
+    if (!isPanning && !isDraggingPage && !isResizingPage && !isBoxSelecting && !boxSelectPending && renderer) {
+      // Check for corner handle hover first
+      const cornerHit = renderer.hitTestCorner(x, y);
+      if (cornerHit && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+        canvasElement.style.cursor = cornerHit.cursor;
+      } else {
+        // Check if hovering over a page header (draggable area)
+        const pageKey = renderer.hitTestPageHeader(x, y);
+        if (pageKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+          canvasElement.style.cursor = 'grab';
+        } else if (canvasElement.style.cursor === 'grab' || canvasElement.style.cursor.includes('resize')) {
+          // Reset if it was set to grab or resize (don't override other cursors)
+          canvasElement.style.cursor = 'default';
+        }
       }
     }
   }
   
-  // Mouse up - end page drag, pan, or complete box selection
+  // Mouse up - end page resize, page drag, pan, or complete box selection
   function handleMouseUp(event) {
+    // Handle page resize completion
+    if (isResizingPage && resizePageKey && renderer && resizeOriginalOffset) {
+      const deltaX = event.clientX - resizeStartX;
+      const deltaY = event.clientY - resizeStartY;
+      
+      // Only commit if there was actual movement
+      if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) {
+        // Calculate final adjusted offset to keep top-left anchored
+        const scaleRatio = resizeOriginalScale / resizePreviewScale;
+        const adjustedOffset = {
+          x: resizeOriginalOffset.x * scaleRatio,
+          y: resizeOriginalOffset.y * scaleRatio
+        };
+        
+        // Save both scale and adjusted position
+        setPageScale(resizePageKey, resizePreviewScale);
+        setPagePosition(resizePageKey, adjustedOffset.x, adjustedOffset.y);
+        
+        log(`Resized ${resizePageKey} to ${Math.round(resizePreviewScale * 100)}%`, 'info');
+      }
+      
+      renderer.clearTempPageScale();
+      isResizingPage = false;
+      resizePageKey = null;
+      resizeCorner = null;
+      resizeOriginalOffset = null;
+      canvasElement.style.cursor = 'default';
+      renderStrokes(false);  // Redraw without resetting view
+      return;
+    }
+    
     // Handle page drag completion
     if (isDraggingPage && draggedPageKey && renderer) {
       const deltaX = event.clientX - pageDragStartX;
       const deltaY = event.clientY - pageDragStartY;
       
       if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) {
-        // Convert screen delta to Ncode delta
-        const ncodeDeltaX = deltaX / (renderer.scale * renderer.zoom);
-        const ncodeDeltaY = deltaY / (renderer.scale * renderer.zoom);
+        // Get current page scale to account for scaled coordinate space
+        const pageScale = getPageScale(draggedPageKey);
+        
+        // Convert screen delta to Ncode delta (accounting for scale and page scale)
+        const ncodeDeltaX = deltaX / (renderer.scale * pageScale * renderer.zoom);
+        const ncodeDeltaY = deltaY / (renderer.scale * pageScale * renderer.zoom);
         
         // Save final position = original + delta
         const newNcodeX = pageOriginalNcodeX + ncodeDeltaX;
@@ -523,8 +668,20 @@
     }
   }
   
-  // Mouse leave - cancel page drag, pan, or box selection
+  // Mouse leave - cancel page resize, page drag, pan, or box selection
   function handleMouseLeave(event) {
+    if (isResizingPage) {
+      isResizingPage = false;
+      resizePageKey = null;
+      resizeCorner = null;
+      resizeOriginalOffset = null;
+      canvasElement.style.cursor = 'default';
+      if (renderer) {
+        renderer.clearTempPageScale();
+        renderStrokes(false);  // Redraw without resetting view
+      }
+    }
+    
     if (isDraggingPage) {
       isDraggingPage = false;
       draggedPageKey = null;
@@ -555,6 +712,34 @@
   }
   
   // Canvas click - select stroke (only if we didn't pan or box select)
+  // Helper to calculate scale from drag delta
+  // Only handles SE (bottom-right) corner since top-left is anchor
+  function calculateScaleFromDrag(corner, deltaX, deltaY, originalBounds, originalScale, maintainAspectRatio) {
+    const { width, height } = originalBounds;
+    
+    // Calculate scale change based on drag distance
+    let scaleChange = 0;
+    
+    if (maintainAspectRatio) {
+      // Use diagonal distance for proportional scaling
+      const diagonal = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+      // SE corner: positive diagonal = grow
+      const sign = (deltaX + deltaY) > 0 ? 1 : -1;
+      scaleChange = (diagonal * sign) / Math.max(width, height);
+    } else {
+      // Free resize - use the larger dimension change
+      const xChange = deltaX / width;
+      const yChange = deltaY / height;
+      // SE corner: both positive = grow
+      scaleChange = Math.max(xChange, yChange);
+    }
+    
+    const newScale = originalScale + scaleChange;
+    
+    // Clamp to reasonable range (25% to 500%)
+    return Math.max(0.25, Math.min(5.0, newScale));
+  }
+  
   function handleCanvasClick(event) {
     if (didPan || didBoxSelect) {
       didPan = false;
@@ -931,6 +1116,23 @@
             📐 Reset Layout
           </button>
         {/if}
+        {#if $hasScaledPages}
+          <button 
+            class="header-btn layout-btn" 
+            on:click={() => {
+              resetAllPageScales();
+              if (renderer) {
+                renderer.setPageScales({});
+                renderStrokes(true);
+                setTimeout(() => fitContent(), 50);
+              }
+              log('Reset all page sizes to 100%', 'info');
+            }}
+            title="Reset all pages to original size (100%)"
+          >
+            📏 Reset Sizes
+          </button>
+        {/if}
         {#if $strokeCount > 0}
           <button 
             class="header-btn text-toggle-btn" 
@@ -982,6 +1184,9 @@
     <div class="canvas-hint">
       {#if $useCustomPositions}
         <strong>Drag page labels to reposition</strong> • 
+      {/if}
+      {#if $hasScaledPages}
+        <strong>Drag corners to resize</strong> (Shift=aspect ratio) • 
       {/if}
       {#if showTextView}
         Showing transcribed text • 

@@ -193,3 +193,14 @@ export {
   getActiveStrokesForPage,
   getPendingChangesSummary
 } from './pending-changes.js';
+
+// Page Scales (Per-Page Resize)
+export {
+  pageScales,
+  hasScaledPages,
+  setPageScale,
+  getPageScale,
+  resetPageScale,
+  resetAllPageScales,
+  hasCustomScale
+} from './page-scale.js';
