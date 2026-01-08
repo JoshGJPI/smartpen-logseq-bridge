@@ -105,13 +105,16 @@ export {
   showLineGuides,
   showFilteredStrokes,
   logMessages,
+  showSearchTranscriptsDialog,
   log,
   setActiveTab,
   toggleSidebar,
   setCanvasZoom,
   toggleLineGuides,
   toggleFilteredStrokes,
-  clearLog
+  clearLog,
+  openSearchTranscriptsDialog,
+  closeSearchTranscriptsDialog
 } from './ui.js';
 
 // Storage

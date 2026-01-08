@@ -15,9 +15,12 @@
   import { logseqPages } from '$stores';
   import { bookAliases } from '$stores';
   import { formatBookName } from '$utils/formatting.js';
+  import { openSearchTranscriptsDialog } from '$stores';
+  import { logseqConnected } from '$stores';
   import CanvasControls from './CanvasControls.svelte';
   import PageSelector from './PageSelector.svelte';
   import FilteredStrokesPanel from '../strokes/FilteredStrokesPanel.svelte';
+  import SearchTranscriptsDialog from '../dialog/SearchTranscriptsDialog.svelte';
   
   let canvasElement;
   let containerElement;
@@ -722,6 +725,9 @@
     }
   }
   
+  // Check if search is available
+  $: canSearch = $logseqConnected && $logseqPages.some(p => p.transcriptionText);
+  
   // Toggle text view - check for data when clicked
   function handleTextViewToggle() {
     // If already showing text, just toggle back to strokes
@@ -873,6 +879,18 @@
     </div>
     
     <div class="header-actions">
+      <!-- Search Transcripts - Always visible, placed first -->
+      <button 
+        class="header-btn search-btn"
+        on:click={openSearchTranscriptsDialog}
+        disabled={!canSearch}
+        title={canSearch 
+          ? 'Search transcribed text in LogSeq database'
+          : 'Connect to LogSeq and scan pages with transcriptions first'}
+      >
+        🔍 Search Transcripts
+      </button>
+      
       {#if $strokeCount > 0}
         <button 
           class="header-btn" 
@@ -995,6 +1013,9 @@
   </div>
   
   <FilteredStrokesPanel />
+  
+  <!-- Search Transcripts Dialog -->
+  <SearchTranscriptsDialog />
 </div>
 
 <style>
@@ -1095,6 +1116,18 @@
   }
   
   .text-toggle-btn:hover:not(:disabled) {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+  
+  .search-btn {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+  
+  .search-btn:hover:not(:disabled) {
     background: var(--accent);
     color: white;
     border-color: var(--accent);

@@ -29,6 +29,9 @@ export const bookSelectionDialog = writable({
   onCancel: () => {}
 });
 
+// Search transcripts dialog state
+export const showSearchTranscriptsDialog = writable(false);
+
 // Maximum log entries to keep
 const MAX_LOG_ENTRIES = 50;
 
@@ -97,6 +100,20 @@ export function toggleFilteredStrokes() {
  */
 export function clearLog() {
   logMessages.set([]);
+}
+
+/**
+ * Open search transcripts dialog
+ */
+export function openSearchTranscriptsDialog() {
+  showSearchTranscriptsDialog.set(true);
+}
+
+/**
+ * Close search transcripts dialog
+ */
+export function closeSearchTranscriptsDialog() {
+  showSearchTranscriptsDialog.set(false);
 }
 
 /**
