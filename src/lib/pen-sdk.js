@@ -54,16 +54,41 @@ export function setCanvasRenderer(renderer) {
 
 /**
  * Connect to a pen via Bluetooth
+ * @param {number} timeoutMs - Connection timeout in milliseconds (default 15s)
  */
-export async function connectPen() {
+export async function connectPen(timeoutMs = 15000) {
   try {
     log('Scanning for pens...', 'info');
-    await PenHelper.scanPen();
+    log('💡 Make sure your pen is awake (tap on paper or press button)', 'info');
+    
+    // Create a promise that races between connection and timeout
+    const connectionPromise = PenHelper.scanPen();
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Connection timeout - pen did not respond')), timeoutMs)
+    );
+    
+    await Promise.race([connectionPromise, timeoutPromise]);
     
     // The connection success/failure is handled via messageCallback
+    // This just ensures we don't hang forever
     return true;
   } catch (error) {
-    log(`Connection error: ${error.message}`, 'error');
+    let errorMessage = `Connection error: ${error.message}`;
+    
+    // Add troubleshooting tips for timeout errors
+    if (error.message.includes('timeout')) {
+      log(errorMessage, 'error');
+      log('💡 Troubleshooting tips:', 'warning');
+      log('1. Make sure pen is awake (tap on Ncode paper or press button)', 'info');
+      log('2. Remove and reinsert pen cap to reset', 'info');
+      log('3. Try disconnecting other Bluetooth devices', 'info');
+      log('4. Refresh the page and try again', 'info');
+    } else {
+      log(errorMessage, 'error');
+    }
+    
+    // Try to clean up connection state
+    setPenConnected(false);
     throw error;
   }
 }
@@ -159,7 +184,25 @@ function processDot(dot) {
  * Process pen messages
  */
 function processMessage(mac, type, args) {
-  console.log('Pen message:', { mac, type, args });
+  // More detailed logging for connection-related messages
+  const messageTypeNames = {
+    1: 'PEN_CONNECTION_SUCCESS',
+    2: 'PEN_SETTING_INFO',
+    3: 'PEN_AUTHORIZED',
+    4: 'PEN_DISCONNECTED',
+    5: 'PEN_PASSWORD_REQUEST',
+    6: 'OFFLINE_DATA_NOTE_LIST',
+    18: 'PEN_SETTING_CHANGE_RESPONSE',
+    26: 'AVAILABLE_NOTE_RESPONSE',
+    49: 'OFFLINE_DATA_RESPONSE',
+    50: 'OFFLINE_DATA_SEND_START',
+    51: 'OFFLINE_DATA_SEND_STATUS',
+    52: 'OFFLINE_DATA_SEND_SUCCESS',
+    53: 'OFFLINE_DATA_SEND_FAILURE'
+  };
+  
+  const typeName = messageTypeNames[type] || `UNKNOWN(${type})`;
+  console.log(`Pen message [${typeName}]:`, { mac, type, args });
   
   switch (type) {
     case PenMessageType.PEN_CONNECTION_SUCCESS:
