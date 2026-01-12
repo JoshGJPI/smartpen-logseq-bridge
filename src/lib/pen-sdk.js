@@ -103,7 +103,7 @@ export async function disconnectPen() {
   
   if (controller) {
     try {
-      controller.Disconnect();
+      PenHelper.disconnect(controller);
       setPenConnected(false);
       log('Disconnected from pen', 'info');
     } catch (error) {
