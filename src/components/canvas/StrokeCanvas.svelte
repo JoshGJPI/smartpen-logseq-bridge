@@ -4,9 +4,9 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { strokes, strokeCount, pages, clearStrokes, batchMode } from '$stores';
-  import { selectedIndices, handleStrokeClick, clearSelection, selectAll, selectionCount, selectFromBox } from '$stores';
+  import { selectedIndices, selectedStrokes, handleStrokeClick, clearSelection, selectAll, selectionCount, selectFromBox } from '$stores';
   import { deletedIndices } from '$stores';
-  import { pendingChanges } from '$stores/pending-changes.js';
+  import { pastedStrokes, pastedSelection, pastedCount, duplicateStrokes, movePastedStrokes, clearPastedStrokes, deleteSelectedPasted, selectPastedStroke, clearPastedSelection } from '$stores';
   import { canvasZoom, setCanvasZoom, log, showFilteredStrokes } from '$stores';
   import { filteredStrokes } from '$stores/filtered-strokes.js';
   import { pagePositions, useCustomPositions, setPagePosition, movePageBy, clearPagePositions } from '$stores';
@@ -23,6 +23,7 @@
   import PageSelector from './PageSelector.svelte';
   import FilteredStrokesPanel from '../strokes/FilteredStrokesPanel.svelte';
   import SearchTranscriptsDialog from '../dialog/SearchTranscriptsDialog.svelte';
+  import CreatePageDialog from '../dialog/CreatePageDialog.svelte';
   
   let canvasElement;
   let containerElement;
@@ -99,6 +100,14 @@
   let resizePreviewScale = 1.0;
   let resizeOriginalOffset = null; // Store original Ncode offset
   
+  // Pasted stroke dragging state
+  let isDraggingPasted = false;
+  let pastedDragStartX = 0;
+  let pastedDragStartY = 0;
+  
+  // Create page dialog state
+  let showCreatePageDialog = false;
+  
   // Import renderer dynamically to avoid SSR issues
   onMount(async () => {
     const { CanvasRenderer } = await import('$lib/canvas-renderer.js');
@@ -118,7 +127,7 @@
     
     // Keyboard shortcuts
     const handleKeyDown = (e) => {
-      // Escape - cancel box selection or resize
+      // Escape - cancel box selection, resize, or clear pasted selection
       if (e.key === 'Escape') {
         if (isBoxSelecting || boxSelectPending) {
           isBoxSelecting = false;
@@ -145,6 +154,22 @@
             renderStrokes(false);  // Redraw without resetting view
           }
         }
+        if ($pastedSelection.size > 0) {
+          clearPastedSelection();
+          renderStrokes(false);
+        }
+      }
+      
+      // Ctrl/Cmd+D - duplicate selected strokes
+      if ((e.ctrlKey || e.metaKey) && e.key === 'd' && $selectionCount > 0) {
+        e.preventDefault();
+        handleDuplicate();
+      }
+      
+      // Delete - delete selected pasted strokes
+      if (e.key === 'Delete' && $pastedSelection.size > 0) {
+        e.preventDefault();
+        handleDeletePasted();
       }
       
       // Ctrl/Cmd+A - select all visible strokes (using full indices)
@@ -220,6 +245,16 @@
   
   // Re-render when deleted indices change
   $: if (renderer && $deletedIndices !== undefined) {
+    renderStrokes(false);
+  }
+  
+  // Re-render when pasted strokes change
+  $: if (renderer && $pastedStrokes !== undefined && !$batchMode) {
+    renderStrokes(false);
+  }
+  
+  // Re-render when pasted selection changes
+  $: if (renderer && $pastedSelection !== undefined) {
     renderStrokes(false);
   }
   
@@ -305,10 +340,16 @@
           renderer.drawStroke(stroke, false, true);
         });
       }
+      
+      // Draw pasted strokes (on top of everything else)
+      $pastedStrokes.forEach((stroke, index) => {
+        const isSelected = $pastedSelection.has(index);
+        renderer.drawPastedStroke(stroke, isSelected);
+      });
     }
   }
   
-  // Mouse down - start potential pan, page drag, page resize, or selection
+  // Mouse down - start potential pan, page drag, page resize, pasted stroke drag, or selection
   function handleMouseDown(event) {
     const rect = canvasElement.getBoundingClientRect();
     const x = event.clientX - rect.left;
@@ -325,7 +366,42 @@
       return;
     }
     
-    // Left button - check for corner handle first (highest priority)
+    // Left button - check for pasted stroke click first (highest priority for selection/drag)
+    if (event.button === 0 && renderer && $pastedStrokes.length > 0) {
+      const pastedIndex = renderer.hitTestPasted(x, y, $pastedStrokes);
+      if (pastedIndex !== -1) {
+        event.preventDefault();
+        
+        // Handle selection with modifiers
+        if (event.ctrlKey || event.metaKey) {
+          // Toggle selection
+          selectPastedStroke(pastedIndex, true);
+        } else if (event.shiftKey) {
+          // Remove from selection
+          pastedSelection.update(sel => {
+            const newSel = new Set(sel);
+            newSel.delete(pastedIndex);
+            return newSel;
+          });
+        } else if (!$pastedSelection.has(pastedIndex)) {
+          // Replace selection if this stroke isn't already selected
+          pastedSelection.set(new Set([pastedIndex]));
+        }
+        // If already selected and no modifiers, keep selection for drag
+        
+        // Start drag if any pasted strokes are selected
+        if ($pastedSelection.size > 0) {
+          isDraggingPasted = true;
+          pastedDragStartX = event.clientX;
+          pastedDragStartY = event.clientY;
+          canvasElement.style.cursor = 'move';
+        }
+        
+        return;
+      }
+    }
+    
+    // Left button - check for corner handle (unless Ctrl/Shift held)
     if (event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && renderer) {
       const cornerHit = renderer.hitTestCorner(x, y);
       if (cornerHit) {
@@ -429,11 +505,29 @@
     }
   }
   
-  // Mouse move - page resize, page drag, pan, or update box selection
+  // Mouse move - page resize, page drag, pasted stroke drag, pan, or update box selection
   function handleMouseMove(event) {
     const rect = canvasElement.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
+    
+    // Handle dragging pasted strokes
+    if (isDraggingPasted && $pastedSelection.size > 0 && renderer) {
+      const deltaX = event.clientX - pastedDragStartX;
+      const deltaY = event.clientY - pastedDragStartY;
+      
+      // Convert screen delta to Ncode delta
+      const ncodeDeltaX = deltaX / (renderer.scale * renderer.zoom);
+      const ncodeDeltaY = deltaY / (renderer.scale * renderer.zoom);
+      
+      movePastedStrokes(ncodeDeltaX, ncodeDeltaY);
+      
+      pastedDragStartX = event.clientX;
+      pastedDragStartY = event.clientY;
+      
+      renderStrokes(false);
+      return;
+    }
     
     // Handle page resizing
     if (isResizingPage && renderer && resizePageKey && resizeOriginalOffset) {
@@ -542,20 +636,35 @@
       if (cornerHit && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
         canvasElement.style.cursor = cornerHit.cursor;
       } else {
-        // Check if hovering over a page header (draggable area)
-        const pageKey = renderer.hitTestPageHeader(x, y);
-        if (pageKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
-          canvasElement.style.cursor = 'grab';
-        } else if (canvasElement.style.cursor === 'grab' || canvasElement.style.cursor.includes('resize')) {
-          // Reset if it was set to grab or resize (don't override other cursors)
-          canvasElement.style.cursor = 'default';
+        // Check for selected pasted stroke hover (show move cursor)
+        const pastedIndex = renderer.hitTestPasted(x, y, $pastedStrokes);
+        if (pastedIndex !== -1 && $pastedSelection.has(pastedIndex)) {
+          canvasElement.style.cursor = 'move';
+        } else {
+          // Check if hovering over a page header (draggable area)
+          const pageKey = renderer.hitTestPageHeader(x, y);
+          if (pageKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+            canvasElement.style.cursor = 'grab';
+          } else if (canvasElement.style.cursor === 'grab' || canvasElement.style.cursor === 'move' || canvasElement.style.cursor.includes('resize')) {
+            // Reset if it was set to grab, move, or resize (don't override other cursors)
+            canvasElement.style.cursor = 'default';
+          }
         }
       }
     }
   }
   
-  // Mouse up - end page resize, page drag, pan, or complete box selection
+  // Mouse up - end page resize, page drag, pasted stroke drag, pan, or complete box selection
   function handleMouseUp(event) {
+    // Handle pasted stroke drag completion
+    if (isDraggingPasted) {
+      isDraggingPasted = false;
+      pastedDragStartX = 0;
+      pastedDragStartY = 0;
+      canvasElement.style.cursor = 'default';
+      return;
+    }
+    
     // Handle page resize completion
     if (isResizingPage && resizePageKey && renderer && resizeOriginalOffset) {
       const deltaX = event.clientX - resizeStartX;
@@ -631,28 +740,56 @@
         bottom: Math.max(boxStartY, boxCurrentY)
       };
       
+      // Find regular strokes in box
       const visibleIndices = renderer.findStrokesInRect(visibleStrokes, rect);
-      
-      // Map visible indices to full stroke array indices
       const fullIndices = visibleIndices.map(visIdx => visibleToFullIndexMap[visIdx]);
       
+      // Find pasted strokes in box
+      const pastedIndices = renderer.findPastedStrokesInRect($pastedStrokes, rect);
+      
+      // Determine selection mode
+      const mode = (event.ctrlKey || event.metaKey) ? 'add' : event.shiftKey ? 'remove' : 'replace';
+      
+      // Handle regular strokes
       if (fullIndices.length > 0) {
-        // Ctrl = add to selection, Shift = remove from selection, neither = replace
-        const mode = (event.ctrlKey || event.metaKey) ? 'add' : event.shiftKey ? 'remove' : 'replace';
-        
         if (mode === 'replace') {
           selectFromBox(fullIndices, 'replace');
         } else if (mode === 'add') {
           selectFromBox(fullIndices, 'add');
         } else if (mode === 'remove') {
-          // Deselect the intersecting strokes
           deselectIndices(fullIndices);
         }
-        
         didBoxSelect = true;
       } else if (!event.ctrlKey && !event.metaKey && !event.shiftKey) {
-        // Empty box with no modifiers - clear selection
+        // Empty box with no modifiers - clear regular selection
         clearSelection();
+        didBoxSelect = true;
+      }
+      
+      // Handle pasted strokes
+      if (pastedIndices.length > 0) {
+        if (mode === 'replace') {
+          // Replace pasted selection
+          pastedSelection.set(new Set(pastedIndices));
+        } else if (mode === 'add') {
+          // Add to pasted selection
+          pastedSelection.update(sel => {
+            const newSel = new Set(sel);
+            pastedIndices.forEach(i => newSel.add(i));
+            return newSel;
+          });
+        } else if (mode === 'remove') {
+          // Remove from pasted selection
+          pastedSelection.update(sel => {
+            const newSel = new Set(sel);
+            pastedIndices.forEach(i => newSel.delete(i));
+            return newSel;
+          });
+        }
+        didBoxSelect = true;
+      } else if (!event.ctrlKey && !event.metaKey && !event.shiftKey) {
+        // Empty box with no modifiers - clear pasted selection
+        clearPastedSelection();
         didBoxSelect = true;
       }
       
@@ -676,8 +813,15 @@
     }
   }
   
-  // Mouse leave - cancel page resize, page drag, pan, or box selection
+  // Mouse leave - cancel page resize, page drag, pasted stroke drag, pan, or box selection
   function handleMouseLeave(event) {
+    if (isDraggingPasted) {
+      isDraggingPasted = false;
+      pastedDragStartX = 0;
+      pastedDragStartY = 0;
+      canvasElement.style.cursor = 'default';
+    }
+    
     if (isResizingPage) {
       isResizingPage = false;
       resizePageKey = null;
@@ -716,6 +860,42 @@
       boxCurrentX = 0;
       boxCurrentY = 0;
       canvasElement.style.cursor = 'default';
+    }
+  }
+  
+  // Duplicate selected strokes (copy + paste in one action)
+  function handleDuplicate() {
+    if ($selectionCount === 0) return;
+    
+    // Calculate offset based on current view (slight offset from original)
+    const offsetX = 50 / (renderer.scale * renderer.zoom);
+    const offsetY = 50 / (renderer.scale * renderer.zoom);
+    
+    const count = duplicateStrokes($selectedStrokes, { x: offsetX, y: offsetY });
+    log(`Duplicated ${count} stroke${count !== 1 ? 's' : ''}`, 'success');
+    
+    // Auto-select the newly duplicated strokes
+    const startIndex = $pastedStrokes.length - count;
+    const newSelection = new Set();
+    for (let i = startIndex; i < $pastedStrokes.length; i++) {
+      newSelection.add(i);
+    }
+    pastedSelection.set(newSelection);
+    
+    // Clear original selection
+    clearSelection();
+    
+    renderStrokes(false);
+  }
+  
+  // Delete selected pasted strokes (called by Delete key)
+  function handleDeletePasted() {
+    if ($pastedSelection.size === 0) return;
+    
+    const count = deleteSelectedPasted();
+    if (count > 0) {
+      log(`Deleted ${count} pasted stroke${count !== 1 ? 's' : ''}`, 'info');
+      renderStrokes(false);
     }
   }
   
@@ -1084,6 +1264,54 @@
         🔍 Search Transcripts
       </button>
       
+      {#if $selectionCount > 0}
+        <button 
+          class="header-btn duplicate-btn" 
+          on:click={handleDuplicate}
+          title="Duplicate selected strokes (Ctrl+D)"
+        >
+          🔄 Duplicate
+        </button>
+      {/if}
+      
+      {#if $pastedCount > 0}
+        <button 
+          class="header-btn group-btn" 
+          on:click={() => showCreatePageDialog = true}
+          title={$pastedSelection.size > 0 
+            ? `Save ${$pastedSelection.size} selected pasted strokes as a new page` 
+            : `Save all ${$pastedCount} pasted strokes as a new page`}
+        >
+          📄 Save as Page{$pastedSelection.size > 0 ? ` (${$pastedSelection.size})` : '...'}
+        </button>
+        
+        {#if $pastedSelection.size > 0}
+          <button 
+            class="header-btn delete-pasted-btn" 
+            on:click={() => {
+              const count = deleteSelectedPasted();
+              log(`Deleted ${count} selected pasted stroke${count !== 1 ? 's' : ''}`, 'info');
+              renderStrokes(false);
+            }}
+            title="Delete selected pasted strokes (Delete key)"
+          >
+            🗑️ Delete ({$pastedSelection.size})
+          </button>
+        {/if}
+        
+        <button 
+          class="header-btn clear-pasted-btn" 
+          on:click={() => {
+            const count = $pastedCount;
+            clearPastedStrokes();
+            log(`Cleared ${count} pasted stroke${count !== 1 ? 's' : ''}`, 'info');
+          }}
+          title="Clear all pasted strokes"
+        >
+          🗑️ Clear All
+        </button>
+      {/if}
+      
       {#if $strokeCount > 0}
         <button 
           class="header-btn" 
@@ -1155,6 +1383,11 @@
     
     <div class="header-right">
       <span class="stroke-count">
+        {#if $pastedCount > 0 && $pastedSelection.size > 0}
+          <span class="pasted-indicator">{$pastedSelection.size} of {$pastedCount} pasted selected</span> • 
+        {:else if $pastedCount > 0}
+          <span class="pasted-indicator">{$pastedCount} pasted</span> • 
+        {/if}
         {#if $selectionCount > 0}
           <span class="selection-indicator">{$selectionCount} of {$strokeCount} selected</span>
         {:else if visibleStrokes.length < $strokeCount}
@@ -1190,6 +1423,9 @@
     {/if}
     
     <div class="canvas-hint">
+      {#if $pastedCount > 0}
+        <strong style="color: #4ade80;">Duplicated strokes (green) are movable</strong> • Box select to choose • Drag to move group • 
+      {/if}
       {#if $useCustomPositions}
         <strong>Drag page labels to reposition</strong> • 
       {/if}
@@ -1199,7 +1435,7 @@
       {#if showTextView}
         Showing transcribed text • 
       {:else}
-        Drag to select • Ctrl+click to add • Shift+click to deselect • 
+        Drag to select • Ctrl+D to duplicate • Ctrl+click to add • Shift+click to remove • 
       {/if}
       Alt+drag to pan • Ctrl+scroll to zoom
     </div>
@@ -1229,6 +1465,9 @@
   
   <!-- Search Transcripts Dialog -->
   <SearchTranscriptsDialog />
+  
+  <!-- Create Page Dialog -->
+  <CreatePageDialog bind:isOpen={showCreatePageDialog} />
 </div>
 
 <style>
@@ -1346,6 +1585,53 @@
     border-color: var(--accent);
   }
   
+  .duplicate-btn {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+  
+  .duplicate-btn:hover:not(:disabled) {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+  
+  .group-btn {
+    background: var(--success);
+    color: var(--bg-primary);
+    font-weight: 600;
+    border-color: var(--success);
+  }
+  
+  .group-btn:hover:not(:disabled) {
+    background: #16a34a;
+    border-color: #16a34a;
+  }
+  
+  .delete-pasted-btn {
+    background: var(--error);
+    color: white;
+    font-weight: 600;
+    border-color: var(--error);
+  }
+  
+  .delete-pasted-btn:hover:not(:disabled) {
+    background: #dc2626;
+    border-color: #dc2626;
+  }
+  
+  .clear-pasted-btn {
+    background: transparent;
+    color: var(--text-secondary);
+  }
+  
+  .clear-pasted-btn:hover:not(:disabled) {
+    background: var(--error);
+    color: white;
+    border-color: var(--error);
+  }
+  
   .stroke-count {
     font-size: 0.85rem;
     color: var(--text-secondary);
@@ -1355,6 +1641,11 @@
   
   .selection-indicator {
     color: var(--accent);
+    font-weight: 600;
+  }
+  
+  .pasted-indicator {
+    color: #4ade80;
     font-weight: 600;
   }
 
