@@ -460,6 +460,18 @@ export class CanvasRenderer {
   }
   
   /**
+   * Convert ncode to screen without page offset lookup
+   * Used for pasted strokes that aren't attached to a page
+   * @param {Object} dot - Dot with x, y, f coordinates
+   * @returns {Object} Screen coordinates {x, y, pressure}
+   */
+  ncodeToScreenDirect(dot) {
+    const x = dot.x * this.scale * this.zoom + this.panX;
+    const y = dot.y * this.scale * this.zoom + this.panY;
+    return { x, y, pressure: dot.f };
+  }
+  
+  /**
    * Draw a stroke from store data
    * @param {Object} stroke - Stroke object with dotArray and pageInfo
    * @param {boolean} highlighted - Whether to highlight this stroke
@@ -515,6 +527,90 @@ export class CanvasRenderer {
     
     this.ctx.stroke();
     this.ctx.setLineDash([]); // Reset to solid for next stroke
+  }
+  
+  /**
+   * Draw a pasted stroke with offset applied
+   * Visual distinction: green selection color when selected
+   * @param {Object} stroke - Pasted stroke object with dotArray and _offset
+   * @param {boolean} highlighted - Whether to highlight this stroke
+   */
+  drawPastedStroke(stroke, highlighted = false) {
+    const dots = stroke.dotArray || [];
+    if (dots.length < 2) return;
+    
+    const offset = stroke._offset || { x: 0, y: 0 };
+    
+    // Apply offset to coordinates during rendering
+    const color = highlighted ? '#4ade80' : '#555555';  // Green when selected, dark gray otherwise
+    const baseWidth = highlighted ? 3 : 2;
+    
+    this.ctx.strokeStyle = color;
+    this.ctx.lineCap = 'round';
+    this.ctx.lineJoin = 'round';
+    this.ctx.setLineDash([]);  // Solid line
+    this.ctx.globalAlpha = 1;
+    
+    this.ctx.beginPath();
+    
+    // Transform first dot with offset
+    const firstDot = { 
+      x: dots[0].x + offset.x, 
+      y: dots[0].y + offset.y,
+      f: dots[0].f 
+    };
+    const firstScreen = this.ncodeToScreenDirect(firstDot);
+    this.ctx.moveTo(firstScreen.x, firstScreen.y);
+    
+    for (let i = 1; i < dots.length; i++) {
+      const dot = {
+        x: dots[i].x + offset.x,
+        y: dots[i].y + offset.y,
+        f: dots[i].f
+      };
+      const screenDot = this.ncodeToScreenDirect(dot);
+      this.ctx.lineWidth = Math.max(0.5, ((dot.f || 500) / 500) * baseWidth * this.zoom);
+      this.ctx.lineTo(screenDot.x, screenDot.y);
+    }
+    
+    this.ctx.stroke();
+  }
+  
+  /**
+   * Hit test to find pasted stroke at coordinates
+   * Tests in reverse order so top strokes are selected first
+   * @param {number} screenX - Screen X coordinate
+   * @param {number} screenY - Screen Y coordinate
+   * @param {Array} pastedStrokes - Array of pasted strokes to test
+   * @returns {number} Index of hit stroke, or -1 if none
+   */
+  hitTestPasted(screenX, screenY, pastedStrokes) {
+    const hitRadius = 10 / this.zoom;
+    
+    // Test in reverse order (top strokes first)
+    for (let i = pastedStrokes.length - 1; i >= 0; i--) {
+      const stroke = pastedStrokes[i];
+      const dots = stroke.dotArray || [];
+      const offset = stroke._offset || { x: 0, y: 0 };
+      
+      for (const dot of dots) {
+        const screenDot = this.ncodeToScreenDirect({
+          x: dot.x + offset.x,
+          y: dot.y + offset.y,
+          f: dot.f
+        });
+        
+        const dx = screenDot.x - screenX;
+        const dy = screenDot.y - screenY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance <= hitRadius) {
+          return i;
+        }
+      }
+    }
+    
+    return -1;
   }
   
   /**

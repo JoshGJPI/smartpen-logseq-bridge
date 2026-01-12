@@ -204,3 +204,27 @@ export {
   resetAllPageScales,
   hasCustomScale
 } from './page-scale.js';
+
+// Clipboard
+export {
+  clipboardStrokes,
+  hasClipboardContent,
+  copyToClipboard,
+  clearClipboard
+} from './clipboard.js';
+
+// Pasted Strokes
+export {
+  pastedStrokes,
+  pastedSelection,
+  pastedCount,
+  selectedPastedStrokes,
+  hasPastedSelection,
+  pasteStrokes,
+  movePastedStrokes,
+  deleteSelectedPasted,
+  clearPastedStrokes,
+  selectPastedStroke,
+  clearPastedSelection,
+  getPastedAsNewPage
+} from './pasted-strokes.js';
