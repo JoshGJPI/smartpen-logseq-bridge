@@ -2,7 +2,7 @@
   CreatePageDialog.svelte - Dialog for creating a new page from pasted strokes
 -->
 <script>
-  import { pastedStrokes, getPastedAsNewPage, clearPastedStrokes } from '$stores';
+  import { pastedStrokes, pastedSelection, getPastedAsNewPage, clearPastedStrokes } from '$stores';
   import { log } from '$stores';
   import { logseqHost, logseqToken, logseqConnected } from '$stores/settings.js';
   import { updatePageStrokes } from '$lib/logseq-api.js';
@@ -18,7 +18,10 @@
   let isSaving = false;
   let error = '';
   
-  $: strokeCount = $pastedStrokes.length;
+  // Determine which strokes to save: selected if any, otherwise all
+  $: selectedCount = $pastedSelection.size;
+  $: strokeCount = selectedCount > 0 ? selectedCount : $pastedStrokes.length;
+  $: hasSelection = selectedCount > 0;
   $: canSave = bookNumber && pageNumber && strokeCount > 0 && !isSaving && $logseqConnected;
   
   function close() {
@@ -44,8 +47,9 @@
     error = '';
     
     try {
-      // Get strokes formatted for the new page
-      const newPageStrokes = getPastedAsNewPage(book, page);
+      // Get strokes formatted for the new page (selected or all)
+      const indicesToConvert = hasSelection ? $pastedSelection : null;
+      const newPageStrokes = getPastedAsNewPage(book, page, indicesToConvert);
       
       console.log('💾 Saving', newPageStrokes.length, 'pasted strokes as B', book, '/P', page);
       
@@ -58,8 +62,18 @@
       
       log(`Created new page B${book}/P${page} with ${strokeCount} strokes`, 'success');
       
-      // Clear pasted strokes after successful save
-      clearPastedStrokes();
+      // Remove the saved strokes from pasted collection
+      if (hasSelection) {
+        // Remove only selected strokes
+        pastedStrokes.update(strokes => {
+          return strokes.filter((_, idx) => !indicesToConvert.has(idx));
+        });
+        pastedSelection.set(new Set());
+      } else {
+        // Remove all pasted strokes
+        clearPastedStrokes();
+      }
+      
       close();
       
     } catch (err) {
@@ -101,7 +115,15 @@
         {/if}
         
         <p class="info">
-          Save {strokeCount} pasted stroke{strokeCount !== 1 ? 's' : ''} as a new page in LogSeq.
+          {#if hasSelection}
+            Save <strong>{strokeCount} selected</strong> pasted stroke{strokeCount !== 1 ? 's' : ''} as a new page in LogSeq.
+          {:else}
+            Save <strong>all {strokeCount}</strong> pasted stroke{strokeCount !== 1 ? 's' : ''} as a new page in LogSeq.
+          {/if}
+        </p>
+        
+        <p class="hint-text">
+          Coordinates will be normalized with the top-left corner at (0, 0).
         </p>
         
         <div class="form-row">
@@ -241,9 +263,20 @@
   }
   
   .info {
-    margin: 0 0 16px;
+    margin: 0 0 12px;
     color: var(--text-secondary);
     font-size: 0.9rem;
+  }
+  
+  .info strong {
+    color: var(--text-primary);
+  }
+  
+  .hint-text {
+    margin: 0 0 16px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    font-style: italic;
   }
   
   .form-row {

@@ -7,7 +7,7 @@
   import { selectedIndices, selectedStrokes, handleStrokeClick, clearSelection, selectAll, selectionCount, selectFromBox } from '$stores';
   import { deletedIndices } from '$stores';
   import { clipboardStrokes, hasClipboardContent, copyToClipboard } from '$stores';
-  import { pastedStrokes, pastedSelection, pastedCount, pasteStrokes, movePastedStrokes, clearPastedStrokes, selectPastedStroke, clearPastedSelection } from '$stores';
+  import { pastedStrokes, pastedSelection, pastedCount, pasteStrokes, movePastedStrokes, clearPastedStrokes, deleteSelectedPasted, selectPastedStroke, clearPastedSelection } from '$stores';
   import { canvasZoom, setCanvasZoom, log, showFilteredStrokes } from '$stores';
   import { filteredStrokes } from '$stores/filtered-strokes.js';
   import { pagePositions, useCustomPositions, setPagePosition, movePageBy, clearPagePositions } from '$stores';
@@ -734,28 +734,56 @@
         bottom: Math.max(boxStartY, boxCurrentY)
       };
       
+      // Find regular strokes in box
       const visibleIndices = renderer.findStrokesInRect(visibleStrokes, rect);
-      
-      // Map visible indices to full stroke array indices
       const fullIndices = visibleIndices.map(visIdx => visibleToFullIndexMap[visIdx]);
       
+      // Find pasted strokes in box
+      const pastedIndices = renderer.findPastedStrokesInRect($pastedStrokes, rect);
+      
+      // Determine selection mode
+      const mode = (event.ctrlKey || event.metaKey) ? 'add' : event.shiftKey ? 'remove' : 'replace';
+      
+      // Handle regular strokes
       if (fullIndices.length > 0) {
-        // Ctrl = add to selection, Shift = remove from selection, neither = replace
-        const mode = (event.ctrlKey || event.metaKey) ? 'add' : event.shiftKey ? 'remove' : 'replace';
-        
         if (mode === 'replace') {
           selectFromBox(fullIndices, 'replace');
         } else if (mode === 'add') {
           selectFromBox(fullIndices, 'add');
         } else if (mode === 'remove') {
-          // Deselect the intersecting strokes
           deselectIndices(fullIndices);
         }
-        
         didBoxSelect = true;
       } else if (!event.ctrlKey && !event.metaKey && !event.shiftKey) {
-        // Empty box with no modifiers - clear selection
+        // Empty box with no modifiers - clear regular selection
         clearSelection();
+        didBoxSelect = true;
+      }
+      
+      // Handle pasted strokes
+      if (pastedIndices.length > 0) {
+        if (mode === 'replace') {
+          // Replace pasted selection
+          pastedSelection.set(new Set(pastedIndices));
+        } else if (mode === 'add') {
+          // Add to pasted selection
+          pastedSelection.update(sel => {
+            const newSel = new Set(sel);
+            pastedIndices.forEach(i => newSel.add(i));
+            return newSel;
+          });
+        } else if (mode === 'remove') {
+          // Remove from pasted selection
+          pastedSelection.update(sel => {
+            const newSel = new Set(sel);
+            pastedIndices.forEach(i => newSel.delete(i));
+            return newSel;
+          });
+        }
+        didBoxSelect = true;
+      } else if (!event.ctrlKey && !event.metaKey && !event.shiftKey) {
+        // Empty box with no modifiers - clear pasted selection
+        clearPastedSelection();
         didBoxSelect = true;
       }
       
@@ -860,14 +888,15 @@
     renderStrokes(false);
   }
   
-  // Delete selected pasted strokes
+  // Delete selected pasted strokes (called by Delete key)
   function handleDeletePasted() {
     if ($pastedSelection.size === 0) return;
     
-    const count = $pastedSelection.size;
-    deleteSelectedPasted();
-    log(`Deleted ${count} pasted stroke${count !== 1 ? 's' : ''}`, 'info');
-    renderStrokes(false);
+    const count = deleteSelectedPasted();
+    if (count > 0) {
+      log(`Deleted ${count} pasted stroke${count !== 1 ? 's' : ''}`, 'info');
+      renderStrokes(false);
+    }
   }
   
   // Canvas click - select stroke (only if we didn't pan or box select)
@@ -1259,10 +1288,26 @@
         <button 
           class="header-btn group-btn" 
           on:click={() => showCreatePageDialog = true}
-          title="Group pasted strokes as a new page"
+          title={$pastedSelection.size > 0 
+            ? `Save ${$pastedSelection.size} selected pasted strokes as a new page` 
+            : `Save all ${$pastedCount} pasted strokes as a new page`}
         >
-          📄 Save as Page...
+          📄 Save as Page{$pastedSelection.size > 0 ? ` (${$pastedSelection.size})` : '...'}
         </button>
+        
+        {#if $pastedSelection.size > 0}
+          <button 
+            class="header-btn delete-pasted-btn" 
+            on:click={() => {
+              const count = deleteSelectedPasted();
+              log(`Deleted ${count} selected pasted stroke${count !== 1 ? 's' : ''}`, 'info');
+              renderStrokes(false);
+            }}
+            title="Delete selected pasted strokes (Delete key)"
+          >
+            🗑️ Delete ({$pastedSelection.size})
+          </button>
+        {/if}
         
         <button 
           class="header-btn clear-pasted-btn" 
@@ -1273,7 +1318,7 @@
           }}
           title="Clear all pasted strokes"
         >
-          🗑️ Clear Pasted
+          🗑️ Clear All
         </button>
       {/if}
       
@@ -1389,7 +1434,7 @@
     
     <div class="canvas-hint">
       {#if $pastedCount > 0}
-        <strong style="color: #4ade80;">Pasted strokes (green) are movable</strong> • 
+        <strong style="color: #4ade80;">Pasted strokes (green) are movable</strong> • Box select to choose • Drag to move group • 
       {/if}
       {#if $useCustomPositions}
         <strong>Drag page labels to reposition</strong> • 
@@ -1400,7 +1445,7 @@
       {#if showTextView}
         Showing transcribed text • 
       {:else}
-        Drag to select • Ctrl+click to add • Shift+click to deselect • 
+        Drag to select • Ctrl+click to add • Shift+click to remove • 
       {/if}
       Alt+drag to pan • Ctrl+scroll to zoom
     </div>
@@ -1574,6 +1619,18 @@
   .group-btn:hover:not(:disabled) {
     background: #16a34a;
     border-color: #16a34a;
+  }
+  
+  .delete-pasted-btn {
+    background: var(--error);
+    color: white;
+    font-weight: 600;
+    border-color: var(--error);
+  }
+  
+  .delete-pasted-btn:hover:not(:disabled) {
+    background: #dc2626;
+    border-color: #dc2626;
   }
   
   .clear-pasted-btn {

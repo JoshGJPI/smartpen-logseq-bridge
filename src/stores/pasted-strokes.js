@@ -84,19 +84,24 @@ export function movePastedStrokes(deltaX, deltaY) {
 
 /**
  * Remove selected pasted strokes
+ * Returns the count of deleted strokes for feedback
+ * @returns {number} Number of deleted strokes
  */
 export function deleteSelectedPasted() {
   const selection = get(pastedSelection);
   
-  if (selection.size === 0) return;
+  if (selection.size === 0) return 0;
+  
+  const deletedCount = selection.size;
   
   pastedStrokes.update(strokes => {
     const filtered = strokes.filter((_, index) => !selection.has(index));
-    console.log('🗑️ Deleted', selection.size, 'pasted strokes (', filtered.length, 'remaining)');
+    console.log('🗑️ Deleted', deletedCount, 'pasted strokes (', filtered.length, 'remaining)');
     return filtered;
   });
   
   pastedSelection.set(new Set());
+  return deletedCount;
 }
 
 /**
@@ -137,19 +142,57 @@ export function clearPastedSelection() {
 
 /**
  * Get pasted strokes formatted for saving as a new page
- * Applies offsets to create final coordinates
+ * Applies offsets and normalizes coordinates relative to top-left anchor
  * @param {number} book - Target book number
  * @param {number} page - Target page number
+ * @param {Set} selectedIndices - Optional set of indices to convert (defaults to all)
  * @returns {Array} Strokes ready for LogSeq storage
  */
-export function getPastedAsNewPage(book, page) {
-  const strokes = get(pastedStrokes);
+export function getPastedAsNewPage(book, page, selectedIndices = null) {
+  const allStrokes = get(pastedStrokes);
   
-  if (strokes.length === 0) return [];
+  if (allStrokes.length === 0) return [];
   
-  console.log('📄 Formatting', strokes.length, 'pasted strokes as B', book, '/P', page);
+  // Filter to selected strokes if specified
+  const strokesToConvert = selectedIndices && selectedIndices.size > 0
+    ? allStrokes.filter((_, idx) => selectedIndices.has(idx))
+    : allStrokes;
   
-  return strokes.map(stroke => ({
+  if (strokesToConvert.length === 0) return [];
+  
+  console.log('📄 Formatting', strokesToConvert.length, 'pasted strokes as B', book, '/P', page);
+  
+  // First pass: apply offsets to get actual positions
+  const strokesWithOffsets = strokesToConvert.map(stroke => ({
+    ...stroke,
+    dotArray: stroke.dotArray.map(dot => ({
+      ...dot,
+      x: dot.x + (stroke._offset?.x || 0),
+      y: dot.y + (stroke._offset?.y || 0)
+    }))
+  }));
+  
+  // Find the top-left anchor point (minimum x and y across all strokes)
+  let anchorX = Infinity;
+  let anchorY = Infinity;
+  
+  strokesWithOffsets.forEach(stroke => {
+    stroke.dotArray.forEach(dot => {
+      anchorX = Math.min(anchorX, dot.x);
+      anchorY = Math.min(anchorY, dot.y);
+    });
+  });
+  
+  // If no valid bounds found, use 0,0
+  if (anchorX === Infinity) {
+    anchorX = 0;
+    anchorY = 0;
+  }
+  
+  console.log('  📍 Anchor point:', anchorX.toFixed(2), anchorY.toFixed(2));
+  
+  // Second pass: normalize coordinates relative to anchor point
+  return strokesWithOffsets.map(stroke => ({
     ...stroke,
     pageInfo: {
       section: 0,
@@ -157,11 +200,11 @@ export function getPastedAsNewPage(book, page) {
       book: book,
       page: page
     },
-    // Apply offset to dotArray coordinates
+    // Normalize coordinates relative to anchor (top-left becomes 0,0)
     dotArray: stroke.dotArray.map(dot => ({
       ...dot,
-      x: dot.x + (stroke._offset?.x || 0),
-      y: dot.y + (stroke._offset?.y || 0)
+      x: dot.x - anchorX,
+      y: dot.y - anchorY
     })),
     // Remove pasted metadata
     _pasted: undefined,

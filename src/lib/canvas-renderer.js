@@ -614,6 +614,69 @@ export class CanvasRenderer {
   }
   
   /**
+   * Get bounding box for a pasted stroke in screen coordinates
+   * @param {Object} stroke - Pasted stroke object with _offset
+   * @returns {Object} Bounds object with left, top, right, bottom
+   */
+  getPastedStrokeBounds(stroke) {
+    const dots = stroke.dotArray || [];
+    if (dots.length === 0) {
+      return { left: 0, top: 0, right: 0, bottom: 0 };
+    }
+    
+    const offset = stroke._offset || { x: 0, y: 0 };
+    let minX = Infinity, minY = Infinity;
+    let maxX = -Infinity, maxY = -Infinity;
+    
+    dots.forEach(dot => {
+      const screen = this.ncodeToScreenDirect({
+        x: dot.x + offset.x,
+        y: dot.y + offset.y,
+        f: dot.f
+      });
+      minX = Math.min(minX, screen.x);
+      minY = Math.min(minY, screen.y);
+      maxX = Math.max(maxX, screen.x);
+      maxY = Math.max(maxY, screen.y);
+    });
+    
+    return { 
+      left: minX, 
+      top: minY, 
+      right: maxX, 
+      bottom: maxY 
+    };
+  }
+  
+  /**
+   * Check if pasted stroke bounding box intersects with rectangle
+   * @param {Object} stroke - Pasted stroke object
+   * @param {Object} rect - Rectangle with left, top, right, bottom
+   * @returns {boolean} True if intersects
+   */
+  pastedStrokeIntersectsBox(stroke, rect) {
+    const bounds = this.getPastedStrokeBounds(stroke);
+    
+    return !(bounds.right < rect.left || 
+             bounds.left > rect.right ||
+             bounds.bottom < rect.top ||
+             bounds.top > rect.bottom);
+  }
+  
+  /**
+   * Find all pasted stroke indices that intersect with a rectangle
+   * @param {Array} pastedStrokes - Array of pasted stroke objects
+   * @param {Object} rect - Rectangle with left, top, right, bottom
+   * @returns {number[]} Array of intersecting stroke indices
+   */
+  findPastedStrokesInRect(pastedStrokes, rect) {
+    return pastedStrokes
+      .map((stroke, index) => ({ stroke, index }))
+      .filter(({ stroke }) => this.pastedStrokeIntersectsBox(stroke, rect))
+      .map(({ index }) => index);
+  }
+  
+  /**
    * Highlight strokes by indices (from selection store)
    * @param {Set} indices - Set of selected stroke indices
    */
