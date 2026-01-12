@@ -41,21 +41,31 @@ export const hasPastedSelection = derived(
 );
 
 /**
- * Add strokes from clipboard to pasted collection
- * Normalizes coordinates and applies initial offset
- * @param {Array} strokes - Strokes to paste
+ * Duplicate selected strokes (copy + paste in one action)
+ * @param {Array} strokes - Strokes to duplicate
  * @param {Object} initialOffset - Starting position offset {x, y} in Ncode units
+ * @returns {number} Number of duplicated strokes
  */
-export function pasteStrokes(strokes, initialOffset = { x: 0, y: 0 }) {
-  if (!strokes || strokes.length === 0) return;
+export function duplicateStrokes(strokes, initialOffset = { x: 50, y: 50 }) {
+  if (!strokes || strokes.length === 0) return 0;
   
   const normalized = normalizeAndOffset(strokes, initialOffset);
   
+  // Log timestamp generation for first duplicated stroke
+  if (normalized.length > 0) {
+    const first = normalized[0];
+    console.log('🆔 Generated unique timestamps for duplicated strokes:');
+    console.log(`   First stroke: ${first.startTime} → ${first.endTime} (duration: ${first.endTime - first.startTime}ms)`);
+    console.log(`   First dot: ${first.dotArray[0].timestamp}, Last dot: ${first.dotArray[first.dotArray.length - 1].timestamp}`);
+  }
+  
   pastedStrokes.update(existing => {
     const updated = [...existing, ...normalized];
-    console.log('📥 Pasted', normalized.length, 'strokes (total:', updated.length, ')');
+    console.log('🔄 Duplicated', normalized.length, 'strokes (total pasted:', updated.length, ')');
     return updated;
   });
+  
+  return normalized.length;
 }
 
 /**
@@ -218,6 +228,7 @@ export function getPastedAsNewPage(book, page, selectedIndices = null) {
  * Helper: Normalize coordinates and apply initial offset
  * Finds the min bounds and translates all strokes to start from 0,0
  * Then applies the initial offset for paste positioning
+ * IMPORTANT: Generates NEW unique timestamps to prevent conflicts
  * @private
  */
 function normalizeAndOffset(strokes, offset) {
@@ -236,18 +247,48 @@ function normalizeAndOffset(strokes, offset) {
     minY = 0;
   }
   
-  return strokes.map(stroke => ({
-    ...stroke,
-    pageInfo: null,  // Detach from original page
-    _pasted: true,
-    _pastedAt: Date.now(),
-    _sourcePageInfo: stroke.pageInfo,  // Remember where it came from
-    // Normalize coordinates (start from 0,0)
-    dotArray: stroke.dotArray.map(dot => ({
-      ...dot,
-      x: dot.x - minX,
-      y: dot.y - minY
-    })),
-    _offset: { ...offset }
-  }));
+  // Generate base timestamp for this duplication batch
+  const baseTimestamp = Date.now();
+  
+  return strokes.map((stroke, strokeIndex) => {
+    // Calculate time span of original stroke
+    const originalDuration = stroke.endTime - stroke.startTime;
+    
+    // Generate new timestamps that preserve relative timing
+    // Each stroke gets incrementally later timestamp (1ms apart)
+    const newStartTime = baseTimestamp + (strokeIndex * 1);
+    const newEndTime = newStartTime + originalDuration;
+    
+    // Generate new dot timestamps that preserve relative timing within stroke
+    const dotTimestamps = stroke.dotArray.map((dot, dotIndex) => {
+      if (dotIndex === 0) return newStartTime;
+      if (dotIndex === stroke.dotArray.length - 1) return newEndTime;
+      
+      // Interpolate timestamps for middle dots
+      const progress = dotIndex / (stroke.dotArray.length - 1);
+      return Math.round(newStartTime + (originalDuration * progress));
+    });
+    
+    return {
+      // Generate new timestamps (NOT copied from original)
+      startTime: newStartTime,
+      endTime: newEndTime,
+      
+      // Mark as duplicated
+      pageInfo: null,  // Detach from original page
+      _pasted: true,
+      _pastedAt: baseTimestamp,
+      _sourcePageInfo: stroke.pageInfo,  // Remember where it came from
+      
+      // Normalize coordinates (start from 0,0) with new timestamps
+      dotArray: stroke.dotArray.map((dot, dotIndex) => ({
+        x: dot.x - minX,
+        y: dot.y - minY,
+        f: dot.f,
+        timestamp: dotTimestamps[dotIndex]
+      })),
+      
+      _offset: { ...offset }
+    };
+  });
 }

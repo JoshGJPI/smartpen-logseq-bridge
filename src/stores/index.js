@@ -220,7 +220,7 @@ export {
   pastedCount,
   selectedPastedStrokes,
   hasPastedSelection,
-  pasteStrokes,
+  duplicateStrokes,
   movePastedStrokes,
   deleteSelectedPasted,
   clearPastedStrokes,

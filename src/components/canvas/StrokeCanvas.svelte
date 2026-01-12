@@ -6,8 +6,7 @@
   import { strokes, strokeCount, pages, clearStrokes, batchMode } from '$stores';
   import { selectedIndices, selectedStrokes, handleStrokeClick, clearSelection, selectAll, selectionCount, selectFromBox } from '$stores';
   import { deletedIndices } from '$stores';
-  import { clipboardStrokes, hasClipboardContent, copyToClipboard } from '$stores';
-  import { pastedStrokes, pastedSelection, pastedCount, pasteStrokes, movePastedStrokes, clearPastedStrokes, deleteSelectedPasted, selectPastedStroke, clearPastedSelection } from '$stores';
+  import { pastedStrokes, pastedSelection, pastedCount, duplicateStrokes, movePastedStrokes, clearPastedStrokes, deleteSelectedPasted, selectPastedStroke, clearPastedSelection } from '$stores';
   import { canvasZoom, setCanvasZoom, log, showFilteredStrokes } from '$stores';
   import { filteredStrokes } from '$stores/filtered-strokes.js';
   import { pagePositions, useCustomPositions, setPagePosition, movePageBy, clearPagePositions } from '$stores';
@@ -161,16 +160,10 @@
         }
       }
       
-      // Ctrl/Cmd+C - copy selected strokes
-      if ((e.ctrlKey || e.metaKey) && e.key === 'c' && $selectionCount > 0) {
+      // Ctrl/Cmd+D - duplicate selected strokes
+      if ((e.ctrlKey || e.metaKey) && e.key === 'd' && $selectionCount > 0) {
         e.preventDefault();
-        handleCopy();
-      }
-      
-      // Ctrl/Cmd+V - paste strokes
-      if ((e.ctrlKey || e.metaKey) && e.key === 'v' && $hasClipboardContent) {
-        e.preventDefault();
-        handlePaste();
+        handleDuplicate();
       }
       
       // Delete - delete selected pasted strokes
@@ -636,13 +629,19 @@
       if (cornerHit && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
         canvasElement.style.cursor = cornerHit.cursor;
       } else {
-        // Check if hovering over a page header (draggable area)
-        const pageKey = renderer.hitTestPageHeader(x, y);
-        if (pageKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
-          canvasElement.style.cursor = 'grab';
-        } else if (canvasElement.style.cursor === 'grab' || canvasElement.style.cursor.includes('resize')) {
-          // Reset if it was set to grab or resize (don't override other cursors)
-          canvasElement.style.cursor = 'default';
+        // Check for selected pasted stroke hover (show move cursor)
+        const pastedIndex = renderer.hitTestPasted(x, y, $pastedStrokes);
+        if (pastedIndex !== -1 && $pastedSelection.has(pastedIndex)) {
+          canvasElement.style.cursor = 'move';
+        } else {
+          // Check if hovering over a page header (draggable area)
+          const pageKey = renderer.hitTestPageHeader(x, y);
+          if (pageKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+            canvasElement.style.cursor = 'grab';
+          } else if (canvasElement.style.cursor === 'grab' || canvasElement.style.cursor === 'move' || canvasElement.style.cursor.includes('resize')) {
+            // Reset if it was set to grab, move, or resize (don't override other cursors)
+            canvasElement.style.cursor = 'default';
+          }
         }
       }
     }
@@ -857,33 +856,27 @@
     }
   }
   
-  // Copy selected strokes to clipboard
-  function handleCopy() {
+  // Duplicate selected strokes (copy + paste in one action)
+  function handleDuplicate() {
     if ($selectionCount === 0) return;
     
-    copyToClipboard($selectedStrokes);
-    log(`Copied ${$selectionCount} stroke${$selectionCount !== 1 ? 's' : ''} to clipboard`, 'success');
-  }
-  
-  // Paste strokes from clipboard
-  function handlePaste() {
-    if (!$hasClipboardContent) return;
+    // Calculate offset based on current view (slight offset from original)
+    const offsetX = 50 / (renderer.scale * renderer.zoom);
+    const offsetY = 50 / (renderer.scale * renderer.zoom);
     
-    // Calculate paste offset based on current view
-    // Paste near the center of the viewport
-    const offsetX = (-renderer.panX + renderer.viewWidth / 2) / (renderer.scale * renderer.zoom);
-    const offsetY = (-renderer.panY + renderer.viewHeight / 2) / (renderer.scale * renderer.zoom);
+    const count = duplicateStrokes($selectedStrokes, { x: offsetX, y: offsetY });
+    log(`Duplicated ${count} stroke${count !== 1 ? 's' : ''}`, 'success');
     
-    pasteStrokes($clipboardStrokes, { x: offsetX, y: offsetY });
-    log(`Pasted ${$clipboardStrokes.length} stroke${$clipboardStrokes.length !== 1 ? 's' : ''}`, 'success');
-    
-    // Auto-select the newly pasted strokes
-    const startIndex = $pastedStrokes.length - $clipboardStrokes.length;
+    // Auto-select the newly duplicated strokes
+    const startIndex = $pastedStrokes.length - count;
     const newSelection = new Set();
     for (let i = startIndex; i < $pastedStrokes.length; i++) {
       newSelection.add(i);
     }
     pastedSelection.set(newSelection);
+    
+    // Clear original selection
+    clearSelection();
     
     renderStrokes(false);
   }
@@ -1266,21 +1259,11 @@
       
       {#if $selectionCount > 0}
         <button 
-          class="header-btn copy-btn" 
-          on:click={handleCopy}
-          title="Copy selected strokes (Ctrl+C)"
+          class="header-btn duplicate-btn" 
+          on:click={handleDuplicate}
+          title="Duplicate selected strokes (Ctrl+D)"
         >
-          📋 Copy
-        </button>
-      {/if}
-      
-      {#if $hasClipboardContent}
-        <button 
-          class="header-btn paste-btn" 
-          on:click={handlePaste}
-          title="Paste strokes (Ctrl+V)"
-        >
-          📥 Paste
+          🔄 Duplicate
         </button>
       {/if}
       
@@ -1434,7 +1417,7 @@
     
     <div class="canvas-hint">
       {#if $pastedCount > 0}
-        <strong style="color: #4ade80;">Pasted strokes (green) are movable</strong> • Box select to choose • Drag to move group • 
+        <strong style="color: #4ade80;">Duplicated strokes (green) are movable</strong> • Box select to choose • Drag to move group • 
       {/if}
       {#if $useCustomPositions}
         <strong>Drag page labels to reposition</strong> • 
@@ -1445,7 +1428,7 @@
       {#if showTextView}
         Showing transcribed text • 
       {:else}
-        Drag to select • Ctrl+click to add • Shift+click to remove • 
+        Drag to select • Ctrl+D to duplicate • Ctrl+click to add • Shift+click to remove • 
       {/if}
       Alt+drag to pan • Ctrl+scroll to zoom
     </div>
@@ -1595,15 +1578,13 @@
     border-color: var(--accent);
   }
   
-  .copy-btn,
-  .paste-btn {
+  .duplicate-btn {
     background: var(--bg-tertiary);
     color: var(--text-primary);
     font-weight: 500;
   }
   
-  .copy-btn:hover:not(:disabled),
-  .paste-btn:hover:not(:disabled) {
+  .duplicate-btn:hover:not(:disabled) {
     background: var(--accent);
     color: white;
     border-color: var(--accent);
