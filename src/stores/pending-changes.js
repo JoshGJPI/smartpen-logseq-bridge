@@ -5,6 +5,8 @@
 import { writable, derived, get } from 'svelte/store';
 import { strokes } from './strokes.js';
 import { storageStatus } from './storage.js';
+import { logseqPages } from './logseqPages.js';
+import { convertToStorageFormat, deduplicateStrokes } from '../lib/stroke-storage.js';
 
 // Set of deleted stroke indices (local only, not synced to LogSeq yet)
 export const deletedIndices = writable(new Set());
@@ -117,37 +119,95 @@ export const canUndo = derived(
 /**
  * Compute pending changes per page
  * Returns a Map of pageKey -> { additions, deletions, book, page }
+ * Compares canvas strokes against LogSeq DB strokes using proper deduplication
  */
 export const pendingChanges = derived(
-  [strokes, deletedIndices, storageStatus],
-  ([$strokes, $deletedIndices, $storageStatus]) => {
+  [strokes, deletedIndices, storageStatus, logseqPages],
+  ([$strokes, $deletedIndices, $storageStatus, $logseqPages]) => {
     const changes = new Map();
     
-    // Group all strokes by page
+    // Build a map of LogSeq page data for quick lookup
+    const logseqPageMap = new Map();
+    $logseqPages.forEach(lsPage => {
+      const pageKey = `B${lsPage.book}/P${lsPage.page}`;
+      logseqPageMap.set(pageKey, lsPage);
+    });
+    
+    // Group all canvas strokes by page
+    const canvasPageGroups = new Map();
     $strokes.forEach((stroke, index) => {
       const pageInfo = stroke.pageInfo;
       if (!pageInfo || pageInfo.book === undefined || pageInfo.page === undefined) return;
       
       const pageKey = `B${pageInfo.book}/P${pageInfo.page}`;
       
-      if (!changes.has(pageKey)) {
-        changes.set(pageKey, {
+      if (!canvasPageGroups.has(pageKey)) {
+        canvasPageGroups.set(pageKey, {
           book: pageInfo.book,
           page: pageInfo.page,
-          additions: [],
-          deletions: [],
-          isSaved: $storageStatus.savedPages.has(pageKey)
+          strokes: [],
+          indices: []
         });
       }
       
-      const pageChanges = changes.get(pageKey);
+      const group = canvasPageGroups.get(pageKey);
+      group.strokes.push(stroke);
+      group.indices.push(index);
+    });
+    
+    // Analyze each page for changes
+    canvasPageGroups.forEach((group, pageKey) => {
+      const { book, page, strokes: pageStrokes, indices } = group;
       
-      if ($deletedIndices.has(index)) {
-        // This stroke is marked for deletion
-        pageChanges.deletions.push(index);
-      } else if (!pageChanges.isSaved) {
-        // This is a new stroke (page not saved yet)
-        pageChanges.additions.push(index);
+      // Separate deleted vs active strokes
+      const activeIndices = [];
+      const deletedIndicesForPage = [];
+      const activeStrokes = [];
+      
+      indices.forEach((index, i) => {
+        if ($deletedIndices.has(index)) {
+          deletedIndicesForPage.push(index);
+        } else {
+          activeIndices.push(index);
+          activeStrokes.push(pageStrokes[i]);
+        }
+      });
+      
+      // Get LogSeq page data if it exists
+      const lsPage = logseqPageMap.get(pageKey);
+      
+      let additionIndices = [];
+      
+      if (lsPage && lsPage.strokes && lsPage.strokes.length > 0) {
+        // Page exists in LogSeq - compare strokes using deduplication
+        const canvasSimplified = convertToStorageFormat(activeStrokes);
+        const uniqueStrokes = deduplicateStrokes(lsPage.strokes, canvasSimplified);
+        
+        // Build set of unique stroke IDs for fast lookup
+        const uniqueStrokeIds = new Set(uniqueStrokes.map(s => s.id));
+        
+        // Map back to canvas indices
+        // Compare each active canvas stroke to see if it's in the unique set
+        activeIndices.forEach((canvasIndex, i) => {
+          const simplified = convertToStorageFormat([activeStrokes[i]])[0];
+          if (uniqueStrokeIds.has(simplified.id)) {
+            additionIndices.push(canvasIndex);
+          }
+        });
+      } else {
+        // Page doesn't exist in LogSeq - all active strokes are additions
+        additionIndices = [...activeIndices];
+      }
+      
+      // Only add to changes if there are actual additions or deletions
+      if (additionIndices.length > 0 || deletedIndicesForPage.length > 0) {
+        changes.set(pageKey, {
+          book,
+          page,
+          additions: additionIndices,
+          deletions: deletedIndicesForPage,
+          isSaved: $storageStatus.savedPages.has(pageKey)
+        });
       }
     });
     

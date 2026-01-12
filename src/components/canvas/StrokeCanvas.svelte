@@ -6,6 +6,7 @@
   import { strokes, strokeCount, pages, clearStrokes, batchMode } from '$stores';
   import { selectedIndices, handleStrokeClick, clearSelection, selectAll, selectionCount, selectFromBox } from '$stores';
   import { deletedIndices } from '$stores';
+  import { pendingChanges } from '$stores/pending-changes.js';
   import { canvasZoom, setCanvasZoom, log, showFilteredStrokes } from '$stores';
   import { filteredStrokes } from '$stores/filtered-strokes.js';
   import { pagePositions, useCustomPositions, setPagePosition, movePageBy, clearPagePositions } from '$stores';
@@ -236,6 +237,13 @@
       renderStrokes(false);
     }
     previousPageSelection = currentSelection;
+  }
+  
+  // Update renderer with pending changes when they change
+  $: if (renderer && $pendingChanges) {
+    renderer.setPendingChanges($pendingChanges);
+    // Re-render to update page labels (without resetting view)
+    renderStrokes(false);
   }
   
   // Update renderer zoom when store changes and re-render

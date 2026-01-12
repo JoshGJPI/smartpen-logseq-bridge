@@ -138,11 +138,32 @@ async function getPageDetails(pageName, host, token) {
     const bookPage = extractBookPage(pageName);
     if (!bookPage) return null;
     
-    // Get page blocks for transcription
+    // Get page blocks for transcription AND stroke IDs
     const blocks = await makeRequest(host, token, 'logseq.Editor.getPageBlocksTree', [pageName]);
     
     // Extract transcription text
     const transcriptionText = extractTranscriptionText(blocks || []);
+    
+    // Extract stroke data (for comparison purposes)
+    let strokes = [];
+    const strokeBlock = findBlockByContent(blocks || [], content => 
+      content.includes('## Raw Stroke Data')
+    );
+    
+    if (strokeBlock && strokeBlock.children?.length) {
+      // Check format and parse
+      const firstChild = parseJsonBlock(strokeBlock.children[0].content);
+      if (firstChild && firstChild.metadata && firstChild.metadata.chunks !== undefined) {
+        // Chunked format - parse all children
+        const strokeData = parseChunkedJsonBlocks(strokeBlock.children);
+        if (strokeData && strokeData.strokes) {
+          strokes = strokeData.strokes;
+        }
+      } else if (firstChild && firstChild.strokes) {
+        // Legacy single-block format
+        strokes = firstChild.strokes;
+      }
+    }
     
     // Get properties from page
     const pageProps = properties.properties || {};
@@ -155,7 +176,8 @@ async function getPageDetails(pageName, host, token) {
       lastUpdated: parseInt(pageProps['last-updated'] || pageProps.lastUpdated || 0, 10),
       transcribed: pageProps.transcribed === 'true' || pageProps.transcribed === true,
       transcriptionText,
-      strokeData: null, // Lazy-loaded on import
+      strokes, // Include strokes for comparison (in storage format)
+      strokeData: null, // Full data lazy-loaded on import
       syncStatus: 'clean' // Updated later when comparing with local cache
     };
   } catch (error) {
@@ -216,7 +238,7 @@ export async function scanLogSeqPages() {
     
     log(`Found ${smartpenPageNames.length} smartpen pages. Loading details...`, 'info');
     
-    // Get details for each page
+    // Get details for each page (including stroke data for comparison)
     const pageDetailsPromises = smartpenPageNames.map(pageName => 
       getPageDetails(pageName, host, token)
     );

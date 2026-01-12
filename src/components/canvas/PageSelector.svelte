@@ -140,6 +140,36 @@
   $: selectedCount = selectedPages.size;
   $: totalCount = pageOptions.length;
   $: showingAll = selectedCount === totalCount && totalCount > 0;
+  
+  // Color palette matching canvas-renderer.js
+  const pageColors = [
+    'rgba(233, 69, 96, 0.8)',   // Red
+    'rgba(75, 192, 192, 0.8)',  // Teal
+    'rgba(255, 205, 86, 0.8)',  // Yellow
+    'rgba(153, 102, 255, 0.8)', // Purple
+    'rgba(255, 159, 64, 0.8)',  // Orange
+    'rgba(54, 162, 235, 0.8)',  // Blue
+    'rgba(255, 99, 132, 0.8)',  // Pink
+    'rgba(76, 175, 80, 0.8)',   // Green
+    'rgba(121, 85, 72, 0.8)',   // Brown
+    'rgba(158, 158, 158, 0.8)', // Gray
+  ];
+  
+  /**
+   * Get color for a book ID (matching canvas-renderer.js logic)
+   * @param {string} bookId - Book ID
+   * @returns {string} RGBA color string
+   */
+  function getBookColor(bookId) {
+    // Simple hash to get consistent color
+    let hash = 0;
+    const str = String(bookId);
+    for (let i = 0; i < str.length; i++) {
+      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const colorIndex = Math.abs(hash) % pageColors.length;
+    return pageColors[colorIndex];
+  }
 </script>
 
 <div class="page-selector">
@@ -169,7 +199,7 @@
               indeterminate={isBookPartiallySelected(bookKey)}
               on:change={() => toggleBook(bookKey)}
             />
-            <span class="book-label">{bookKey}</span>
+            <span class="book-label" style="color: {getBookColor(bookData.book)}">{bookKey}</span>
           </label>
           
           <div class="pages-list">
@@ -275,7 +305,7 @@
   .book-label {
     font-size: 0.75rem;
     font-weight: 600;
-    color: var(--accent);
+    /* Color is set dynamically via inline style */
   }
   
   .pages-list {

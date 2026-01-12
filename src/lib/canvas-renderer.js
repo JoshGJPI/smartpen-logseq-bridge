@@ -672,6 +672,14 @@ export class CanvasRenderer {
   }
   
   /**
+   * Set pending changes map (for showing unsaved indicators)
+   * @param {Map} changes - Map of pageKey -> change info
+   */
+  setPendingChanges(changes) {
+    this.pendingChanges = changes;
+  }
+  
+  /**
    * Draw page borders and labels (above the border)
    * Only draws borders for pages that are currently visible
    */
@@ -729,6 +737,16 @@ export class CanvasRenderer {
         const book = parts[1];
         const page = parts[2];
         let label = `B${book} / P${page}`;
+        
+        // Check if this page has pending changes (unsaved strokes)
+        const hasUnsavedChanges = this.pendingChanges && this.pendingChanges.has(`B${book}/P${page}`);
+        const pageChanges = hasUnsavedChanges ? this.pendingChanges.get(`B${book}/P${page}`) : null;
+        const hasAdditions = pageChanges && pageChanges.additions && pageChanges.additions.length > 0;
+        
+        // Add asterisks if there are unsaved additions
+        if (hasAdditions) {
+          label = `* ${label} *`;
+        }
         
         // Add scale percentage if not 1.0
         if (pageScale !== 1.0) {
