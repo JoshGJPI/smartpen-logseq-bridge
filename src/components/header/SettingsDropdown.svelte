@@ -17,11 +17,14 @@
   import { testMyScriptCredentials } from '$lib/myscript-api.js';
   import { testLogseqConnection } from '$lib/logseq-api.js';
   import BookAliasManager from '../settings/BookAliasManager.svelte';
+  import PenMemoryDialog from '../dialog/PenMemoryDialog.svelte';
+  import { penConnected } from '$stores/pen.js';
   
   let isOpen = false;
   let showKeys = false;
   let isTesting = false;
   let isTestingLogseq = false;
+  let showPenMemoryDialog = false;
   
   function toggleDropdown() {
     isOpen = !isOpen;
@@ -74,6 +77,19 @@
     } finally {
       isTestingLogseq = false;
     }
+  }
+  
+  function handleManagePenMemory() {
+    if (!$penConnected) {
+      log('Please connect your pen first', 'warning');
+      return;
+    }
+    showPenMemoryDialog = true;
+    isOpen = false;  // Close settings dropdown
+  }
+  
+  function handlePenMemoryClose() {
+    showPenMemoryDialog = false;
   }
   
   // Close dropdown when clicking outside
@@ -207,9 +223,37 @@
       <section class="settings-section">
         <BookAliasManager />
       </section>
+      
+      <!-- Pen Memory Management -->
+      <section class="settings-section">
+        <h4>Pen Memory</h4>
+        
+        <button 
+          class="btn btn-secondary manage-memory-btn"
+          class:disabled={!$penConnected}
+          on:click={handleManagePenMemory}
+          disabled={!$penConnected}
+        >
+          <span class="button-icon">🗑️</span>
+          <span class="button-text">Manage Pen Memory</span>
+          {#if !$penConnected}
+            <span class="badge disabled">Pen Disconnected</span>
+          {/if}
+        </button>
+        
+        <p class="help-text">
+          Delete books from pen memory to free up storage space.
+        </p>
+      </section>
     </div>
   {/if}
 </div>
+
+<!-- Pen Memory Dialog -->
+<PenMemoryDialog 
+  bind:visible={showPenMemoryDialog} 
+  onClose={handlePenMemoryClose}
+/>
 
 <style>
   .settings-dropdown {
@@ -390,6 +434,42 @@
 
   .help-text a:hover {
     text-decoration: underline;
+  }
+  
+  .manage-memory-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+  }
+  
+  .manage-memory-btn .button-icon {
+    font-size: 1.1rem;
+    line-height: 1;
+  }
+  
+  .manage-memory-btn .button-text {
+    flex: 1;
+    text-align: left;
+  }
+  
+  .manage-memory-btn .badge {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+  }
+  
+  .manage-memory-btn .badge.disabled {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+  }
+  
+  .manage-memory-btn.disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
 
   /* Scrollbar styling */
