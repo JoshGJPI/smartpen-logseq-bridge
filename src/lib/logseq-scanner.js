@@ -109,7 +109,10 @@ function extractTranscriptionText(blocks) {
   
   // Get first child (the code block with text)
   const contentBlock = textBlock.children[0];
-  const content = contentBlock.content || '';
+  let content = contentBlock.content || '';
+  
+  // LogSeq may include the block dash prefix in content - strip it
+  content = content.replace(/^-\s+/, '');
   
   // Extract text from code fence
   const match = content.match(/```\s*\n([\s\S]*?)\n```/);

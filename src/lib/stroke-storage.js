@@ -270,7 +270,18 @@ export function formatTranscribedText(lines) {
   
   return lines.map(line => {
     const indent = '  '.repeat(line.indentLevel || 0);
-    const dash = '- ';
-    return indent + dash + line.text;
+    const text = line.text;
+    
+    // Check if the line already starts with a dash (from MyScript recognition)
+    // If so, don't add another dash - just use indentation
+    const startsWithDash = text.trimStart().startsWith('-');
+    
+    if (startsWithDash) {
+      // Line already has a dash, just add indentation
+      return indent + text.trimStart();
+    } else {
+      // Line doesn't have a dash, add one
+      return indent + '- ' + text;
+    }
   }).join('\n');
 }

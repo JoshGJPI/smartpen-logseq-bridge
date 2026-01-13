@@ -739,49 +739,127 @@ export async function updatePageTranscription(book, page, transcription, strokeC
 }
 
 /**
+ * Get existing transcription text from LogSeq page
+ * @param {number} book - Book ID
+ * @param {number} page - Page number
+ * @param {string} host - LogSeq API host
+ * @param {string} token - Optional auth token
+ * @returns {Promise<string|null>} Existing transcription text or null
+ */
+async function getExistingTranscription(book, page, host, token = '') {
+  try {
+    const pageName = formatPageName(book, page);
+    const pageObj = await makeRequest(host, token, 'logseq.Editor.getPage', [pageName]);
+    
+    if (!pageObj) return null;
+    
+    // Get page blocks
+    const blocks = await makeRequest(host, token, 'logseq.Editor.getPageBlocksTree', [pageName]);
+    
+    if (!blocks || blocks.length === 0) return null;
+    
+    // Find "Transcribed Text" section
+    for (const block of blocks) {
+      if (block.content && block.content.includes('## Transcribed Text')) {
+        // Check if we have child blocks
+        if (!block.children || block.children.length === 0) {
+          return null;
+        }
+        
+        // Extract text from code block
+        let childContent = block.children[0].content;
+        if (childContent) {
+          // LogSeq may include the block dash prefix in content - strip it
+          childContent = childContent.replace(/^-\s+/, '');
+          
+          // Remove code block markers
+          const match = childContent.match(/```\n([\s\S]*)\n```/);
+          if (match) {
+            return match[1].trim();
+          }
+          return childContent.trim();
+        }
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Failed to get existing transcription:', error);
+    return null;
+  }
+}
+
+/**
  * Compute actual changes for a page (for confirmation dialog)
- * Compares active strokes against what's in LogSeq
+ * Compares active strokes and transcription against what's in LogSeq
  * @param {number} book - Book ID
  * @param {number} page - Page number
  * @param {Array} activeStrokes - Current active strokes (excluding deleted)
+ * @param {Object|null} transcription - Current transcription result (optional)
  * @param {string} host - LogSeq API host
  * @param {string} token - Optional auth token
- * @returns {Promise<Object>} { additions, deletions, total }
+ * @returns {Promise<Object>} { strokeAdditions, strokeDeletions, strokeTotal, hasNewTranscription, transcriptionChanged }
  */
-export async function computePageChanges(book, page, activeStrokes, host, token = '') {
+export async function computePageChanges(book, page, activeStrokes, transcription, host, token = '') {
   try {
     const existingData = await getPageStrokes(book, page, host, token);
     
+    let strokeAdditions = 0;
+    let strokeDeletions = 0;
+    let strokeTotal = activeStrokes.length;
+    
     if (!existingData || !existingData.strokes) {
       // No existing data - all strokes are additions
-      return {
-        additions: activeStrokes.length,
-        deletions: 0,
-        total: activeStrokes.length
-      };
+      strokeAdditions = activeStrokes.length;
+      strokeDeletions = 0;
+    } else {
+      // Convert to storage format for comparison
+      const simplifiedStrokes = convertToStorageFormat(activeStrokes);
+      
+      // Find new strokes
+      const uniqueStrokes = deduplicateStrokes(existingData.strokes, simplifiedStrokes);
+      strokeAdditions = uniqueStrokes.length;
+      
+      // Calculate deletions
+      strokeDeletions = Math.max(0, existingData.strokes.length - simplifiedStrokes.length);
     }
     
-    // Convert to storage format for comparison
-    const simplifiedStrokes = convertToStorageFormat(activeStrokes);
+    // Check transcription changes
+    let hasNewTranscription = false;
+    let transcriptionChanged = false;
     
-    // Find new strokes
-    const uniqueStrokes = deduplicateStrokes(existingData.strokes, simplifiedStrokes);
-    
-    // Calculate deletions
-    const deletedCount = Math.max(0, existingData.strokes.length - simplifiedStrokes.length);
+    if (transcription && transcription.text) {
+      // Format the new transcription
+      const newTranscriptionText = formatTranscribedText(transcription.lines || []);
+      
+      // Get existing transcription
+      const existingTranscription = await getExistingTranscription(book, page, host, token);
+      
+      if (!existingTranscription) {
+        // No existing transcription - this is new
+        hasNewTranscription = true;
+      } else if (existingTranscription !== newTranscriptionText) {
+        // Transcription exists but has changed
+        transcriptionChanged = true;
+      }
+    }
     
     return {
-      additions: uniqueStrokes.length,
-      deletions: deletedCount,
-      total: simplifiedStrokes.length
+      strokeAdditions,
+      strokeDeletions,
+      strokeTotal,
+      hasNewTranscription,
+      transcriptionChanged
     };
   } catch (error) {
     console.error(`Failed to compute changes for B${book}/P${page}:`, error);
     // Return conservative estimate
     return {
-      additions: activeStrokes.length,
-      deletions: 0,
-      total: activeStrokes.length
+      strokeAdditions: activeStrokes.length,
+      strokeDeletions: 0,
+      strokeTotal: activeStrokes.length,
+      hasNewTranscription: transcription && transcription.text ? true : false,
+      transcriptionChanged: false
     };
   }
 }

@@ -8,7 +8,7 @@
   import { getBookAlias } from '$stores/book-aliases.js';
   import { getLogseqSettings } from '$stores';
   import { computePageChanges } from '$lib/logseq-api.js';
-  import { strokes } from '$stores';
+  import { strokes, pageTranscriptions } from '$stores';
   
   export let visible = false;
   
@@ -17,8 +17,10 @@
   // State
   let isLoading = true;
   let changesList = [];
-  let totalAdditions = 0;
-  let totalDeletions = 0;
+  let totalStrokeAdditions = 0;
+  let totalStrokeDeletions = 0;
+  let totalNewTranscriptions = 0;
+  let totalChangedTranscriptions = 0;
   let totalPages = 0;
   
   // Compute actual changes when dialog opens
@@ -29,8 +31,10 @@
   async function computeChanges() {
     isLoading = true;
     changesList = [];
-    totalAdditions = 0;
-    totalDeletions = 0;
+    totalStrokeAdditions = 0;
+    totalStrokeDeletions = 0;
+    totalNewTranscriptions = 0;
+    totalChangedTranscriptions = 0;
     
     const { host, token } = getLogseqSettings();
     
@@ -54,10 +58,20 @@
     for (const [key, pageData] of pageMap) {
       const activeStrokes = getActiveStrokesForPage(pageData.book, pageData.page);
       
+      // Find transcription for this page
+      let transcription = null;
+      for (const [pageKey, trans] of $pageTranscriptions) {
+        if (trans.pageInfo.book === pageData.book && trans.pageInfo.page === pageData.page) {
+          transcription = trans;
+          break;
+        }
+      }
+      
       const promise = computePageChanges(
         pageData.book,
         pageData.page,
         activeStrokes,
+        transcription,
         host,
         token
       ).then(changes => ({
@@ -65,9 +79,11 @@
         book: pageData.book,
         page: pageData.page,
         bookAlias: getBookAlias(pageData.book),
-        additions: changes.additions,
-        deletions: changes.deletions,
-        total: changes.total
+        strokeAdditions: changes.strokeAdditions,
+        strokeDeletions: changes.strokeDeletions,
+        strokeTotal: changes.strokeTotal,
+        hasNewTranscription: changes.hasNewTranscription,
+        transcriptionChanged: changes.transcriptionChanged
       }));
       
       promises.push(promise);
@@ -78,15 +94,22 @@
       
       // Filter to only pages with changes
       changesList = results
-        .filter(item => item.additions > 0 || item.deletions > 0)
+        .filter(item => 
+          item.strokeAdditions > 0 || 
+          item.strokeDeletions > 0 || 
+          item.hasNewTranscription || 
+          item.transcriptionChanged
+        )
         .sort((a, b) => {
           // Sort by book then page
           if (a.book !== b.book) return a.book - b.book;
           return a.page - b.page;
         });
       
-      totalAdditions = changesList.reduce((sum, item) => sum + item.additions, 0);
-      totalDeletions = changesList.reduce((sum, item) => sum + item.deletions, 0);
+      totalStrokeAdditions = changesList.reduce((sum, item) => sum + item.strokeAdditions, 0);
+      totalStrokeDeletions = changesList.reduce((sum, item) => sum + item.strokeDeletions, 0);
+      totalNewTranscriptions = changesList.filter(item => item.hasNewTranscription).length;
+      totalChangedTranscriptions = changesList.filter(item => item.transcriptionChanged).length;
       totalPages = changesList.length;
     } catch (error) {
       console.error('Failed to compute changes:', error);
@@ -134,47 +157,65 @@
     <!-- Summary -->
     <div class="summary">
       <div class="summary-item">
-      <span class="summary-label">Pages:</span>
-    <span class="summary-value">{totalPages}</span>
-    </div>
-    {#if totalAdditions > 0}
+        <span class="summary-label">Pages:</span>
+        <span class="summary-value">{totalPages}</span>
+      </div>
+      {#if totalStrokeAdditions > 0}
         <div class="summary-item additions">
-            <span class="summary-label">Adding:</span>
-            <span class="summary-value">+{totalAdditions} strokes</span>
-          </div>
-        {/if}
-      {#if totalDeletions > 0}
-      <div class="summary-item deletions">
-      <span class="summary-label">Deleting:</span>
-    <span class="summary-value">-{totalDeletions} strokes</span>
-    </div>
-    {/if}
+          <span class="summary-label">Adding:</span>
+          <span class="summary-value">+{totalStrokeAdditions} strokes</span>
+        </div>
+      {/if}
+      {#if totalStrokeDeletions > 0}
+        <div class="summary-item deletions">
+          <span class="summary-label">Deleting:</span>
+          <span class="summary-value">-{totalStrokeDeletions} strokes</span>
+        </div>
+      {/if}
+      {#if totalNewTranscriptions > 0}
+        <div class="summary-item transcription-new">
+          <span class="summary-label">New Text:</span>
+          <span class="summary-value">{totalNewTranscriptions} page(s)</span>
+        </div>
+      {/if}
+      {#if totalChangedTranscriptions > 0}
+        <div class="summary-item transcription-changed">
+          <span class="summary-label">Updated Text:</span>
+          <span class="summary-value">{totalChangedTranscriptions} page(s)</span>
+        </div>
+      {/if}
     </div>
     
     <!-- Changes List -->
     <div class="changes-list">
-    {#each changesList as item}
-    <div class="change-item">
-      <div class="page-name">
-          📄 {formatPageName(item)}
+      {#each changesList as item}
+        <div class="change-item">
+          <div class="page-name">
+            📄 {formatPageName(item)}
           </div>
-            <div class="change-stats">
-              {#if item.additions > 0}
-                <span class="stat additions">+{item.additions}</span>
+          <div class="change-stats">
+            {#if item.strokeAdditions > 0}
+              <span class="stat additions">+{item.strokeAdditions} strokes</span>
             {/if}
-          {#if item.deletions > 0}
-              <span class="stat deletions">-{item.deletions}</span>
-              {/if}
-              </div>
-            </div>
-          {/each}
-      </div>
-    
-      {#if totalDeletions > 0}
-        <div class="warning">
-        ⚠️ Deleted strokes will be permanently removed from LogSeq storage after this save.
+            {#if item.strokeDeletions > 0}
+              <span class="stat deletions">-{item.strokeDeletions} strokes</span>
+            {/if}
+            {#if item.hasNewTranscription}
+              <span class="stat transcription-new">✨ New transcription</span>
+            {/if}
+            {#if item.transcriptionChanged}
+              <span class="stat transcription-changed">📝 Updated transcription</span>
+            {/if}
+          </div>
         </div>
-        {/if}
+      {/each}
+    </div>
+    
+      {#if totalStrokeDeletions > 0}
+        <div class="warning">
+          ⚠️ Deleted strokes will be permanently removed from LogSeq storage after this save.
+        </div>
+      {/if}
     {/if}
   </div>
   
@@ -310,6 +351,14 @@
     color: var(--error);
   }
   
+  .summary-item.transcription-new .summary-value {
+    color: #8b5cf6;
+  }
+  
+  .summary-item.transcription-changed .summary-value {
+    color: #f59e0b;
+  }
+  
   .changes-list {
     display: flex;
     flex-direction: column;
@@ -360,6 +409,16 @@
   .stat.deletions {
     color: var(--error);
     background: rgba(239, 68, 68, 0.1);
+  }
+  
+  .stat.transcription-new {
+    color: #8b5cf6;
+    background: rgba(139, 92, 246, 0.1);
+  }
+  
+  .stat.transcription-changed {
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.1);
   }
   
   .warning {

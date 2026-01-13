@@ -5,11 +5,16 @@
   import { importStrokesFromLogSeq } from '$lib/logseq-import.js';
   import TranscriptionPreview from './TranscriptionPreview.svelte';
   import SyncStatusBadge from './SyncStatusBadge.svelte';
+  import { pageTranscriptions } from '$stores';
   
   export let page; // LogSeqPageData object
   
   let importing = false;
   let importProgress = { current: 0, total: 0 };
+  let editedTranscription = page.transcriptionText || '';
+  
+  // Update edited transcription when page changes
+  $: editedTranscription = page.transcriptionText || '';
   
   async function handleImport() {
     importing = true;
@@ -37,6 +42,74 @@
       minute: '2-digit'
     });
   }
+  
+  function handleTranscriptionChange(event) {
+    const newText = event.detail;
+    editedTranscription = newText;
+    
+    // Build page key for store lookup
+    const pageKey = `S0/O0/B${page.book}/P${page.page}`;
+    
+    // Check if transcription exists in store
+    let existingTranscription = null;
+    for (const [key, trans] of $pageTranscriptions) {
+      if (trans.pageInfo.book === page.book && trans.pageInfo.page === page.page) {
+        existingTranscription = trans;
+        break;
+      }
+    }
+    
+    // Parse lines from edited text and preserve indentation
+    const lines = newText.split('\n').map((line, index) => {
+      // Calculate indentation level from leading spaces
+      // Each 2 spaces = 1 indent level
+      const leadingSpaces = line.match(/^\s*/)[0].length;
+      const indentLevel = Math.floor(leadingSpaces / 2);
+      
+      // Get the text without leading/trailing whitespace for the trimmed version
+      const trimmedText = line.trimStart();
+      
+      return {
+        text: trimmedText,
+        lineNumber: index,
+        indentLevel: indentLevel,
+        parent: null,
+        children: []
+      };
+    });
+    
+    // Update or create transcription in store
+    pageTranscriptions.update(pt => {
+      const newMap = new Map(pt);
+      
+      if (existingTranscription) {
+        // Update existing entry
+        newMap.set(pageKey, {
+          ...existingTranscription,
+          text: newText,
+          lines
+        });
+      } else {
+        // Create new entry for imported page
+        newMap.set(pageKey, {
+          text: newText,
+          lines,
+          pageInfo: {
+            section: 0,
+            owner: 0,
+            book: page.book,
+            page: page.page
+          },
+          strokeCount: page.strokeCount || 0,
+          timestamp: Date.now()
+        });
+      }
+      
+      return newMap;
+    });
+    
+    console.log(`Updated transcription for B${page.book}/P${page.page}`);
+  }
 </script>
 
 <div class="page-card">
@@ -52,10 +125,14 @@
     <span>Last Updated: {formatDate(page.lastUpdated)}</span>
   </div>
   
-  {#if page.transcriptionText}
+  {#if page.transcriptionText || editedTranscription}
     <div class="transcription-section">
       <div class="section-label">Transcription:</div>
-      <TranscriptionPreview text={page.transcriptionText} />
+      <TranscriptionPreview 
+        text={editedTranscription} 
+        editable={true}
+        on:change={handleTranscriptionChange}
+      />
     </div>
   {:else}
     <div class="no-transcription">
