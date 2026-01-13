@@ -289,9 +289,22 @@
   }
 
   
-  async function handleSaveToLogseq() {
+  async function handleSaveToLogseq(event) {
     // Close dialog
     showSaveConfirmDialog = false;
+    
+    // Get selected pages from dialog event
+    const selectedPageKeys = event?.detail?.selectedPages || [];
+    console.log('[SaveToLogseq] Selected page keys:', selectedPageKeys);
+    
+    if (selectedPageKeys.length === 0) {
+      log('No pages selected for save', 'warning');
+      return;
+    }
+    
+    // Convert selected page keys to Set for fast lookup
+    const selectedSet = new Set(selectedPageKeys);
+    console.log('[SaveToLogseq] Selected set:', Array.from(selectedSet));
     
     isSavingToLogseq = true;
     setStorageSaving(true);
@@ -306,12 +319,19 @@
       // Get all pages with changes (additions or deletions)
       const pagesToSave = new Map();
       
-      // Group strokes by page, filtering out deleted ones
+      // Group strokes by page, filtering out deleted ones and checking selection
       $strokes.forEach((stroke, index) => {
         const pageInfo = stroke.pageInfo;
         if (!pageInfo || pageInfo.book === undefined || pageInfo.page === undefined) return;
         
         const key = `${pageInfo.book}-${pageInfo.page}`;
+        
+        // Skip if this page is not selected
+        if (!selectedSet.has(key)) {
+          console.log(`[SaveToLogseq] Skipping stroke from unselected page: ${key}`);
+          return;
+        }
+        
         if (!pagesToSave.has(key)) {
           pagesToSave.set(key, {
             book: pageInfo.book,
@@ -324,15 +344,17 @@
       });
       
       if (pagesToSave.size === 0) {
-        log('No pages to save', 'error');
+        log('No selected pages have strokes to save', 'warning');
         return;
       }
       
-      log(`Saving ${pagesToSave.size} page(s)...`, 'info');
+      log(`Saving ${pagesToSave.size} selected page(s)...`, 'info');
       
       // Save each page
       for (const [key, pageData] of pagesToSave) {
         const { book, page, strokes: pageStrokes } = pageData;
+        
+        console.log(`[SaveToLogseq] Processing page: ${key} (book=${book}, page=${page})`);
         
         // Get active strokes (excluding deleted ones) for this page
         const activeStrokes = getActiveStrokesForPage(book, page);
@@ -360,12 +382,13 @@
             log(`Saved ${result.page}: ${changes}${result.total} total${chunkInfo}`, 'success');
             savedStrokesCount++;
             
-            // Step 2: Check for page-specific transcription
+            // Step 2: Check for page-specific transcription (only if page is selected)
             const pageInfo = activeStrokes[0]?.pageInfo || { section: 0, owner: 0, book, page };
-          const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${book}/P${page}`;
+            const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${book}/P${page}`;
             const pageTranscription = $pageTranscriptions.get(pageKey);
             
-            if (pageTranscription) {
+            // Only save transcription if this page is in the selected set
+            if (pageTranscription && selectedSet.has(key)) {
               // Save page-specific transcription
               log(`Saving transcription to ${result.page}...`, 'info');
               
@@ -384,8 +407,9 @@
               } else {
                 log(`Failed to save transcription: ${transcriptionResult.error}`, 'warning');
               }
-            } else if ($hasTranscription) {
+            } else if ($hasTranscription && selectedSet.has(key)) {
               // Fallback to legacy single transcription if no page-specific one exists
+              // AND the page is in the selected set
               // Check if transcription is for this page
               const transcriptionStrokes = $selectedStrokes.length > 0 ? $selectedStrokes : $strokes;
               const firstTranscriptionStroke = transcriptionStrokes[0];

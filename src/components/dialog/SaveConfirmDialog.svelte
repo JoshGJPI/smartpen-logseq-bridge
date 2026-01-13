@@ -17,11 +17,29 @@
   // State
   let isLoading = true;
   let changesList = [];
+  let selectedPages = new Set(); // Track which pages are selected for save
   let totalStrokeAdditions = 0;
   let totalStrokeDeletions = 0;
   let totalNewTranscriptions = 0;
   let totalChangedTranscriptions = 0;
   let totalPages = 0;
+  
+  // Compute derived values from selected pages only
+  $: selectedStrokeAdditions = changesList
+    .filter(item => selectedPages.has(item.pageKey))
+    .reduce((sum, item) => sum + item.strokeAdditions, 0);
+  $: selectedStrokeDeletions = changesList
+    .filter(item => selectedPages.has(item.pageKey))
+    .reduce((sum, item) => sum + item.strokeDeletions, 0);
+  $: selectedNewTranscriptions = changesList
+    .filter(item => selectedPages.has(item.pageKey) && item.hasNewTranscription)
+    .length;
+  $: selectedChangedTranscriptions = changesList
+    .filter(item => selectedPages.has(item.pageKey) && item.transcriptionChanged)
+    .length;
+  $: selectedPagesCount = selectedPages.size;
+  $: hasSelection = selectedPages.size > 0;
+  $: allSelected = selectedPages.size === changesList.length && changesList.length > 0;
   
   // Compute actual changes when dialog opens
   $: if (visible) {
@@ -111,6 +129,9 @@
       totalNewTranscriptions = changesList.filter(item => item.hasNewTranscription).length;
       totalChangedTranscriptions = changesList.filter(item => item.transcriptionChanged).length;
       totalPages = changesList.length;
+      
+      // Select all pages by default
+      selectedPages = new Set(changesList.map(item => item.pageKey));
     } catch (error) {
       console.error('Failed to compute changes:', error);
     } finally {
@@ -119,7 +140,8 @@
   }
   
   function handleConfirm() {
-    dispatch('confirm');
+    // Pass selected pages to the save handler
+    dispatch('confirm', { selectedPages: Array.from(selectedPages) });
   }
   
   function handleCancel() {
@@ -129,6 +151,23 @@
   function formatPageName(item) {
     const alias = item.bookAlias || `Book ${item.book}`;
     return `${alias} / Page ${item.page}`;
+  }
+  
+  function togglePageSelection(pageKey) {
+    selectedPages = new Set(selectedPages);
+    if (selectedPages.has(pageKey)) {
+      selectedPages.delete(pageKey);
+    } else {
+      selectedPages.add(pageKey);
+    }
+  }
+  
+  function selectAll() {
+    selectedPages = new Set(changesList.map(item => item.pageKey));
+  }
+  
+  function deselectAll() {
+    selectedPages = new Set();
   }
 </script>
 
@@ -154,45 +193,57 @@
     <p>⚠️ No changes to save</p>
     </div>
     {:else}
+    <!-- Selection Controls -->
+    <div class="selection-controls">
+      <button class="select-btn" on:click={selectAll} disabled={allSelected}>
+        ✓ Select All
+      </button>
+      <button class="select-btn" on:click={deselectAll} disabled={!hasSelection}>
+        ✗ Deselect All
+      </button>
+      <span class="selection-info">
+        {selectedPagesCount} of {totalPages} selected
+      </span>
+    </div>
+    
     <!-- Summary -->
     <div class="summary">
       <div class="summary-item">
         <span class="summary-label">Pages:</span>
-        <span class="summary-value">{totalPages}</span>
+        <span class="summary-value">{selectedPagesCount}</span>
       </div>
-      {#if totalStrokeAdditions > 0}
-        <div class="summary-item additions">
-          <span class="summary-label">Adding:</span>
-          <span class="summary-value">+{totalStrokeAdditions} strokes</span>
-        </div>
-      {/if}
-      {#if totalStrokeDeletions > 0}
-        <div class="summary-item deletions">
-          <span class="summary-label">Deleting:</span>
-          <span class="summary-value">-{totalStrokeDeletions} strokes</span>
-        </div>
-      {/if}
-      {#if totalNewTranscriptions > 0}
-        <div class="summary-item transcription-new">
-          <span class="summary-label">New Text:</span>
-          <span class="summary-value">{totalNewTranscriptions} page(s)</span>
-        </div>
-      {/if}
-      {#if totalChangedTranscriptions > 0}
-        <div class="summary-item transcription-changed">
-          <span class="summary-label">Updated Text:</span>
-          <span class="summary-value">{totalChangedTranscriptions} page(s)</span>
-        </div>
-      {/if}
+      <div class="summary-item additions" class:zero={selectedStrokeAdditions === 0}>
+        <span class="summary-label">Adding:</span>
+        <span class="summary-value">+{selectedStrokeAdditions} strokes</span>
+      </div>
+      <div class="summary-item deletions" class:zero={selectedStrokeDeletions === 0}>
+        <span class="summary-label">Deleting:</span>
+        <span class="summary-value">-{selectedStrokeDeletions} strokes</span>
+      </div>
+      <div class="summary-item transcription-new" class:zero={selectedNewTranscriptions === 0}>
+        <span class="summary-label">New Text:</span>
+        <span class="summary-value">{selectedNewTranscriptions} page(s)</span>
+      </div>
+      <div class="summary-item transcription-changed" class:zero={selectedChangedTranscriptions === 0}>
+        <span class="summary-label">Updated Text:</span>
+        <span class="summary-value">{selectedChangedTranscriptions} page(s)</span>
+      </div>
     </div>
     
     <!-- Changes List -->
     <div class="changes-list">
       {#each changesList as item}
-        <div class="change-item">
-          <div class="page-name">
-            📄 {formatPageName(item)}
-          </div>
+        <div class="change-item" class:selected={selectedPages.has(item.pageKey)}>
+          <label class="checkbox-label">
+            <input 
+              type="checkbox" 
+              checked={selectedPages.has(item.pageKey)}
+              on:change={() => togglePageSelection(item.pageKey)}
+            />
+            <div class="page-name">
+              📄 {formatPageName(item)}
+            </div>
+          </label>
           <div class="change-stats">
             {#if item.strokeAdditions > 0}
               <span class="stat additions">+{item.strokeAdditions} strokes</span>
@@ -211,7 +262,7 @@
       {/each}
     </div>
     
-      {#if totalStrokeDeletions > 0}
+      {#if selectedStrokeDeletions > 0}
         <div class="warning">
           ⚠️ Deleted strokes will be permanently removed from LogSeq storage after this save.
         </div>
@@ -223,8 +274,8 @@
     <button class="btn btn-cancel" on:click={handleCancel}>
       Cancel
     </button>
-    <button class="btn btn-confirm" on:click={handleConfirm} disabled={isLoading || changesList.length === 0}>
-      {isLoading ? 'Loading...' : 'Confirm & Save'}
+    <button class="btn btn-confirm" on:click={handleConfirm} disabled={isLoading || !hasSelection}>
+      {isLoading ? 'Loading...' : hasSelection ? `Confirm & Save (${selectedPagesCount})` : 'Select pages to save'}
     </button>
   </div>
   </div>
@@ -314,6 +365,44 @@
     flex: 1;
   }
   
+  .selection-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    margin-bottom: 16px;
+  }
+  
+  .select-btn {
+    padding: 6px 12px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
+  .select-btn:hover:not(:disabled) {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+  }
+  
+  .select-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  
+  .selection-info {
+    margin-left: auto;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+  }
+  
   .summary {
     display: flex;
     gap: 24px;
@@ -327,6 +416,11 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
+    transition: opacity 0.2s;
+  }
+  
+  .summary-item.zero {
+    opacity: 0.3;
   }
   
   .summary-label {
@@ -369,23 +463,48 @@
   
   .change-item {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex-direction: column;
     padding: 12px 16px;
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: 6px;
-    transition: background 0.2s;
+    transition: all 0.2s;
+  }
+  
+  .change-item.selected {
+    border-color: var(--accent);
+    background: rgba(33, 150, 243, 0.05);
   }
   
   .change-item:hover {
     background: var(--bg-tertiary);
   }
   
+  .change-item.selected:hover {
+    background: rgba(33, 150, 243, 0.08);
+  }
+  
+  .checkbox-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    cursor: pointer;
+  }
+  
+  .checkbox-label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin-right: 12px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  
   .page-name {
     font-size: 0.9rem;
     font-weight: 500;
     color: var(--text-primary);
+    flex: 1;
   }
   
   .change-stats {
