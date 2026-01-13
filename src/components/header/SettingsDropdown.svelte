@@ -242,7 +242,7 @@
         </button>
         
         <p class="help-text">
-          Delete books from pen memory to free up storage space.
+          Remove books from pen memory after importing them.
         </p>
       </section>
     </div>

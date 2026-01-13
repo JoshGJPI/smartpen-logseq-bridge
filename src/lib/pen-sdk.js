@@ -424,20 +424,22 @@ export async function deleteBooksFromPen(books) {
         // Create promise that resolves when this deletion completes
         const deletionComplete = new Promise((resolve, reject) => {
           pendingOfflineTransfer = bookId;
-          offlineTransferResolver = resolve;
           
-          // Timeout for deletion (should be quick)
+          // Timeout for deletion
           const timeout = setTimeout(() => {
             console.warn(`⏰ Deletion timeout for book ${bookId}`);
+            offlineTransferResolver = null;
             reject(new Error(`Timeout deleting book ${bookId}`));
-          }, 20000);  // 20 second timeout per book
+          }, 60000);  // 60 second timeout per book
           
-          // Clear timeout when resolved
-          const originalResolve = resolve;
-          resolve = (value) => {
+          // Create wrapped resolve that clears timeout
+          const wrappedResolve = (value) => {
             clearTimeout(timeout);
-            originalResolve(value);
+            resolve(value);
           };
+          
+          // CRITICAL: Set the wrapped resolve so timeout is cleared
+          offlineTransferResolver = wrappedResolve;
         });
         
         // Request data WITH deletion flag

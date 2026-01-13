@@ -151,17 +151,8 @@
   function formatBookMeta(book) {
     const section = `Section ${book.Section}`;
     const owner = `Owner ${book.Owner}`;
-    const pages = book.PageCount ? `${book.PageCount} page${book.PageCount !== 1 ? 's' : ''}` : 'Unknown pages';
-    return `${section} / ${owner} • ${pages}`;
+    return `${section} / ${owner}`;
   }
-  
-  function calculateTotalPages(selectedIndices) {
-    return books
-      .filter((_, i) => selectedIndices.has(i))
-      .reduce((sum, book) => sum + (book.PageCount || 0), 0);
-  }
-  
-  $: totalPages = calculateTotalPages(selectedBooks);
   
   // Cleanup on unmount
   onDestroy(() => {
@@ -212,8 +203,7 @@
             <span class="separator">|</span>
             <button class="btn-link" on:click={selectNone}>Deselect All</button>
             <span class="selected-count">
-              ({selectedBooks.size} selected
-              {#if totalPages > 0}• {totalPages} pages{/if})
+              ({selectedBooks.size} selected)
             </span>
           </div>
           
@@ -266,7 +256,7 @@
         <div class="confirm-list">
           {#each books.filter((_, i) => selectedBooks.has(i)) as book}
             <div class="confirm-item">
-              • {formatBookInfo(book)} ({book.PageCount || 0} pages)
+              • {formatBookInfo(book)}
             </div>
           {/each}
         </div>
@@ -314,7 +304,7 @@
         <div class="success-list">
           {#each deletionResults.deletedBooks as book}
             <div class="success-item">
-              ✓ {formatBookInfo(book)} ({book.PageCount || 0} pages)
+              ✓ {formatBookInfo(book)}
             </div>
           {/each}
         </div>
@@ -324,10 +314,6 @@
             ⚠️ Failed to delete {deletionResults.failedBooks.length} book(s)
           </div>
         {/if}
-        
-        <p class="helper-text">
-          {totalPages} pages freed
-        </p>
       </div>
       
       <div class="dialog-footer">
