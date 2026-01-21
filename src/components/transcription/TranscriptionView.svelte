@@ -18,7 +18,7 @@
   } from '$stores';
   import { bookAliases } from '$stores';
   import { sendToLogseq } from '$lib/logseq-api.js';
-  import { formatBookName } from '$utils/formatting.js';
+  import { formatBookName, filterTranscriptionProperties } from '$utils/formatting.js';
   
   import LogseqPreview from './LogseqPreview.svelte';
   
@@ -255,7 +255,7 @@
               <!-- Transcribed Text -->
               <div class="detail-section">
                 <h4>Transcribed Text</h4>
-                <pre class="text-output">{pageData.text || 'No text'}</pre>
+                <pre class="text-output">{filterTranscriptionProperties(pageData.text) || 'No text'}</pre>
               </div>
               
               <!-- LogSeq Preview -->

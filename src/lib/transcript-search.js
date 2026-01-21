@@ -3,6 +3,8 @@
  * Bag-of-words search for handwriting transcriptions
  */
 
+import { filterTranscriptionProperties } from '../utils/formatting.js';
+
 /**
  * Tokenize text for search (bag-of-words)
  * Preserves hyphens within words (e.g., "5444-005" stays as one token)
@@ -12,8 +14,11 @@
 export function tokenize(text) {
   if (!text) return new Set();
   
+  // Filter out properties before tokenizing
+  const filteredText = filterTranscriptionProperties(text);
+  
   return new Set(
-    text
+    filteredText
       .toLowerCase()
       .replace(/[^\w\s-]/g, ' ')  // Remove punctuation EXCEPT hyphens
       .split(/\s+/)                 // Split on whitespace

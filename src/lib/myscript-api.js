@@ -128,6 +128,19 @@ function buildRequest(strokes, options = {}) {
 }
 
 /**
+ * Normalize transcript for canonical comparison
+ * Converts checkbox symbols to standard format
+ */
+function normalizeTranscript(text) {
+  return text
+    .replace(/☐/g, '[ ]')     // Empty checkbox
+    .replace(/☑/g, '[x]')     // Checked (variant 1)
+    .replace(/☒/g, '[x]')     // Checked (variant 2)
+    .replace(/\s+/g, ' ')     // Normalize whitespace
+    .trim();
+}
+
+/**
  * Parse MyScript response and extract structured data
  */
 function parseMyScriptResponse(response) {
@@ -194,11 +207,31 @@ function parseMyScriptResponse(response) {
       lineY = lineIdx * 20;
     }
     
+    // Calculate Y-bounds from word bounding boxes
+    let minY = lineY;
+    let maxY = lineY;
+    
+    if (lineWords.length > 0) {
+      lineWords.forEach(word => {
+        if (word && word['bounding-box']) {
+          const bbox = word['bounding-box'];
+          const wordMinY = bbox.y;
+          const wordMaxY = bbox.y + (bbox.height || 0);
+          if (wordMinY < minY) minY = wordMinY;
+          if (wordMaxY > maxY) maxY = wordMaxY;
+        }
+      });
+    }
+    
     lines.push({
       text: lineText,
+      canonical: normalizeTranscript(lineText),  // NEW: Add canonical form for comparison
       words: lineWords,
       x: lineX,
-      baseline: lineY
+      baseline: lineY,
+      yBounds: { minY, maxY },  // NEW: Y-bounds for stroke mapping
+      blockUuid: null,  // NEW: LogSeq block UUID (set after save)
+      syncStatus: 'unsaved'  // NEW: Track sync status
     });
   });
   

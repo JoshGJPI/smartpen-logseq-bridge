@@ -95,10 +95,51 @@ function extractJsonFromBlock(content) {
 
 /**
  * Extract transcription text from block content
+ * Supports both old format (code block) and new v2.0 format (property-based blocks)
  * @param {Array} blocks - Block tree
  * @returns {string|null} Transcription text or null
  */
 function extractTranscriptionText(blocks) {
+  // Try new v2.0 format first: "## Transcribed Content"
+  const contentBlock = findBlockByContent(blocks, content => 
+    content.includes('## Transcribed Content')
+  );
+  
+  if (contentBlock && contentBlock.children?.length) {
+    // New format: reconstruct text from block contents
+    const extractBlockText = (block, indent = 0) => {
+      const lines = [];
+      
+      if (block.content) {
+        let text = block.content;
+        // Remove LogSeq block prefix
+        text = text.replace(/^-\s+/, '');
+        // Remove TODO/DONE markers (added by v2.0)
+        text = text.replace(/^(TODO|DONE)\s+/, '');
+        // Add indentation
+        const indentStr = '  '.repeat(indent);
+        lines.push(indentStr + text);
+      }
+      
+      // Recursively process children
+      if (block.children?.length) {
+        for (const child of block.children) {
+          lines.push(...extractBlockText(child, indent + 1));
+        }
+      }
+      
+      return lines;
+    };
+    
+    const allLines = [];
+    for (const child of contentBlock.children) {
+      allLines.push(...extractBlockText(child, 0));
+    }
+    
+    return allLines.join('\n');
+  }
+  
+  // Fallback to old format: "## Transcribed Text"
   const textBlock = findBlockByContent(blocks, content => 
     content.includes('## Transcribed Text')
   );
@@ -108,8 +149,8 @@ function extractTranscriptionText(blocks) {
   }
   
   // Get first child (the code block with text)
-  const contentBlock = textBlock.children[0];
-  let content = contentBlock.content || '';
+  const oldContentBlock = textBlock.children[0];
+  let content = oldContentBlock.content || '';
   
   // LogSeq may include the block dash prefix in content - strip it
   content = content.replace(/^-\s+/, '');

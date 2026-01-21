@@ -117,3 +117,22 @@ export function formatBookDisplay(bookId, aliases = {}, showPrefix = false) {
   
   return showPrefix ? `Book ${bookId}` : `B${bookId}`;
 }
+
+/**
+ * Filter out LogSeq properties from transcription text
+ * Removes property lines like "stroke-y-bounds::" and "canonical-transcript::"
+ * @param {string} text - Transcription text that may contain properties
+ * @returns {string} Filtered text without property lines
+ */
+export function filterTranscriptionProperties(text) {
+  if (!text) return '';
+  
+  return text
+    .split('\n')
+    .filter(line => {
+      const trimmed = line.trim();
+      // Filter out property lines (format: "property-name:: value")
+      return !trimmed.match(/^[a-z-]+::/i);
+    })
+    .join('\n');
+}

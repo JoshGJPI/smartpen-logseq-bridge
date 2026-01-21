@@ -4,6 +4,7 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   import { highlightMatches } from '$lib/transcript-search.js';
+  import { filterTranscriptionProperties } from '$utils/formatting.js';
   import { bookAliases } from '$stores';
   
   export let page;
@@ -33,8 +34,8 @@
   // Get book alias or fallback
   $: bookName = $bookAliases[page.book] || `Book ${page.book}`;
   
-  // Show full transcript (no truncation)
-  $: transcriptPreview = page.transcriptionText || '';
+  // Filter properties and show full transcript (no truncation)
+  $: transcriptPreview = filterTranscriptionProperties(page.transcriptionText || '');
   $: highlightedText = highlightMatches(transcriptPreview, query);
 </script>
 

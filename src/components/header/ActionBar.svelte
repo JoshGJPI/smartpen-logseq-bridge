@@ -56,7 +56,8 @@
   });
   import { connectPen, disconnectPen, fetchOfflineData, cancelOfflineTransfer } from '$lib/pen-sdk.js';
   import { transcribeStrokes } from '$lib/myscript-api.js';
-  import { updatePageStrokes, updatePageTranscription } from '$lib/logseq-api.js';
+  import { updatePageStrokes } from '$lib/logseq-api.js';
+  import { updateTranscriptBlocks } from '$lib/transcript-updater.js'; // NEW: v2.0 updater
   // Removed filtered-strokes import - now handled via user-controlled deselection
   import {
     setStorageSaving,
@@ -389,23 +390,33 @@
             
             // Only save transcription if this page is in the selected set
             if (pageTranscription && selectedSet.has(key)) {
-              // Save page-specific transcription
-              log(`Saving transcription to ${result.page}...`, 'info');
+              // NEW v2.0: Save page-specific transcription with property-based blocks
+              log(`Saving transcription blocks to ${result.page}...`, 'info');
               
-              const transcriptionResult = await updatePageTranscription(
-                book,
-                page,
-                pageTranscription,
-                pageTranscription.strokeCount,
-                host,
-                token
-              );
-              
-              if (transcriptionResult.success) {
-                log(`Saved transcription to ${transcriptionResult.page} (${transcriptionResult.lineCount} lines)`, 'success');
-                savedTranscriptionCount++;
-              } else {
-                log(`Failed to save transcription: ${transcriptionResult.error}`, 'warning');
+              try {
+                const transcriptResult = await updateTranscriptBlocks(
+                  book,
+                  page,
+                  activeStrokes,      // Pass all strokes for Y-bounds calculation
+                  pageTranscription,   // MyScript result with lines
+                  host,
+                  token
+                );
+                
+                if (transcriptResult.success) {
+                  const { stats } = transcriptResult;
+                  const actions = [];
+                  if (stats.created > 0) actions.push(`${stats.created} new`);
+                  if (stats.updated > 0) actions.push(`${stats.updated} updated`);
+                  if (stats.skipped > 0) actions.push(`${stats.skipped} preserved`);
+                  
+                  log(`✅ Transcription saved: ${actions.join(', ')}`, 'success');
+                  savedTranscriptionCount++;
+                } else {
+                  log(`Failed to save transcription: ${transcriptResult.error}`, 'warning');
+                }
+              } catch (transcriptError) {
+                log(`Error saving transcription: ${transcriptError.message}`, 'warning');
               }
             } else if ($hasTranscription && selectedSet.has(key)) {
               // Fallback to legacy single transcription if no page-specific one exists
@@ -418,22 +429,32 @@
                   firstTranscriptionStroke.pageInfo.book === book && 
                   firstTranscriptionStroke.pageInfo.page === page) {
                 
-                log(`Saving transcription to ${result.page}...`, 'info');
+                log(`Saving legacy transcription to ${result.page}...`, 'info');
                 
-                const transcriptionResult = await updatePageTranscription(
-                  book,
-                  page,
-                  $lastTranscription,
-                  transcriptionStrokes.length,
-                  host,
-                  token
-                );
-                
-                if (transcriptionResult.success) {
-                  log(`Saved transcription to ${transcriptionResult.page} (${transcriptionResult.lineCount} lines)`, 'success');
-                  savedTranscriptionCount++;
-                } else {
-                  log(`Failed to save transcription: ${transcriptionResult.error}`, 'warning');
+                try {
+                  const transcriptResult = await updateTranscriptBlocks(
+                    book,
+                    page,
+                    transcriptionStrokes,
+                    $lastTranscription,
+                    host,
+                    token
+                  );
+                  
+                  if (transcriptResult.success) {
+                    const { stats } = transcriptResult;
+                    const actions = [];
+                    if (stats.created > 0) actions.push(`${stats.created} new`);
+                    if (stats.updated > 0) actions.push(`${stats.updated} updated`);
+                    if (stats.skipped > 0) actions.push(`${stats.skipped} preserved`);
+                    
+                    log(`✅ Transcription saved: ${actions.join(', ')}`, 'success');
+                    savedTranscriptionCount++;
+                  } else {
+                    log(`Failed to save transcription: ${transcriptResult.error}`, 'warning');
+                  }
+                } catch (transcriptError) {
+                  log(`Error saving transcription: ${transcriptError.message}`, 'warning');
                 }
               }
             }

@@ -3,6 +3,7 @@
 -->
 <script>
   import { createEventDispatcher } from 'svelte';
+  import { filterTranscriptionProperties } from '$utils/formatting.js';
   
   export let text; // Transcribed text with indentation
   export let editable = false; // Whether to allow editing
@@ -11,6 +12,9 @@
   
   let isEditing = false;
   let editedText = text;
+  
+  // Filter out properties for display
+  $: displayText = filterTranscriptionProperties(text);
   
   // Update editedText when text prop changes
   $: if (!isEditing) {
@@ -46,7 +50,7 @@
 </script>
 
 <div class="transcription-preview">
-  {#if !text}
+  {#if !displayText}
     <div class="empty">No transcription text</div>
   {:else if isEditing}
     <div class="editor">
@@ -64,7 +68,7 @@
     </div>
   {:else}
     <div class="preview-wrapper">
-      <pre>{text}</pre>
+      <pre>{displayText}</pre>
       {#if editable}
         <button class="edit-btn" on:click={handleEdit} title="Edit transcription">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

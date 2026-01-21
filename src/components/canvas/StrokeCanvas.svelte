@@ -16,7 +16,7 @@
   import { pageTranscriptionsArray } from '$stores';
   import { logseqPages } from '$stores';
   import { bookAliases } from '$stores';
-  import { formatBookName } from '$utils/formatting.js';
+  import { formatBookName, filterTranscriptionProperties } from '$utils/formatting.js';
   import { openSearchTranscriptsDialog } from '$stores';
   import { logseqConnected } from '$stores';
   import CanvasControls from './CanvasControls.svelte';
@@ -1212,6 +1212,14 @@
         return;
       }
       
+      // Filter out LogSeq properties before displaying
+      const filteredText = filterTranscriptionProperties(pageData.text);
+      
+      if (!filteredText || !filteredText.trim()) {
+        console.log('  ⚠️ No text after filtering properties for', pageData.pageKey);
+        return;
+      }
+      
       // Need to find the actual pageKey used in the renderer
       // The pageData.pageKey might be from LogSeq (S0/O0/...) but renderer has real pen data (S3/O1012/...)
       const book = pageData.pageInfo.book;
@@ -1232,10 +1240,10 @@
         return;
       }
       
-      console.log('  ✅ Rendering text for', matchingPageKey, '(', pageData.text.length, 'chars )');
+      console.log('  ✅ Rendering text for', matchingPageKey, '(', filteredText.length, 'chars )');
       
-      // Render text inside the page boundaries using the correct pageKey
-      renderer.drawPageText(matchingPageKey, pageData.text);
+      // Render filtered text inside the page boundaries using the correct pageKey
+      renderer.drawPageText(matchingPageKey, filteredText);
     });
   }
   

@@ -19,8 +19,14 @@ import {
 
 /**
  * Make an API request to LogSeq with retry logic
+ * @param {string} host - LogSeq API host
+ * @param {string} token - Auth token
+ * @param {string} method - API method name
+ * @param {Array} args - Method arguments
+ * @param {number} retries - Number of retry attempts
+ * @returns {Promise<any>} API response
  */
-async function makeRequest(host, token, method, args = [], retries = 3) {
+export async function makeRequest(host, token, method, args = [], retries = 3) {
   const headers = {
     'Content-Type': 'application/json',
   };
@@ -663,6 +669,170 @@ export async function scanBookAliases(host, token = '') {
     console.error('Failed to scan book aliases:', error);
     return {};
   }
+}
+
+/**
+ * Normalize transcript for canonical comparison
+ * Converts checkbox symbols to standard format
+ */
+function normalizeTranscript(text) {
+  return text
+    .replace(/☐/g, '[ ]')     // Empty checkbox
+    .replace(/☑/g, '[x]')     // Checked (variant 1)
+    .replace(/☒/g, '[x]')     // Checked (variant 2)
+    .replace(/\s+/g, ' ')     // Normalize whitespace
+    .trim();
+}
+
+/**
+ * Convert checkbox symbols to LogSeq TODO/DONE markers
+ */
+function convertCheckboxToMarker(text) {
+  const canonical = normalizeTranscript(text);
+  
+  if (canonical.match(/^\s*\[\s*\]/)) {
+    // Empty checkbox → TODO
+    return text.replace(/^[\s☐\[\s\]]+/, 'TODO ');
+  } else if (canonical.match(/^\s*\[x\]/i)) {
+    // Checked box → DONE
+    return text.replace(/^[\s☑☒\[x\]]+/i, 'DONE ');
+  }
+  
+  return text;
+}
+
+/**
+ * Format Y-bounds for property storage
+ */
+function formatBounds(yBounds) {
+  if (!yBounds || typeof yBounds.minY !== 'number' || typeof yBounds.maxY !== 'number') {
+    return '0-0';
+  }
+  return `${yBounds.minY.toFixed(1)}-${yBounds.maxY.toFixed(1)}`;
+}
+
+/**
+ * Parse Y-bounds from property string
+ */
+function parseYBounds(boundsString) {
+  if (!boundsString || typeof boundsString !== 'string') {
+    return { minY: 0, maxY: 0 };
+  }
+  const [minY, maxY] = boundsString.split('-').map(parseFloat);
+  return { minY: minY || 0, maxY: maxY || 0 };
+}
+
+/**
+ * Preserve TODO/DONE markers during updates
+ */
+function updateBlockWithPreservation(oldContent, newTranscript) {
+  // Extract current marker
+  let marker = null;
+  if (oldContent.match(/^\s*TODO\s/)) marker = 'TODO';
+  if (oldContent.match(/^\s*DONE\s/)) marker = 'DONE';
+  
+  // Convert new transcript
+  let newContent = convertCheckboxToMarker(newTranscript);
+  
+  // If user had TODO/DONE and new content also starts with TODO, preserve user's choice
+  if (marker && newContent.match(/^\s*TODO\s/)) {
+    newContent = newContent.replace(/^\s*TODO\s/, `${marker} `);
+  }
+  
+  return newContent;
+}
+
+/**
+ * Create a transcript block with properties (new v2.0 format)
+ * @param {string} parentUuid - Parent block UUID
+ * @param {Object} line - Line object with text, canonical, yBounds, etc.
+ * @param {string} host - LogSeq API host
+ * @param {string} token - Optional auth token
+ * @returns {Promise<Object>} Created block object
+ */
+export async function createTranscriptBlockWithProperties(parentUuid, line, host, token = '') {
+  const canonical = line.canonical || normalizeTranscript(line.text);
+  const content = convertCheckboxToMarker(line.text);
+  const bounds = formatBounds(line.yBounds);
+  
+  return await makeRequest(host, token, 'logseq.Editor.insertBlock', [
+    parentUuid,
+    content,
+    {
+      sibling: false,
+      properties: {
+        'stroke-y-bounds': bounds,
+        'canonical-transcript': canonical
+      }
+    }
+  ]);
+}
+
+/**
+ * Update a transcript block with preservation (new v2.0 format)
+ * @param {string} blockUuid - Block UUID to update
+ * @param {Object} line - New line object
+ * @param {string} oldContent - Existing block content
+ * @param {string} host - LogSeq API host
+ * @param {string} token - Optional auth token
+ */
+export async function updateTranscriptBlockWithPreservation(blockUuid, line, oldContent, host, token = '') {
+  const newCanonical = line.canonical || normalizeTranscript(line.text);
+  const newContent = updateBlockWithPreservation(oldContent, line.text);
+  const newBounds = formatBounds(line.yBounds);
+  
+  // Update content
+  await makeRequest(host, token, 'logseq.Editor.updateBlock', [
+    blockUuid,
+    newContent
+  ]);
+  
+  // Update properties (upsert preserves other properties)
+  await makeRequest(host, token, 'logseq.Editor.upsertBlockProperty', [
+    blockUuid,
+    'stroke-y-bounds',
+    newBounds
+  ]);
+  
+  await makeRequest(host, token, 'logseq.Editor.upsertBlockProperty', [
+    blockUuid,
+    'canonical-transcript',
+    newCanonical
+  ]);
+}
+
+/**
+ * Get existing transcript blocks from a page (new v2.0 format)
+ * @param {number} book - Book ID
+ * @param {number} page - Page number
+ * @param {string} host - LogSeq API host
+ * @param {string} token - Optional auth token
+ * @returns {Promise<Array>} Array of block objects with properties
+ */
+export async function getTranscriptBlocks(book, page, host, token = '') {
+  const pageName = formatPageName(book, page);
+  const blocks = await makeRequest(host, token, 'logseq.Editor.getPageBlocksTree', [pageName]);
+  
+  if (!blocks || blocks.length === 0) {
+    return [];
+  }
+  
+  // Find "Transcribed Content" section (with or without #Display_No_Properties tag)
+  const contentBlock = blocks.find(b => 
+    b.content && b.content.includes('## Transcribed Content')
+  );
+  
+  if (!contentBlock || !contentBlock.children) {
+    return [];
+  }
+  
+  // Parse child blocks (actual transcript lines)
+  return contentBlock.children.map(block => ({
+    uuid: block.uuid,
+    content: block.content,
+    properties: block.properties || {},
+    children: block.children || []
+  }));
 }
 
 /**
