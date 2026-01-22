@@ -1,4 +1,173 @@
 /**
+ * Get or create the "Transcribed Content" section parent block
+ * @param {string} pageName - LogSeq page name
+ * @param {string} host - LogSeq API host
+ * @param {string} token - Auth token
+ * @returns {Promise<string>} Parent block UUID
+ */
+async function getOrCreateTranscriptSection(pageName, host, token = '') {
+  const blocks = await makeRequest(host, token, 'logseq.Editor.getPageBlocksTree', [pageName]);
+  
+  if (blocks && blocks.length > 0) {
+    const contentBlock = blocks.find(b => 
+      b.content && b.content.includes('## Transcribed Content')
+    );
+    
+    if (contentBlock) {
+      return contentBlock.uuid;
+    }
+  }
+  
+  // Create the section
+  const newBlock = await makeRequest(host, token, 'logseq.Editor.appendBlockInPage', [
+    pageName,
+    '## Transcribed Content #Display_No_Properties',
+    {}
+  ]);
+  
+  return newBlock.uuid;
+}
+
+/**
+ * Update transcript blocks from editor modal changes
+ * This is different from re-transcription - we have block UUIDs already
+ * @param {number} book - Book ID
+ * @param {number} page - Page number
+ * @param {Array} editedLines - Edited lines from modal (with blockUuid)
+ * @param {string} host - LogSeq API host
+ * @param {string} token - Auth token
+ * @returns {Promise<Object>} Update result with stats
+ */
+export async function updateTranscriptBlocksFromEditor(book, page, editedLines, host, token = '') {
+  try {
+    // Ensure page exists
+    const pageObj = await getOrCreateSmartpenPage(book, page, host, token);
+    const pageName = pageObj.name || pageObj.originalName;
+    
+    // Get all existing blocks
+    const existingBlocks = await getTranscriptBlocks(book, page, host, token);
+    
+    console.log(`[updateTranscriptBlocksFromEditor] Processing ${editedLines.length} edited lines against ${existingBlocks.length} existing blocks`);
+    
+    // Track which block UUIDs are still referenced
+    const referencedUuids = new Set();
+    const results = [];
+    
+    // Track parent blocks for hierarchy (used when creating new blocks)
+    const blockStack = [];
+    
+    // Process each edited line
+    for (let i = 0; i < editedLines.length; i++) {
+      const line = editedLines[i];
+      const currentIndent = line.indentLevel || 0;
+      
+      try {
+        if (line.blockUuid) {
+          // Existing block - update it
+          referencedUuids.add(line.blockUuid);
+          
+          // Find the existing block to get its current content
+          const existingBlock = existingBlocks.find(b => b.uuid === line.blockUuid);
+          const oldContent = existingBlock?.content || '';
+          
+          await updateTranscriptBlockWithPreservation(
+            line.blockUuid,
+            line,
+            oldContent,
+            host,
+            token
+          );
+          
+          // Update block stack for hierarchy tracking
+          // Pop blocks with >= indent level
+          while (blockStack.length > 0 && blockStack[blockStack.length - 1].indent >= currentIndent) {
+            blockStack.pop();
+          }
+          blockStack.push({ uuid: line.blockUuid, indent: currentIndent });
+          
+          results.push({ type: 'updated', uuid: line.blockUuid, lineIndex: i });
+        } else {
+          // New block - create it with proper hierarchy
+          // Find parent block (block with lower indent level)
+          let parentUuid;
+          
+          if (blockStack.length === 0 || currentIndent === 0) {
+            // Top level - use Transcribed Content section
+            parentUuid = await getOrCreateTranscriptSection(pageName, host, token);
+          } else {
+            // Pop blocks until we find a parent with lower indent
+            while (blockStack.length > 0 && blockStack[blockStack.length - 1].indent >= currentIndent) {
+              blockStack.pop();
+            }
+            
+            if (blockStack.length > 0) {
+              parentUuid = blockStack[blockStack.length - 1].uuid;
+            } else {
+              // Fallback to section parent
+              parentUuid = await getOrCreateTranscriptSection(pageName, host, token);
+            }
+          }
+          
+          const newBlock = await createTranscriptBlockWithProperties(
+            parentUuid,
+            line,
+            host,
+            token
+          );
+          
+          if (newBlock) {
+            referencedUuids.add(newBlock.uuid);
+            blockStack.push({ uuid: newBlock.uuid, indent: currentIndent });
+            results.push({ type: 'created', uuid: newBlock.uuid, lineIndex: i });
+          }
+        }
+      } catch (error) {
+        console.error(`Failed to process line ${i}:`, error);
+        results.push({ type: 'error', error: error.message, lineIndex: i });
+      }
+    }
+    
+    // Delete blocks that are no longer referenced (were merged or deleted)
+    const blocksToDelete = existingBlocks.filter(b => !referencedUuids.has(b.uuid));
+    
+    for (const block of blocksToDelete) {
+      try {
+        await makeRequest(host, token, 'logseq.Editor.removeBlock', [block.uuid]);
+        results.push({ type: 'deleted', uuid: block.uuid, reason: 'no-longer-referenced' });
+      } catch (error) {
+        console.error(`Failed to delete block ${block.uuid}:`, error);
+        results.push({ type: 'delete-error', uuid: block.uuid, error: error.message });
+      }
+    }
+    
+    return {
+      success: true,
+      page: pageName,
+      results,
+      stats: {
+        created: results.filter(r => r.type === 'created').length,
+        updated: results.filter(r => r.type === 'updated').length,
+        deleted: results.filter(r => r.type === 'deleted').length,
+        errors: results.filter(r => r.type === 'error' || r.type === 'delete-error').length
+      }
+    };
+    
+  } catch (error) {
+    console.error('Failed to update transcript blocks from editor:', error);
+    return {
+      success: false,
+      error: error.message,
+      stats: {
+        created: 0,
+        updated: 0,
+        deleted: 0,
+        errors: 0
+      }
+    };
+  }
+}
+
+/**
  * LogSeq API Integration
  * Communicates with LogSeq via its HTTP API (localhost:12315)
  */
@@ -16,6 +185,8 @@ import {
   buildChunkedStorageObjects,
   parseChunkedJsonBlocks
 } from './stroke-storage.js';
+
+import { filterTranscriptionProperties } from '../utils/formatting.js';
 
 /**
  * Make an API request to LogSeq with retry logic
@@ -755,15 +926,22 @@ export async function createTranscriptBlockWithProperties(parentUuid, line, host
   const content = convertCheckboxToMarker(line.text);
   const bounds = formatBounds(line.yBounds);
   
+  const properties = {
+    'stroke-y-bounds': bounds,
+    'canonical-transcript': canonical
+  };
+  
+  // Add merged-lines property if this is a merged block
+  if (line.mergedLineCount && line.mergedLineCount > 1) {
+    properties['merged-lines'] = line.mergedLineCount.toString();
+  }
+  
   return await makeRequest(host, token, 'logseq.Editor.insertBlock', [
     parentUuid,
     content,
     {
       sibling: false,
-      properties: {
-        'stroke-y-bounds': bounds,
-        'canonical-transcript': canonical
-      }
+      properties
     }
   ]);
 }
@@ -799,10 +977,20 @@ export async function updateTranscriptBlockWithPreservation(blockUuid, line, old
     'canonical-transcript',
     newCanonical
   ]);
+  
+  // Update merged-lines property if applicable
+  if (line.mergedLineCount && line.mergedLineCount > 1) {
+    await makeRequest(host, token, 'logseq.Editor.upsertBlockProperty', [
+      blockUuid,
+      'merged-lines',
+      line.mergedLineCount.toString()
+    ]);
+  }
 }
 
 /**
  * Get existing transcript blocks from a page (new v2.0 format)
+ * Recursively collects all blocks including nested children
  * @param {number} book - Book ID
  * @param {number} page - Page number
  * @param {string} host - LogSeq API host
@@ -826,13 +1014,126 @@ export async function getTranscriptBlocks(book, page, host, token = '') {
     return [];
   }
   
-  // Parse child blocks (actual transcript lines)
-  return contentBlock.children.map(block => ({
-    uuid: block.uuid,
-    content: block.content,
-    properties: block.properties || {},
-    children: block.children || []
-  }));
+  // Recursively collect all blocks from the tree
+  function collectBlocks(block, depth = 0) {
+    const result = [];
+    
+    // Add current block
+    result.push({
+      uuid: block.uuid,
+      content: block.content,
+      properties: block.properties || {},
+      children: block.children || [],
+      depth // Track depth for debugging
+    });
+    
+    // Recursively add children
+    if (block.children && block.children.length > 0) {
+      for (const child of block.children) {
+        result.push(...collectBlocks(child, depth + 1));
+      }
+    }
+    
+    return result;
+  }
+  
+  // Collect all blocks from all top-level children
+  const allBlocks = [];
+  for (const child of contentBlock.children) {
+    allBlocks.push(...collectBlocks(child));
+  }
+  
+  return allBlocks;
+}
+
+/**
+ * Reconstruct line objects from LogSeq transcript blocks
+ * Used by the transcription editor modal
+ * @param {number} book - Book ID
+ * @param {number} page - Page number
+ * @param {string} host - LogSeq API host
+ * @param {string} token - Optional auth token
+ * @returns {Promise<Array>} Array of line objects compatible with editor
+ */
+export async function getTranscriptLines(book, page, host, token = '') {
+  const blocks = await getTranscriptBlocks(book, page, host, token);
+  
+  console.log(`[getTranscriptLines] Found ${blocks.length} transcript blocks for B${book}/P${page}`);
+  blocks.forEach((b, i) => {
+    if (i < 5) { // Log first 5 blocks
+      console.log(`  Block ${i}: depth=${b.depth}, content=${b.content?.substring(0, 40)}...`);
+    }
+  });
+  if (blocks.length > 5) {
+    console.log(`  ... and ${blocks.length - 5} more blocks`);
+  }
+  
+  if (blocks.length === 0) {
+    // Check if page has old v1.0 format (code block)
+    const pageName = formatPageName(book, page);
+    const allBlocks = await makeRequest(host, token, 'logseq.Editor.getPageBlocksTree', [pageName]);
+    
+    console.log(`[getTranscriptLines] Checking for old format, found ${allBlocks?.length || 0} total blocks`);
+    
+    if (allBlocks && allBlocks.length > 0) {
+      // Check for old "Transcribed Text" section
+      const oldSection = allBlocks.find(b => 
+        b.content && b.content.includes('## Transcribed Text')
+      );
+      
+      if (oldSection) {
+        throw new Error(
+          'This page uses the old transcription format (v1.0 code block). ' +
+          'Please re-transcribe the page to use the new format, then you can edit the structure.'
+        );
+      }
+    }
+    
+    return [];
+  }
+  
+  // Convert blocks back to line format
+  const lines = blocks.map((block, index) => {
+    const yBounds = parseYBounds(block.properties['stroke-y-bounds'] || '0-0');
+    const canonical = block.properties['canonical-transcript'] || '';
+    const mergedCount = parseInt(block.properties['merged-lines']) || 1;
+    
+    console.log(`[getTranscriptLines] Block ${index}:`, {
+      rawContent: block.content?.substring(0, 50) + '...',
+      hasProperties: !!block.properties,
+      propertyKeys: Object.keys(block.properties || {}),
+      depth: block.depth || 0 // Show nesting level
+    });
+    
+    // Extract text from block content
+    let text = block.content || '';
+    
+    // Remove leading dash (LogSeq block marker)
+    text = text.replace(/^-\s*/, '');
+    
+    // Filter out property lines (stroke-y-bounds::, canonical-transcript::, etc.)
+    text = filterTranscriptionProperties(text);
+    
+    // Remove TODO/DONE markers
+    text = text.replace(/^(TODO|DONE|LATER|NOW|DOING|WAITING)\s+/, '');
+    
+    // Use the block's depth from LogSeq tree structure for indentation
+    // This preserves the actual hierarchy from LogSeq
+    const indentLevel = block.depth || 0;
+    
+    return {
+      text: text.trim(),
+      canonical,
+      yBounds,
+      mergedLineCount: mergedCount,
+      indentLevel,
+      blockUuid: block.uuid,
+      syncStatus: 'synced'
+    };
+  });
+  
+  console.log(`[getTranscriptLines] Returning ${lines.length} lines`);
+  return lines;
 }
 
 /**

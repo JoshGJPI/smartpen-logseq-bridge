@@ -3,15 +3,20 @@
 -->
 <script>
   import { importStrokesFromLogSeq } from '$lib/logseq-import.js';
+  import { getTranscriptLines, updateTranscriptBlocksFromEditor } from '$lib/logseq-api.js';
   import TranscriptionPreview from './TranscriptionPreview.svelte';
+  import TranscriptionEditorModal from '../dialog/TranscriptionEditorModal.svelte';
   import SyncStatusBadge from './SyncStatusBadge.svelte';
-  import { pageTranscriptions } from '$stores';
+  import { pageTranscriptions, logseqHost, logseqToken } from '$stores';
   
   export let page; // LogSeqPageData object
   
   let importing = false;
   let importProgress = { current: 0, total: 0 };
   let editedTranscription = page.transcriptionText || '';
+  let showEditorModal = false;
+  let editorLines = [];
+  let loadingLines = false;
   
   // Update edited transcription when page changes
   $: editedTranscription = page.transcriptionText || '';
@@ -110,6 +115,86 @@
     
     console.log(`Updated transcription for B${page.book}/P${page.page}`);
   }
+  
+  async function handleOpenEditor() {
+    loadingLines = true;
+    
+    try {
+      // Fetch lines from LogSeq
+      const host = $logseqHost || 'http://localhost:12315';
+      const token = $logseqToken || '';
+      
+      const lines = await getTranscriptLines(page.book, page.page, host, token);
+      
+      if (lines.length === 0) {
+        alert('No transcription blocks found. Please transcribe the page first.');
+        return;
+      }
+      
+      editorLines = lines;
+      showEditorModal = true;
+    } catch (error) {
+      console.error('Failed to load transcript lines:', error);
+      
+      // Show user-friendly error message
+      if (error.message.includes('old transcription format')) {
+        alert(
+          'This page uses the old transcription storage format.\n\n' +
+          'To use the line consolidation editor, please:\n' +
+          '1. Import the strokes from LogSeq\n' +
+          '2. Transcribe the page again\n' +
+          '3. Then you can edit the structure\n\n' +
+          'This will convert it to the new format that supports merge persistence.'
+        );
+      } else {
+        alert(`Failed to load transcription: ${error.message}`);
+      }
+    } finally {
+      loadingLines = false;
+    }
+  }
+  
+  async function handleSaveEditor(event) {
+    const { lines: editedLines } = event.detail;
+    
+    try {
+      const host = $logseqHost || 'http://localhost:12315';
+      const token = $logseqToken || '';
+      
+      // Use the new editor-specific update function
+      const result = await updateTranscriptBlocksFromEditor(
+        page.book,
+        page.page,
+        editedLines,
+        host,
+        token
+      );
+      
+      console.log('Transcription updated:', result);
+      
+      if (result.success) {
+        // Update page UI
+        editedTranscription = editedLines.map(l => '  '.repeat(l.indentLevel || 0) + l.text).join('\n');
+        page.syncStatus = result.stats.created > 0 ? 'new_content' : 'synced';
+        
+        // Close modal
+        showEditorModal = false;
+        
+        alert(
+          `✓ Successfully saved changes!\n\n` +
+          `Updated: ${result.stats.updated}\n` +
+          `Deleted: ${result.stats.deleted}\n` +
+          `Created: ${result.stats.created || 0}\n` +
+          `Errors: ${result.stats.errors}`
+        );
+      } else {
+        alert(`Failed to update: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Failed to save transcription:', error);
+      alert(`Failed to save: ${error.message}`);
+    }
+  }
 </script>
 
 <div class="page-card">
@@ -127,7 +212,21 @@
   
   {#if page.transcriptionText || editedTranscription}
     <div class="transcription-section">
-      <div class="section-label">Transcription:</div>
+      <div class="section-header">
+        <div class="section-label">Transcription:</div>
+        <button 
+          class="edit-structure-btn"
+          on:click={handleOpenEditor}
+          disabled={loadingLines}
+          title="Edit line structure and merge/split lines"
+        >
+          {#if loadingLines}
+            ⏳
+          {:else}
+            ✏️ Edit Structure
+          {/if}
+        </button>
+      </div>
       <TranscriptionPreview 
         text={editedTranscription} 
         editable={true}
@@ -159,6 +258,14 @@
     </button>
   </div>
 </div>
+
+<TranscriptionEditorModal
+  bind:visible={showEditorModal}
+  book={page.book}
+  page={page.page}
+  lines={editorLines}
+  on:save={handleSaveEditor}
+/>
 
 <style>
   .page-card {
@@ -209,12 +316,43 @@
     margin-bottom: 12px;
   }
   
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  
   .section-label {
     font-size: 0.75rem;
     color: var(--text-tertiary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    margin-bottom: 6px;
+  }
+  
+  .edit-structure-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    opacity: 0.8;
+  }
+  
+  .edit-structure-btn:hover:not(:disabled) {
+    opacity: 1;
+    transform: translateY(-1px);
+  }
+  
+  .edit-structure-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
   
   .no-transcription {

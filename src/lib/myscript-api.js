@@ -230,6 +230,7 @@ function parseMyScriptResponse(response) {
       x: lineX,
       baseline: lineY,
       yBounds: { minY, maxY },  // NEW: Y-bounds for stroke mapping
+      mergedLineCount: 1,  // NEW: Track if this is a merged line (default: 1 = single line)
       blockUuid: null,  // NEW: LogSeq block UUID (set after save)
       syncStatus: 'unsaved'  // NEW: Track sync status
     });

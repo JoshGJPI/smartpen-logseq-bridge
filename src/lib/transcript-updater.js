@@ -110,25 +110,43 @@ function determineParentUuid(line, existingBlocks, lineToBlockMap) {
 
 /**
  * Handle merge conflict when multiple blocks overlap with new line
- * @param {Object} action - Action object with blocks, line, etc.
+ * @param {Object} action - Action object with block, overlappingLines, etc.
  * @param {string} host - LogSeq API host
  * @param {string} token - Auth token
  * @returns {Promise<Object>} Resolution result
  */
 async function handleMergeConflict(action, host, token) {
-  // For now, merge into first block
-  // Future: show UI dialog for user decision
-  const firstBlock = action.blocks[0];
+  // The new structure has: { type, block, overlappingLines, blockBounds }
+  // For now, update the existing block with combined text from overlapping lines
+  
+  if (!action.overlappingLines || action.overlappingLines.length === 0) {
+    console.error('Merge conflict with no overlapping lines:', action);
+    throw new Error('Invalid merge conflict: no overlapping lines');
+  }
+  
+  // Combine all overlapping lines
+  const combinedText = action.overlappingLines.map(ol => ol.line.text).join(' ');
+  const combinedCanonical = action.overlappingLines.map(ol => ol.line.canonical).join(' ');
+  const newMinY = Math.min(...action.overlappingLines.map(ol => ol.bounds.minY));
+  const newMaxY = Math.max(...action.overlappingLines.map(ol => ol.bounds.maxY));
+  
+  const combinedLine = {
+    text: combinedText,
+    canonical: combinedCanonical,
+    yBounds: { minY: newMinY, maxY: newMaxY },
+    mergedLineCount: action.overlappingLines.length,
+    indentLevel: action.overlappingLines[0].line.indentLevel || 0
+  };
   
   await updateTranscriptBlockWithPreservation(
-    firstBlock.uuid,
-    action.line,
-    firstBlock.content,
+    action.block.uuid,
+    combinedLine,
+    action.block.content,
     host,
     token
   );
   
-  return { blockUuid: firstBlock.uuid, strategy: 'merge-first' };
+  return { blockUuid: action.block.uuid, strategy: 'merge-all-to-existing' };
 }
 
 /**
@@ -140,39 +158,81 @@ async function handleMergeConflict(action, host, token) {
  */
 async function detectBlockActions(existingBlocks, newLines, strokes) {
   const actions = [];
+  const consumedLineIndices = new Set(); // Track which lines have been processed
   
-  for (const line of newLines) {
-    const lineBounds = calculateLineBounds(line, strokes);
-    const newCanonical = line.canonical;
+  // First pass: Handle merged blocks
+  for (const block of existingBlocks) {
+    const blockBounds = parseYBounds(block.properties['stroke-y-bounds'] || '0-0');
+    const mergedCount = parseInt(block.properties['merged-lines']) || 1;
     
-    if (!newCanonical) {
-      console.warn('Line missing canonical field:', line);
+    // Find all new lines that overlap with this block
+    const overlappingLines = [];
+    newLines.forEach((line, index) => {
+      if (consumedLineIndices.has(index)) return; // Already processed
+      
+      const lineBounds = calculateLineBounds(line, strokes);
+      if (boundsOverlap(blockBounds, lineBounds)) {
+        overlappingLines.push({ line, index, bounds: lineBounds });
+      }
+    });
+    
+    if (overlappingLines.length === 0) {
+      // No overlapping lines - block was deleted (strokes removed)
+      // For now, we'll leave it (don't delete blocks automatically)
       continue;
     }
     
-    // Find overlapping blocks
-    const overlapping = existingBlocks.filter(block => {
-      const blockBounds = parseYBounds(block.properties['stroke-y-bounds'] || '0-0');
-      return boundsOverlap(blockBounds, lineBounds);
-    });
-    
-    if (overlapping.length === 0) {
-      // No overlap → new block
-      actions.push({
-        type: 'CREATE',
-        line,
-        bounds: lineBounds,
-        canonical: newCanonical,
-        parentUuid: null // Will be determined later based on line.parent
-      });
-      
-    } else if (overlapping.length === 1) {
-      // Single overlap → check if transcript actually changed
-      const block = overlapping[0];
+    if (mergedCount > 1 && overlappingLines.length > 0) {
+      // This is a merged block - combine overlapping lines and compare
+      const combinedText = overlappingLines.map(ol => ol.line.text).join(' ');
+      const combinedCanonical = overlappingLines.map(ol => ol.line.canonical).join(' ');
       const storedCanonical = block.properties['canonical-transcript'] || '';
       
-      if (storedCanonical === newCanonical) {
-        // Transcript unchanged → preserve ALL user edits
+      // Validate: expected count should roughly match actual count
+      if (Math.abs(mergedCount - overlappingLines.length) > 1) {
+        console.warn(`Merged block count mismatch: expected ${mergedCount}, found ${overlappingLines.length}`);
+      }
+      
+      if (combinedCanonical === storedCanonical) {
+        // Canonical match - preserve merged block with all user edits
+        actions.push({
+          type: 'SKIP_MERGED',
+          reason: 'canonical-unchanged',
+          blockUuid: block.uuid,
+          mergedCount,
+          consumedLines: overlappingLines.map(ol => ol.index)
+        });
+        
+        // Mark these lines as consumed
+        overlappingLines.forEach(ol => consumedLineIndices.add(ol.index));
+      } else {
+        // Canonical changed - update the merged block
+        const newMinY = Math.min(...overlappingLines.map(ol => ol.bounds.minY));
+        const newMaxY = Math.max(...overlappingLines.map(ol => ol.bounds.maxY));
+        
+        actions.push({
+          type: 'UPDATE_MERGED',
+          blockUuid: block.uuid,
+          line: {
+            text: combinedText,
+            canonical: combinedCanonical,
+            yBounds: { minY: newMinY, maxY: newMaxY },
+            mergedLineCount: overlappingLines.length,
+            indentLevel: overlappingLines[0].line.indentLevel || 0
+          },
+          oldContent: block.content,
+          consumedLines: overlappingLines.map(ol => ol.index)
+        });
+        
+        // Mark these lines as consumed
+        overlappingLines.forEach(ol => consumedLineIndices.add(ol.index));
+      }
+    } else if (overlappingLines.length === 1) {
+      // Single line block - standard handling
+      const { line, index, bounds } = overlappingLines[0];
+      const storedCanonical = block.properties['canonical-transcript'] || '';
+      
+      if (line.canonical === storedCanonical) {
         actions.push({
           type: 'SKIP',
           reason: 'canonical-unchanged',
@@ -180,28 +240,44 @@ async function detectBlockActions(existingBlocks, newLines, strokes) {
           line
         });
       } else {
-        // Transcript changed → update needed
         actions.push({
           type: 'UPDATE',
           blockUuid: block.uuid,
           line,
-          bounds: lineBounds,
-          canonical: newCanonical,
+          bounds,
+          canonical: line.canonical,
           oldContent: block.content
         });
       }
       
+      consumedLineIndices.add(index);
     } else {
-      // Multiple overlaps → conflict
+      // Multiple overlaps but not marked as merged - conflict
       actions.push({
         type: 'MERGE_CONFLICT',
-        blocks: overlapping,
-        line,
-        bounds: lineBounds,
-        canonical: newCanonical
+        block,
+        overlappingLines,
+        blockBounds
       });
+      
+      // Mark these lines as consumed
+      overlappingLines.forEach(ol => consumedLineIndices.add(ol.index));
     }
   }
+  
+  // Second pass: Create blocks for unconsumed lines (new content)
+  newLines.forEach((line, index) => {
+    if (consumedLineIndices.has(index)) return;
+    
+    const lineBounds = calculateLineBounds(line, strokes);
+    actions.push({
+      type: 'CREATE',
+      line,
+      bounds: lineBounds,
+      canonical: line.canonical,
+      parentUuid: null // Will be determined later based on line.parent
+    });
+  });
   
   return actions;
 }
@@ -266,6 +342,9 @@ export async function updateTranscriptBlocks(book, page, strokes, newTranscripti
       conflict: actions.filter(a => a.type === 'MERGE_CONFLICT').length
     });
     
+    // Track which existing blocks were matched/used
+    const usedBlockUuids = new Set();
+    
     // Execute actions
     const results = [];
     const lineToBlockMap = new Map(); // Track line index to block UUID mapping
@@ -308,12 +387,38 @@ export async function updateTranscriptBlocks(book, page, strokes, newTranscripti
               token
             );
             
+            usedBlockUuids.add(action.blockUuid);
             lineToBlockMap.set(i, action.blockUuid);
             results.push({ type: 'updated', uuid: action.blockUuid, lineIndex: i });
             break;
           }
           
+          case 'UPDATE_MERGED': {
+            await updateTranscriptBlockWithPreservation(
+              action.blockUuid,
+              action.line,
+              action.oldContent,
+              host,
+              token
+            );
+            
+            usedBlockUuids.add(action.blockUuid);
+            // Update mapping for all consumed lines
+            action.consumedLines.forEach(lineIdx => {
+              lineToBlockMap.set(lineIdx, action.blockUuid);
+            });
+            
+            results.push({ 
+              type: 'updated-merged', 
+              uuid: action.blockUuid, 
+              mergedCount: action.line.mergedLineCount,
+              consumedLines: action.consumedLines
+            });
+            break;
+          }
+          
           case 'SKIP': {
+            usedBlockUuids.add(action.blockUuid);
             lineToBlockMap.set(i, action.blockUuid);
             results.push({ 
               type: 'skipped', 
@@ -324,8 +429,26 @@ export async function updateTranscriptBlocks(book, page, strokes, newTranscripti
             break;
           }
           
+          case 'SKIP_MERGED': {
+            usedBlockUuids.add(action.blockUuid);
+            // Update mapping for all consumed lines
+            action.consumedLines.forEach(lineIdx => {
+              lineToBlockMap.set(lineIdx, action.blockUuid);
+            });
+            
+            results.push({ 
+              type: 'skipped-merged', 
+              uuid: action.blockUuid, 
+              reason: action.reason,
+              mergedCount: action.mergedCount,
+              consumedLines: action.consumedLines
+            });
+            break;
+          }
+          
           case 'MERGE_CONFLICT': {
             const resolution = await handleMergeConflict(action, host, token);
+            usedBlockUuids.add(resolution.blockUuid);
             lineToBlockMap.set(i, resolution.blockUuid);
             results.push({ 
               type: 'merged', 
@@ -347,6 +470,32 @@ export async function updateTranscriptBlocks(book, page, strokes, newTranscripti
       }
     }
     
+    // Delete orphaned blocks (blocks that weren't used/matched)
+    const orphanedBlocks = existingBlocks.filter(b => !usedBlockUuids.has(b.uuid));
+    
+    if (orphanedBlocks.length > 0) {
+      console.log(`Deleting ${orphanedBlocks.length} orphaned blocks (no longer have matching strokes)`);
+      
+      for (const block of orphanedBlocks) {
+        try {
+          await makeRequest(host, token, 'logseq.Editor.removeBlock', [block.uuid]);
+          results.push({ 
+            type: 'deleted', 
+            uuid: block.uuid, 
+            reason: 'orphaned'
+          });
+        } catch (error) {
+          console.error(`Failed to delete orphaned block ${block.uuid}:`, error);
+          results.push({ 
+            type: 'error', 
+            action: 'DELETE', 
+            error: error.message,
+            uuid: block.uuid
+          });
+        }
+      }
+    }
+    
     return {
       success: true,
       page: pageName,
@@ -356,6 +505,7 @@ export async function updateTranscriptBlocks(book, page, strokes, newTranscripti
         updated: results.filter(r => r.type === 'updated').length,
         skipped: results.filter(r => r.type === 'skipped').length,
         merged: results.filter(r => r.type === 'merged').length,
+        deleted: results.filter(r => r.type === 'deleted').length,
         errors: results.filter(r => r.type === 'error').length
       }
     };
@@ -370,6 +520,7 @@ export async function updateTranscriptBlocks(book, page, strokes, newTranscripti
         updated: 0,
         skipped: 0,
         merged: 0,
+        deleted: 0,
         errors: 0
       }
     };
