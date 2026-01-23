@@ -916,7 +916,7 @@ function updateBlockWithPreservation(oldContent, newTranscript) {
 /**
  * Create a transcript block with properties (new v2.0 format)
  * @param {string} parentUuid - Parent block UUID
- * @param {Object} line - Line object with text, canonical, yBounds, etc.
+ * @param {Object} line - Line object with text, canonical, yBounds, strokeIds, etc.
  * @param {string} host - LogSeq API host
  * @param {string} token - Optional auth token
  * @returns {Promise<Object>} Created block object
@@ -930,6 +930,11 @@ export async function createTranscriptBlockWithProperties(parentUuid, line, host
     'stroke-y-bounds': bounds,
     'canonical-transcript': canonical
   };
+  
+  // Add stroke IDs if available
+  if (line.strokeIds && line.strokeIds.size > 0) {
+    properties['stroke-ids'] = Array.from(line.strokeIds).join(',');
+  }
   
   // Add merged-lines property if this is a merged block
   if (line.mergedLineCount && line.mergedLineCount > 1) {
@@ -949,7 +954,7 @@ export async function createTranscriptBlockWithProperties(parentUuid, line, host
 /**
  * Update a transcript block with preservation (new v2.0 format)
  * @param {string} blockUuid - Block UUID to update
- * @param {Object} line - New line object
+ * @param {Object} line - New line object with strokeIds
  * @param {string} oldContent - Existing block content
  * @param {string} host - LogSeq API host
  * @param {string} token - Optional auth token
@@ -977,6 +982,15 @@ export async function updateTranscriptBlockWithPreservation(blockUuid, line, old
     'canonical-transcript',
     newCanonical
   ]);
+  
+  // Update stroke IDs if available
+  if (line.strokeIds && line.strokeIds.size > 0) {
+    await makeRequest(host, token, 'logseq.Editor.upsertBlockProperty', [
+      blockUuid,
+      'stroke-ids',
+      Array.from(line.strokeIds).join(',')
+    ]);
+  }
   
   // Update merged-lines property if applicable
   if (line.mergedLineCount && line.mergedLineCount > 1) {
