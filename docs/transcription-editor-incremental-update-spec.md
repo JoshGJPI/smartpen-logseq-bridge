@@ -4,7 +4,7 @@
 - **Created**: 2026-01-22
 - **Updated**: 2026-01-23
 - **Status**: Implementation Ready
-- **Version**: 3.1 (Y-Bounds Stroke Estimation)
+- **Version**: 4.1 (Stroke → Block Reference with Persistence)
 
 ---
 
@@ -12,633 +12,793 @@
 
 The SmartPen-LogSeq Bridge has a transcription editing system that allows users to merge, split, and refine handwriting recognition results. However, **re-transcribing a page with additional strokes deletes previously edited content** instead of intelligently merging new content with existing blocks.
 
-This document provides complete implementation guidance for the **Stroke ID Tracking** solution using Y-bounds estimation, which:
-1. Tracks which strokes belong to each transcription block (using pen timestamps)
-2. Matches blocks by stroke ID overlap instead of Y-bounds
-3. Never deletes blocks unless their strokes are explicitly deleted
+This document provides complete implementation guidance for the **Stroke → Block Reference** solution with full persistence, which:
+1. Stores the LogSeq block UUID on each stroke (not the reverse)
+2. Persists blockUuid in the chunked stroke storage in LogSeq
+3. Restores stroke→block associations when loading data between sessions
+4. Detects new strokes by checking `!stroke.blockUuid`
+5. Only transcribes new strokes, leaving existing blocks untouched
 
-**Key Insight**: Stroke IDs are pen timestamps (`stroke.startTime`), not MyScript data. We estimate which strokes belong to each line by checking which strokes fall within the line's Y-bounds.
+**Key Insight**: The stroke→block relationship must survive across app sessions. This requires updating the stroke storage format to include `blockUuid` and ensuring it's properly saved and loaded.
 
 ---
 
 ## Table of Contents
 1. [Problem Analysis](#problem-analysis)
 2. [Solution Overview](#solution-overview)
-3. [Implementation Guide](#implementation-guide)
-4. [Code Changes](#code-changes)
-5. [Testing Plan](#testing-plan)
+3. [Data Model](#data-model)
+4. [Implementation Guide](#implementation-guide)
+5. [Session Workflows](#session-workflows)
+6. [Testing Plan](#testing-plan)
 
 ---
 
 ## Problem Analysis
 
-### The Failing Workflow
+### Previous Approach Issues
 
-#### Initial State
-1. User writes on page → has 20 strokes
-2. User transcribes → creates 10 blocks in LogSeq
-3. User edits in modal → merges lines, fixes typos → saves
-4. Result: 7 clean, edited blocks in LogSeq ✅
+**Version 3.x (Stroke IDs on Block)** failed because:
+1. **Block content too long** - Storing hundreds of stroke timestamps exceeded LogSeq's block size limits
+2. **Y-bounds returning 0-0** - Separate bug to fix
 
-#### Adding More Content (THE PROBLEM)
-5. User writes more on same page → now has 40 strokes (20 old + 20 new)
-6. User re-transcribes all strokes → gets 20 lines (10 old + 10 new)
-7. System matches by Y-bounds:
-   - Old blocks (7) → some match, some don't (because merged)
-   - New lines (10) → create new blocks
-   - **Merged blocks** → Y-bounds mismatch → deleted as "orphaned" ❌
-8. Result: All user edits from step 3 are **lost**
+**Version 4.0 (In-Memory Only)** would fail because:
+1. **No persistence** - Stroke→block associations lost on page reload
+2. **Session continuity** - Can't continue work across sessions
 
-### Root Cause Analysis
+### Requirements
 
-The current `updateTranscriptBlocks()` in `transcript-updater.js` uses **Y-bounds overlap detection**:
-
-```javascript
-// Current problematic logic (lines 47-55)
-const overlappingLines = newLines.filter(line => {
-  const lineBounds = calculateLineBounds(line, strokes);
-  return boundsOverlap(blockBounds, lineBounds);
-});
-
-// If no overlaps → block is "orphaned" → DELETED
-```
-
-**Why this fails for merged blocks:**
-
-| Scenario | Block Y-Bounds | New Lines | Result |
-|----------|---------------|-----------|--------|
-| Original 2 lines | Line 1: 10-30, Line 2: 31-50 | 2 lines match | ✅ Works |
-| After merge | Single block: 10-50 | 2 lines partially overlap | ⚠️ Fragile |
-| Transcribe NEW only | Single block: 10-50 | 0 overlapping lines | ❌ DELETED |
-
-### Data Available
-
-**From Pen:**
-- `stroke.startTime` - Unique timestamp for each stroke (our Stroke ID)
-- `stroke.dotArray` - All points with X/Y coordinates
-- `stroke.pageInfo` - Book/page identification
-
-**From MyScript:**
-- Line text and canonical form
-- Word bounding boxes (gives us line Y-bounds)
-- Indentation (X position)
-
-**Key Insight**: We can estimate which strokes belong to each transcribed line by checking which strokes have dots within the line's Y-bounds. No additional MyScript data needed.
+1. Stroke→block association must persist in LogSeq storage
+2. Loading strokes must restore `blockUuid` values
+3. Saving after transcription must update stored strokes with new `blockUuid` values
+4. Merging blocks must update stored strokes with new associations
 
 ---
 
 ## Solution Overview
 
-### Stroke ID Tracking via Y-Bounds Estimation
-
-**Core Principle**: When creating a transcription block, calculate which strokes fall within the line's Y-bounds and store their timestamps. Future matching uses stroke ID overlap instead of Y-bounds.
+### Architecture
 
 ```
-STEP 1 - Block Creation:
-  Line Y-Bounds: 10-50
-  Strokes in range: [stroke A, stroke B, stroke C]
-  Store: stroke-ids = "1706234567890,1706234567891,1706234568000"
+┌─────────────────────────────────────────────────────────────────┐
+│                        LogSeq Storage                           │
+├─────────────────────────────────────────────────────────────────┤
+│  Smartpen Data/B123/P1                                          │
+│  ├── ## Raw Stroke Data                                         │
+│  │   ├── {metadata: {chunks: 3, totalStrokes: 450}}            │
+│  │   ├── {chunkIndex: 0, strokes: [{id, blockUuid, ...}, ...]} │ ← NEW: blockUuid
+│  │   ├── {chunkIndex: 1, strokes: [...]}                       │
+│  │   └── {chunkIndex: 2, strokes: [...]}                       │
+│  └── ## Transcribed Content                                     │
+│      ├── Block A (uuid: abc-123)                                │
+│      │   └── stroke-y-bounds:: 10.0-35.0                       │
+│      └── Block B (uuid: def-456)                                │
+│          └── stroke-y-bounds:: 40.0-60.0                       │
+└─────────────────────────────────────────────────────────────────┘
 
-STEP 2 - Future Matching:
-  Block Stroke IDs: {1706234567890, 1706234567891, 1706234568000}
-  New Line Stroke IDs: {1706234567890, 1706234567891, 1706234568000}
-  Match? YES (sets overlap) → Update or Skip based on canonical
+┌─────────────────────────────────────────────────────────────────┐
+│                     In-Memory (strokes store)                   │
+├─────────────────────────────────────────────────────────────────┤
+│  [                                                              │
+│    { startTime, dotArray, pageInfo, blockUuid: "abc-123" },    │
+│    { startTime, dotArray, pageInfo, blockUuid: "abc-123" },    │
+│    { startTime, dotArray, pageInfo, blockUuid: "def-456" },    │
+│    { startTime, dotArray, pageInfo, blockUuid: null },  ← NEW  │
+│  ]                                                              │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### Why This Works for Merged Blocks
-
-When user merges Line 1 + Line 2:
-- Merged block gets combined stroke IDs from both lines
-- Future transcription produces Line 1 and Line 2 separately
-- Both lines' stroke IDs overlap with the merged block → matched correctly
+### Data Flow
 
 ```
-Before Merge:
-  Block 1: stroke-ids = "A,B"     (Line 1)
-  Block 2: stroke-ids = "C,D"     (Line 2)
+SAVE STROKES (with blockUuid):
+  In-memory strokes → convertToStorageFormat() → includes blockUuid
+  → Write to LogSeq chunks → blockUuid persisted
 
-After Merge:
-  Merged Block: stroke-ids = "A,B,C,D"
+LOAD STROKES:
+  Read LogSeq chunks → parseChunkedJsonBlocks() → includes blockUuid
+  → convertFromStorageFormat() → populate strokes store with blockUuid
 
-Re-transcription produces:
-  New Line 1: stroke-ids = {A,B}  → overlaps with merged block ✅
-  New Line 2: stroke-ids = {C,D}  → overlaps with merged block ✅
+TRANSCRIBE:
+  Filter strokes where !blockUuid → Send to MyScript
+  → Create blocks → Match strokes to blocks by Y-bounds
+  → Update strokes with blockUuid → Save strokes (persist new blockUuids)
+
+MERGE BLOCKS:
+  Block B merged into Block A → Update strokes where blockUuid=B to blockUuid=A
+  → Save strokes (persist updated blockUuids)
+```
+
+---
+
+## Data Model
+
+### Stroke Object (In-Memory)
+
+```javascript
+// In strokes store
+{
+  // Existing fields from pen
+  pageInfo: { section: 0, owner: 0, book: 123, page: 1 },
+  startTime: 1706234567890,        // Unique identifier
+  endTime: 1706234568500,
+  dotArray: [
+    { x: 10.5, y: 20.3, f: 512, timestamp: 1706234567890 },
+    // ...
+  ],
   
-Result: Merged block is matched and preserved!
+  // NEW: LogSeq block reference (persisted)
+  blockUuid: "64a3f2b1-8c2e-4f1a-9d3b-7e6c5a4b3c2d" | null
+}
+```
+
+### Stroke Storage Format (JSON in LogSeq)
+
+```javascript
+// Simplified stroke format for storage (in chunks)
+{
+  id: "s1706234567890",
+  startTime: 1706234567890,
+  endTime: 1706234568500,
+  blockUuid: "64a3f2b1-..." | null,  // NEW: Persisted block reference
+  points: [[x, y, timestamp], ...]
+}
+```
+
+### Block Properties (Simplified)
+
+```javascript
+{
+  'stroke-y-bounds': '45.2-68.7'  // Y coordinate range for stroke assignment
+}
 ```
 
 ---
 
 ## Implementation Guide
 
-### Phase 1: Immediate Fix - Safe Orphan Handling
-**Effort**: 30 minutes | **Impact**: HIGH - Stops data loss immediately
+### Phase 1: Update Stroke Storage Format
+**Effort**: 30 minutes | **Impact**: Foundation for persistence
 
-Modify `transcript-updater.js` to only delete blocks when their strokes are gone from the canvas.
+Modify `stroke-storage.js` to include `blockUuid` in storage format.
 
-**File**: `src/lib/transcript-updater.js`
-**Location**: Lines 280-305 (orphan deletion section)
+**File**: `src/lib/stroke-storage.js`
+
+#### 1.1 Update `convertToStorageFormat()`
 
 ```javascript
-// REPLACE the current orphan deletion logic with this:
+/**
+ * Convert raw pen strokes to simplified storage format
+ * Now includes blockUuid for persistence
+ * 
+ * @param {Array} strokes - Raw strokes from pen (with optional blockUuid)
+ * @returns {Array} Simplified strokes with essential data + blockUuid
+ */
+export function convertToStorageFormat(strokes) {
+  return strokes.map(stroke => ({
+    id: generateStrokeId(stroke),
+    startTime: stroke.startTime,
+    endTime: stroke.endTime,
+    blockUuid: stroke.blockUuid || null,  // NEW: Persist block reference
+    points: stroke.dotArray.map(dot => [
+      dot.x,
+      dot.y,
+      dot.timestamp
+    ])
+  }));
+}
+```
 
-// Build set of all current stroke timestamps for existence check
-const currentStrokeTimestamps = new Set(
-  strokes.map(s => String(s.startTime))
-);
+#### 1.2 Add `convertFromStorageFormat()`
 
-// Check orphaned blocks - only delete if strokes no longer exist
-const orphanedBlocks = existingBlocks.filter(b => !usedBlockUuids.has(b.uuid));
+```javascript
+/**
+ * Convert stored strokes back to in-memory format
+ * Restores blockUuid from storage
+ * 
+ * @param {Array} storedStrokes - Simplified strokes from LogSeq
+ * @param {Object} pageInfo - Page info to attach
+ * @returns {Array} Full stroke objects for strokes store
+ */
+export function convertFromStorageFormat(storedStrokes, pageInfo) {
+  return storedStrokes.map(stored => ({
+    pageInfo: pageInfo,
+    startTime: stored.startTime,
+    endTime: stored.endTime,
+    blockUuid: stored.blockUuid || null,  // Restore block reference
+    dotArray: stored.points.map(([x, y, timestamp]) => ({
+      x,
+      y,
+      f: 512,  // Default pressure (not stored)
+      timestamp
+    }))
+  }));
+}
+```
 
-for (const block of orphanedBlocks) {
-  // Parse stroke IDs from block (if available)
-  const strokeIdsStr = block.properties?.['stroke-ids'];
+#### 1.3 Update `parseChunkedJsonBlocks()` to Return blockUuid
+
+The existing function already returns strokes - just ensure the strokes include `blockUuid`:
+
+```javascript
+/**
+ * Parse chunked JSON blocks from LogSeq
+ * @param {Array} childBlocks - All child blocks under "Raw Stroke Data"
+ * @returns {Object|null} Reconstructed storage object or null
+ */
+export function parseChunkedJsonBlocks(childBlocks) {
+  if (!childBlocks || childBlocks.length === 0) return null;
   
-  if (strokeIdsStr) {
-    // Block has stroke IDs - check if any strokes still exist
-    const blockStrokeIds = strokeIdsStr.split(',').map(id => id.trim());
-    const strokesStillExist = blockStrokeIds.some(id => 
-      currentStrokeTimestamps.has(id)
-    );
-    
-    if (strokesStillExist) {
-      // Strokes exist but block wasn't matched - PRESERVE IT
-      console.log(`Preserving unmatched block ${block.uuid} - strokes still exist`);
-      results.push({ 
-        type: 'preserved', 
-        uuid: block.uuid, 
-        reason: 'strokes-exist-unmatched'
-      });
-      continue; // Don't delete
-    }
-  } else {
-    // Block without stroke IDs - DON'T delete (safe default)
-    console.log(`Preserving block ${block.uuid} - no stroke IDs to verify`);
-    results.push({ 
-      type: 'preserved', 
-      uuid: block.uuid, 
-      reason: 'no-stroke-ids'
-    });
-    continue;
-  }
-  
-  // Only reach here if block has stroke IDs AND none of those strokes exist
   try {
-    await makeRequest(host, token, 'logseq.Editor.removeBlock', [block.uuid]);
-    results.push({ 
-      type: 'deleted', 
-      uuid: block.uuid, 
-      reason: 'strokes-deleted'
-    });
+    // First block is metadata
+    const metadata = parseJsonBlock(childBlocks[0].content);
+    if (!metadata) return null;
+    
+    // Remaining blocks are stroke chunks
+    const allStrokes = [];
+    for (let i = 1; i < childBlocks.length; i++) {
+      const chunk = parseJsonBlock(childBlocks[i].content);
+      if (chunk && chunk.strokes) {
+        // Strokes now include blockUuid (may be null for old data)
+        allStrokes.push(...chunk.strokes);
+      }
+    }
+    
+    return {
+      version: metadata.version,
+      pageInfo: metadata.pageInfo,
+      strokes: allStrokes,  // Each stroke has { id, startTime, endTime, blockUuid, points }
+      metadata: metadata.metadata
+    };
   } catch (error) {
-    console.error(`Failed to delete orphaned block ${block.uuid}:`, error);
-    results.push({ 
-      type: 'error', 
-      action: 'DELETE', 
-      error: error.message,
-      uuid: block.uuid
-    });
+    console.error('Failed to parse chunked blocks:', error);
+    return null;
   }
 }
 ```
 
 ---
 
-### Phase 2: Add Stroke ID Estimation Function
-**Effort**: 30 minutes | **Impact**: HIGH - Enables stroke tracking
+### Phase 2: Update Stroke Store
+**Effort**: 45 minutes | **Impact**: Enables all workflows
 
-Add a helper function to estimate which strokes belong to a line based on Y-bounds overlap.
+Add functions to manage `blockUuid` and load/hydrate strokes from storage.
 
-**File**: `src/lib/transcript-updater.js`
-**Location**: Add near top of file with other helpers
+**File**: `src/stores/strokes.js`
 
 ```javascript
+import { writable, derived } from 'svelte/store';
+import { registerBookId, registerBookIds } from './book-aliases.js';
+
+// Raw stroke data
+export const strokes = writable([]);
+
+// ... existing code ...
+
 /**
- * Estimate which strokes belong to a transcription line
- * Uses Y-bounds overlap between stroke dots and line bounding box
- * 
- * @param {Object} line - Transcription line with yBounds
- * @param {Array} strokes - All strokes from the page
- * @param {number} tolerance - Y-tolerance for overlap detection (default 5 units)
- * @returns {Set<string>} Set of stroke timestamps (as strings)
+ * Load strokes from storage format into the store
+ * Used when loading data from LogSeq
+ * @param {Array} storedStrokes - Strokes from storage (with blockUuid)
+ * @param {Object} pageInfo - Page info to attach
  */
-function estimateLineStrokeIds(line, strokes, tolerance = 5) {
-  const strokeIds = new Set();
+export function loadStrokesFromStorage(storedStrokes, pageInfo) {
+  if (!storedStrokes || storedStrokes.length === 0) return;
   
-  if (!line.yBounds || !strokes || strokes.length === 0) {
-    return strokeIds;
+  // Register book ID
+  if (pageInfo?.book) {
+    registerBookId(pageInfo.book);
   }
   
-  const lineMinY = line.yBounds.minY - tolerance;
-  const lineMaxY = line.yBounds.maxY + tolerance;
+  // Convert from storage format (restores blockUuid)
+  const fullStrokes = storedStrokes.map(stored => ({
+    pageInfo: pageInfo,
+    startTime: stored.startTime,
+    endTime: stored.endTime,
+    blockUuid: stored.blockUuid || null,
+    dotArray: stored.points.map(([x, y, timestamp]) => ({
+      x,
+      y,
+      f: 512,
+      timestamp
+    }))
+  }));
+  
+  // Add to store (avoiding duplicates by startTime)
+  strokes.update(existing => {
+    const existingIds = new Set(existing.map(s => s.startTime));
+    const newStrokes = fullStrokes.filter(s => !existingIds.has(s.startTime));
+    return [...existing, ...newStrokes];
+  });
+}
+
+/**
+ * Update blockUuid for specific strokes
+ * @param {Map<string, string>} strokeToBlockMap - Map of stroke startTime -> blockUuid
+ */
+export function updateStrokeBlockUuids(strokeToBlockMap) {
+  strokes.update(allStrokes => {
+    return allStrokes.map(stroke => {
+      const blockUuid = strokeToBlockMap.get(String(stroke.startTime));
+      if (blockUuid !== undefined) {
+        return { ...stroke, blockUuid };
+      }
+      return stroke;
+    });
+  });
+}
+
+/**
+ * Get strokes that haven't been transcribed yet (no blockUuid)
+ * @param {Array} strokeList - Array of strokes to filter
+ * @returns {Array} Strokes without blockUuid
+ */
+export function getUntranscribedStrokes(strokeList) {
+  return strokeList.filter(stroke => !stroke.blockUuid);
+}
+
+/**
+ * Get strokes assigned to a specific block
+ * @param {string} blockUuid - Block UUID to search for
+ * @returns {Array} Strokes belonging to this block
+ */
+export function getStrokesForBlock(blockUuid) {
+  let result = [];
+  const unsubscribe = strokes.subscribe(allStrokes => {
+    result = allStrokes.filter(s => s.blockUuid === blockUuid);
+  });
+  unsubscribe();
+  return result;
+}
+
+/**
+ * Reassign strokes from one block to another (for merges)
+ * @param {string} fromBlockUuid - Source block UUID
+ * @param {string} toBlockUuid - Target block UUID
+ * @returns {number} Count of strokes reassigned
+ */
+export function reassignStrokes(fromBlockUuid, toBlockUuid) {
+  let count = 0;
+  strokes.update(allStrokes => {
+    return allStrokes.map(stroke => {
+      if (stroke.blockUuid === fromBlockUuid) {
+        count++;
+        return { ...stroke, blockUuid: toBlockUuid };
+      }
+      return stroke;
+    });
+  });
+  return count;
+}
+
+/**
+ * Clear blockUuid from strokes (for re-transcription)
+ * @param {Array<number>} strokeTimestamps - Stroke startTimes to clear
+ */
+export function clearStrokeBlockUuids(strokeTimestamps) {
+  const timestampSet = new Set(strokeTimestamps.map(Number));
+  strokes.update(allStrokes => {
+    return allStrokes.map(stroke => {
+      if (timestampSet.has(stroke.startTime)) {
+        return { ...stroke, blockUuid: null };
+      }
+      return stroke;
+    });
+  });
+}
+
+/**
+ * Get current strokes array (for saving)
+ * @returns {Array} Current strokes
+ */
+export function getStrokesSnapshot() {
+  let snapshot = [];
+  const unsubscribe = strokes.subscribe(s => snapshot = s);
+  unsubscribe();
+  return snapshot;
+}
+```
+
+---
+
+### Phase 3: Update Save Flow to Persist blockUuid
+**Effort**: 30 minutes | **Impact**: Persistence works
+
+The existing `updatePageStrokes()` already uses `convertToStorageFormat()`. 
+After updating Phase 1, blockUuid will automatically be persisted.
+
+**Verification**: Ensure `updatePageStrokes()` in `logseq-api.js` uses `convertToStorageFormat()`:
+
+```javascript
+// In updatePageStrokesSingle() - already exists
+const simplifiedStrokes = convertToStorageFormat(newStrokes);
+// ↑ This now includes blockUuid automatically after Phase 1 changes
+```
+
+---
+
+### Phase 4: Load Strokes with blockUuid
+**Effort**: 45 minutes | **Impact**: Session continuity
+
+Add function to load strokes from LogSeq and hydrate the store.
+
+**File**: `src/lib/logseq-api.js`
+
+```javascript
+import { loadStrokesFromStorage } from '$stores/strokes.js';
+import { convertFromStorageFormat } from './stroke-storage.js';
+
+/**
+ * Load strokes from LogSeq storage into the strokes store
+ * Restores blockUuid associations from previous sessions
+ * 
+ * @param {number} book - Book ID
+ * @param {number} page - Page number
+ * @param {string} host - LogSeq API host
+ * @param {string} token - Optional auth token
+ * @returns {Promise<Object>} { success, strokeCount, hasBlockUuids }
+ */
+export async function loadPageStrokesIntoStore(book, page, host, token = '') {
+  try {
+    const data = await getPageStrokes(book, page, host, token);
+    
+    if (!data || !data.strokes || data.strokes.length === 0) {
+      return { success: true, strokeCount: 0, hasBlockUuids: false };
+    }
+    
+    const pageInfo = data.pageInfo || { section: 0, owner: 0, book, page };
+    
+    // Load into store (converts from storage format, restores blockUuid)
+    loadStrokesFromStorage(data.strokes, pageInfo);
+    
+    // Check how many have blockUuid
+    const withBlockUuid = data.strokes.filter(s => s.blockUuid).length;
+    
+    console.log(`Loaded ${data.strokes.length} strokes for B${book}/P${page}, ${withBlockUuid} with blockUuid`);
+    
+    return {
+      success: true,
+      strokeCount: data.strokes.length,
+      hasBlockUuids: withBlockUuid > 0,
+      transcribedCount: withBlockUuid,
+      untranscribedCount: data.strokes.length - withBlockUuid
+    };
+    
+  } catch (error) {
+    console.error(`Failed to load strokes for B${book}/P${page}:`, error);
+    return { success: false, error: error.message };
+  }
+}
+```
+
+---
+
+### Phase 5: Update Transcription Save Flow
+**Effort**: 1-2 hours | **Impact**: Core functionality
+
+After creating transcription blocks, match strokes to blocks and persist.
+
+**File**: `src/lib/transcript-updater.js`
+
+```javascript
+import { 
+  updateStrokeBlockUuids, 
+  getStrokesSnapshot 
+} from '$stores/strokes.js';
+import { updatePageStrokes } from './logseq-api.js';
+
+/**
+ * Match strokes to transcription lines using Y-bounds overlap
+ * Returns map of stroke startTime -> blockUuid
+ */
+function matchStrokesToLines(strokes, linesWithBlocks, tolerance = 5) {
+  const strokeToBlockMap = new Map();
   
   for (const stroke of strokes) {
     if (!stroke.dotArray || stroke.dotArray.length === 0) continue;
     
-    // Check if any dot in the stroke falls within line's Y-bounds
-    const strokeIntersects = stroke.dotArray.some(dot => 
-      dot.y >= lineMinY && dot.y <= lineMaxY
-    );
+    // Get stroke's Y range
+    const strokeYs = stroke.dotArray.map(d => d.y);
+    const strokeMinY = Math.min(...strokeYs);
+    const strokeMaxY = Math.max(...strokeYs);
     
-    if (strokeIntersects) {
-      strokeIds.add(String(stroke.startTime));
+    // Find the line with best Y-bounds overlap
+    let bestMatch = null;
+    let bestOverlap = 0;
+    
+    for (const line of linesWithBlocks) {
+      if (!line.yBounds || !line.blockUuid) continue;
+      
+      const lineMinY = line.yBounds.minY - tolerance;
+      const lineMaxY = line.yBounds.maxY + tolerance;
+      
+      // Calculate overlap
+      const overlapMin = Math.max(strokeMinY, lineMinY);
+      const overlapMax = Math.min(strokeMaxY, lineMaxY);
+      const overlap = Math.max(0, overlapMax - overlapMin);
+      
+      if (overlap > bestOverlap) {
+        bestOverlap = overlap;
+        bestMatch = line;
+      }
+    }
+    
+    if (bestMatch) {
+      strokeToBlockMap.set(String(stroke.startTime), bestMatch.blockUuid);
     }
   }
   
-  return strokeIds;
+  return strokeToBlockMap;
 }
 
 /**
- * Parse stroke IDs from block property string
- * @param {string} strokeIdsStr - Comma-separated stroke timestamps
- * @returns {Set<string>} Set of stroke ID strings
+ * Main orchestrator for transcript block updates
+ * Creates blocks and assigns blockUuids to strokes, then persists
  */
-function parseStrokeIds(strokeIdsStr) {
-  if (!strokeIdsStr || typeof strokeIdsStr !== 'string') {
-    return new Set();
-  }
-  return new Set(strokeIdsStr.split(',').map(id => id.trim()).filter(Boolean));
-}
-
-/**
- * Check if two stroke ID sets have any overlap
- * @param {Set<string>} set1 
- * @param {Set<string>} set2 
- * @returns {boolean}
- */
-function strokeSetsOverlap(set1, set2) {
-  if (!set1 || !set2 || set1.size === 0 || set2.size === 0) {
-    return false;
-  }
-  for (const id of set1) {
-    if (set2.has(id)) return true;
-  }
-  return false;
-}
-
-/**
- * Merge stroke ID sets (for merged lines)
- * @param {Set<string>} set1 
- * @param {Set<string>} set2 
- * @returns {Set<string>}
- */
-function mergeStrokeSets(set1, set2) {
-  const merged = new Set(set1 || []);
-  if (set2) {
-    set2.forEach(id => merged.add(id));
-  }
-  return merged;
-}
-```
-
----
-
-### Phase 3: Store Stroke IDs When Creating Blocks
-**Effort**: 1 hour | **Impact**: HIGH - Enables future matching
-
-Modify block creation to estimate and store stroke IDs.
-
-**File**: `src/lib/logseq-api.js`
-
-#### 3.1 Update `createTranscriptBlockWithProperties()`
-
-Find this function and add stroke-ids property:
-
-```javascript
-/**
- * Create a transcript block with properties
- * @param {string} parentUuid - Parent block UUID
- * @param {Object} line - Line object with text, yBounds, strokeIds, etc.
- * @param {string} host - LogSeq API host
- * @param {string} token - Auth token
- */
-export async function createTranscriptBlockWithProperties(parentUuid, line, host, token = '') {
-  // Build properties object
-  const properties = {
-    'stroke-y-bounds': `${line.yBounds.minY.toFixed(1)}-${line.yBounds.maxY.toFixed(1)}`,
-    'canonical-transcript': line.canonical || line.text
-  };
-  
-  // NEW: Add stroke IDs if available
-  if (line.strokeIds && line.strokeIds.size > 0) {
-    properties['stroke-ids'] = Array.from(line.strokeIds).join(',');
-  }
-  
-  // Add merged line count if > 1
-  if (line.mergedLineCount && line.mergedLineCount > 1) {
-    properties['merged-lines'] = String(line.mergedLineCount);
-  }
-  
-  // ... rest of existing code (block creation) ...
-}
-```
-
-#### 3.2 Update `updateTranscriptBlockWithPreservation()`
-
-Ensure stroke IDs are preserved/updated when blocks are modified:
-
-```javascript
-/**
- * Update a transcript block while preserving user edits
- */
-export async function updateTranscriptBlockWithPreservation(blockUuid, newLine, oldContent, host, token = '') {
-  // ... existing preservation logic ...
-  
-  // Build updated properties
-  const properties = {
-    'stroke-y-bounds': `${newLine.yBounds.minY.toFixed(1)}-${newLine.yBounds.maxY.toFixed(1)}`,
-    'canonical-transcript': newLine.canonical || newLine.text
-  };
-  
-  // NEW: Update stroke IDs if available
-  if (newLine.strokeIds && newLine.strokeIds.size > 0) {
-    properties['stroke-ids'] = Array.from(newLine.strokeIds).join(',');
-  }
-  
-  if (newLine.mergedLineCount && newLine.mergedLineCount > 1) {
-    properties['merged-lines'] = String(newLine.mergedLineCount);
-  }
-  
-  // ... rest of existing code ...
-}
-```
-
----
-
-### Phase 4: Add Stroke IDs to Lines Before Block Creation
-**Effort**: 30 minutes | **Impact**: HIGH - Connects estimation to storage
-
-Modify `updateTranscriptBlocks()` to estimate stroke IDs for each line before creating blocks.
-
-**File**: `src/lib/transcript-updater.js`
-**Location**: In `updateTranscriptBlocks()`, before calling `detectBlockActions()`
-
-```javascript
 export async function updateTranscriptBlocks(book, page, strokes, newTranscription, host, token = '') {
   try {
-    // Ensure page exists
     const pageObj = await getOrCreateSmartpenPage(book, page, host, token);
     const pageName = pageObj.name || pageObj.originalName;
     
-    // Get existing transcript blocks
-    const existingBlocks = await getTranscriptBlocks(book, page, host, token);
+    const sectionUuid = await getOrCreateTranscriptSection(pageName, host, token);
     
-    console.log(`Found ${existingBlocks.length} existing transcript blocks`);
+    const results = [];
+    const linesWithBlocks = [];
     
-    // NEW: Estimate stroke IDs for each transcription line
-    const linesWithStrokeIds = newTranscription.lines.map(line => {
-      const lineBounds = line.yBounds || calculateLineBounds(line, strokes);
-      const strokeIds = estimateLineStrokeIds({ yBounds: lineBounds }, strokes);
-      
-      return {
-        ...line,
-        yBounds: lineBounds,
-        strokeIds: strokeIds
-      };
-    });
-    
-    console.log('Lines with stroke IDs:', linesWithStrokeIds.map(l => ({
-      text: l.text.substring(0, 30),
-      strokeCount: l.strokeIds.size
-    })));
-    
-    // Detect actions using lines WITH stroke IDs
-    const actions = await detectBlockActions(existingBlocks, linesWithStrokeIds, strokes);
-    
-    // ... rest of existing code ...
-  }
-}
-```
-
----
-
-### Phase 5: Implement Stroke ID Matching
-**Effort**: 1-2 hours | **Impact**: HIGH - Proper merge handling
-
-Replace the existing `detectBlockActions()` with stroke ID-based matching.
-
-**File**: `src/lib/transcript-updater.js`
-
-```javascript
-/**
- * Detect what action to take for each transcription line
- * Uses STROKE ID MATCHING as primary strategy, Y-bounds as fallback
- * 
- * @param {Array} existingBlocks - Existing transcript blocks from LogSeq
- * @param {Array} newLines - New transcription lines (with strokeIds)
- * @param {Array} strokes - All strokes for reference
- * @returns {Promise<Array>} Array of action objects
- */
-async function detectBlockActions(existingBlocks, newLines, strokes) {
-  const actions = [];
-  const consumedLineIndices = new Set();
-  const usedBlockUuids = new Set();
-  
-  // Build stroke timestamp set for existence checks
-  const currentStrokeTimestamps = new Set(strokes.map(s => String(s.startTime)));
-  
-  console.log('=== Block Matching Debug ===');
-  console.log(`Existing blocks: ${existingBlocks.length}`);
-  console.log(`New lines: ${newLines.length}`);
-  console.log(`Current strokes: ${currentStrokeTimestamps.size}`);
-  
-  // STRATEGY 1: Match blocks by stroke ID overlap (preferred)
-  for (const block of existingBlocks) {
-    const blockStrokeIds = parseStrokeIds(block.properties?.['stroke-ids']);
-    const blockBounds = parseYBounds(block.properties?.['stroke-y-bounds'] || '0-0');
-    const mergedCount = parseInt(block.properties?.['merged-lines']) || 1;
-    const storedCanonical = block.properties?.['canonical-transcript'] || '';
-    
-    console.log(`\nChecking block ${block.uuid.substring(0, 8)}...`);
-    console.log(`  Stroke IDs: ${blockStrokeIds.size}, Y-bounds: ${block.properties?.['stroke-y-bounds']}`);
-    
-    // Find lines with overlapping stroke IDs
-    let overlappingLines = [];
-    
-    if (blockStrokeIds.size > 0) {
-      // Primary: Match by stroke IDs
-      newLines.forEach((line, index) => {
-        if (consumedLineIndices.has(index)) return;
-        
-        if (line.strokeIds && strokeSetsOverlap(blockStrokeIds, line.strokeIds)) {
-          const lineBounds = line.yBounds || calculateLineBounds(line, strokes);
-          overlappingLines.push({ line, index, bounds: lineBounds });
-          console.log(`  → Matched line ${index} by stroke IDs: "${line.text.substring(0, 30)}..."`);
+    // Create blocks for each line
+    for (const line of newTranscription.lines) {
+      try {
+        let parentUuid = sectionUuid;
+        if (line.parent !== null && line.parent >= 0) {
+          const parentLine = linesWithBlocks[line.parent];
+          if (parentLine?.blockUuid) {
+            parentUuid = parentLine.blockUuid;
+          }
         }
-      });
-    }
-    
-    // Fallback: If no stroke ID matches AND block has no stroke IDs, try Y-bounds
-    if (overlappingLines.length === 0 && blockStrokeIds.size === 0) {
-      console.log(`  No stroke IDs - falling back to Y-bounds matching`);
-      newLines.forEach((line, index) => {
-        if (consumedLineIndices.has(index)) return;
         
-        const lineBounds = line.yBounds || calculateLineBounds(line, strokes);
-        if (boundsOverlap(blockBounds, lineBounds)) {
-          overlappingLines.push({ line, index, bounds: lineBounds });
-          console.log(`  → Matched line ${index} by Y-bounds: "${line.text.substring(0, 30)}..."`);
-        }
-      });
-    }
-    
-    // Process matches
-    if (overlappingLines.length === 0) {
-      // No matches - check if block's strokes still exist on canvas
-      const strokesExist = blockStrokeIds.size > 0 && 
-        [...blockStrokeIds].some(id => currentStrokeTimestamps.has(id));
-      
-      if (strokesExist || blockStrokeIds.size === 0) {
-        // Strokes exist OR no stroke IDs to verify - PRESERVE
-        console.log(`  → PRESERVE (${strokesExist ? 'strokes exist' : 'no stroke IDs'})`);
-        actions.push({
-          type: 'PRESERVE',
-          reason: strokesExist ? 'strokes-exist-no-new-lines' : 'no-stroke-ids',
-          blockUuid: block.uuid
+        const newBlock = await createTranscriptBlockWithProperties(
+          parentUuid,
+          line,
+          host,
+          token
+        );
+        
+        linesWithBlocks.push({
+          ...line,
+          blockUuid: newBlock.uuid
         });
-        usedBlockUuids.add(block.uuid);
-      } else {
-        console.log(`  → Will be deleted (strokes removed from canvas)`);
+        
+        results.push({ 
+          type: 'created', 
+          uuid: newBlock.uuid, 
+          text: line.text.substring(0, 30) 
+        });
+        
+      } catch (error) {
+        console.error(`Failed to create block for line:`, error);
+        linesWithBlocks.push({ ...line, blockUuid: null });
+        results.push({ type: 'error', error: error.message });
       }
-      continue;
     }
     
-    // Handle matched lines
-    // Combine all overlapping lines for comparison
-    const combinedCanonical = overlappingLines.map(ol => ol.line.canonical).join(' ');
-    const combinedStrokeIds = new Set();
-    overlappingLines.forEach(ol => {
-      if (ol.line.strokeIds) {
-        ol.line.strokeIds.forEach(id => combinedStrokeIds.add(id));
-      }
-    });
+    // Match strokes to blocks by Y-bounds
+    const strokeToBlockMap = matchStrokesToLines(strokes, linesWithBlocks);
     
-    // Check if canonical text matches
-    if (combinedCanonical === storedCanonical) {
-      // No change - skip
-      console.log(`  → SKIP (canonical unchanged)`);
-      actions.push({
-        type: overlappingLines.length > 1 ? 'SKIP_MERGED' : 'SKIP',
-        reason: 'canonical-unchanged',
-        blockUuid: block.uuid,
-        mergedCount: overlappingLines.length,
-        consumedLines: overlappingLines.map(ol => ol.index)
-      });
-    } else {
-      // Text changed - update
-      console.log(`  → UPDATE (canonical changed)`);
-      const combinedText = overlappingLines.map(ol => ol.line.text).join(' ');
-      const newMinY = Math.min(...overlappingLines.map(ol => ol.bounds.minY));
-      const newMaxY = Math.max(...overlappingLines.map(ol => ol.bounds.maxY));
-      
-      actions.push({
-        type: overlappingLines.length > 1 ? 'UPDATE_MERGED' : 'UPDATE',
-        blockUuid: block.uuid,
-        line: {
-          text: combinedText,
-          canonical: combinedCanonical,
-          yBounds: { minY: newMinY, maxY: newMaxY },
-          strokeIds: combinedStrokeIds,
-          mergedLineCount: overlappingLines.length,
-          indentLevel: overlappingLines[0].line.indentLevel || 0
-        },
-        oldContent: block.content,
-        consumedLines: overlappingLines.map(ol => ol.index)
-      });
+    console.log(`Assigning ${strokeToBlockMap.size} strokes to ${linesWithBlocks.length} blocks`);
+    
+    // Update in-memory strokes with block references
+    updateStrokeBlockUuids(strokeToBlockMap);
+    
+    // CRITICAL: Persist updated strokes (with blockUuid) to LogSeq
+    const allStrokes = getStrokesSnapshot();
+    const pageStrokes = allStrokes.filter(s => 
+      s.pageInfo?.book === book && s.pageInfo?.page === page
+    );
+    
+    if (pageStrokes.length > 0) {
+      console.log(`Persisting ${pageStrokes.length} strokes with updated blockUuids`);
+      await updatePageStrokes(book, page, pageStrokes, host, token);
     }
     
-    // Mark lines and block as used
-    overlappingLines.forEach(ol => consumedLineIndices.add(ol.index));
-    usedBlockUuids.add(block.uuid);
+    return {
+      success: true,
+      page: pageName,
+      results,
+      strokesAssigned: strokeToBlockMap.size,
+      stats: {
+        created: results.filter(r => r.type === 'created').length,
+        errors: results.filter(r => r.type === 'error').length
+      }
+    };
+    
+  } catch (error) {
+    console.error('Failed to update transcript blocks:', error);
+    return {
+      success: false,
+      error: error.message,
+      stats: { created: 0, errors: 1 }
+    };
   }
-  
-  // STRATEGY 2: Create blocks for unconsumed lines (new content)
-  newLines.forEach((line, index) => {
-    if (consumedLineIndices.has(index)) return;
-    
-    console.log(`\nNew line ${index}: "${line.text.substring(0, 30)}..." → CREATE`);
-    
-    const lineBounds = line.yBounds || calculateLineBounds(line, strokes);
-    actions.push({
-      type: 'CREATE',
-      line: {
-        ...line,
-        yBounds: lineBounds,
-        strokeIds: line.strokeIds || new Set()
-      },
-      bounds: lineBounds,
-      canonical: line.canonical,
-      parentUuid: null
-    });
-  });
-  
-  console.log('\n=== Action Summary ===');
-  console.log(`SKIP: ${actions.filter(a => a.type === 'SKIP' || a.type === 'SKIP_MERGED').length}`);
-  console.log(`UPDATE: ${actions.filter(a => a.type === 'UPDATE' || a.type === 'UPDATE_MERGED').length}`);
-  console.log(`CREATE: ${actions.filter(a => a.type === 'CREATE').length}`);
-  console.log(`PRESERVE: ${actions.filter(a => a.type === 'PRESERVE').length}`);
-  
-  return actions;
 }
 ```
 
 ---
 
-### Phase 6: Handle PRESERVE Action in Executor
-**Effort**: 15 minutes | **Impact**: MEDIUM - Completes the flow
+### Phase 6: Update Modal Merge Handling with Persistence
+**Effort**: 1 hour | **Impact**: Editor workflow
 
-Add handling for the new PRESERVE action type in the action executor loop.
+When blocks are merged, update strokes and persist changes.
 
-**File**: `src/lib/transcript-updater.js`
-**Location**: In the action execution switch statement
+**File**: `src/components/dialog/TranscriptionEditorModal.svelte`
 
 ```javascript
-// Add this case to the switch statement in updateTranscriptBlocks()
-case 'PRESERVE': {
-  usedBlockUuids.add(action.blockUuid);
-  results.push({ 
-    type: 'preserved', 
-    uuid: action.blockUuid, 
-    reason: action.reason
-  });
-  break;
+import { 
+  reassignStrokes, 
+  getStrokesSnapshot,
+  getStrokesInYRange 
+} from '$stores/strokes.js';
+import { updatePageStrokes } from '$lib/logseq-api.js';
+
+/**
+ * Handle save from editor modal
+ * Updates stroke references for merged/deleted blocks and persists
+ */
+async function handleSave() {
+  // ... existing save logic to update blocks in LogSeq ...
+  
+  let strokesChanged = false;
+  
+  // Handle merges - reassign strokes from deleted blocks
+  for (const merge of mergedBlocks) {
+    const count = reassignStrokes(merge.deletedBlockUuid, merge.survivingBlockUuid);
+    if (count > 0) {
+      strokesChanged = true;
+      console.log(`Reassigned ${count} strokes from ${merge.deletedBlockUuid} to ${merge.survivingBlockUuid}`);
+    }
+  }
+  
+  // Handle splits - assign strokes to new blocks by Y-bounds
+  for (const split of splitBlocks) {
+    const pageStrokes = getStrokesForPage(currentBook, currentPage);
+    const strokesForNewBlock = getStrokesInYRange(pageStrokes, split.newBlockYBounds);
+    
+    if (strokesForNewBlock.length > 0) {
+      const strokeToBlockMap = new Map();
+      for (const stroke of strokesForNewBlock) {
+        strokeToBlockMap.set(String(stroke.startTime), split.newBlockUuid);
+      }
+      updateStrokeBlockUuids(strokeToBlockMap);
+      strokesChanged = true;
+      console.log(`Assigned ${strokesForNewBlock.length} strokes to new split block`);
+    }
+  }
+  
+  // CRITICAL: Persist stroke changes if any were made
+  if (strokesChanged) {
+    const { host, token } = getLogseqSettings();
+    const pageStrokes = getStrokesForPage(currentBook, currentPage);
+    
+    if (pageStrokes.length > 0) {
+      console.log(`Persisting ${pageStrokes.length} strokes with updated blockUuids`);
+      await updatePageStrokes(currentBook, currentPage, pageStrokes, host, token);
+    }
+  }
+}
+
+// Helper to get strokes for a page
+function getStrokesForPage(book, page) {
+  const allStrokes = getStrokesSnapshot();
+  return allStrokes.filter(s => 
+    s.pageInfo?.book === book && s.pageInfo?.page === page
+  );
 }
 ```
 
-Also update the stats at the end:
+---
+
+### Phase 7: Incremental Transcription UI
+**Effort**: 1 hour | **Impact**: User experience
+
+Show users the transcription status and allow selective transcription.
+
+**File**: `src/components/header/ActionBar.svelte`
 
 ```javascript
-return {
-  success: true,
-  page: pageName,
-  results,
-  stats: {
-    created: results.filter(r => r.type === 'created').length,
-    updated: results.filter(r => r.type === 'updated' || r.type === 'updated-merged').length,
-    skipped: results.filter(r => r.type === 'skipped' || r.type === 'skipped-merged').length,
-    preserved: results.filter(r => r.type === 'preserved').length,  // NEW
-    merged: results.filter(r => r.type === 'merged').length,
-    deleted: results.filter(r => r.type === 'deleted').length,
-    errors: results.filter(r => r.type === 'error').length
+import { getUntranscribedStrokes } from '$stores/strokes.js';
+
+// Reactive: count untranscribed strokes
+$: untranscribedStrokes = getUntranscribedStrokes($strokes);
+$: untranscribedCount = untranscribedStrokes.length;
+$: allTranscribed = $strokeCount > 0 && untranscribedCount === 0;
+
+// Filter for selected page's strokes
+$: pageUntranscribedCount = (() => {
+  if (!$hasSelection) return untranscribedCount;
+  return getUntranscribedStrokes($selectedStrokes).length;
+})();
+
+async function handleTranscribe() {
+  // ... existing code ...
+  
+  // Only send untranscribed strokes to MyScript (plus context)
+  // User's selection determines context strokes
+  const strokesToSend = strokesToTranscribe;
+  
+  // Filter to only create blocks for NEW strokes' lines
+  const newStrokes = getUntranscribedStrokes(strokesToSend);
+  
+  if (newStrokes.length === 0 && !forceRetranscribe) {
+    log('All selected strokes are already transcribed', 'info');
+    return;
   }
-};
+  
+  // ... rest of transcription logic ...
+}
+```
+
+---
+
+## Session Workflows
+
+### Workflow A: First Transcription
+
+```
+1. User writes strokes → In-memory (blockUuid: null)
+2. User saves strokes → LogSeq storage (blockUuid: null)
+3. User transcribes → Creates blocks
+4. System matches strokes → Sets blockUuid in memory
+5. System persists strokes → LogSeq storage (blockUuid: "abc-123")
+```
+
+### Workflow B: Continue Across Sessions
+
+```
+Session 1:
+  - Write + Transcribe + Save → Strokes have blockUuid
+
+Session 2:
+  1. App loads strokes from LogSeq → blockUuid restored ✓
+  2. User writes MORE strokes → new strokes have blockUuid: null
+  3. User transcribes → Only new strokes sent (no blockUuid)
+  4. New blocks created → New strokes get blockUuid
+  5. Save → All blockUuids persisted
+  6. Existing blocks UNTOUCHED ✓
+```
+
+### Workflow C: Merge Lines
+
+```
+1. User opens editor modal
+2. User merges Block A + Block B → Block B deleted
+3. System finds strokes with blockUuid = B
+4. System updates them to blockUuid = A
+5. System persists strokes → Updated blockUuids saved
+6. Next session → Associations preserved ✓
+```
+
+### Workflow D: Delete Strokes
+
+```
+1. User selects strokes → Deletes them
+2. Strokes removed from store
+3. Save → Strokes removed from LogSeq storage
+4. Blocks remain in LogSeq (orphaned but not deleted)
+5. Optional: "Clean up orphaned blocks" feature
 ```
 
 ---
 
 ## Code Changes Summary
 
-| Phase | File | Function/Section | Change | Priority |
-|-------|------|-----------------|--------|----------|
-| 1 | `transcript-updater.js` | Orphan deletion loop | Replace | P1 - Critical |
-| 2 | `transcript-updater.js` | Top of file | Add helper functions | P1 - Critical |
-| 3 | `logseq-api.js` | `createTranscriptBlockWithProperties()` | Add stroke-ids | P1 - Critical |
-| 3 | `logseq-api.js` | `updateTranscriptBlockWithPreservation()` | Add stroke-ids | P1 - Critical |
-| 4 | `transcript-updater.js` | `updateTranscriptBlocks()` | Add stroke ID estimation | P1 - Critical |
-| 5 | `transcript-updater.js` | `detectBlockActions()` | Replace entirely | P1 - Critical |
-| 6 | `transcript-updater.js` | Action executor switch | Add PRESERVE case | P2 - High |
+| Phase | File | Change | Effort |
+|-------|------|--------|--------|
+| 1 | `stroke-storage.js` | Add blockUuid to storage format | 30 min |
+| 2 | `stores/strokes.js` | Add blockUuid management functions | 45 min |
+| 3 | `logseq-api.js` | Verify save includes blockUuid | 30 min |
+| 4 | `logseq-api.js` | Add `loadPageStrokesIntoStore()` | 45 min |
+| 5 | `transcript-updater.js` | Match strokes + persist after transcribe | 1-2 hr |
+| 6 | `TranscriptionEditorModal.svelte` | Persist after merge/split | 1 hr |
+| 7 | `ActionBar.svelte` | Show transcription status | 1 hr |
 
-**Total Estimated Effort**: 3-4 hours
+**Total Estimated Effort**: 6-8 hours
 
 ---
 
@@ -646,133 +806,89 @@ return {
 
 ### Test Scenarios
 
-#### Scenario 1: Basic Incremental Add ✅
-1. Write "Hello World" → Transcribe → Save
-2. Write "Goodbye Moon" below → Transcribe → Save
-3. **Expected**: Both blocks exist, original preserved
-4. **Verify**: First block has stroke-ids property
+#### Scenario 1: First Transcription + Persistence
+1. Write strokes → Save to LogSeq
+2. Transcribe → Save
+3. Close app → Reopen
+4. Load strokes from LogSeq
+5. **Verify**: Strokes have `blockUuid` populated
 
-#### Scenario 2: Merge Then Add (THE KEY TEST) ✅
-1. Write three lines → Transcribe → Save
-2. Edit: Merge lines 1+2 in modal → Save
-3. Write new line below → Transcribe → Save
-4. **Expected**: Merged block preserved with combined stroke-ids, new block created
-5. **Verify**: Merged block stroke-ids contains IDs from both original lines
+#### Scenario 2: Incremental Add Across Sessions
+1. Session 1: Write "Hello" → Transcribe → Save → Close
+2. Session 2: Open → Load strokes (should have blockUuid)
+3. Write "World" → New strokes have no blockUuid
+4. Transcribe → Only "World" should create new blocks
+5. Save → Close
+6. Session 3: Open → Load → All strokes have blockUuid
+7. **Verify**: "Hello" block untouched, "World" block exists
 
-#### Scenario 3: Edit Text Then Add ✅
-1. Write "Reveew document" → Transcribe → Save
-2. Edit: Fix to "Review document" in modal → Save
-3. Write new line → Transcribe → Save
-4. **Expected**: User's spelling fix preserved (canonical unchanged, content different)
+#### Scenario 3: Merge Then Reload
+1. Write 3 lines → Transcribe → Save
+2. Open editor → Merge lines 1+2 → Save
+3. Close app → Reopen
+4. Load strokes
+5. **Verify**: Strokes from line 2 now point to merged block UUID
 
-#### Scenario 4: Delete Strokes ✅
-1. Write three lines → Transcribe → Save
-2. Select middle strokes on canvas → Delete → Save
-3. **Expected**: Middle block deleted (strokes gone), others preserved
+#### Scenario 4: Storage Format Verification
+1. After saving, check LogSeq page source
+2. Look at JSON in "Raw Stroke Data" chunks
+3. **Verify**: Each stroke has `"blockUuid": "..."` or `"blockUuid": null`
 
-#### Scenario 5: Re-transcribe Without Changes ✅
-1. Write some text → Transcribe → Save
-2. Transcribe again (no new strokes)
-3. **Expected**: All blocks SKIPPED (canonical unchanged)
+### Debug Logging
 
-### Console Output to Verify
+```javascript
+// In loadPageStrokesIntoStore()
+console.log('Loading strokes:', {
+  total: data.strokes.length,
+  withBlockUuid: data.strokes.filter(s => s.blockUuid).length,
+  sampleStroke: data.strokes[0]
+});
 
-When running, you should see debug output like:
+// In updateTranscriptBlocks() after matching
+console.log('Stroke assignments:', 
+  [...strokeToBlockMap.entries()].slice(0, 5)
+);
 
+// In handleSave() after merge
+console.log('Persisting strokes after merge:', {
+  totalStrokes: pageStrokes.length,
+  reassignedCount: count
+});
 ```
-=== Block Matching Debug ===
-Existing blocks: 3
-New lines: 4
-Current strokes: 25
-
-Checking block abc12345...
-  Stroke IDs: 5, Y-bounds: 10.0-35.0
-  → Matched line 0 by stroke IDs: "Hello world this is..."
-  → Matched line 1 by stroke IDs: "a test of the..."
-  → SKIP (canonical unchanged)
-
-Checking block def67890...
-  Stroke IDs: 3, Y-bounds: 40.0-55.0
-  → Matched line 2 by stroke IDs: "Another line here..."
-  → SKIP (canonical unchanged)
-
-New line 3: "Brand new content..." → CREATE
-
-=== Action Summary ===
-SKIP: 2
-UPDATE: 0
-CREATE: 1
-PRESERVE: 0
-```
-
-### Edge Cases to Test
-
-- [ ] Empty page (no strokes) - should handle gracefully
-- [ ] Single stroke - should work
-- [ ] Very long merged block (5+ lines) - stroke IDs should accumulate
-- [ ] Overlapping Y-bounds between lines - stroke ID matching should disambiguate
-- [ ] Re-transcribe with MyScript variations - stroke IDs should still match
 
 ---
 
-## Appendix: Data Model Reference
+## Appendix: Y-Bounds Bug (Separate Issue)
 
-### Block Properties Schema
+The Y-bounds returning 0-0 is a separate bug that affects stroke-to-line matching. This needs investigation in:
 
-```javascript
-{
-  'stroke-y-bounds': '45.2-68.7',              // Y coordinate range (for display/debug)
-  'canonical-transcript': 'Original text',     // MyScript output (normalized)
-  'stroke-ids': '1706234567890,1706234567891', // Pen timestamps - THE KEY!
-  'merged-lines': '2'                          // Count if merged (optional)
-}
-```
+- `src/lib/myscript-api.js` - `parseMyScriptResponse()` 
+- Word bounding box extraction from MyScript JIIX response
 
-### Line Object Schema (with stroke IDs)
+**Possible causes:**
+1. MyScript not returning `bounding-box` for words
+2. JIIX configuration missing `'bounding-box': true`
+3. Coordinate system mismatch (pixels vs Ncode units)
 
-```javascript
-{
-  text: 'User visible text',
-  canonical: 'normalized text',
-  words: [...],
-  strokeIds: Set(['1706234567890', '1706234567891']),  // Estimated from Y-bounds
-  x: 10.5,
-  baseline: 25.3,
-  yBounds: { minY: 20.1, maxY: 35.7 },
-  mergedLineCount: 1,
-  blockUuid: null,
-  syncStatus: 'unsaved'
-}
-```
-
-### Stroke Object Schema (from pen)
-
-```javascript
-{
-  pageInfo: { section: 0, owner: 0, book: 123, page: 1 },
-  startTime: 1706234567890,        // ← THIS IS THE STROKE ID
-  endTime: 1706234568500,
-  dotArray: [
-    { x: 10.5, y: 20.3, f: 512, timestamp: 1706234567890 },
-    // ... more dots
-  ]
-}
-```
+This should be fixed independently as it affects both initial matching and ongoing functionality.
 
 ---
 
 ## Document Status
 
 - [x] Problem identified
-- [x] Solution designed (Y-bounds stroke estimation)
+- [x] Solution designed (Stroke → Block with Persistence)
+- [x] Session workflows documented
 - [x] Implementation guide written
 - [x] Code examples provided
-- [ ] Phase 1 implemented (safe orphan handling)
-- [ ] Phase 2 implemented (helper functions)
-- [ ] Phase 3 implemented (stroke ID storage)
-- [ ] Phase 4 implemented (stroke ID estimation)
-- [ ] Phase 5 implemented (stroke ID matching)
-- [ ] Phase 6 implemented (PRESERVE action)
+- [ ] Phase 1: Storage format update
+- [ ] Phase 2: Stroke store functions
+- [ ] Phase 3: Save flow verification
+- [ ] Phase 4: Load flow implementation
+- [ ] Phase 5: Transcription save with persistence
+- [ ] Phase 6: Modal merge with persistence
+- [ ] Phase 7: Incremental transcription UI
+- [ ] Y-bounds bug fixed (separate)
 - [ ] Testing complete
 
 ---
