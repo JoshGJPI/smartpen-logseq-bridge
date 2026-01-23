@@ -3,6 +3,9 @@
 -->
 <script>
   import { createEventDispatcher } from 'svelte';
+  import { reassignStrokes, getStrokesSnapshot, updateStrokeBlockUuids, getStrokesInYRange } from '$stores/strokes.js';
+  import { updatePageStrokes } from '$lib/logseq-api.js';
+  import { getLogseqSettings } from '$stores/settings.js';
   
   export let book;
   export let page;
@@ -214,11 +217,76 @@
   }
   
   // Save changes and close modal
-  function handleSave() {
+  async function handleSave() {
+    // Track stroke reassignments for merges
+    const mergedBlockPairs = [];
+    let strokesChanged = false;
+    
+    // Detect merged blocks (lines that have sourceLines property)
+    for (const line of editedLines) {
+      if (line.sourceLines && line.sourceLines.length > 1 && line.blockUuid) {
+        // This line is a merge - find original lines to get their blockUuids
+        const sourceLineIndices = line.sourceLines;
+        
+        // Get blockUuids from original lines (before merge)
+        for (let i = 1; i < sourceLineIndices.length; i++) {
+          const originalLine = lines[sourceLineIndices[i]];
+          if (originalLine && originalLine.blockUuid && originalLine.blockUuid !== line.blockUuid) {
+            mergedBlockPairs.push({
+              deletedBlockUuid: originalLine.blockUuid,
+              survivingBlockUuid: line.blockUuid
+            });
+          }
+        }
+      }
+    }
+    
+    // Reassign strokes from deleted blocks to surviving blocks
+    for (const { deletedBlockUuid, survivingBlockUuid } of mergedBlockPairs) {
+      const count = reassignStrokes(deletedBlockUuid, survivingBlockUuid);
+      if (count > 0) {
+        strokesChanged = true;
+        console.log(`Reassigned ${count} strokes from ${deletedBlockUuid} to ${survivingBlockUuid}`);
+      }
+    }
+    
+    // Handle splits - assign strokes to new blocks by Y-bounds
+    const splitBlocks = editedLines.filter(line => line.syncStatus === 'new' && line.yBounds);
+    for (const splitLine of splitBlocks) {
+      // This is a new block from a split - no blockUuid yet
+      // The parent handleSave in the component that opened this modal will create the block
+      // and assign strokes based on Y-bounds
+      // We just need to make sure the Y-bounds are preserved
+      console.log(`Split block detected at Y: ${splitLine.yBounds.minY}-${splitLine.yBounds.maxY}`);
+    }
+    
+    // CRITICAL: Persist stroke changes if any were made
+    if (strokesChanged) {
+      try {
+        const { host, token } = getLogseqSettings();
+        
+        if (host) {
+          const allStrokes = getStrokesSnapshot();
+          const pageStrokes = allStrokes.filter(s => 
+            s.pageInfo?.book === book && s.pageInfo?.page === page
+          );
+          
+          if (pageStrokes.length > 0) {
+            console.log(`Persisting ${pageStrokes.length} strokes with updated blockUuids`);
+            await updatePageStrokes(book, page, pageStrokes, host, token);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to persist stroke changes:', error);
+        // Don't fail the whole save - block updates are more important
+      }
+    }
+    
     dispatch('save', {
       lines: editedLines,
       book,
-      page
+      page,
+      mergedBlockPairs // Pass merge info to parent for cleanup
     });
     handleClose();
   }

@@ -107,3 +107,147 @@ export function removeStrokesByIndices(indices) {
     return s.filter((stroke, index) => !indicesToRemove.has(index));
   });
 }
+
+/**
+ * Load strokes from storage format into the store
+ * Used when loading data from LogSeq - restores blockUuid associations
+ * @param {Array} storedStrokes - Strokes from storage (with blockUuid)
+ * @param {Object} pageInfo - Page info to attach
+ */
+export function loadStrokesFromStorage(storedStrokes, pageInfo) {
+  if (!storedStrokes || storedStrokes.length === 0) return;
+  
+  // Register book ID
+  if (pageInfo?.book) {
+    registerBookId(pageInfo.book);
+  }
+  
+  // Convert from storage format (restores blockUuid)
+  const fullStrokes = storedStrokes.map(stored => ({
+    pageInfo: pageInfo,
+    startTime: stored.startTime,
+    endTime: stored.endTime,
+    blockUuid: stored.blockUuid || null,
+    dotArray: stored.points.map(([x, y, timestamp]) => ({
+      x,
+      y,
+      f: 512,
+      timestamp
+    }))
+  }));
+  
+  // Add to store (avoiding duplicates by startTime)
+  strokes.update(existing => {
+    const existingIds = new Set(existing.map(s => s.startTime));
+    const newStrokes = fullStrokes.filter(s => !existingIds.has(s.startTime));
+    return [...existing, ...newStrokes];
+  });
+}
+
+/**
+ * Update blockUuid for specific strokes
+ * @param {Map<string, string>} strokeToBlockMap - Map of stroke startTime -> blockUuid
+ */
+export function updateStrokeBlockUuids(strokeToBlockMap) {
+  strokes.update(allStrokes => {
+    return allStrokes.map(stroke => {
+      const blockUuid = strokeToBlockMap.get(String(stroke.startTime));
+      if (blockUuid !== undefined) {
+        return { ...stroke, blockUuid };
+      }
+      return stroke;
+    });
+  });
+}
+
+/**
+ * Get strokes that haven't been transcribed yet (no blockUuid)
+ * @param {Array} strokeList - Array of strokes to filter
+ * @returns {Array} Strokes without blockUuid
+ */
+export function getUntranscribedStrokes(strokeList) {
+  return strokeList.filter(stroke => !stroke.blockUuid);
+}
+
+/**
+ * Get strokes assigned to a specific block
+ * @param {string} blockUuid - Block UUID to search for
+ * @returns {Array} Strokes belonging to this block
+ */
+export function getStrokesForBlock(blockUuid) {
+  let result = [];
+  const unsubscribe = strokes.subscribe(allStrokes => {
+    result = allStrokes.filter(s => s.blockUuid === blockUuid);
+  });
+  unsubscribe();
+  return result;
+}
+
+/**
+ * Reassign strokes from one block to another (for merges)
+ * @param {string} fromBlockUuid - Source block UUID
+ * @param {string} toBlockUuid - Target block UUID
+ * @returns {number} Count of strokes reassigned
+ */
+export function reassignStrokes(fromBlockUuid, toBlockUuid) {
+  let count = 0;
+  strokes.update(allStrokes => {
+    return allStrokes.map(stroke => {
+      if (stroke.blockUuid === fromBlockUuid) {
+        count++;
+        return { ...stroke, blockUuid: toBlockUuid };
+      }
+      return stroke;
+    });
+  });
+  return count;
+}
+
+/**
+ * Clear blockUuid from strokes (for re-transcription)
+ * @param {Array<number>} strokeTimestamps - Stroke startTimes to clear
+ */
+export function clearStrokeBlockUuids(strokeTimestamps) {
+  const timestampSet = new Set(strokeTimestamps.map(Number));
+  strokes.update(allStrokes => {
+    return allStrokes.map(stroke => {
+      if (timestampSet.has(stroke.startTime)) {
+        return { ...stroke, blockUuid: null };
+      }
+      return stroke;
+    });
+  });
+}
+
+/**
+ * Get current strokes array (for saving)
+ * @returns {Array} Current strokes
+ */
+export function getStrokesSnapshot() {
+  let snapshot = [];
+  const unsubscribe = strokes.subscribe(s => snapshot = s);
+  unsubscribe();
+  return snapshot;
+}
+
+/**
+ * Get strokes in a Y-coordinate range (for split operations)
+ * @param {Array} strokeList - Strokes to search
+ * @param {Object} yRange - { minY, maxY }
+ * @param {number} tolerance - Y-tolerance (default 5)
+ * @returns {Array} Strokes within Y range
+ */
+export function getStrokesInYRange(strokeList, yRange, tolerance = 5) {
+  if (!yRange || typeof yRange.minY !== 'number' || typeof yRange.maxY !== 'number') {
+    return [];
+  }
+  
+  return strokeList.filter(stroke => {
+    if (!stroke.dotArray || stroke.dotArray.length === 0) return false;
+    
+    // Check if any dot falls within the Y range
+    return stroke.dotArray.some(dot => 
+      dot.y >= (yRange.minY - tolerance) && dot.y <= (yRange.maxY + tolerance)
+    );
+  });
+}

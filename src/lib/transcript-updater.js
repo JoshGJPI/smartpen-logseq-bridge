@@ -1,19 +1,26 @@
 /**
- * Transcript Block Updater (v2.0)
+ * Transcript Block Updater (v2.1 - Stroke → Block Persistence)
  * Orchestrates incremental updates to LogSeq transcript blocks
  * 
  * Key features:
  * - Checkbox preservation: User edits never lost
  * - Canonical comparison: Detects actual changes vs user edits
  * - Property-based storage: stroke-y-bounds + canonical-transcript
+ * - Stroke→Block persistence: blockUuid stored on strokes for incremental updates
  */
 
 import {
   getTranscriptBlocks,
   createTranscriptBlockWithProperties,
   updateTranscriptBlockWithPreservation,
-  getOrCreateSmartpenPage
+  getOrCreateSmartpenPage,
+  updatePageStrokes
 } from './logseq-api.js';
+
+import {
+  updateStrokeBlockUuids,
+  getStrokesSnapshot
+} from '../stores/strokes.js';
 
 // Import makeRequest for internal use
 import { makeRequest } from './logseq-api.js';
@@ -367,6 +374,7 @@ async function detectBlockActions(existingBlocks, newLines, strokes) {
     const lineBounds = line.yBounds || calculateLineBounds(line, strokes);
     actions.push({
       type: 'CREATE',
+      lineIndex: index,  // CRITICAL: Track which line this action corresponds to
       line: {
         ...line,
         yBounds: lineBounds,
@@ -414,6 +422,54 @@ async function getOrCreateTranscriptSection(pageName, host, token) {
   ]);
   
   return sectionBlock.uuid;
+}
+
+/**
+ * Match strokes to transcription lines using Y-bounds overlap
+ * Returns map of stroke startTime → blockUuid
+ * @param {Array} strokes - All strokes from the page
+ * @param {Array} linesWithBlocks - Lines with yBounds and blockUuid
+ * @param {number} tolerance - Y-tolerance for overlap (default 5)
+ * @returns {Map<string, string>} Map of stroke startTime → blockUuid
+ */
+function matchStrokesToLines(strokes, linesWithBlocks, tolerance = 5) {
+  const strokeToBlockMap = new Map();
+  
+  for (const stroke of strokes) {
+    if (!stroke.dotArray || stroke.dotArray.length === 0) continue;
+    
+    // Get stroke's Y range
+    const strokeYs = stroke.dotArray.map(d => d.y);
+    const strokeMinY = Math.min(...strokeYs);
+    const strokeMaxY = Math.max(...strokeYs);
+    
+    // Find the line with best Y-bounds overlap
+    let bestMatch = null;
+    let bestOverlap = 0;
+    
+    for (const line of linesWithBlocks) {
+      if (!line.yBounds || !line.blockUuid) continue;
+      
+      const lineMinY = line.yBounds.minY - tolerance;
+      const lineMaxY = line.yBounds.maxY + tolerance;
+      
+      // Calculate overlap
+      const overlapMin = Math.max(strokeMinY, lineMinY);
+      const overlapMax = Math.min(strokeMaxY, lineMaxY);
+      const overlap = Math.max(0, overlapMax - overlapMin);
+      
+      if (overlap > bestOverlap) {
+        bestOverlap = overlap;
+        bestMatch = line;
+      }
+    }
+    
+    if (bestMatch) {
+      strokeToBlockMap.set(String(stroke.startTime), bestMatch.blockUuid);
+    }
+  }
+  
+  return strokeToBlockMap;
 }
 
 /**
@@ -495,8 +551,10 @@ export async function updateTranscriptBlocks(book, page, strokes, newTranscripti
               token
             );
             
-            lineToBlockMap.set(i, newBlock.uuid);
-            results.push({ type: 'created', uuid: newBlock.uuid, lineIndex: i });
+            // Use the action's lineIndex, not the loop index!
+            const lineIdx = action.lineIndex;
+            lineToBlockMap.set(lineIdx, newBlock.uuid);
+            results.push({ type: 'created', uuid: newBlock.uuid, lineIndex: lineIdx });
             break;
           }
           
@@ -510,8 +568,17 @@ export async function updateTranscriptBlocks(book, page, strokes, newTranscripti
             );
             
             usedBlockUuids.add(action.blockUuid);
-            lineToBlockMap.set(i, action.blockUuid);
-            results.push({ type: 'updated', uuid: action.blockUuid, lineIndex: i });
+            // Use consumedLines to map line indices to block UUID
+            if (action.consumedLines && action.consumedLines.length > 0) {
+              action.consumedLines.forEach(lineIdx => {
+                lineToBlockMap.set(lineIdx, action.blockUuid);
+              });
+            }
+            results.push({ 
+              type: 'updated', 
+              uuid: action.blockUuid, 
+              lineIndex: action.consumedLines?.[0]
+            });
             break;
           }
           
@@ -541,12 +608,17 @@ export async function updateTranscriptBlocks(book, page, strokes, newTranscripti
           
           case 'SKIP': {
             usedBlockUuids.add(action.blockUuid);
-            lineToBlockMap.set(i, action.blockUuid);
+            // Use consumedLines to map line indices to block UUID
+            if (action.consumedLines && action.consumedLines.length > 0) {
+              action.consumedLines.forEach(lineIdx => {
+                lineToBlockMap.set(lineIdx, action.blockUuid);
+              });
+            }
             results.push({ 
               type: 'skipped', 
               uuid: action.blockUuid, 
               reason: action.reason,
-              lineIndex: i 
+              lineIndex: action.consumedLines?.[0]
             });
             break;
           }
@@ -581,12 +653,16 @@ export async function updateTranscriptBlocks(book, page, strokes, newTranscripti
           case 'MERGE_CONFLICT': {
             const resolution = await handleMergeConflict(action, host, token);
             usedBlockUuids.add(resolution.blockUuid);
-            lineToBlockMap.set(i, resolution.blockUuid);
+            // Use the first line from the conflict
+            const lineIdx = action.overlappingLines?.[0]?.index;
+            if (lineIdx !== undefined) {
+              lineToBlockMap.set(lineIdx, resolution.blockUuid);
+            }
             results.push({ 
               type: 'merged', 
               uuid: resolution.blockUuid,
               strategy: resolution.strategy,
-              lineIndex: i
+              lineIndex: lineIdx
             });
             break;
           }
@@ -661,10 +737,56 @@ export async function updateTranscriptBlocks(book, page, strokes, newTranscripti
       }
     }
     
+    // CRITICAL: Match strokes to blocks and persist blockUuid
+    // This enables incremental updates in future sessions
+    try {
+      // Build linesWithBlocks from results
+      const linesWithBlocks = results
+        .filter(r => r.type === 'created' || r.type === 'updated' || r.type === 'updated-merged')
+        .map(r => {
+          const lineIdx = r.lineIndex ?? r.consumedLines?.[0] ?? -1;
+          if (lineIdx === -1) return null;
+          
+          const line = linesWithStrokeIds[lineIdx];
+          if (!line) return null;
+          
+          return {
+            blockUuid: r.uuid,
+            yBounds: line.yBounds
+          };
+        })
+        .filter(Boolean);
+      
+      console.log(`Matching ${strokes.length} strokes to ${linesWithBlocks.length} blocks`);
+      
+      // Match strokes to blocks by Y-bounds
+      const strokeToBlockMap = matchStrokesToLines(strokes, linesWithBlocks);
+      
+      console.log(`Assigning ${strokeToBlockMap.size} strokes to blocks`);
+      
+      // Update in-memory strokes with block references
+      updateStrokeBlockUuids(strokeToBlockMap);
+      
+      // Persist updated strokes (with blockUuid) to LogSeq
+      const allStrokes = getStrokesSnapshot();
+      const pageStrokes = allStrokes.filter(s => 
+        s.pageInfo?.book === book && s.pageInfo?.page === page
+      );
+      
+      if (pageStrokes.length > 0) {
+        console.log(`Persisting ${pageStrokes.length} strokes with updated blockUuids`);
+        await updatePageStrokes(book, page, pageStrokes, host, token);
+      }
+    } catch (error) {
+      console.error('Failed to persist stroke→block associations:', error);
+      // Don't fail the whole operation - blocks are still created
+    }
+    
     return {
       success: true,
       page: pageName,
       results,
+      strokesAssigned: results.filter(r => r.type === 'created' || r.type === 'updated').length,
       stats: {
         created: results.filter(r => r.type === 'created').length,
         updated: results.filter(r => r.type === 'updated' || r.type === 'updated-merged').length,

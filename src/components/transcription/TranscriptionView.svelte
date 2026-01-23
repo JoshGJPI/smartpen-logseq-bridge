@@ -11,6 +11,7 @@
     selectAllPages,
     deselectAllPages,
     clearPageTranscription,
+    updatePageTranscriptionLines,
     log,
     logseqConnected,
     getLogseqSettings,
@@ -21,10 +22,15 @@
   import { formatBookName, filterTranscriptionProperties } from '$utils/formatting.js';
   
   import LogseqPreview from './LogseqPreview.svelte';
+  import TranscriptionEditorModal from '$components/dialog/TranscriptionEditorModal.svelte';
   
   let isSending = false;
   // Track which pages are expanded - using object for better reactivity
   let expandedPages = {};
+  
+  // Editor modal state
+  let showEditorModal = false;
+  let editingPageData = null;
   
   // Toggle page expansion
   function togglePageExpansion(pageKey) {
@@ -113,6 +119,34 @@
       hasIndentation: pageData.lines?.some(l => l.indentLevel > 0) || false,
       commands: pageData.commands?.length || 0
     };
+  }
+  
+  // Open editor modal for a page
+  function handleEditStructure(pageData) {
+    editingPageData = pageData;
+    showEditorModal = true;
+  }
+  
+  // Handle editor modal save
+  function handleEditorSave(event) {
+    const { lines, book, page } = event.detail;
+    
+    if (!editingPageData) return;
+    
+    // Update the transcription lines in the store
+    updatePageTranscriptionLines(editingPageData.pageKey, lines);
+    
+    log(`Updated structure for Book ${book}/Page ${page}`, 'success');
+    
+    // Close modal
+    showEditorModal = false;
+    editingPageData = null;
+  }
+  
+  // Handle editor modal close
+  function handleEditorClose() {
+    showEditorModal = false;
+    editingPageData = null;
   }
 </script>
 
@@ -252,6 +286,21 @@
           <!-- Expanded Details -->
           {#if isExpanded}
             <div class="page-details">
+              <!-- Edit Structure Button -->
+              <div class="detail-section">
+                <button 
+                  class="btn btn-edit"
+                  on:click={() => handleEditStructure(pageData)}
+                  title="Edit line structure, merge lines, adjust hierarchy"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                  </svg>
+                  Edit Structure
+                </button>
+              </div>
+              
               <!-- Transcribed Text -->
               <div class="detail-section">
                 <h4>Transcribed Text</h4>
@@ -289,6 +338,18 @@
     </div>
   {/if}
 </div>
+
+<!-- Transcription Editor Modal -->
+{#if showEditorModal && editingPageData}
+<TranscriptionEditorModal 
+  book={editingPageData.pageInfo.book}
+  page={editingPageData.pageInfo.page}
+  lines={editingPageData.lines}
+  visible={showEditorModal}
+  on:save={handleEditorSave}
+  on:close={handleEditorClose}
+/>
+{/if}
 
 <style>
   .transcription-view {
@@ -405,6 +466,18 @@
 
   .send-btn:hover:not(:disabled) {
     background: #22c55e;
+  }
+  
+  .btn-edit {
+    width: 100%;
+    background: var(--accent);
+    color: white;
+    border: 1px solid var(--accent);
+  }
+  
+  .btn-edit:hover:not(:disabled) {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
   }
 
   .hint {

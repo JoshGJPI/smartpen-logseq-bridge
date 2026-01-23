@@ -179,6 +179,7 @@ import {
   buildPageStorageObject,
   buildTranscriptionStorageObject,
   convertToStorageFormat,
+  convertFromStorageFormat,
   deduplicateStrokes,
   formatTranscribedText,
   getPageProperties,
@@ -187,6 +188,8 @@ import {
 } from './stroke-storage.js';
 
 import { filterTranscriptionProperties } from '../utils/formatting.js';
+import { loadStrokesFromStorage } from '../stores/strokes.js';
+import { generateBridgeUUID } from './uuid/bridge-uuid.js';
 
 /**
  * Make an API request to LogSeq with retry logic
@@ -525,6 +528,48 @@ export async function getPageStrokes(book, page, host, token = '') {
   } catch (error) {
     console.error('Failed to get page strokes:', error);
     return null;
+  }
+}
+
+/**
+ * Load strokes from LogSeq storage into the strokes store
+ * Restores blockUuid associations from previous sessions
+ * 
+ * @param {number} book - Book ID
+ * @param {number} page - Page number
+ * @param {string} host - LogSeq API host
+ * @param {string} token - Optional auth token
+ * @returns {Promise<Object>} { success, strokeCount, hasBlockUuids, transcribedCount, untranscribedCount }
+ */
+export async function loadPageStrokesIntoStore(book, page, host, token = '') {
+  try {
+    const data = await getPageStrokes(book, page, host, token);
+    
+    if (!data || !data.strokes || data.strokes.length === 0) {
+      return { success: true, strokeCount: 0, hasBlockUuids: false };
+    }
+    
+    const pageInfo = data.pageInfo || { section: 0, owner: 0, book, page };
+    
+    // Load into store (converts from storage format, restores blockUuid)
+    loadStrokesFromStorage(data.strokes, pageInfo);
+    
+    // Check how many have blockUuid
+    const withBlockUuid = data.strokes.filter(s => s.blockUuid).length;
+    
+    console.log(`Loaded ${data.strokes.length} strokes for B${book}/P${page}, ${withBlockUuid} with blockUuid`);
+    
+    return {
+      success: true,
+      strokeCount: data.strokes.length,
+      hasBlockUuids: withBlockUuid > 0,
+      transcribedCount: withBlockUuid,
+      untranscribedCount: data.strokes.length - withBlockUuid
+    };
+    
+  } catch (error) {
+    console.error(`Failed to load strokes for B${book}/P${page}:`, error);
+    return { success: false, error: error.message };
   }
 }
 
@@ -914,53 +959,49 @@ function updateBlockWithPreservation(oldContent, newTranscript) {
 }
 
 /**
- * Create a transcript block with properties (new v2.0 format)
+ * Create a transcript block with properties (v3.0 format)
+ * Uses custom Bridge UUIDs to prevent collisions during batch creation
+ * Only stores Y-bounds - blockUUID stored in stroke data, not as block property
  * @param {string} parentUuid - Parent block UUID
- * @param {Object} line - Line object with text, canonical, yBounds, strokeIds, etc.
+ * @param {Object} line - Line object with text, yBounds, etc.
  * @param {string} host - LogSeq API host
  * @param {string} token - Optional auth token
  * @returns {Promise<Object>} Created block object
  */
 export async function createTranscriptBlockWithProperties(parentUuid, line, host, token = '') {
-  const canonical = line.canonical || normalizeTranscript(line.text);
   const content = convertCheckboxToMarker(line.text);
   const bounds = formatBounds(line.yBounds);
   
   const properties = {
-    'stroke-y-bounds': bounds,
-    'canonical-transcript': canonical
+    'stroke-y-bounds': bounds
   };
   
-  // Add stroke IDs if available
-  if (line.strokeIds && line.strokeIds.size > 0) {
-    properties['stroke-ids'] = Array.from(line.strokeIds).join(',');
-  }
+  // Generate custom Bridge UUID to prevent collisions
+  const customUUID = generateBridgeUUID();
   
-  // Add merged-lines property if this is a merged block
-  if (line.mergedLineCount && line.mergedLineCount > 1) {
-    properties['merged-lines'] = line.mergedLineCount.toString();
-  }
+  console.log(`Creating block with Bridge UUID: ${customUUID.substring(0, 40)}...`);
   
   return await makeRequest(host, token, 'logseq.Editor.insertBlock', [
     parentUuid,
     content,
     {
       sibling: false,
-      properties
+      properties,
+      customUUID  // Use custom UUID to prevent collisions
     }
   ]);
 }
 
 /**
- * Update a transcript block with preservation (new v2.0 format)
+ * Update a transcript block with preservation (v3.0 format)
+ * Only updates Y-bounds property, preserves TODO/DONE markers
  * @param {string} blockUuid - Block UUID to update
- * @param {Object} line - New line object with strokeIds
+ * @param {Object} line - New line object with text and yBounds
  * @param {string} oldContent - Existing block content
  * @param {string} host - LogSeq API host
  * @param {string} token - Optional auth token
  */
 export async function updateTranscriptBlockWithPreservation(blockUuid, line, oldContent, host, token = '') {
-  const newCanonical = line.canonical || normalizeTranscript(line.text);
   const newContent = updateBlockWithPreservation(oldContent, line.text);
   const newBounds = formatBounds(line.yBounds);
   
@@ -970,36 +1011,12 @@ export async function updateTranscriptBlockWithPreservation(blockUuid, line, old
     newContent
   ]);
   
-  // Update properties (upsert preserves other properties)
+  // Update Y-bounds property
   await makeRequest(host, token, 'logseq.Editor.upsertBlockProperty', [
     blockUuid,
     'stroke-y-bounds',
     newBounds
   ]);
-  
-  await makeRequest(host, token, 'logseq.Editor.upsertBlockProperty', [
-    blockUuid,
-    'canonical-transcript',
-    newCanonical
-  ]);
-  
-  // Update stroke IDs if available
-  if (line.strokeIds && line.strokeIds.size > 0) {
-    await makeRequest(host, token, 'logseq.Editor.upsertBlockProperty', [
-      blockUuid,
-      'stroke-ids',
-      Array.from(line.strokeIds).join(',')
-    ]);
-  }
-  
-  // Update merged-lines property if applicable
-  if (line.mergedLineCount && line.mergedLineCount > 1) {
-    await makeRequest(host, token, 'logseq.Editor.upsertBlockProperty', [
-      blockUuid,
-      'merged-lines',
-      line.mergedLineCount.toString()
-    ]);
-  }
 }
 
 /**
@@ -1109,8 +1126,6 @@ export async function getTranscriptLines(book, page, host, token = '') {
   // Convert blocks back to line format
   const lines = blocks.map((block, index) => {
     const yBounds = parseYBounds(block.properties['stroke-y-bounds'] || '0-0');
-    const canonical = block.properties['canonical-transcript'] || '';
-    const mergedCount = parseInt(block.properties['merged-lines']) || 1;
     
     console.log(`[getTranscriptLines] Block ${index}:`, {
       rawContent: block.content?.substring(0, 50) + '...',
@@ -1125,7 +1140,7 @@ export async function getTranscriptLines(book, page, host, token = '') {
     // Remove leading dash (LogSeq block marker)
     text = text.replace(/^-\s*/, '');
     
-    // Filter out property lines (stroke-y-bounds::, canonical-transcript::, etc.)
+    // Filter out property lines (stroke-y-bounds::, etc.)
     text = filterTranscriptionProperties(text);
     
     // Remove TODO/DONE markers
@@ -1137,9 +1152,8 @@ export async function getTranscriptLines(book, page, host, token = '') {
     
     return {
       text: text.trim(),
-      canonical,
+      canonical: normalizeTranscript(text.trim()),  // Generate canonical on the fly
       yBounds,
-      mergedLineCount: mergedCount,
       indentLevel,
       blockUuid: block.uuid,
       syncStatus: 'synced'

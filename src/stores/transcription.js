@@ -219,3 +219,33 @@ export function clearPageTranscription(pageKey) {
 export function setIsTranscribing(transcribing) {
   isTranscribing.set(transcribing);
 }
+
+/**
+ * Update transcription lines for a specific page
+ * Used when editing structure in TranscriptionEditorModal
+ * @param {string} pageKey - Page identifier
+ * @param {Array} updatedLines - New lines array
+ */
+export function updatePageTranscriptionLines(pageKey, updatedLines) {
+  pageTranscriptions.update(pt => {
+    const newMap = new Map(pt);
+    const pageData = newMap.get(pageKey);
+    
+    if (!pageData) {
+      console.warn(`Cannot update lines for unknown page: ${pageKey}`);
+      return pt;
+    }
+    
+    // Update the lines array and regenerate text
+    const updatedText = updatedLines.map(l => l.text).join('\n');
+    
+    newMap.set(pageKey, {
+      ...pageData,
+      lines: updatedLines,
+      text: updatedText,
+      timestamp: Date.now()
+    });
+    
+    return newMap;
+  });
+}

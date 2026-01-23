@@ -40,6 +40,7 @@
     hasPendingChanges,
     deletedIndices
   } from '$stores';
+  import { getUntranscribedStrokes } from '$stores/strokes.js';
   import { writable } from 'svelte/store';
   import SaveConfirmDialog from '$components/dialog/SaveConfirmDialog.svelte';
   
@@ -87,6 +88,14 @@
   $: transcribeCount = $hasSelection ? $selectionCount : $strokeCount;
   $: hasStrokes = $strokeCount > 0;
   $: canTranscribe = $hasMyScriptCredentials && hasStrokes && !$isTranscribing;
+  
+  // Calculate untranscribed strokes
+  $: untranscribedStrokes = getUntranscribedStrokes($strokes);
+  $: untranscribedCount = untranscribedStrokes.length;
+  $: allTranscribed = $strokeCount > 0 && untranscribedCount === 0;
+  
+  // For selected strokes, count how many are untranscribed
+  $: selectedUntranscribedCount = $hasSelection ? getUntranscribedStrokes($selectedStrokes).length : untranscribedCount;
   
   async function handleConnect() {
     isConnecting = true;
@@ -673,19 +682,31 @@
   
   <button 
     class="action-btn transcribe-btn"
+    class:all-transcribed={allTranscribed}
     on:click={handleTranscribe}
     disabled={!canTranscribe}
-    title="Transcribe handwriting to text using MyScript"
+    title={allTranscribed ? 'All strokes already transcribed' : `Transcribe ${selectedUntranscribedCount} untranscribed stroke(s)`}
   >
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
       <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
     </svg>
     {#if $isTranscribing}
       Transcribing...
+    {:else if allTranscribed}
+      Transcribed ✓
     {:else}
-      Transcribe ({transcribeCount})
+      Transcribe ({selectedUntranscribedCount}/{transcribeCount})
     {/if}
   </button>
+  
+  {#if hasStrokes && untranscribedCount !== $strokeCount}
+  <div class="transcription-status" title="{$strokeCount - untranscribedCount} strokes already transcribed">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M20 6L9 17l-5-5"/>
+    </svg>
+    <span>{$strokeCount - untranscribedCount}/{$strokeCount} transcribed</span>
+  </div>
+  {/if}
 </div>
 
 <style>
@@ -748,6 +769,16 @@
   .transcribe-btn:hover:not(:disabled) {
     background: var(--accent-hover);
     border-color: var(--accent-hover);
+  }
+  
+  .transcribe-btn.all-transcribed {
+    background: var(--success);
+    border-color: var(--success);
+  }
+  
+  .transcribe-btn.all-transcribed:hover:not(:disabled) {
+    background: #22c55e;
+    border-color: #22c55e;
   }
   
   .save-logseq-btn {
@@ -943,5 +974,33 @@
 
   .transfer-stats span:first-child {
     color: var(--success);
+  }
+  
+  /* Transcription Status Indicator */
+  .transcription-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--success);
+    border-radius: 6px;
+    font-size: 0.8rem;
+    color: var(--success);
+    font-weight: 500;
+  }
+  
+  .transcription-status svg {
+    flex-shrink: 0;
+  }
+  
+  @media (max-width: 1400px) {
+    .transcription-status span {
+      display: none;
+    }
+    
+    .transcription-status {
+      padding: 8px;
+    }
   }
 </style>

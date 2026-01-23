@@ -101,15 +101,17 @@ export function generateStrokeId(stroke) {
 /**
  * Convert raw pen strokes to simplified storage format
  * Removes artistic metadata (pressure, tilt, color) to reduce storage by ~60%
+ * Now includes blockUuid for incremental transcription tracking
  * 
- * @param {Array} strokes - Raw strokes from pen
- * @returns {Array} Simplified strokes with only essential data
+ * @param {Array} strokes - Raw strokes from pen (with optional blockUuid)
+ * @returns {Array} Simplified strokes with essential data + blockUuid
  */
 export function convertToStorageFormat(strokes) {
   return strokes.map(stroke => ({
     id: generateStrokeId(stroke),
     startTime: stroke.startTime,
     endTime: stroke.endTime,
+    blockUuid: stroke.blockUuid || null,  // NEW: Persist block reference
     points: stroke.dotArray.map(dot => [
       dot.x,
       dot.y,
@@ -258,6 +260,29 @@ export function getPageProperties(pageInfo) {
     'Book': pageInfo.book.toString(),
     'Page': pageInfo.page.toString()
   };
+}
+
+/**
+ * Convert stored strokes back to in-memory format
+ * Restores blockUuid from storage for session continuity
+ * 
+ * @param {Array} storedStrokes - Simplified strokes from LogSeq
+ * @param {Object} pageInfo - Page info to attach
+ * @returns {Array} Full stroke objects for strokes store
+ */
+export function convertFromStorageFormat(storedStrokes, pageInfo) {
+  return storedStrokes.map(stored => ({
+    pageInfo: pageInfo,
+    startTime: stored.startTime,
+    endTime: stored.endTime,
+    blockUuid: stored.blockUuid || null,  // Restore block reference
+    dotArray: stored.points.map(([x, y, timestamp]) => ({
+      x,
+      y,
+      f: 512,  // Default pressure (not stored)
+      timestamp
+    }))
+  }));
 }
 
 /**

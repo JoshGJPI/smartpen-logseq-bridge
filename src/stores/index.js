@@ -80,7 +80,8 @@ export {
   deselectAllPages,
   clearTranscription,
   clearPageTranscription,
-  setIsTranscribing
+  setIsTranscribing,
+  updatePageTranscriptionLines
 } from './transcription.js';
 
 // Settings
