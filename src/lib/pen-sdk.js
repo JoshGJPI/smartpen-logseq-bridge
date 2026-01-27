@@ -430,7 +430,7 @@ export async function deleteBooksFromPen(books) {
             console.warn(`⏰ Deletion timeout for book ${bookId}`);
             offlineTransferResolver = null;
             reject(new Error(`Timeout deleting book ${bookId}`));
-          }, 60000);  // 60 second timeout per book
+          }, 900000);  // 15 minute timeout per book
           
           // Create wrapped resolve that clears timeout
           const wrappedResolve = (value) => {
@@ -776,23 +776,19 @@ function handleOfflineDataReceived(data) {
   const receiveTime = Date.now();
   
   // ========================================
-  // DELETION MODE CHECK - HIGHEST PRIORITY
+  // DELETION MODE CHECK - PROCESS BUT DON'T STORE
   // ========================================
-  if (isDeletionMode) {
-    console.log('%c🗑️ DELETION MODE - Discarding received data', 
+  let deletionMode = isDeletionMode;
+  if (deletionMode) {
+    console.log('%c🗑️ DELETION MODE - Processing data for pen acknowledgment', 
       'background: #f59e0b; color: white; padding: 2px 6px; border-radius: 3px;');
     
     // Count strokes for logging
     const strokeCount = Array.isArray(data) ? data.length : 0;
-    console.log(`📦 Discarding ${strokeCount} strokes from deleted book`);
+    console.log(`📦 Received ${strokeCount} strokes (will be discarded after processing)`);
     
-    // Resolve the pending transfer (deletion successful)
-    if (offlineTransferResolver) {
-      offlineTransferResolver({ deleted: true });
-    }
-    
-    // CRITICAL: Return early - do NOT add to stores
-    return;
+    // Continue processing to ensure proper BLE protocol completion
+    // but we'll skip the addOfflineStrokes() call at the end
   }
   
   // ========================================
@@ -911,8 +907,22 @@ function handleOfflineDataReceived(data) {
     match: detectedBook === pendingOfflineTransfer
   });
   
-  // Add all strokes to store
-  addOfflineStrokes(convertedStrokes);
+  // Add strokes to store (UNLESS in deletion mode)
+  if (deletionMode) {
+    console.log(`🗑️ DELETION MODE - Skipping addOfflineStrokes() to discard data`);
+    
+    // Resolve the pending transfer (deletion successful)
+    if (offlineTransferResolver) {
+      offlineTransferResolver({ deleted: true });
+    }
+    
+    log(`🗑️ Deleted ${convertedStrokes.length} strokes from pen (data discarded)`, 'success');
+    console.log('%c===== END DELETION DATA PROCESSING =====', 'background: #f59e0b; color: white; font-size: 14px; padding: 4px;');
+    return; // Exit early - don't continue with progress tracking
+  } else {
+    // Normal import - add strokes to store
+    addOfflineStrokes(convertedStrokes);
+  }
   
   const elapsed = transferStartTime ? Math.round((Date.now() - transferStartTime) / 1000) : 0;
   const rate = elapsed > 0 ? Math.round(convertedStrokes.length / elapsed) : convertedStrokes.length;
