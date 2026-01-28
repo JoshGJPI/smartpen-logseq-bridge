@@ -1,12 +1,17 @@
 /**
- * Transcript Block Updater (v2.1 - Stroke → Block Persistence)
+ * Transcript Block Updater (v3.0 - Append-Only Mode)
  * Orchestrates incremental updates to LogSeq transcript blocks
- * 
+ *
+ * CRITICAL ARCHITECTURE CHANGE (v3.0):
+ * - Append-only: Only creates blocks for strokes WITHOUT blockUuid
+ * - Immutable associations: Once a stroke has a blockUuid, it NEVER changes
+ * - Existing blocks are NEVER modified during re-transcription
+ * - Y-bounds are IMMUTABLE after creation (set once, never updated)
+ *
  * Key features:
  * - Checkbox preservation: User edits never lost
- * - Canonical comparison: Detects actual changes vs user edits
- * - Property-based storage: stroke-y-bounds + canonical-transcript
  * - Stroke→Block persistence: blockUuid stored on strokes for incremental updates
+ * - No orphan auto-deletion: User must confirm block deletions
  */
 
 import {
@@ -19,7 +24,8 @@ import {
 
 import {
   updateStrokeBlockUuids,
-  getStrokesSnapshot
+  getStrokesSnapshot,
+  partitionStrokesByTranscriptionStatus
 } from '../stores/strokes.js';
 
 // Import makeRequest for internal use
@@ -443,23 +449,34 @@ async function getOrCreateTranscriptSection(pageName, host, token) {
 
 /**
  * Match strokes to transcription lines using Y-bounds overlap
- * Returns map of stroke startTime → blockUuid
- * @param {Array} strokes - All strokes from the page
- * @param {Array} linesWithBlocks - Lines with yBounds and blockUuid
+ * CRITICAL: Only processes strokes WITHOUT blockUuid (append-only mode)
+ *
+ * @param {Array} strokes - Strokes to match (should be pre-filtered to only untranscribed strokes)
+ * @param {Array} linesWithBlocks - Lines with yBounds and blockUuid (newly created blocks)
  * @param {number} tolerance - Y-tolerance for overlap (default 5)
  * @returns {Map<string, string>} Map of stroke startTime → blockUuid
  */
 function matchStrokesToLines(strokes, linesWithBlocks, tolerance = 5) {
+  console.log(`[matchStrokesToLines] Processing ${strokes.length} strokes against ${linesWithBlocks.length} blocks`);
+
   const strokeToBlockMap = new Map();
+  let matchedCount = 0;
+  let unmatchedCount = 0;
+  let skippedCount = 0;
 
   for (const stroke of strokes) {
-    if (!stroke.dotArray || stroke.dotArray.length === 0) continue;
+    if (!stroke.dotArray || stroke.dotArray.length === 0) {
+      console.warn(`Stroke ${stroke.startTime} has no dotArray, skipping`);
+      skippedCount++;
+      continue;
+    }
 
-    // CRITICAL FIX: Preserve existing blockUuid associations
-    // Only match strokes that don't already have a blockUuid
+    // CRITICAL: If stroke already has blockUuid, DO NOT reassign
+    // This should not happen if caller filters properly, but double-check
     if (stroke.blockUuid) {
-      strokeToBlockMap.set(String(stroke.startTime), stroke.blockUuid);
-      continue; // Skip re-matching - preserve existing association
+      console.warn(`Stroke ${stroke.startTime} already has blockUuid - skipping (should not happen in append-only mode)`);
+      skippedCount++;
+      continue;
     }
 
     // Get stroke's Y range
@@ -490,43 +507,72 @@ function matchStrokesToLines(strokes, linesWithBlocks, tolerance = 5) {
 
     if (bestMatch) {
       strokeToBlockMap.set(String(stroke.startTime), bestMatch.blockUuid);
+      matchedCount++;
+      if (matchedCount <= 3) {
+        console.log(`  ✓ Stroke ${stroke.startTime} → Block ${bestMatch.blockUuid.substring(0, 8)}...`);
+      }
+    } else {
+      unmatchedCount++;
+      if (unmatchedCount <= 3) {
+        console.warn(`  ✗ Stroke ${stroke.startTime} (Y: ${strokeMinY.toFixed(1)}-${strokeMaxY.toFixed(1)}) - NO MATCH`);
+      }
     }
   }
+
+  console.log(`[matchStrokesToLines] Results: ${matchedCount} matched, ${unmatchedCount} unmatched, ${skippedCount} skipped`);
 
   return strokeToBlockMap;
 }
 
 /**
- * Main orchestrator for transcript block updates
+ * Main orchestrator for transcript block updates (v3.0 - Append-Only)
+ *
+ * CRITICAL CHANGES in v3.0:
+ * 1. Only creates blocks for strokes WITHOUT blockUuid
+ * 2. NEVER modifies existing blocks during re-transcription
+ * 3. NEVER reassigns strokes that already have blockUuid
+ * 4. Y-bounds are IMMUTABLE after creation
+ * 5. Orphaned blocks are PRESERVED (no auto-deletion)
+ *
  * @param {number} book - Book ID
  * @param {number} page - Page number
- * @param {Array} strokes - All strokes (for Y-bounds calculation)
- * @param {Object} newTranscription - New transcription result from MyScript
+ * @param {Array} allStrokes - All strokes for the page (both with and without blockUuid)
+ * @param {Object} newTranscription - Transcription result from MyScript (ONLY from untranscribed strokes)
  * @param {string} host - LogSeq API host
  * @param {string} token - Auth token
  * @returns {Promise<Object>} Update result with stats
  */
-export async function updateTranscriptBlocks(book, page, strokes, newTranscription, host, token = '') {
+export async function updateTranscriptBlocks(book, page, allStrokes, newTranscription, host, token = '') {
   try {
     // Ensure page exists
     const pageObj = await getOrCreateSmartpenPage(book, page, host, token);
     const pageName = pageObj.name || pageObj.originalName;
 
-    // Get existing transcript blocks
-    const existingBlocks = await getTranscriptBlocks(book, page, host, token);
+    console.log('=== Transcript Update v3.0 (Append-Only) ===');
 
-    console.log(`Found ${existingBlocks.length} existing transcript blocks`);
+    // CRITICAL: Partition strokes - this is the foundation of append-only mode
+    const { transcribed: strokesWithBlockUuid, untranscribed: strokesWithoutBlockUuid } =
+      partitionStrokesByTranscriptionStatus(allStrokes.filter(s => !s.deleted));
 
-    // CRITICAL FIX: Partition strokes into those with and without blockUuid
-    const strokesWithBlockUuid = strokes.filter(s => s.blockUuid);
-    const strokesWithoutBlockUuid = strokes.filter(s => !s.blockUuid);
+    console.log(`Strokes: ${strokesWithBlockUuid.length} already transcribed, ${strokesWithoutBlockUuid.length} new`);
 
-    console.log(`Strokes: ${strokesWithBlockUuid.length} with blockUuid, ${strokesWithoutBlockUuid.length} without`);
+    // If there are no new lines to process, we're done
+    if (!newTranscription.lines || newTranscription.lines.length === 0) {
+      console.log('No new transcription lines to process');
+      return {
+        success: true,
+        page: pageName,
+        results: [],
+        strokesAssigned: 0,
+        stats: { created: 0, updated: 0, skipped: 0, preserved: 0, merged: 0, deleted: 0, errors: 0 }
+      };
+    }
 
-    // Estimate stroke IDs for each transcription line
+    // Estimate stroke IDs for each NEW transcription line
+    // These lines came from ONLY the untranscribed strokes sent to MyScript
     const linesWithStrokeIds = newTranscription.lines.map(line => {
-      const lineBounds = line.yBounds || calculateLineBounds(line, strokes);
-      const strokeIds = estimateLineStrokeIds({ yBounds: lineBounds }, strokes);
+      const lineBounds = line.yBounds || calculateLineBounds(line, strokesWithoutBlockUuid);
+      const strokeIds = estimateLineStrokeIds({ yBounds: lineBounds }, strokesWithoutBlockUuid);
 
       return {
         ...line,
@@ -535,64 +581,31 @@ export async function updateTranscriptBlocks(book, page, strokes, newTranscripti
       };
     });
 
-    // CRITICAL FIX: Filter to only lines containing NEW strokes (without blockUuid)
-    // A line is "new" if it contains at least one stroke without blockUuid
-    const newLines = linesWithStrokeIds.filter(line => {
-      // Check if any stroke in this line lacks blockUuid
-      const hasNewStrokes = Array.from(line.strokeIds).some(strokeId => {
-        const stroke = strokes.find(s => String(s.startTime) === strokeId);
-        return stroke && !stroke.blockUuid;
-      });
-      return hasNewStrokes;
-    });
+    console.log(`Processing ${linesWithStrokeIds.length} NEW lines from untranscribed strokes`);
 
-    console.log(`Filtered to ${newLines.length} lines containing new strokes (out of ${linesWithStrokeIds.length} total lines)`);
-    
-    console.log('New lines with stroke IDs:', newLines.map(l => ({
-      text: l.text.substring(0, 30),
-      strokeCount: l.strokeIds.size
-    })));
+    // Build CREATE actions for ALL new lines (append-only - no UPDATE/SKIP/DELETE)
+    const actions = linesWithStrokeIds.map((line, i) => ({
+      type: 'CREATE',
+      lineIndex: i,
+      line: line,
+      bounds: line.yBounds,
+      canonical: line.canonical,
+      parentUuid: null
+    }));
 
-    // If no new lines, nothing to do
-    if (newLines.length === 0) {
-      console.log('No new strokes to transcribe - all strokes already have blockUuid');
-      return {
-        success: true,
-        message: 'No new strokes to save',
-        created: 0,
-        updated: 0,
-        skipped: existingBlocks.length
-      };
-    }
+    console.log(`Creating ${actions.length} new blocks (append-only mode)`);
 
-    // Detect actions using ONLY NEW lines (those with strokes lacking blockUuid)
-    // This ensures existing blocks are never modified
-    const actions = await detectBlockActions(existingBlocks, newLines, strokes);
-    
-    console.log('Detected actions:', {
-      create: actions.filter(a => a.type === 'CREATE').length,
-      update: actions.filter(a => a.type === 'UPDATE').length,
-      skip: actions.filter(a => a.type === 'SKIP').length,
-      conflict: actions.filter(a => a.type === 'MERGE_CONFLICT').length
-    });
-    
-    // Track which existing blocks were matched/used
-    const usedBlockUuids = new Set();
-
-    // Execute actions
+    // Execute CREATE actions
     const results = [];
-    const lineToBlockMap = new Map(); // Track line index to block UUID mapping
-    const lineIndentLevels = new Map(); // Track line index to indent level
+    const lineToBlockMap = new Map();
+    const lineIndentLevels = new Map();
 
-    // Store indent levels for all lines for parent lookups
+    // Store indent levels for parent lookups
     for (const action of actions) {
-      if (action.lineIndex !== undefined) {
-        lineIndentLevels.set(action.lineIndex, action.line?.indentLevel || 0);
-      }
+      lineIndentLevels.set(action.lineIndex, action.line?.indentLevel || 0);
     }
 
-    // CRITICAL FIX: Process actions level by level to ensure parents exist before children
-    // Group actions by indent level
+    // Group actions by indent level for hierarchical processing
     const actionsByLevel = new Map();
     let maxLevel = 0;
 
@@ -606,271 +619,82 @@ export async function updateTranscriptBlocks(book, page, strokes, newTranscripti
       actionsByLevel.get(level).push(action);
     }
 
-    console.log(`Processing ${actions.length} actions across ${maxLevel + 1} indent levels`);
-
-    // Helper function to find parent UUID by searching for nearest lower indent
+    // Helper to find parent UUID
     function findParentUuid(currentLineIndex, currentIndent) {
       if (currentIndent === 0) return null;
 
-      // Search backwards for a line with lower indent that has been created
       for (let i = currentLineIndex - 1; i >= 0; i--) {
         const lineIndent = lineIndentLevels.get(i);
         const lineUuid = lineToBlockMap.get(i);
 
         if (lineIndent !== undefined && lineIndent < currentIndent && lineUuid) {
-          console.log(`  → Found parent: line ${i} (indent ${lineIndent}) → ${lineUuid.substring(0, 8)}...`);
           return lineUuid;
         }
       }
-
       return null;
     }
 
-    // Process level by level, starting from level 0 (top-level)
+    // Process level by level (ensures parents exist before children)
     for (let level = 0; level <= maxLevel; level++) {
       const levelActions = actionsByLevel.get(level) || [];
+      if (levelActions.length === 0) continue;
 
-      if (levelActions.length === 0) {
-        console.log(`Level ${level}: No actions`);
-        continue;
-      }
-
-      console.log(`Level ${level}: Processing ${levelActions.length} actions`);
+      console.log(`Level ${level}: Creating ${levelActions.length} blocks`);
 
       for (const action of levelActions) {
-      
-      try {
-        switch (action.type) {
-          case 'CREATE': {
-            const lineIdx = action.lineIndex;
-            const indent = action.line?.indentLevel || 0;
+        try {
+          const lineIdx = action.lineIndex;
+          const indent = action.line?.indentLevel || 0;
 
-            console.log(`  Creating line ${lineIdx} (indent ${indent}): "${action.line?.text?.substring(0, 30)}..."`);
-
-            // Determine parent UUID using the new helper function
-            let parentUuid = action.parentUuid;
-
-            if (!parentUuid && indent > 0) {
-              // Find parent by searching backwards for lower indent
-              parentUuid = findParentUuid(lineIdx, indent);
-            }
-
-            // If still no parent, this is top-level - use "Transcribed Content" section
-            if (!parentUuid) {
-              parentUuid = await getOrCreateTranscriptSection(pageName, host, token);
-              console.log(`  → Using section parent: ${parentUuid.substring(0, 8)}...`);
-            }
-
-            const newBlock = await createTranscriptBlockWithProperties(
-              parentUuid,
-              action.line,
-              host,
-              token
-            );
-
-            console.log(`  ✓ Created block: ${newBlock.uuid.substring(0, 8)}...`);
-
-            // Track this block in lineToBlockMap for future children
-            lineToBlockMap.set(lineIdx, newBlock.uuid);
-            results.push({ type: 'created', uuid: newBlock.uuid, lineIndex: lineIdx, indentLevel: indent });
-            break;
+          // Determine parent
+          let parentUuid = null;
+          if (indent > 0) {
+            parentUuid = findParentUuid(lineIdx, indent);
           }
-          
-          case 'UPDATE': {
-            await updateTranscriptBlockWithPreservation(
-              action.blockUuid,
-              action.line,
-              action.oldContent,
-              host,
-              token
-            );
-            
-            usedBlockUuids.add(action.blockUuid);
-            // Use consumedLines to map line indices to block UUID
-            if (action.consumedLines && action.consumedLines.length > 0) {
-              action.consumedLines.forEach(lineIdx => {
-                lineToBlockMap.set(lineIdx, action.blockUuid);
-              });
-            }
-            results.push({ 
-              type: 'updated', 
-              uuid: action.blockUuid, 
-              lineIndex: action.consumedLines?.[0]
-            });
-            break;
-          }
-          
-          case 'UPDATE_MERGED': {
-            await updateTranscriptBlockWithPreservation(
-              action.blockUuid,
-              action.line,
-              action.oldContent,
-              host,
-              token
-            );
-            
-            usedBlockUuids.add(action.blockUuid);
-            // Update mapping for all consumed lines
-            action.consumedLines.forEach(lineIdx => {
-              lineToBlockMap.set(lineIdx, action.blockUuid);
-            });
-            
-            results.push({ 
-              type: 'updated-merged', 
-              uuid: action.blockUuid, 
-              mergedCount: action.line.mergedLineCount,
-              consumedLines: action.consumedLines
-            });
-            break;
-          }
-          
-          case 'SKIP': {
-            usedBlockUuids.add(action.blockUuid);
-            // Use consumedLines to map line indices to block UUID
-            if (action.consumedLines && action.consumedLines.length > 0) {
-              action.consumedLines.forEach(lineIdx => {
-                lineToBlockMap.set(lineIdx, action.blockUuid);
-              });
-            }
-            results.push({ 
-              type: 'skipped', 
-              uuid: action.blockUuid, 
-              reason: action.reason,
-              lineIndex: action.consumedLines?.[0]
-            });
-            break;
-          }
-          
-          case 'SKIP_MERGED': {
-            usedBlockUuids.add(action.blockUuid);
-            // Update mapping for all consumed lines
-            action.consumedLines.forEach(lineIdx => {
-              lineToBlockMap.set(lineIdx, action.blockUuid);
-            });
-            
-            results.push({ 
-              type: 'skipped-merged', 
-              uuid: action.blockUuid, 
-              reason: action.reason,
-              mergedCount: action.mergedCount,
-              consumedLines: action.consumedLines
-            });
-            break;
-          }
-          
-          case 'PRESERVE': {
-            usedBlockUuids.add(action.blockUuid);
-            results.push({ 
-              type: 'preserved', 
-              uuid: action.blockUuid, 
-              reason: action.reason
-            });
-            break;
-          }
-          
-          case 'MERGE_CONFLICT': {
-            const resolution = await handleMergeConflict(action, host, token);
-            usedBlockUuids.add(resolution.blockUuid);
-            // Use the first line from the conflict
-            const lineIdx = action.overlappingLines?.[0]?.index;
-            if (lineIdx !== undefined) {
-              lineToBlockMap.set(lineIdx, resolution.blockUuid);
-            }
-            results.push({ 
-              type: 'merged', 
-              uuid: resolution.blockUuid,
-              strategy: resolution.strategy,
-              lineIndex: lineIdx
-            });
-            break;
-          }
-        }
-      } catch (error) {
-        console.error(`Failed to execute action at level ${level}:`, error);
-        results.push({
-          type: 'error',
-          action: action.type,
-          error: error.message,
-          lineIndex: action.lineIndex,
-          indentLevel: level
-        });
-      }
-    } // End of levelActions loop
 
-    console.log(`Completed level ${level}`);
-  } // End of level-by-level loop
-    
-    // Build set of all current stroke timestamps for existence check
-    const currentStrokeTimestamps = new Set(
-      strokes.map(s => String(s.startTime))
-    );
-    
-    // Check orphaned blocks - only delete if strokes no longer exist
-    const orphanedBlocks = existingBlocks.filter(b => !usedBlockUuids.has(b.uuid));
-    
-    for (const block of orphanedBlocks) {
-      // Parse stroke IDs from block (if available)
-      const strokeIdsStr = block.properties?.['stroke-ids'];
-      
-      if (strokeIdsStr) {
-        // Block has stroke IDs - check if any strokes still exist
-        const blockStrokeIds = strokeIdsStr.split(',').map(id => id.trim());
-        const strokesStillExist = blockStrokeIds.some(id => 
-          currentStrokeTimestamps.has(id)
-        );
-        
-        if (strokesStillExist) {
-          // Strokes exist but block wasn't matched - PRESERVE IT
-          console.log(`Preserving unmatched block ${block.uuid} - strokes still exist`);
-          results.push({ 
-            type: 'preserved', 
-            uuid: block.uuid, 
-            reason: 'strokes-exist-unmatched'
+          // If no parent found, use the "Transcribed Content" section
+          if (!parentUuid) {
+            parentUuid = await getOrCreateTranscriptSection(pageName, host, token);
+          }
+
+          // Create the block
+          const newBlock = await createTranscriptBlockWithProperties(
+            parentUuid,
+            action.line,
+            host,
+            token
+          );
+
+          console.log(`  ✓ Created block ${newBlock.uuid.substring(0, 8)}... for line ${lineIdx}`);
+
+          lineToBlockMap.set(lineIdx, newBlock.uuid);
+          results.push({
+            type: 'created',
+            uuid: newBlock.uuid,
+            lineIndex: lineIdx,
+            indentLevel: indent
           });
-          continue; // Don't delete
+
+        } catch (error) {
+          console.error(`Failed to create block for line ${action.lineIndex}:`, error);
+          results.push({
+            type: 'error',
+            action: 'CREATE',
+            error: error.message,
+            lineIndex: action.lineIndex
+          });
         }
-      } else {
-        // Block without stroke IDs - DON'T delete (safe default)
-        console.log(`Preserving block ${block.uuid} - no stroke IDs to verify`);
-        results.push({ 
-          type: 'preserved', 
-          uuid: block.uuid, 
-          reason: 'no-stroke-ids'
-        });
-        continue;
-      }
-      
-      // Only reach here if block has stroke IDs AND none of those strokes exist
-      try {
-        await makeRequest(host, token, 'logseq.Editor.removeBlock', [block.uuid]);
-        results.push({ 
-          type: 'deleted', 
-          uuid: block.uuid, 
-          reason: 'strokes-deleted'
-        });
-      } catch (error) {
-        console.error(`Failed to delete orphaned block ${block.uuid}:`, error);
-        results.push({ 
-          type: 'error', 
-          action: 'DELETE', 
-          error: error.message,
-          uuid: block.uuid
-        });
       }
     }
-    
-    // CRITICAL: Match strokes to blocks and persist blockUuid
-    // This enables incremental updates in future sessions
-    try {
-      // Build linesWithBlocks from results (using newLines)
-      const linesWithBlocks = results
-        .filter(r => r.type === 'created' || r.type === 'updated' || r.type === 'updated-merged')
-        .map(r => {
-          const lineIdx = r.lineIndex ?? r.consumedLines?.[0] ?? -1;
-          if (lineIdx === -1) return null;
 
-          const line = newLines[lineIdx];
-          if (!line) return null;
+    // CRITICAL: Assign blockUuid to ONLY the strokes that were ACTUALLY TRANSCRIBED
+    // This uses the transcribedStrokeIds stored with the transcription result
+    try {
+      const linesWithBlocks = results
+        .filter(r => r.type === 'created')
+        .map(r => {
+          const line = linesWithStrokeIds[r.lineIndex];
+          if (!line || !line.yBounds) return null;
 
           return {
             blockUuid: r.uuid,
@@ -879,62 +703,76 @@ export async function updateTranscriptBlocks(book, page, strokes, newTranscripti
         })
         .filter(Boolean);
 
-      console.log(`Matching ${strokesWithoutBlockUuid.length} NEW strokes to ${linesWithBlocks.length} blocks`);
+      // CRITICAL FIX: Only match strokes that were ACTUALLY sent to MyScript
+      // newTranscription.transcribedStrokeIds contains the IDs of strokes that were transcribed
+      const transcribedStrokeIds = newTranscription.transcribedStrokeIds
+        ? new Set(newTranscription.transcribedStrokeIds)
+        : null;
 
-      // CRITICAL FIX: Only match NEW strokes (without blockUuid) to blocks
-      // Existing strokes already preserve their blockUuid via matchStrokesToLines
-      const strokeToBlockMap = matchStrokesToLines(strokes, linesWithBlocks);
-      
-      console.log(`Assigning ${strokeToBlockMap.size} strokes to blocks`);
-      
-      // Update in-memory strokes with block references
-      updateStrokeBlockUuids(strokeToBlockMap);
-      
-      // Persist updated strokes (with blockUuid) to LogSeq
-      const allStrokes = getStrokesSnapshot();
-      const pageStrokes = allStrokes.filter(s => 
-        s.pageInfo?.book === book && s.pageInfo?.page === page
-      );
-      
-      if (pageStrokes.length > 0) {
-        console.log(`Persisting ${pageStrokes.length} strokes with updated blockUuids`);
-        await updatePageStrokes(book, page, pageStrokes, host, token);
+      // Filter strokesWithoutBlockUuid to ONLY include strokes that were actually transcribed
+      let strokesToMatch;
+      if (transcribedStrokeIds) {
+        strokesToMatch = strokesWithoutBlockUuid.filter(s =>
+          transcribedStrokeIds.has(String(s.startTime))
+        );
+        console.log(`Filtering: ${strokesWithoutBlockUuid.length} untranscribed strokes → ${strokesToMatch.length} actually transcribed`);
+      } else {
+        // Fallback: if no transcribedStrokeIds, use all untranscribed strokes (legacy behavior)
+        strokesToMatch = strokesWithoutBlockUuid;
+        console.warn('No transcribedStrokeIds found - using all untranscribed strokes (legacy fallback)');
       }
+
+      console.log(`Matching ${strokesToMatch.length} transcribed strokes to ${linesWithBlocks.length} new blocks`);
+
+      // ONLY match strokes that were actually transcribed
+      const strokeToBlockMap = matchStrokesToLines(strokesToMatch, linesWithBlocks);
+
+      console.log(`Assigning blockUuid to ${strokeToBlockMap.size} strokes`);
+
+      // Update in-memory strokes
+      updateStrokeBlockUuids(strokeToBlockMap);
+
+      // Persist strokes with new blockUuid assignments to LogSeq
+      const updatedStrokes = getStrokesSnapshot();
+      const pageStrokes = updatedStrokes.filter(s =>
+        s.pageInfo?.book === book && s.pageInfo?.page === page && !s.deleted
+      );
+
+      if (pageStrokes.length > 0) {
+        console.log(`Persisting ${pageStrokes.length} strokes to LogSeq`);
+        await updatePageStrokes(book, page, pageStrokes, host, token);
+        console.log(`✓ Stroke data persisted with blockUuid associations`);
+      }
+
     } catch (error) {
       console.error('Failed to persist stroke→block associations:', error);
-      // Don't fail the whole operation - blocks are still created
+      // Don't fail - blocks are still created
     }
-    
+
+    console.log('=== Transcript Update Complete ===');
+
     return {
       success: true,
       page: pageName,
       results,
-      strokesAssigned: results.filter(r => r.type === 'created' || r.type === 'updated').length,
+      strokesAssigned: results.filter(r => r.type === 'created').length,
       stats: {
         created: results.filter(r => r.type === 'created').length,
-        updated: results.filter(r => r.type === 'updated' || r.type === 'updated-merged').length,
-        skipped: results.filter(r => r.type === 'skipped' || r.type === 'skipped-merged').length,
-        preserved: results.filter(r => r.type === 'preserved').length,
-        merged: results.filter(r => r.type === 'merged').length,
-        deleted: results.filter(r => r.type === 'deleted').length,
+        updated: 0, // v3.0: No updates in append-only mode
+        skipped: 0, // v3.0: No skips in append-only mode
+        preserved: 0, // v3.0: Existing blocks are always preserved (not tracked)
+        merged: 0,
+        deleted: 0, // v3.0: No auto-deletion
         errors: results.filter(r => r.type === 'error').length
       }
     };
-    
+
   } catch (error) {
     console.error('Failed to update transcript blocks:', error);
     return {
       success: false,
       error: error.message,
-      stats: {
-        created: 0,
-        updated: 0,
-        skipped: 0,
-        preserved: 0,
-        merged: 0,
-        deleted: 0,
-        errors: 0
-      }
+      stats: { created: 0, updated: 0, skipped: 0, preserved: 0, merged: 0, deleted: 0, errors: 0 }
     };
   }
 }

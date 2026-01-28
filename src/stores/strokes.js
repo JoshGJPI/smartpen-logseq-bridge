@@ -149,14 +149,27 @@ export function loadStrokesFromStorage(storedStrokes, pageInfo) {
  * @param {Map<string, string>} strokeToBlockMap - Map of stroke startTime -> blockUuid
  */
 export function updateStrokeBlockUuids(strokeToBlockMap) {
+  console.log(`[updateStrokeBlockUuids] Updating strokes with ${strokeToBlockMap.size} mappings`);
+
+  let updatedCount = 0;
+  let skippedCount = 0;
+
   strokes.update(allStrokes => {
-    return allStrokes.map(stroke => {
+    const result = allStrokes.map(stroke => {
       const blockUuid = strokeToBlockMap.get(String(stroke.startTime));
       if (blockUuid !== undefined) {
+        updatedCount++;
+        if (updatedCount <= 3) {
+          console.log(`  ✓ Updated stroke ${stroke.startTime}: blockUuid = ${blockUuid.substring(0, 8)}...`);
+        }
         return { ...stroke, blockUuid };
       }
+      skippedCount++;
       return stroke;
     });
+
+    console.log(`[updateStrokeBlockUuids] Complete: ${updatedCount} updated, ${skippedCount} skipped`);
+    return result;
   });
 }
 
@@ -241,13 +254,75 @@ export function getStrokesInYRange(strokeList, yRange, tolerance = 5) {
   if (!yRange || typeof yRange.minY !== 'number' || typeof yRange.maxY !== 'number') {
     return [];
   }
-  
+
   return strokeList.filter(stroke => {
     if (!stroke.dotArray || stroke.dotArray.length === 0) return false;
-    
+
     // Check if any dot falls within the Y range
-    return stroke.dotArray.some(dot => 
+    return stroke.dotArray.some(dot =>
       dot.y >= (yRange.minY - tolerance) && dot.y <= (yRange.maxY + tolerance)
     );
   });
+}
+
+/**
+ * Partition strokes by transcription status
+ * Returns strokes grouped by whether they have a blockUuid assigned
+ * @param {Array} strokeList - Strokes to partition
+ * @returns {Object} { transcribed: Array, untranscribed: Array }
+ */
+export function partitionStrokesByTranscriptionStatus(strokeList) {
+  const transcribed = [];
+  const untranscribed = [];
+
+  for (const stroke of strokeList) {
+    if (stroke.blockUuid) {
+      transcribed.push(stroke);
+    } else {
+      untranscribed.push(stroke);
+    }
+  }
+
+  return { transcribed, untranscribed };
+}
+
+/**
+ * Get strokes for a specific page that haven't been transcribed
+ * Filters by book/page and excludes strokes with blockUuid
+ * @param {number} book - Book ID
+ * @param {number} page - Page number
+ * @returns {Array} Untranscribed strokes for the page
+ */
+export function getUntranscribedStrokesForPage(book, page) {
+  let result = [];
+  const unsubscribe = strokes.subscribe(allStrokes => {
+    result = allStrokes.filter(s =>
+      s.pageInfo?.book === book &&
+      s.pageInfo?.page === page &&
+      !s.blockUuid &&
+      !s.deleted
+    );
+  });
+  unsubscribe();
+  return result;
+}
+
+/**
+ * Get all strokes for a page (both transcribed and untranscribed)
+ * Excludes deleted strokes
+ * @param {number} book - Book ID
+ * @param {number} page - Page number
+ * @returns {Array} All active strokes for the page
+ */
+export function getActiveStrokesForPageFromStore(book, page) {
+  let result = [];
+  const unsubscribe = strokes.subscribe(allStrokes => {
+    result = allStrokes.filter(s =>
+      s.pageInfo?.book === book &&
+      s.pageInfo?.page === page &&
+      !s.deleted
+    );
+  });
+  unsubscribe();
+  return result;
 }

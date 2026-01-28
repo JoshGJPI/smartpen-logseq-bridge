@@ -172,24 +172,26 @@
       log('Please configure MyScript API credentials in Settings', 'warning');
       return;
     }
-    
+
     if (!hasStrokes) {
       log('No strokes available for transcription', 'warning');
       return;
     }
-    
+
     setIsTranscribing(true);
     const transcribeLabel = $hasSelection ? 'selected' : 'all';
-    
-    // Group strokes by page
+    const { host, token } = getLogseqSettings();
+
+    // CRITICAL FIX: Filter strokes by page and handle Y-bounds overlap
     const strokesByPage = new Map();
     strokesToTranscribe.forEach(stroke => {
       const pageInfo = stroke.pageInfo || {};
       const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${pageInfo.book || 0}/P${pageInfo.page || 0}`;
-      
+
       if (!strokesByPage.has(pageKey)) {
         strokesByPage.set(pageKey, {
-          strokes: [],
+          allStrokes: [],          // All strokes (for Y-bounds calculation)
+          untranscribedStrokes: [], // Only strokes without blockUuid (for MyScript)
           pageInfo: {
             section: pageInfo.section || 0,
             owner: pageInfo.owner || 0,
@@ -198,20 +200,41 @@
           }
         });
       }
-      
-      strokesByPage.get(pageKey).strokes.push(stroke);
+
+      const pageData = strokesByPage.get(pageKey);
+      pageData.allStrokes.push(stroke);
+
+      // Only add to untranscribed list if no blockUuid
+      if (!stroke.blockUuid) {
+        pageData.untranscribedStrokes.push(stroke);
+      }
     });
     
-    const totalPages = strokesByPage.size;
-    log(`Transcribing ${transcribeCount} ${transcribeLabel} strokes from ${totalPages} page(s)...`, 'info');
-    
-    // Clear previous transcriptions
-    clearTranscription();
-    
+    // Count pages that actually have untranscribed strokes
+    const pagesWithNewStrokes = Array.from(strokesByPage.values()).filter(
+      pageData => pageData.untranscribedStrokes.length > 0
+    );
+    const totalPages = pagesWithNewStrokes.length;
+
+    if (totalPages === 0) {
+      log('All selected strokes have already been transcribed', 'info');
+      setIsTranscribing(false);
+      return;
+    }
+
+    const totalUntranscribed = pagesWithNewStrokes.reduce(
+      (sum, pageData) => sum + pageData.untranscribedStrokes.length,
+      0
+    );
+    log(`Transcribing ${totalUntranscribed} untranscribed ${transcribeLabel} strokes from ${totalPages} page(s)...`, 'info');
+
+    // Don't clear previous transcriptions - we're appending
+    // clearTranscription();
+
     // Start progress tracking
     const startTime = Date.now();
     let progressInterval;
-    
+
     transcriptionProgress.set({
       active: true,
       currentPage: 0,
@@ -222,24 +245,30 @@
       errorCount: 0,
       elapsedSeconds: 0
     });
-    
+
     // Update elapsed time every second
     progressInterval = setInterval(() => {
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
       transcriptionProgress.update(p => ({ ...p, elapsedSeconds: elapsed }));
     }, 1000);
-    
+
     try {
       const { appKey, hmacKey } = getMyScriptCredentials();
       let successCount = 0;
       let errorCount = 0;
       let currentPageIndex = 0;
-      
+
       // Transcribe each page separately
       for (const [pageKey, pageData] of strokesByPage) {
+        // Skip pages with no untranscribed strokes
+        if (pageData.untranscribedStrokes.length === 0) {
+          log(`Skipping Book ${pageData.pageInfo.book}/Page ${pageData.pageInfo.page} - all strokes already transcribed`, 'info');
+          continue;
+        }
+
         currentPageIndex++;
         const { book, page } = pageData.pageInfo;
-        
+
         // Update progress
         transcriptionProgress.update(p => ({
           ...p,
@@ -247,27 +276,31 @@
           currentBook: book,
           currentPageNum: page
         }));
-        
+
         try {
-          log(`Transcribing Book ${book}, Page ${page}...`, 'info');
-          const result = await transcribeStrokes(pageData.strokes, appKey, hmacKey);
-          
+          log(`Transcribing ${pageData.untranscribedStrokes.length} new stroke(s) on Book ${book}, Page ${page}...`, 'info');
+
+          // CRITICAL: Only send untranscribed strokes to MyScript
+          const result = await transcribeStrokes(pageData.untranscribedStrokes, appKey, hmacKey);
+
           // Store transcription for this page
+          // CRITICAL: Pass the actual transcribed strokes so we can track which strokes get blockUuid
           setPageTranscription(
-            pageKey, 
-            result, 
+            pageKey,
+            result,
             pageData.pageInfo,
-            pageData.strokes.length
+            pageData.allStrokes.length,  // Total stroke count includes both transcribed and untranscribed
+            pageData.untranscribedStrokes  // NEW: The strokes that were actually sent to MyScript
           );
-          
+
           log(`✓ Book ${book}/Page ${page}: ${result.text?.length || 0} characters, ${result.lines?.length || 0} lines`, 'success');
           successCount++;
-          
+
           transcriptionProgress.update(p => ({ ...p, successCount }));
         } catch (error) {
           log(`✗ Failed to transcribe Book ${book}/Page ${page}: ${error.message}`, 'error');
           errorCount++;
-          
+
           transcriptionProgress.update(p => ({ ...p, errorCount }));
         }
       }
@@ -396,29 +429,31 @@
             const pageInfo = activeStrokes[0]?.pageInfo || { section: 0, owner: 0, book, page };
             const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${book}/P${page}`;
             const pageTranscription = $pageTranscriptions.get(pageKey);
-            
+
             // Only save transcription if this page is in the selected set
             if (pageTranscription && selectedSet.has(key)) {
               // NEW v2.0: Save page-specific transcription with property-based blocks
               log(`Saving transcription blocks to ${result.page}...`, 'info');
-              
+
               try {
+                // CRITICAL: Pass ALL strokes (including those with blockUuid) for Y-bounds context
+                // The updateTranscriptBlocks function will filter internally
                 const transcriptResult = await updateTranscriptBlocks(
                   book,
                   page,
-                  activeStrokes,      // Pass all strokes for Y-bounds calculation
-                  pageTranscription,   // MyScript result with lines
+                  activeStrokes,      // Pass all active strokes for Y-bounds calculation
+                  pageTranscription,   // MyScript result with lines (from untranscribed strokes only)
                   host,
                   token
                 );
-                
+
                 if (transcriptResult.success) {
                   const { stats } = transcriptResult;
                   const actions = [];
                   if (stats.created > 0) actions.push(`${stats.created} new`);
                   if (stats.updated > 0) actions.push(`${stats.updated} updated`);
                   if (stats.skipped > 0) actions.push(`${stats.skipped} preserved`);
-                  
+
                   log(`✅ Transcription saved: ${actions.join(', ')}`, 'success');
                   savedTranscriptionCount++;
                 } else {

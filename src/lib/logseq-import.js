@@ -27,13 +27,16 @@ function getStrokeId(stroke) {
  */
 function transformStoredToCanvasFormat(storedData, onProgress = null) {
   const { pageInfo, strokes: storedStrokes } = storedData;
-  
+
   if (!storedStrokes || !Array.isArray(storedStrokes)) {
     throw new Error('Invalid stroke data: missing strokes array');
   }
-  
+
   const total = storedStrokes.length;
-  
+  const strokesWithBlockUuid = storedStrokes.filter(s => s.blockUuid).length;
+
+  console.log(`[transformStoredToCanvasFormat] Importing ${total} strokes (${strokesWithBlockUuid} have blockUuid)`);
+
   return storedStrokes.map((stroke, index) => {
     // Report progress every 10 strokes or on last stroke
     if (onProgress && (index % 10 === 0 || index === total - 1)) {
@@ -49,9 +52,10 @@ function transformStoredToCanvasFormat(storedData, onProgress = null) {
       pageInfo: { ...pageInfo },  // Copy from document level
       startTime: stroke.startTime,
       endTime: stroke.endTime,
+      blockUuid: stroke.blockUuid || null,  // CRITICAL: Preserve blockUuid from storage
       dotArray: points.map((point, index) => {
         const [x, y, timestamp] = point;
-        
+
         // Determine dotType from position in array
         let dotType;
         if (index === 0) {
@@ -61,7 +65,7 @@ function transformStoredToCanvasFormat(storedData, onProgress = null) {
         } else {
           dotType = 1;  // Pen Move
         }
-        
+
         return {
           x,
           y,

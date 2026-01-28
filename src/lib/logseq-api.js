@@ -678,25 +678,40 @@ async function updatePageStrokesSingle(book, page, newStrokes, host, token = '')
       const uniqueStrokes = deduplicateStrokes(existingData.strokes, simplifiedStrokes);
       addedCount = uniqueStrokes.length;
       deletedCount = Math.max(0, existingData.strokes.length - simplifiedStrokes.length);
-      
+
+      // CRITICAL FIX: Also check if blockUuid has changed on existing strokes
+      let blockUuidChangedCount = 0;
       if (addedCount === 0 && deletedCount === 0) {
-        console.log('No changes to strokes');
-        return {
-          success: true,
-          added: 0,
-          deleted: 0,
-          total: existingData.strokes.length,
-          page: pageName
-        };
+        // Check if any existing strokes now have blockUuid
+        const existingById = new Map(existingData.strokes.map(s => [s.id, s]));
+        for (const newStroke of simplifiedStrokes) {
+          const existing = existingById.get(newStroke.id);
+          if (existing && existing.blockUuid !== newStroke.blockUuid) {
+            blockUuidChangedCount++;
+          }
+        }
+
+        if (blockUuidChangedCount === 0) {
+          console.log('No changes to strokes');
+          return {
+            success: true,
+            added: 0,
+            deleted: 0,
+            total: existingData.strokes.length,
+            page: pageName
+          };
+        }
+
+        console.log(`BlockUuid changed for ${blockUuidChangedCount} strokes - updating storage`);
       }
-      
+
       // Use simplifiedStrokes as the source of truth
       // This handles both additions and deletions correctly
       // simplifiedStrokes contains ALL active strokes (both existing and new)
       allStrokes = simplifiedStrokes.sort((a, b) => a.startTime - b.startTime);
       isUpdate = true;
-      
-      console.log(`Changes detected: ${addedCount} added, ${deletedCount} deleted`);
+
+      console.log(`Changes detected: ${addedCount} added, ${deletedCount} deleted, ${blockUuidChangedCount} blockUuid updated`);
     } else {
       // First time - use all strokes
       allStrokes = simplifiedStrokes;

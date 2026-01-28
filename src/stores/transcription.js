@@ -133,19 +133,27 @@ export function setTranscription(result, filteredStrokes = null) {
  * @param {Object} transcription - Transcription result from MyScript
  * @param {Object} pageInfo - Page metadata { section, owner, book, page }
  * @param {number} strokeCount - Number of strokes in this page
+ * @param {Array} transcribedStrokes - CRITICAL: The actual strokes that were sent to MyScript
  */
-export function setPageTranscription(pageKey, transcription, pageInfo, strokeCount) {
+export function setPageTranscription(pageKey, transcription, pageInfo, strokeCount, transcribedStrokes = null) {
+  // CRITICAL: Extract stroke IDs from the strokes that were actually transcribed
+  // This enables us to assign blockUuid ONLY to these strokes, not all strokes on the page
+  const transcribedStrokeIds = transcribedStrokes
+    ? transcribedStrokes.map(s => String(s.startTime))
+    : null;
+
   pageTranscriptions.update(pt => {
     const newMap = new Map(pt);
     newMap.set(pageKey, {
       ...transcription,
       pageInfo,
       strokeCount,
+      transcribedStrokeIds, // NEW: Track which strokes were actually transcribed
       timestamp: Date.now()
     });
     return newMap;
   });
-  
+
   // Auto-select newly transcribed page for import
   selectedPagesForImport.update(sp => {
     const newSet = new Set(sp);

@@ -107,6 +107,9 @@ export function generateStrokeId(stroke) {
  * @returns {Array} Simplified strokes with essential data + blockUuid
  */
 export function convertToStorageFormat(strokes) {
+  const withBlockUuid = strokes.filter(s => s.blockUuid).length;
+  console.log(`[convertToStorageFormat] Converting ${strokes.length} strokes (${withBlockUuid} have blockUuid)`);
+
   return strokes.map(stroke => ({
     id: generateStrokeId(stroke),
     startTime: stroke.startTime,
