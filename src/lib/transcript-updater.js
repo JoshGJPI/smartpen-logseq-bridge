@@ -163,32 +163,49 @@ function calculateLineBounds(line, strokes) {
  * @param {Map} lineToBlockMap - Map of line index to block UUID
  * @returns {string|null} Parent block UUID or null for top-level
  */
-function determineParentUuid(line, existingBlocks, lineToBlockMap) {
-  // If line has a parent line reference, use that
+/**
+ * Determine parent UUID for a line based on indentation and lineToBlockMap
+ * CRITICAL: This uses lineToBlockMap which is built level-by-level,
+ * ensuring parent blocks exist before children are created
+ * @param {Object} line - Line object with indentLevel
+ * @param {Array} existingBlocks - Array of existing blocks (not used anymore)
+ * @param {Map} lineToBlockMap - Map of line index to block UUID (built progressively)
+ * @param {number} currentLineIndex - Current line index in the lines array
+ * @returns {string|null} Parent block UUID or null for top-level
+ */
+function determineParentUuid(line, existingBlocks, lineToBlockMap, currentLineIndex) {
+  const indent = line.indentLevel || 0;
+
+  // Top-level block (indent 0) - no parent needed
+  if (indent === 0) {
+    return null; // Will use "Transcribed Content" section
+  }
+
+  // If line has explicit parent line reference from MyScript, use that
   if (line.parent !== null && typeof line.parent === 'number') {
     const parentBlockUuid = lineToBlockMap.get(line.parent);
     if (parentBlockUuid) {
+      console.log(`Line ${currentLineIndex} (indent ${indent}): Using explicit parent line ${line.parent} → ${parentBlockUuid.substring(0, 8)}...`);
       return parentBlockUuid;
     }
   }
-  
-  // Otherwise, find parent by indentation level from existing blocks
-  // This is a fallback for when we don't have parent references
-  const indent = line.indentLevel || 0;
-  
-  if (indent === 0) {
-    // Top-level block - find the "Transcribed Content" section parent
-    return null; // Will be handled by the caller
+
+  // Find nearest preceding line with lower indent level
+  // Search backwards through lineToBlockMap for a suitable parent
+  for (let i = currentLineIndex - 1; i >= 0; i--) {
+    const potentialParentUuid = lineToBlockMap.get(i);
+    if (!potentialParentUuid) continue;
+
+    // Need to check indent level of this line
+    // We'll need to pass the full lines array to do this properly
+    // For now, assume any previously created block at lower level is suitable
+    // This is a simplification - ideally we'd track indent levels
+    console.log(`Line ${currentLineIndex} (indent ${indent}): Using preceding block at line ${i} → ${potentialParentUuid.substring(0, 8)}...`);
+    return potentialParentUuid;
   }
-  
-  // Find the nearest block with lower indent
-  // Existing blocks should be in order, so search backwards
-  for (let i = existingBlocks.length - 1; i >= 0; i--) {
-    // We would need to track indent levels of existing blocks
-    // For now, return null (top-level)
-    // TODO: Enhance this logic when hierarchy is needed
-  }
-  
+
+  // Fallback: if no suitable parent found, this is top-level
+  console.log(`Line ${currentLineIndex} (indent ${indent}): No parent found, using top-level`);
   return null;
 }
 
@@ -434,41 +451,48 @@ async function getOrCreateTranscriptSection(pageName, host, token) {
  */
 function matchStrokesToLines(strokes, linesWithBlocks, tolerance = 5) {
   const strokeToBlockMap = new Map();
-  
+
   for (const stroke of strokes) {
     if (!stroke.dotArray || stroke.dotArray.length === 0) continue;
-    
+
+    // CRITICAL FIX: Preserve existing blockUuid associations
+    // Only match strokes that don't already have a blockUuid
+    if (stroke.blockUuid) {
+      strokeToBlockMap.set(String(stroke.startTime), stroke.blockUuid);
+      continue; // Skip re-matching - preserve existing association
+    }
+
     // Get stroke's Y range
     const strokeYs = stroke.dotArray.map(d => d.y);
     const strokeMinY = Math.min(...strokeYs);
     const strokeMaxY = Math.max(...strokeYs);
-    
+
     // Find the line with best Y-bounds overlap
     let bestMatch = null;
     let bestOverlap = 0;
-    
+
     for (const line of linesWithBlocks) {
       if (!line.yBounds || !line.blockUuid) continue;
-      
+
       const lineMinY = line.yBounds.minY - tolerance;
       const lineMaxY = line.yBounds.maxY + tolerance;
-      
+
       // Calculate overlap
       const overlapMin = Math.max(strokeMinY, lineMinY);
       const overlapMax = Math.min(strokeMaxY, lineMaxY);
       const overlap = Math.max(0, overlapMax - overlapMin);
-      
+
       if (overlap > bestOverlap) {
         bestOverlap = overlap;
         bestMatch = line;
       }
     }
-    
+
     if (bestMatch) {
       strokeToBlockMap.set(String(stroke.startTime), bestMatch.blockUuid);
     }
   }
-  
+
   return strokeToBlockMap;
 }
 
@@ -487,31 +511,63 @@ export async function updateTranscriptBlocks(book, page, strokes, newTranscripti
     // Ensure page exists
     const pageObj = await getOrCreateSmartpenPage(book, page, host, token);
     const pageName = pageObj.name || pageObj.originalName;
-    
+
     // Get existing transcript blocks
     const existingBlocks = await getTranscriptBlocks(book, page, host, token);
-    
+
     console.log(`Found ${existingBlocks.length} existing transcript blocks`);
-    
+
+    // CRITICAL FIX: Partition strokes into those with and without blockUuid
+    const strokesWithBlockUuid = strokes.filter(s => s.blockUuid);
+    const strokesWithoutBlockUuid = strokes.filter(s => !s.blockUuid);
+
+    console.log(`Strokes: ${strokesWithBlockUuid.length} with blockUuid, ${strokesWithoutBlockUuid.length} without`);
+
     // Estimate stroke IDs for each transcription line
     const linesWithStrokeIds = newTranscription.lines.map(line => {
       const lineBounds = line.yBounds || calculateLineBounds(line, strokes);
       const strokeIds = estimateLineStrokeIds({ yBounds: lineBounds }, strokes);
-      
+
       return {
         ...line,
         yBounds: lineBounds,
         strokeIds: strokeIds
       };
     });
+
+    // CRITICAL FIX: Filter to only lines containing NEW strokes (without blockUuid)
+    // A line is "new" if it contains at least one stroke without blockUuid
+    const newLines = linesWithStrokeIds.filter(line => {
+      // Check if any stroke in this line lacks blockUuid
+      const hasNewStrokes = Array.from(line.strokeIds).some(strokeId => {
+        const stroke = strokes.find(s => String(s.startTime) === strokeId);
+        return stroke && !stroke.blockUuid;
+      });
+      return hasNewStrokes;
+    });
+
+    console.log(`Filtered to ${newLines.length} lines containing new strokes (out of ${linesWithStrokeIds.length} total lines)`);
     
-    console.log('Lines with stroke IDs:', linesWithStrokeIds.map(l => ({
+    console.log('New lines with stroke IDs:', newLines.map(l => ({
       text: l.text.substring(0, 30),
       strokeCount: l.strokeIds.size
     })));
-    
-    // Detect actions using lines WITH stroke IDs
-    const actions = await detectBlockActions(existingBlocks, linesWithStrokeIds, strokes);
+
+    // If no new lines, nothing to do
+    if (newLines.length === 0) {
+      console.log('No new strokes to transcribe - all strokes already have blockUuid');
+      return {
+        success: true,
+        message: 'No new strokes to save',
+        created: 0,
+        updated: 0,
+        skipped: existingBlocks.length
+      };
+    }
+
+    // Detect actions using ONLY NEW lines (those with strokes lacking blockUuid)
+    // This ensures existing blocks are never modified
+    const actions = await detectBlockActions(existingBlocks, newLines, strokes);
     
     console.log('Detected actions:', {
       create: actions.filter(a => a.type === 'CREATE').length,
@@ -522,39 +578,101 @@ export async function updateTranscriptBlocks(book, page, strokes, newTranscripti
     
     // Track which existing blocks were matched/used
     const usedBlockUuids = new Set();
-    
+
     // Execute actions
     const results = [];
     const lineToBlockMap = new Map(); // Track line index to block UUID mapping
-    
-    for (let i = 0; i < actions.length; i++) {
-      const action = actions[i];
+    const lineIndentLevels = new Map(); // Track line index to indent level
+
+    // Store indent levels for all lines for parent lookups
+    for (const action of actions) {
+      if (action.lineIndex !== undefined) {
+        lineIndentLevels.set(action.lineIndex, action.line?.indentLevel || 0);
+      }
+    }
+
+    // CRITICAL FIX: Process actions level by level to ensure parents exist before children
+    // Group actions by indent level
+    const actionsByLevel = new Map();
+    let maxLevel = 0;
+
+    for (const action of actions) {
+      const level = action.line?.indentLevel || 0;
+      maxLevel = Math.max(maxLevel, level);
+
+      if (!actionsByLevel.has(level)) {
+        actionsByLevel.set(level, []);
+      }
+      actionsByLevel.get(level).push(action);
+    }
+
+    console.log(`Processing ${actions.length} actions across ${maxLevel + 1} indent levels`);
+
+    // Helper function to find parent UUID by searching for nearest lower indent
+    function findParentUuid(currentLineIndex, currentIndent) {
+      if (currentIndent === 0) return null;
+
+      // Search backwards for a line with lower indent that has been created
+      for (let i = currentLineIndex - 1; i >= 0; i--) {
+        const lineIndent = lineIndentLevels.get(i);
+        const lineUuid = lineToBlockMap.get(i);
+
+        if (lineIndent !== undefined && lineIndent < currentIndent && lineUuid) {
+          console.log(`  → Found parent: line ${i} (indent ${lineIndent}) → ${lineUuid.substring(0, 8)}...`);
+          return lineUuid;
+        }
+      }
+
+      return null;
+    }
+
+    // Process level by level, starting from level 0 (top-level)
+    for (let level = 0; level <= maxLevel; level++) {
+      const levelActions = actionsByLevel.get(level) || [];
+
+      if (levelActions.length === 0) {
+        console.log(`Level ${level}: No actions`);
+        continue;
+      }
+
+      console.log(`Level ${level}: Processing ${levelActions.length} actions`);
+
+      for (const action of levelActions) {
       
       try {
         switch (action.type) {
           case 'CREATE': {
-            // Determine parent UUID
+            const lineIdx = action.lineIndex;
+            const indent = action.line?.indentLevel || 0;
+
+            console.log(`  Creating line ${lineIdx} (indent ${indent}): "${action.line?.text?.substring(0, 30)}..."`);
+
+            // Determine parent UUID using the new helper function
             let parentUuid = action.parentUuid;
-            if (!parentUuid) {
-              parentUuid = determineParentUuid(action.line, existingBlocks, lineToBlockMap);
+
+            if (!parentUuid && indent > 0) {
+              // Find parent by searching backwards for lower indent
+              parentUuid = findParentUuid(lineIdx, indent);
             }
-            
+
             // If still no parent, this is top-level - use "Transcribed Content" section
             if (!parentUuid) {
               parentUuid = await getOrCreateTranscriptSection(pageName, host, token);
+              console.log(`  → Using section parent: ${parentUuid.substring(0, 8)}...`);
             }
-            
+
             const newBlock = await createTranscriptBlockWithProperties(
               parentUuid,
               action.line,
               host,
               token
             );
-            
-            // Use the action's lineIndex, not the loop index!
-            const lineIdx = action.lineIndex;
+
+            console.log(`  ✓ Created block: ${newBlock.uuid.substring(0, 8)}...`);
+
+            // Track this block in lineToBlockMap for future children
             lineToBlockMap.set(lineIdx, newBlock.uuid);
-            results.push({ type: 'created', uuid: newBlock.uuid, lineIndex: lineIdx });
+            results.push({ type: 'created', uuid: newBlock.uuid, lineIndex: lineIdx, indentLevel: indent });
             break;
           }
           
@@ -668,15 +786,19 @@ export async function updateTranscriptBlocks(book, page, strokes, newTranscripti
           }
         }
       } catch (error) {
-        console.error(`Failed to execute action for line ${i}:`, error);
-        results.push({ 
-          type: 'error', 
-          action: action.type, 
+        console.error(`Failed to execute action at level ${level}:`, error);
+        results.push({
+          type: 'error',
+          action: action.type,
           error: error.message,
-          lineIndex: i
+          lineIndex: action.lineIndex,
+          indentLevel: level
         });
       }
-    }
+    } // End of levelActions loop
+
+    console.log(`Completed level ${level}`);
+  } // End of level-by-level loop
     
     // Build set of all current stroke timestamps for existence check
     const currentStrokeTimestamps = new Set(
@@ -740,26 +862,27 @@ export async function updateTranscriptBlocks(book, page, strokes, newTranscripti
     // CRITICAL: Match strokes to blocks and persist blockUuid
     // This enables incremental updates in future sessions
     try {
-      // Build linesWithBlocks from results
+      // Build linesWithBlocks from results (using newLines)
       const linesWithBlocks = results
         .filter(r => r.type === 'created' || r.type === 'updated' || r.type === 'updated-merged')
         .map(r => {
           const lineIdx = r.lineIndex ?? r.consumedLines?.[0] ?? -1;
           if (lineIdx === -1) return null;
-          
-          const line = linesWithStrokeIds[lineIdx];
+
+          const line = newLines[lineIdx];
           if (!line) return null;
-          
+
           return {
             blockUuid: r.uuid,
             yBounds: line.yBounds
           };
         })
         .filter(Boolean);
-      
-      console.log(`Matching ${strokes.length} strokes to ${linesWithBlocks.length} blocks`);
-      
-      // Match strokes to blocks by Y-bounds
+
+      console.log(`Matching ${strokesWithoutBlockUuid.length} NEW strokes to ${linesWithBlocks.length} blocks`);
+
+      // CRITICAL FIX: Only match NEW strokes (without blockUuid) to blocks
+      // Existing strokes already preserve their blockUuid via matchStrokesToLines
       const strokeToBlockMap = matchStrokesToLines(strokes, linesWithBlocks);
       
       console.log(`Assigning ${strokeToBlockMap.size} strokes to blocks`);

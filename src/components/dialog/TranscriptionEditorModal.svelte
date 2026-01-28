@@ -63,6 +63,11 @@
     const linesToMerge = indices.map(i => editedLines[i]);
     
     // Create merged line
+    // CRITICAL FIX: Track ALL block UUIDs for proper stroke reassignment and deletion
+    const allBlockUuids = linesToMerge
+      .map(l => l.blockUuid)
+      .filter(Boolean); // Remove nulls
+
     const mergedLine = {
       text: linesToMerge.map(l => l.text).join(' '),
       canonical: linesToMerge.map(l => l.canonical).join(' '),
@@ -72,8 +77,10 @@
       },
       mergedLineCount: linesToMerge.reduce((sum, l) => sum + (l.mergedLineCount || 1), 0),
       indentLevel: linesToMerge[0].indentLevel || 0,
-      blockUuid: linesToMerge[0].blockUuid, // Preserve UUID of first block
-      syncStatus: linesToMerge[0].syncStatus || 'synced',
+      blockUuid: linesToMerge[0].blockUuid, // Primary block UUID (host block)
+      mergedBlockUuids: allBlockUuids, // ALL block UUIDs (for stroke reassignment)
+      blocksToDelete: allBlockUuids.slice(1), // Non-primary blocks to delete
+      syncStatus: 'modified', // Mark as modified since merge operation occurred
       id: linesToMerge[0].id,
       originalIndex: linesToMerge[0].originalIndex,
       userModified: true,
@@ -148,7 +155,43 @@
     
     addToHistory();
   }
-  
+
+  // Increase indent level for selected lines
+  function indentLines() {
+    if (selectedIndices.size === 0) return;
+
+    editedLines = editedLines.map((line, index) => {
+      if (selectedIndices.has(index)) {
+        return {
+          ...line,
+          indentLevel: Math.min((line.indentLevel || 0) + 1, 5), // Max indent level 5
+          userModified: true
+        };
+      }
+      return line;
+    });
+
+    addToHistory();
+  }
+
+  // Decrease indent level for selected lines
+  function outdentLines() {
+    if (selectedIndices.size === 0) return;
+
+    editedLines = editedLines.map((line, index) => {
+      if (selectedIndices.has(index)) {
+        return {
+          ...line,
+          indentLevel: Math.max((line.indentLevel || 0) - 1, 0), // Min indent level 0
+          userModified: true
+        };
+      }
+      return line;
+    });
+
+    addToHistory();
+  }
+
   // Undo last change
   function undo() {
     if (historyIndex > 0) {
@@ -221,13 +264,28 @@
     // Track stroke reassignments for merges
     const mergedBlockPairs = [];
     let strokesChanged = false;
-    
-    // Detect merged blocks (lines that have sourceLines property)
+
+    // CRITICAL FIX: Use new blocksToDelete property for explicit merge tracking
     for (const line of editedLines) {
-      if (line.sourceLines && line.sourceLines.length > 1 && line.blockUuid) {
+      // New approach: Use blocksToDelete array from merge operation
+      if (line.blocksToDelete && line.blocksToDelete.length > 0 && line.blockUuid) {
+        console.log(`Processing merge: ${line.blocksToDelete.length} blocks to delete, survivor: ${line.blockUuid}`);
+
+        // Reassign all strokes from deleted blocks to the surviving block
+        for (const deletedBlockUuid of line.blocksToDelete) {
+          if (deletedBlockUuid !== line.blockUuid) {
+            mergedBlockPairs.push({
+              deletedBlockUuid: deletedBlockUuid,
+              survivingBlockUuid: line.blockUuid
+            });
+          }
+        }
+      }
+      // Fallback to old approach for backward compatibility
+      else if (line.sourceLines && line.sourceLines.length > 1 && line.blockUuid) {
         // This line is a merge - find original lines to get their blockUuids
         const sourceLineIndices = line.sourceLines;
-        
+
         // Get blockUuids from original lines (before merge)
         for (let i = 1; i < sourceLineIndices.length; i++) {
           const originalLine = lines[sourceLineIndices[i]];
@@ -240,7 +298,7 @@
         }
       }
     }
-    
+
     // Reassign strokes from deleted blocks to surviving blocks
     for (const { deletedBlockUuid, survivingBlockUuid } of mergedBlockPairs) {
       const count = reassignStrokes(deletedBlockUuid, survivingBlockUuid);
@@ -314,6 +372,19 @@
         if (selectedIndices.size >= 2) {
           mergeLines(Array.from(selectedIndices)[0]);
         }
+      } else if (event.key === ']') {
+        event.preventDefault();
+        indentLines();
+      } else if (event.key === '[') {
+        event.preventDefault();
+        outdentLines();
+      }
+    } else if (event.key === 'Tab') {
+      event.preventDefault();
+      if (event.shiftKey) {
+        outdentLines();
+      } else {
+        indentLines();
       }
     } else if (event.key === 'Escape') {
       event.preventDefault();
@@ -373,20 +444,39 @@
       </div>
       
       <div class="toolbar-group">
-        <button 
-          class="tool-btn" 
+        <button
+          class="tool-btn"
           on:click={selectAll}
           title="Select All (Ctrl+A)"
         >
           ☑ Select All
         </button>
-        <button 
-          class="tool-btn primary" 
-          on:click={() => mergeLines(Array.from(selectedIndices)[0])} 
+        <button
+          class="tool-btn primary"
+          on:click={() => mergeLines(Array.from(selectedIndices)[0])}
           disabled={selectedIndices.size < 2}
           title="Merge Selected (Ctrl+J)"
         >
           ⬇ Merge ({selectedIndices.size})
+        </button>
+      </div>
+
+      <div class="toolbar-group">
+        <button
+          class="tool-btn"
+          on:click={outdentLines}
+          disabled={selectedIndices.size === 0}
+          title="Decrease Indent (Tab / Ctrl+[)"
+        >
+          ← Outdent
+        </button>
+        <button
+          class="tool-btn"
+          on:click={indentLines}
+          disabled={selectedIndices.size === 0}
+          title="Increase Indent (Shift+Tab / Ctrl+])"
+        >
+          Indent →
         </button>
       </div>
       
@@ -414,11 +504,14 @@
         
         <div class="lines-list">
           {#each editedLines as line, index}
-          <div 
-            class="line-item" 
+          <div
+            class="line-item"
             class:selected={selectedIndices.has(index)}
             class:merged={line.mergedLineCount > 1}
             class:modified={line.userModified}
+            class:saved={line.blockUuid}
+            class:read-only={line.blockUuid}
+            title={line.blockUuid ? 'Saved to LogSeq - Read only (manual edits should be done in LogSeq)' : 'New line - can be edited'}
           >
             <div class="line-header">
               <input 
@@ -684,7 +777,30 @@
   .line-item.modified {
     border-right: 3px solid #f59e0b;
   }
-  
+
+  /* CRITICAL: Visual indication for saved blocks (read-only) */
+  .line-item.saved {
+    background: var(--bg-tertiary);
+    opacity: 0.7;
+    border-left: 3px solid #6b7280; /* Gray to indicate read-only */
+  }
+
+  .line-item.read-only {
+    pointer-events: none; /* Prevent interaction */
+    user-select: none; /* Prevent text selection */
+  }
+
+  .line-item.saved::before {
+    content: "🔒 Saved to LogSeq";
+    display: block;
+    font-size: 0.65rem;
+    color: #6b7280;
+    margin-bottom: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
   .line-header {
     display: flex;
     align-items: center;

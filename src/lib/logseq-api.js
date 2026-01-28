@@ -52,14 +52,50 @@ export async function updateTranscriptBlocksFromEditor(book, page, editedLines, 
     // Track which block UUIDs are still referenced
     const referencedUuids = new Set();
     const results = [];
-    
-    // Track parent blocks for hierarchy (used when creating new blocks)
-    const blockStack = [];
-    
-    // Process each edited line
+
+    // CRITICAL FIX: Collect explicitly marked blocks for deletion (from merge operations)
+    const explicitBlocksToDelete = new Set();
+    for (const line of editedLines) {
+      if (line.blocksToDelete && Array.isArray(line.blocksToDelete)) {
+        line.blocksToDelete.forEach(uuid => {
+          if (uuid) explicitBlocksToDelete.add(uuid);
+        });
+      }
+    }
+
+    console.log(`[updateTranscriptBlocksFromEditor] ${explicitBlocksToDelete.size} blocks explicitly marked for deletion from merges`);
+
+    // CRITICAL FIX: Group lines by indent level and process level-by-level
+    const linesByLevel = new Map();
+    let maxLevel = 0;
+
     for (let i = 0; i < editedLines.length; i++) {
       const line = editedLines[i];
-      const currentIndent = line.indentLevel || 0;
+      const level = line.indentLevel || 0;
+      maxLevel = Math.max(maxLevel, level);
+
+      if (!linesByLevel.has(level)) {
+        linesByLevel.set(level, []);
+      }
+      linesByLevel.get(level).push({ line, index: i });
+    }
+
+    console.log(`[updateTranscriptBlocksFromEditor] Processing ${editedLines.length} lines across ${maxLevel + 1} levels`);
+
+    // Track parent blocks for hierarchy (used when creating new blocks)
+    const blockStack = [];
+    const lineIndexToUuid = new Map(); // Track which UUID each line index has
+
+    // Process level by level to ensure parents exist before children
+    for (let level = 0; level <= maxLevel; level++) {
+      const levelLines = linesByLevel.get(level) || [];
+
+      if (levelLines.length === 0) continue;
+
+      console.log(`[Level ${level}] Processing ${levelLines.length} lines`);
+
+      for (const { line, index: i } of levelLines) {
+        const currentIndent = line.indentLevel || 0;
       
       try {
         if (line.blockUuid) {
@@ -118,22 +154,37 @@ export async function updateTranscriptBlocksFromEditor(book, page, editedLines, 
           if (newBlock) {
             referencedUuids.add(newBlock.uuid);
             blockStack.push({ uuid: newBlock.uuid, indent: currentIndent });
-            results.push({ type: 'created', uuid: newBlock.uuid, lineIndex: i });
+            lineIndexToUuid.set(i, newBlock.uuid);
+            results.push({ type: 'created', uuid: newBlock.uuid, lineIndex: i, indentLevel: currentIndent });
           }
         }
+
+        // Track UUID for this line index
+        if (line.blockUuid) {
+          lineIndexToUuid.set(i, line.blockUuid);
+        }
+
       } catch (error) {
-        console.error(`Failed to process line ${i}:`, error);
-        results.push({ type: 'error', error: error.message, lineIndex: i });
+        console.error(`[Level ${level}] Failed to process line ${i}:`, error);
+        results.push({ type: 'error', error: error.message, lineIndex: i, indentLevel: level });
       }
-    }
+    } // End of levelLines loop
+  } // End of level-by-level loop
     
     // Delete blocks that are no longer referenced (were merged or deleted)
-    const blocksToDelete = existingBlocks.filter(b => !referencedUuids.has(b.uuid));
-    
+    // Combine explicitly marked blocks with unreferenced blocks
+    const blocksToDelete = existingBlocks.filter(b =>
+      !referencedUuids.has(b.uuid) || explicitBlocksToDelete.has(b.uuid)
+    );
+
+    console.log(`[updateTranscriptBlocksFromEditor] Deleting ${blocksToDelete.length} blocks (${explicitBlocksToDelete.size} from merges)`);
+
     for (const block of blocksToDelete) {
       try {
         await makeRequest(host, token, 'logseq.Editor.removeBlock', [block.uuid]);
-        results.push({ type: 'deleted', uuid: block.uuid, reason: 'no-longer-referenced' });
+        const reason = explicitBlocksToDelete.has(block.uuid) ? 'merged' : 'no-longer-referenced';
+        results.push({ type: 'deleted', uuid: block.uuid, reason });
+        console.log(`Deleted block ${block.uuid} (reason: ${reason})`);
       } catch (error) {
         console.error(`Failed to delete block ${block.uuid}:`, error);
         results.push({ type: 'delete-error', uuid: block.uuid, error: error.message });
@@ -994,29 +1045,35 @@ export async function createTranscriptBlockWithProperties(parentUuid, line, host
 
 /**
  * Update a transcript block with preservation (v3.0 format)
- * Only updates Y-bounds property, preserves TODO/DONE markers
+ * CRITICAL: Y-bounds are NEVER updated (set once on CREATE, immutable thereafter)
+ * Only updates content while preserving TODO/DONE markers
  * @param {string} blockUuid - Block UUID to update
  * @param {Object} line - New line object with text and yBounds
  * @param {string} oldContent - Existing block content
  * @param {string} host - LogSeq API host
  * @param {string} token - Optional auth token
+ * @param {boolean} updateYBounds - If true, update Y-bounds (default: false for preservation)
  */
-export async function updateTranscriptBlockWithPreservation(blockUuid, line, oldContent, host, token = '') {
+export async function updateTranscriptBlockWithPreservation(blockUuid, line, oldContent, host, token = '', updateYBounds = false) {
   const newContent = updateBlockWithPreservation(oldContent, line.text);
-  const newBounds = formatBounds(line.yBounds);
-  
+
   // Update content
   await makeRequest(host, token, 'logseq.Editor.updateBlock', [
     blockUuid,
     newContent
   ]);
-  
-  // Update Y-bounds property
-  await makeRequest(host, token, 'logseq.Editor.upsertBlockProperty', [
-    blockUuid,
-    'stroke-y-bounds',
-    newBounds
-  ]);
+
+  // CRITICAL FIX: Only update Y-bounds if explicitly requested
+  // By default, Y-bounds are IMMUTABLE after creation to prevent drift
+  if (updateYBounds) {
+    const newBounds = formatBounds(line.yBounds);
+    await makeRequest(host, token, 'logseq.Editor.upsertBlockProperty', [
+      blockUuid,
+      'stroke-y-bounds',
+      newBounds
+    ]);
+  }
+  // Otherwise, preserve existing Y-bounds
 }
 
 /**
