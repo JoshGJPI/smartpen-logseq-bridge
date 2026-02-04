@@ -1,12 +1,18 @@
 {
   "name": "smartpen-logseq-bridge",
-  "version": "0.2.0",
-  "description": "Bridge app connecting NeoSmartpen to LogSeq via HTTP API",
+  "version": "1.0.0",
+  "description": "Desktop application for connecting NeoSmartpen to LogSeq",
   "type": "module",
+  "main": "electron/main.cjs",
+  "author": "Josh Gannon",
   "scripts": {
     "dev": "vite",
+    "dev:web": "vite --open",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:build": "vite build && set CSC_IDENTITY_AUTO_DISCOVERY=false&& electron-builder --win",
+    "electron:build:win": "vite build && set CSC_IDENTITY_AUTO_DISCOVERY=false&& electron-builder --win",
+    "icons": "node scripts/create-icons.cjs"
   },
   "dependencies": {
     "svelte-dnd-action": "^0.9.69",
@@ -16,11 +22,46 @@
     "@sveltejs/vite-plugin-svelte": "^3.1.1",
     "browserify-zlib": "^0.2.0",
     "buffer": "^6.0.3",
+    "concurrently": "^9.2.1",
+    "electron": "^40.1.0",
+    "electron-builder": "^26.7.0",
+    "icon-gen": "^5.0.0",
     "pako": "^2.1.0",
     "process": "^0.11.10",
+    "sharp": "^0.34.5",
     "stream-browserify": "^3.0.0",
     "svelte": "^4.2.18",
     "util": "^0.12.5",
-    "vite": "^5.4.0"
+    "vite": "^5.4.0",
+    "vite-plugin-electron": "^0.29.0",
+    "wait-on": "^9.0.3"
+  },
+  "build": {
+    "appId": "com.jpi.smartpen-logseq-bridge",
+    "productName": "Smartpen LogSeq Bridge",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "public/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "public/icon.ico",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }

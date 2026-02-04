@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
+import electron from 'vite-plugin-electron';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
@@ -39,20 +40,33 @@ function nprojPlugin() {
 }
 
 export default defineConfig({
-  base: '/smartpen-logseq-bridge/',
+  base: './', // Relative paths for Electron compatibility
   plugins: [
     nprojPlugin(),
-    svelte()
+    svelte(),
+    electron({
+      entry: 'electron/main.cjs',
+      vite: {
+        build: {
+          outDir: 'dist-electron'
+        }
+      }
+    })
   ],
   server: {
     port: 3000,
-    open: true
+    open: false // Electron will open the window
   },
   build: {
     outDir: 'dist',
     target: 'esnext',
     commonjsOptions: {
       transformMixedEsModules: true
+    },
+    rollupOptions: {
+      output: {
+        manualChunks: undefined // Single bundle for Electron
+      }
     }
   },
   resolve: {

@@ -32,3 +32,13 @@ coverage/
 
 # Local development
 *.local
+
+# Electron build artifacts
+release/
+dist-electron/
+*.exe
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+*.blockmap
