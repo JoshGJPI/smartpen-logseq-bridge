@@ -303,6 +303,9 @@ npm run preview
 
 - [README.md](README.md) - User-facing documentation
 - [docs/app-specification.md](docs/app-specification.md) - Complete technical specification
+- [docs/TRANSCRIPT-STORAGE-SPEC.md](docs/TRANSCRIPT-STORAGE-SPEC.md) - Transcript storage v3.0 architecture
+- [docs/bridge-uuid-system.md](docs/bridge-uuid-system.md) - Custom UUID system documentation
+- [docs/Archive/ARCHIVE-INDEX.md](docs/Archive/ARCHIVE-INDEX.md) - Archived implementation docs index
 - [NeoSmartpen Web SDK](https://github.com/NeoSmartpen/WEB-SDK2.0) - SDK documentation
 - [MyScript API Docs](https://developer.myscript.com/) - Handwriting recognition API
 - [LogSeq HTTP API](https://logseq.github.io/plugins/) - Plugin and API documentation
@@ -311,12 +314,15 @@ npm run preview
 ## Recent Changes (Git History Context)
 
 Recent commits focus on:
+- Electron desktop app conversion (electron/ directory, vite.config.js updates)
+- Hierarchical block creation order fix (parent blocks before children)
+- Transcript data loss fixes (Y-bounds, blockUuid preservation, merge logic)
+- BlockUUID over-assignment bug fix (scoping transcription to correct strokes)
 - Persistent UUID implementation to avoid duplicate strokes
-- Increased deletion timeout to 15 minutes
 - Custom UUID system to avoid conflicts with pen SDK
-- Stroke timestamp-based identification
+- Transcript storage v3.0 architecture (see `docs/TRANSCRIPT-STORAGE-SPEC.md`)
 
-When working with stroke management, be aware of these recent architectural changes.
+When working with stroke management or transcription storage, be aware of these architectural changes.
 
 ## Questions to Ask Before Major Changes
 

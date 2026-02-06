@@ -1,6 +1,6 @@
 # SmartPen-LogSeq Bridge - Archive Index
 
-**Last Updated**: January 23, 2026
+**Last Updated**: February 6, 2026
 
 This document provides an index of archived implementation documentation organized by feature area and date.
 
@@ -10,6 +10,7 @@ This document provides an index of archived implementation documentation organiz
 
 ### Root Directory
 - `README.md` - Main project documentation
+- `CLAUDE.MD` - AI assistant development guide
 - `FUTURE_ENHANCEMENTS_ROADMAP.md` - Planned features
 - `UUID-REFERENCE-GAP-SPEC.md` - ⚠️ **TO IMPLEMENT** - Stroke→Block UUID persistence fix
 
@@ -19,6 +20,7 @@ This document provides an index of archived implementation documentation organiz
 - `bullet-journal-spec.md` - Bullet journal feature specification
 - `temporal-data-specification.md` - Temporal data capture spec
 - `logseq-markup-converter-spec.md` - Markup conversion spec
+- `TRANSCRIPT-STORAGE-SPEC.md` - Transcript storage system v3.0 architecture
 
 ### Implementation Logs (Active Development)
 - `docs/implementation-logs/testing-checklist.md` - Current testing procedures
@@ -30,7 +32,59 @@ This document provides an index of archived implementation documentation organiz
 
 ## Archive Organization
 
-### Recent Implementations (2026-01)
+### Recent Implementations (2026-01/02)
+
+#### **2026-01-electron-conversion** ✅ COMPLETED
+Electron desktop app conversion guide:
+
+**Files**:
+- `ELECTRON_CONVERSION_GUIDE.md` - Step-by-step guide for converting to Electron desktop application
+
+**Summary**: Conversion guide based on LogSeq Project Visualizer experience, covering Vite+Svelte to Electron migration steps.
+
+---
+
+#### **2026-01-hierarchical-blocks-fix** ✅ COMPLETED
+Fix for LogSeq block creation order:
+
+**Files**:
+- `HIERARCHICAL-BLOCKS-FIX.md` - Block creation order fix documentation
+
+**Summary**: Fixed issue where child blocks were created before parent blocks, breaking LogSeq hierarchy.
+
+---
+
+#### **2026-01-transcript-data-loss-fix** ✅ COMPLETED
+Transcript data preservation fixes:
+
+**Files**:
+- `IMPLEMENTATION-SUMMARY.md` - Complete fix summary (Y-bounds, blockUuid, merge logic)
+- `SESSION-SUMMARY-2026-01-28.md` - Session log with implementation details
+- `APPEND-TROUBLESHOOTING-GUIDE.md` - Debugging guide for append transcription issues
+
+**Summary**: Fixed transcript data loss during updates including Y-bounds preservation, blockUuid preservation, merge logic corrections, and read-only UI improvements.
+
+---
+
+#### **2026-01-transcription-blockuuid-bug** ✅ COMPLETED
+BlockUUID over-assignment bug analysis:
+
+**Files**:
+- `TRANSCRIPTION-BLOCKUUID-ASSIGNMENT-ISSUE.md` - Deep analysis of UUID over-assignment bug
+
+**Summary**: Documented and fixed bug where transcribing 691 strokes resulted in 1127 strokes incorrectly getting blockUuid assigned.
+
+---
+
+#### **2026-01-documentation-organization** ✅ COMPLETED
+Documentation reorganization effort:
+
+**Files**:
+- `DOCUMENTATION-ORGANIZATION-COMPLETE.md` - January 23, 2026 reorganization summary
+
+**Summary**: Meta-documentation describing the archive structure creation and file movements.
+
+---
 
 #### **2026-01-recent-implementations** ✅ COMPLETED
 Latest features implemented in January 2026:
@@ -279,4 +333,4 @@ This archive is organized to:
 ---
 
 *Archive Index maintained by: Claude Project System*  
-*Last major reorganization: January 23, 2026*
+*Last major reorganization: February 6, 2026*

@@ -564,11 +564,18 @@ smartpen-logseq-bridge/
 │       ├── storage.js      # LocalStorage helpers
 │       └── formatting.js   # Text/number formatting
 │
+├── electron/               # Electron desktop app wrapper
+│
 ├── docs/                   # Documentation
 │   ├── app-specification.md
+│   ├── TRANSCRIPT-STORAGE-SPEC.md
+│   ├── bridge-uuid-system.md
 │   ├── bullet-journal-spec.md
-│   ├── copy-paste-strokes-feasibility.md
-│   └── temporal-data-specification.md
+│   ├── logseq-markup-converter-spec.md
+│   ├── temporal-data-specification.md
+│   ├── implementation-logs/
+│   ├── proposals/
+│   └── Archive/            # Archived implementation docs
 │
 ├── package.json
 ├── vite.config.js
@@ -579,11 +586,17 @@ smartpen-logseq-bridge/
 
 - **[App Specification](docs/app-specification.md)**: Complete technical documentation of the system architecture, data flows, and APIs.
 
+- **[Transcript Storage Spec](docs/TRANSCRIPT-STORAGE-SPEC.md)**: v3.0 transcript storage system architecture, data flows, and known issues.
+
+- **[Bridge UUID System](docs/bridge-uuid-system.md)**: Custom UUID system for stroke-to-block tracking.
+
 - **[Bullet Journal Detection](docs/bullet-journal-spec.md)**: Specification for future bullet journal symbol detection (checkboxes, circles, dashes).
 
-- **[Copy/Paste Strokes](docs/copy-paste-strokes-feasibility.md)**: Detailed feasibility study for unified canvas functionality.
-
 - **[Temporal Data](docs/temporal-data-specification.md)**: Specification for leveraging temporal metadata for advanced analysis.
+
+- **[LogSeq Markup Converter](docs/logseq-markup-converter-spec.md)**: Specification for markup conversion between formats.
+
+- **[Archive Index](docs/Archive/ARCHIVE-INDEX.md)**: Index of all archived implementation documentation.
 
 ## Troubleshooting
 
@@ -781,6 +794,7 @@ This will build and serve the app exactly as it will appear on GitHub Pages.
 - [x] Storage tracking and sync indicators
 
 ### In Progress 🔄
+- [x] Electron desktop app conversion
 - [ ] Bullet journal symbol detection (`☐`, `○`, `–`)
 - [ ] State detection for tasks (complete/migrated/cancelled)
 
@@ -872,7 +886,14 @@ For issues, questions, or feature requests:
 
 ## Version History
 
-- **0.2.0** (Current) - Major feature release
+- **0.3.0** (Current) - Electron desktop app + transcript improvements
+  - Electron desktop app conversion
+  - Transcript data loss fixes (Y-bounds, blockUuid preservation)
+  - Hierarchical block creation order fix
+  - BlockUUID assignment bug fix
+  - Transcript storage v3.0 architecture
+
+- **0.2.0** - Major feature release
   - Complete Svelte 4 migration
   - Advanced stroke manipulation (duplicate, drag, create pages)
   - LogSeq database integration (scan, search, import)
