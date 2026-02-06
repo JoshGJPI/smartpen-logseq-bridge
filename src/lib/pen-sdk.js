@@ -28,7 +28,9 @@ let currentStrokeData = null;
 let canvasRenderer = null;
 
 // ===== DELETION MODE STATE =====
-// Deletion mode flag
+// (Legacy deletion mode flags - kept for safety but no longer used.
+//  Deletion now uses RequestOfflineDelete directly instead of
+//  RequestOfflineData with deleteOnFinished flag.)
 let isDeletionMode = false;
 let deletionBooks = [];  // Track which books are being deleted
 
@@ -203,7 +205,8 @@ function processMessage(mac, type, args) {
     50: 'OFFLINE_DATA_SEND_START',
     51: 'OFFLINE_DATA_SEND_STATUS',
     52: 'OFFLINE_DATA_SEND_SUCCESS',
-    53: 'OFFLINE_DATA_SEND_FAILURE'
+    53: 'OFFLINE_DATA_SEND_FAILURE',
+    165: 'OFFLINE_DATA_DELETE_RESPONSE'
   };
   
   const typeName = messageTypeNames[type] || `UNKNOWN(${type})`;
@@ -267,6 +270,11 @@ function processMessage(mac, type, args) {
       
     case PenMessageType.EVENT_DOT_PUI:
       log(`PUI touched: ${JSON.stringify(args)}`, 'info');
+      break;
+
+    case 165: // OFFLINE_DATA_DELETE_RESPONSE
+      console.log('%c🗑️ OFFLINE_DATA_DELETE_RESPONSE received', 'background: #f59e0b; color: white; padding: 2px 6px; border-radius: 3px;', args);
+      handleOfflineDeleteResponse(args);
       break;
     
     case 26: // AVAILABLE_NOTE_RESPONSE - confirmation that note set was configured
@@ -374,9 +382,12 @@ export function cancelOfflineTransfer() {
   return false;
 }
 
+// ===== DELETION PROMISE STATE =====
+let pendingDeletionResolver = null;
+
 /**
  * Delete books from pen memory
- * Uses pseudo-deletion: re-imports with delete flag, discards data
+ * Uses RequestOfflineDelete SDK method for direct deletion (no re-download needed)
  * @param {Array} books - Array of book objects to delete (from note list)
  * @returns {Promise<Object>} Deletion results
  */
@@ -384,118 +395,104 @@ export async function deleteBooksFromPen(books) {
   let controller;
   const unsubscribe = penController.subscribe(c => controller = c);
   unsubscribe();
-  
+
   if (!controller) {
     throw new Error('No pen connected');
   }
-  
+
   if (!books || books.length === 0) {
     return { success: true, deletedBooks: [] };
   }
-  
-  console.log('%c🗑️ DELETION MODE ACTIVATED', 
+
+  console.log('%c🗑️ DELETION MODE ACTIVATED',
     'background: #f59e0b; color: white; padding: 3px 8px; border-radius: 3px; font-weight: bold; font-size: 14px;');
   console.log(`📋 Books to delete: ${books.length}`);
-  
+
   log(`🗑️ Deleting ${books.length} book(s) from pen memory...`, 'warning');
-  
-  // Enable deletion mode globally
-  isDeletionMode = true;
-  deletionBooks = books.map(b => normalizeBookId(b.Note));
-  
+
   const results = {
     success: true,
     deletedBooks: [],
     failedBooks: [],
     totalBooks: books.length
   };
-  
+
+  // Group books by Section+Owner since RequestOfflineDelete takes notes[] per S/O pair
+  const groups = {};
+  books.forEach(book => {
+    const key = `${book.Section}_${book.Owner}`;
+    if (!groups[key]) {
+      groups[key] = { section: book.Section, owner: book.Owner, books: [] };
+    }
+    groups[key].books.push(book);
+  });
+
   try {
-    // Process each book sequentially
-    for (let i = 0; i < books.length; i++) {
-      const book = books[i];
-      const bookId = normalizeBookId(book.Note);
-      
-      console.log(`%c🗑️ Deleting book ${i + 1}/${books.length}: B${bookId}`, 
+    for (const [groupKey, group] of Object.entries(groups)) {
+      const noteIds = group.books.map(b => b.Note);
+
+      console.log(`%c🗑️ Deleting ${noteIds.length} book(s) from S${group.section}/O${group.owner}: [${noteIds.join(', ')}]`,
         'color: #f59e0b; font-weight: bold;');
-      log(`🗑️ Deleting Book ${bookId}...`, 'info');
-      
+      log(`🗑️ Deleting ${noteIds.length} book(s) from Section ${group.section}...`, 'info');
+
       try {
-        // Create promise that resolves when this deletion completes
+        // Create promise that resolves when OFFLINE_DATA_DELETE_RESPONSE arrives
         const deletionComplete = new Promise((resolve, reject) => {
-          pendingOfflineTransfer = bookId;
-          
-          // Timeout for deletion
           const timeout = setTimeout(() => {
-            console.warn(`⏰ Deletion timeout for book ${bookId}`);
-            offlineTransferResolver = null;
-            reject(new Error(`Timeout deleting book ${bookId}`));
-          }, 900000);  // 15 minute timeout per book
-          
-          // Create wrapped resolve that clears timeout
-          const wrappedResolve = (value) => {
+            console.warn(`⏰ Deletion timeout for S${group.section}/O${group.owner}`);
+            pendingDeletionResolver = null;
+            reject(new Error(`Timeout deleting books from Section ${group.section}`));
+          }, 30000);  // 30 second timeout (deletion is fast, no data transfer)
+
+          pendingDeletionResolver = (args) => {
             clearTimeout(timeout);
-            resolve(value);
+            resolve(args);
           };
-          
-          // CRITICAL: Set the wrapped resolve so timeout is cleared
-          offlineTransferResolver = wrappedResolve;
         });
-        
-        // Request data WITH deletion flag
-        // Data will be received but immediately discarded
-        controller.RequestOfflineData(
-          book.Section,
-          book.Owner,
-          book.Note,
-          true,  // ← DELETE FLAG = TRUE
-          []     // All pages
-        );
-        
-        // Wait for deletion to complete
-        const result = await deletionComplete;
-        
-        if (result?.deleted || result?.empty) {
+
+        // Use RequestOfflineDelete - direct deletion without re-downloading
+        console.log(`[Deletion] Calling RequestOfflineDelete(${group.section}, ${group.owner}, [${noteIds.join(', ')}])`);
+        controller.RequestOfflineDelete(group.section, group.owner, noteIds);
+
+        // Wait for response
+        const deleteResponse = await deletionComplete;
+
+        console.log(`[Deletion] Response received:`, deleteResponse);
+
+        // Mark all books in this group as deleted
+        group.books.forEach(book => {
+          const bookId = normalizeBookId(book.Note);
           console.log(`✅ Book ${bookId} deleted from pen`);
           log(`✅ Book ${bookId} deleted`, 'success');
           results.deletedBooks.push(book);
-        } else if (result?.failed) {
-          console.error(`❌ Failed to delete book ${bookId}`);
-          log(`❌ Failed to delete Book ${bookId}`, 'error');
-          results.failedBooks.push(book);
-          results.success = false;
-        }
-        
-        // Reset transfer state
-        pendingOfflineTransfer = null;
-        offlineTransferResolver = null;
-        
-        // Brief delay between deletions for BLE stability
-        if (i < books.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 800));
-        }
-        
+        });
+
+        // Reset resolver
+        pendingDeletionResolver = null;
+
+        // Brief delay between groups for BLE stability
+        await new Promise(resolve => setTimeout(resolve, 500));
+
       } catch (error) {
-        console.error(`❌ Exception deleting book ${bookId}:`, error);
-        log(`❌ Failed to delete Book ${bookId}: ${error.message}`, 'error');
-        results.failedBooks.push(book);
+        console.error(`❌ Exception deleting books from S${group.section}/O${group.owner}:`, error);
+
+        group.books.forEach(book => {
+          const bookId = normalizeBookId(book.Note);
+          log(`❌ Failed to delete Book ${bookId}: ${error.message}`, 'error');
+          results.failedBooks.push(book);
+        });
         results.success = false;
-        
-        // Reset state and continue to next book
-        pendingOfflineTransfer = null;
-        offlineTransferResolver = null;
+
+        // Reset state and continue to next group
+        pendingDeletionResolver = null;
       }
     }
-    
+
   } finally {
-    // Always reset deletion mode
-    isDeletionMode = false;
-    deletionBooks = [];
-    
-    console.log('%c🗑️ DELETION MODE DEACTIVATED', 
+    console.log('%c🗑️ DELETION MODE DEACTIVATED',
       'background: #10b981; color: white; padding: 3px 8px; border-radius: 3px; font-weight: bold;');
   }
-  
+
   // Log final results
   if (results.success) {
     console.log(`✅ Successfully deleted ${results.deletedBooks.length} books from pen`);
@@ -504,7 +501,7 @@ export async function deleteBooksFromPen(books) {
     console.warn(`⚠️ Deleted ${results.deletedBooks.length} books, ${results.failedBooks.length} failed`);
     log(`⚠️ Deleted ${results.deletedBooks.length} books, ${results.failedBooks.length} failed`, 'warning');
   }
-  
+
   return results;
 }
 
@@ -547,6 +544,21 @@ function handleOfflineDataResponse(args) {
     }
   } else {
     console.warn('⚠️ Received OFFLINE_DATA_RESPONSE but no pending transfer');
+  }
+}
+
+/**
+ * Handle OFFLINE_DATA_DELETE_RESPONSE (message type 165)
+ * This confirms the pen has deleted the requested offline data
+ */
+function handleOfflineDeleteResponse(args) {
+  console.log('[Deletion] Delete response args:', args);
+
+  if (pendingDeletionResolver) {
+    console.log('[Deletion] Resolving pending deletion promise');
+    pendingDeletionResolver(args);
+  } else {
+    console.warn('[Deletion] Received delete response but no pending resolver');
   }
 }
 

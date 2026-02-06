@@ -97,8 +97,8 @@ export function setLogseqStatus(connected, statusText) {
  */
 export function getMyScriptCredentials() {
   return {
-    appKey: get(myscriptAppKey),
-    hmacKey: get(myscriptHmacKey)
+    appKey: (get(myscriptAppKey) || '').trim(),
+    hmacKey: (get(myscriptHmacKey) || '').trim()
   };
 }
 

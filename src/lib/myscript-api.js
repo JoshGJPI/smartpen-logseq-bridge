@@ -6,13 +6,33 @@
 const MYSCRIPT_API_URL = 'https://cloud.myscript.com/api/v4.0/iink/batch';
 
 /**
- * Generate HMAC-SHA512 signature for MyScript API
+ * Check if running in Electron with the IPC bridge available
+ */
+function hasElectronBridge() {
+  const available = typeof window !== 'undefined' && window.electronAPI && window.electronAPI.myscriptApiCall;
+  console.log('[MyScript] Electron bridge available:', available);
+  return available;
+}
+
+/**
+ * Make MyScript API call via Electron main process (preserves header casing)
+ */
+async function callViaElectron(appKey, hmacKey, body) {
+  console.log('[MyScript] Calling via Electron IPC bridge');
+  console.log('[MyScript] appKey length:', appKey?.length, 'hmacKey length:', hmacKey?.length, 'body length:', body?.length);
+  const result = await window.electronAPI.myscriptApiCall(appKey, hmacKey, body);
+  console.log('[MyScript] IPC result:', { status: result.status, bodyLength: result.body?.length });
+  return result;
+}
+
+/**
+ * Generate HMAC-SHA512 signature for MyScript API (browser fallback)
  */
 async function generateSignature(appKey, hmacKey, message) {
   const encoder = new TextEncoder();
   const keyData = encoder.encode(appKey + hmacKey);
   const messageData = encoder.encode(message);
-  
+
   const key = await crypto.subtle.importKey(
     'raw',
     keyData,
@@ -20,7 +40,7 @@ async function generateSignature(appKey, hmacKey, message) {
     false,
     ['sign']
   );
-  
+
   const signature = await crypto.subtle.sign('HMAC', key, messageData);
   return Array.from(new Uint8Array(signature))
     .map(b => b.toString(16).padStart(2, '0'))
@@ -367,18 +387,36 @@ export async function testMyScriptCredentials(appKey, hmacKey) {
         text: { mimeTypes: ['text/plain'] }
       },
       strokeGroups: [{
-        x: [10, 20, 30],
-        y: [10, 10, 10],
-        t: [0, 100, 200],
-        p: [0.5, 0.5, 0.5]
+        strokes: [{
+          x: [10, 20, 30],
+          y: [10, 10, 10],
+          t: [0, 100, 200],
+          p: [0.5, 0.5, 0.5]
+        }]
       }],
       width: 100,
       height: 100
     };
-    
+
     const message = JSON.stringify(testRequest);
+
+    // Use Electron IPC bridge if available (preserves header casing)
+    if (hasElectronBridge()) {
+      const result = await callViaElectron(appKey, hmacKey, message);
+      if (result.status >= 200 && result.status < 300) {
+        return { success: true };
+      } else {
+        return {
+          success: false,
+          error: `HTTP ${result.status}: ${result.body}`,
+          status: result.status
+        };
+      }
+    }
+
+    // Browser fallback
     const signature = await generateSignature(appKey, hmacKey, message);
-    
+
     const response = await fetch(MYSCRIPT_API_URL, {
       method: 'POST',
       headers: {
@@ -389,21 +427,21 @@ export async function testMyScriptCredentials(appKey, hmacKey) {
       },
       body: message
     });
-    
+
     if (response.ok) {
       return { success: true };
     } else {
       const errorText = await response.text();
-      return { 
-        success: false, 
+      return {
+        success: false,
         error: `HTTP ${response.status}: ${errorText}`,
-        status: response.status 
+        status: response.status
       };
     }
   } catch (error) {
-    return { 
-      success: false, 
-      error: error.message 
+    return {
+      success: false,
+      error: error.message
     };
   }
 }
@@ -425,28 +463,38 @@ export async function transcribeStrokes(strokes, appKey, hmacKey, options = {}) 
     // Note: Decorative stroke filtering is now user-controlled via deselection
     const requestBody = buildRequest(strokes, options);
     const message = JSON.stringify(requestBody);
-    
-    // Generate signature
-    const signature = await generateSignature(appKey, hmacKey, message);
-    
-    // Make API call
-    const response = await fetch(MYSCRIPT_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json, application/vnd.myscript.jiix',
-        'applicationKey': appKey,
-        'hmac': signature
-      },
-      body: message
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`MyScript API error (${response.status}): ${errorText}`);
+
+    let data;
+
+    // Use Electron IPC bridge if available (preserves header casing)
+    if (hasElectronBridge()) {
+      const result = await callViaElectron(appKey, hmacKey, message);
+      if (result.status < 200 || result.status >= 300) {
+        throw new Error(`MyScript API error (${result.status}): ${result.body}`);
+      }
+      data = JSON.parse(result.body);
+    } else {
+      // Browser fallback
+      const signature = await generateSignature(appKey, hmacKey, message);
+
+      const response = await fetch(MYSCRIPT_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json, application/vnd.myscript.jiix',
+          'applicationKey': appKey,
+          'hmac': signature
+        },
+        body: message
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`MyScript API error (${response.status}): ${errorText}`);
+      }
+
+      data = await response.json();
     }
-    
-    const data = await response.json();
     
     // Parse and return structured result
     return parseMyScriptResponse(data);

@@ -32,6 +32,15 @@ export const bookSelectionDialog = writable({
 // Search transcripts dialog state
 export const showSearchTranscriptsDialog = writable(false);
 
+// Bluetooth device picker state
+export const bluetoothPicker = writable({
+  isOpen: false,
+  devices: [],
+  selectedDeviceId: null,
+  status: 'scanning', // 'scanning' | 'connecting' | 'connected' | 'error'
+  error: null
+});
+
 // Maximum log entries to keep
 const MAX_LOG_ENTRIES = 50;
 
@@ -145,5 +154,55 @@ export function openBookSelectionDialog(books) {
         reject(new Error('User cancelled'));
       }
     });
+  });
+}
+
+/**
+ * Open Bluetooth device picker dialog
+ */
+export function openBluetoothPicker() {
+  bluetoothPicker.set({
+    isOpen: true,
+    devices: [],
+    selectedDeviceId: null,
+    status: 'scanning',
+    error: null
+  });
+}
+
+/**
+ * Update Bluetooth picker devices
+ * @param {Array} devices - Array of discovered devices
+ */
+export function updateBluetoothDevices(devices) {
+  bluetoothPicker.update(state => ({
+    ...state,
+    devices
+  }));
+}
+
+/**
+ * Set Bluetooth picker status
+ * @param {'scanning' | 'connecting' | 'connected' | 'error'} status
+ * @param {string|null} error - Error message if status is 'error'
+ */
+export function setBluetoothStatus(status, error = null) {
+  bluetoothPicker.update(state => ({
+    ...state,
+    status,
+    error
+  }));
+}
+
+/**
+ * Close Bluetooth device picker
+ */
+export function closeBluetoothPicker() {
+  bluetoothPicker.set({
+    isOpen: false,
+    devices: [],
+    selectedDeviceId: null,
+    status: 'scanning',
+    error: null
   });
 }

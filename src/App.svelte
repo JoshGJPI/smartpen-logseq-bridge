@@ -3,28 +3,50 @@
   SmartPen-LogSeq Bridge Application
 -->
 <script>
-  import { onMount } from 'svelte';
-  
+  import { onMount, onDestroy } from 'svelte';
+
   // Layout components
   import Header from './components/layout/Header.svelte';
   import LeftPanel from './components/layout/LeftPanel.svelte';
-  
+
   // Dialog components
   import BookSelectionDialog from './components/dialog/BookSelectionDialog.svelte';
-  
+  import BluetoothDevicePicker from './components/dialog/BluetoothDevicePicker.svelte';
+
   // Canvas components
   import StrokeCanvas from './components/canvas/StrokeCanvas.svelte';
-  
+
   // Stores
   import { log } from '$stores';
-  
+  import { openBluetoothPicker, updateBluetoothDevices, closeBluetoothPicker } from '$stores/ui.js';
+
   // Initialize pen SDK on mount
   import { initializePenSDK } from '$lib/pen-sdk.js';
-  
+
   onMount(() => {
     initializePenSDK();
     log('Bridge initialized. Click "Connect Pen" to begin.', 'info');
     log('Make sure LogSeq HTTP API is enabled in Settings > Advanced', 'info');
+
+    // Set up Electron IPC listeners for Bluetooth device picker
+    if (window.electronAPI) {
+      // Open dialog when Bluetooth scanning starts
+      window.electronAPI.onBluetoothScanStarted(() => {
+        openBluetoothPicker();
+      });
+
+      // Update device list as devices are discovered
+      window.electronAPI.onBluetoothDeviceFound((devices) => {
+        updateBluetoothDevices(devices);
+      });
+    }
+  });
+
+  onDestroy(() => {
+    // Clean up IPC listeners
+    if (window.electronAPI) {
+      window.electronAPI.removeBluetoothListeners();
+    }
   });
 </script>
 
@@ -43,6 +65,7 @@
   
   <!-- Dialogs -->
   <BookSelectionDialog />
+  <BluetoothDevicePicker />
 </div>
 
 <style>
