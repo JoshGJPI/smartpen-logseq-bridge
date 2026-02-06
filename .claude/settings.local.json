@@ -5,7 +5,8 @@
       "Bash(npm install:*)",
       "Bash(npm run electron:build:win:*)",
       "Bash(npm run dev:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(npm run build:*)"
     ]
   }
 }

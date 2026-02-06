@@ -115,7 +115,10 @@ export {
   toggleFilteredStrokes,
   clearLog,
   openSearchTranscriptsDialog,
-  closeSearchTranscriptsDialog
+  closeSearchTranscriptsDialog,
+  svgExportDialog,
+  openSvgExportDialog,
+  closeSvgExportDialog
 } from './ui.js';
 
 // Storage
