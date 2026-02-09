@@ -32,6 +32,13 @@ export const bookSelectionDialog = writable({
 // Search transcripts dialog state
 export const showSearchTranscriptsDialog = writable(false);
 
+// SVG export dialog state
+export const svgExportDialog = writable({
+  isOpen: false,
+  strokes: [],
+  pageGroups: []
+});
+
 // Bluetooth device picker state
 export const bluetoothPicker = writable({
   isOpen: false,
@@ -205,4 +212,36 @@ export function closeBluetoothPicker() {
     status: 'scanning',
     error: null
   });
+}
+
+/**
+ * Open SVG export dialog with strokes grouped by page
+ * @param {Array} strokeList - Strokes to export
+ */
+export function openSvgExportDialog(strokeList) {
+  // Group strokes by book-page
+  const groupMap = new Map();
+  strokeList.forEach(stroke => {
+    const pi = stroke.pageInfo;
+    if (!pi || pi.book === undefined || pi.page === undefined) return;
+    const key = `${pi.book}-${pi.page}`;
+    if (!groupMap.has(key)) {
+      groupMap.set(key, { book: pi.book, page: pi.page, key, strokes: [] });
+    }
+    groupMap.get(key).strokes.push(stroke);
+  });
+
+  const pageGroups = Array.from(groupMap.values()).sort((a, b) => {
+    if (a.book !== b.book) return a.book - b.book;
+    return a.page - b.page;
+  });
+
+  svgExportDialog.set({ isOpen: true, strokes: strokeList, pageGroups });
+}
+
+/**
+ * Close SVG export dialog
+ */
+export function closeSvgExportDialog() {
+  svgExportDialog.set({ isOpen: false, strokes: [], pageGroups: [] });
 }

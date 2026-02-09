@@ -17,13 +17,15 @@
   import { logseqPages } from '$stores';
   import { bookAliases } from '$stores';
   import { formatBookName, filterTranscriptionProperties } from '$utils/formatting.js';
-  import { openSearchTranscriptsDialog } from '$stores';
+  import { openSearchTranscriptsDialog, openSvgExportDialog } from '$stores';
+  import { hasSelection } from '$stores/selection.js';
   import { logseqConnected } from '$stores';
   import CanvasControls from './CanvasControls.svelte';
   import PageSelector from './PageSelector.svelte';
   import FilteredStrokesPanel from '../strokes/FilteredStrokesPanel.svelte';
   import SearchTranscriptsDialog from '../dialog/SearchTranscriptsDialog.svelte';
   import CreatePageDialog from '../dialog/CreatePageDialog.svelte';
+  import ExportSvgDialog from '../dialog/ExportSvgDialog.svelte';
   
   let canvasElement;
   let containerElement;
@@ -1039,15 +1041,20 @@
   // Export functions
   function exportSvg() {
     if (!renderer) return;
-    const svg = renderer.exportSVG(visibleStrokes);
-    downloadFile(svg, 'strokes.svg', 'image/svg+xml');
+    // Use selected strokes if any are selected, otherwise fall back to visible strokes
+    const exportStrokes = $hasSelection ? $selectedStrokes : visibleStrokes;
+    if (exportStrokes.length === 0) {
+      log('No strokes to export', 'warning');
+      return;
+    }
+    openSvgExportDialog(exportStrokes);
   }
-  
+
   function exportJson() {
     const json = JSON.stringify(visibleStrokes, null, 2);
     downloadFile(json, 'strokes.json', 'application/json');
   }
-  
+
   function downloadFile(content, filename, mimeType) {
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
@@ -1464,18 +1471,23 @@
     />
     
     <div class="export-actions">
-      <button class="btn btn-secondary small" on:click={exportSvg}>SVG</button>
+      <button class="btn btn-secondary small" on:click={exportSvg} title={$hasSelection ? `Export ${$selectionCount} selected strokes` : 'Export visible strokes'}>
+        SVG{#if $hasSelection} ({$selectionCount}){/if}
+      </button>
       <button class="btn btn-secondary small" on:click={exportJson}>JSON</button>
     </div>
   </div>
-  
+
   <FilteredStrokesPanel />
-  
+
   <!-- Search Transcripts Dialog -->
   <SearchTranscriptsDialog />
-  
+
   <!-- Create Page Dialog -->
   <CreatePageDialog bind:isOpen={showCreatePageDialog} />
+
+  <!-- Export SVG Dialog -->
+  <ExportSvgDialog {renderer} />
 </div>
 
 <style>

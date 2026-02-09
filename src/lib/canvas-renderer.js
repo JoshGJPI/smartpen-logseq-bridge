@@ -1310,17 +1310,18 @@ export class CanvasRenderer {
   /**
    * Export strokes as SVG
    * @param {Array} strokes - Strokes to export (from store)
+   * @param {number} strokeWidth - SVG stroke width (default 0.5)
    */
-  exportSVG(strokes = []) {
+  exportSVG(strokes = [], strokeWidth = 0.5) {
     const allStrokes = strokes.length > 0 ? strokes : this.strokes;
-    
+
     if (allStrokes.length === 0) {
       return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"></svg>';
     }
-    
+
     // Calculate bounds from provided strokes
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    
+
     allStrokes.forEach(stroke => {
       const dots = stroke.dotArray || stroke.dots || [];
       dots.forEach(dot => {
@@ -1330,38 +1331,38 @@ export class CanvasRenderer {
         maxY = Math.max(maxY, dot.y);
       });
     });
-    
+
     const padding = 10;
     const width = (maxX - minX) * this.scale + padding * 2;
     const height = (maxY - minY) * this.scale + padding * 2;
-    
+
     let paths = '';
-    
+
     allStrokes.forEach((stroke, index) => {
       const dots = stroke.dotArray || stroke.dots || [];
       if (dots.length < 2) return;
-      
+
       let d = dots.map((dot, i) => {
         const x = (dot.x - minX) * this.scale + padding;
         const y = (dot.y - minY) * this.scale + padding;
         return i === 0 ? `M ${x.toFixed(2)} ${y.toFixed(2)}` : `L ${x.toFixed(2)} ${y.toFixed(2)}`;
       }).join(' ');
-      
-      paths += `  <path 
-    d="${d}" 
-    stroke="black" 
-    stroke-width="2" 
-    fill="none" 
-    stroke-linecap="round" 
+
+      paths += `  <path
+    d="${d}"
+    stroke="black"
+    stroke-width="${strokeWidth}"
+    fill="none"
+    stroke-linecap="round"
     stroke-linejoin="round"
     data-stroke-index="${index}"
     data-dot-count="${dots.length}"
   />\n`;
     });
-    
+
     return `<?xml version="1.0" encoding="UTF-8"?>
-<svg 
-  xmlns="http://www.w3.org/2000/svg" 
+<svg
+  xmlns="http://www.w3.org/2000/svg"
   viewBox="0 0 ${width.toFixed(2)} ${height.toFixed(2)}"
   width="${width.toFixed(2)}mm"
   height="${height.toFixed(2)}mm"
