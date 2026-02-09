@@ -192,6 +192,7 @@ export {
   clearDeletedIndices,
   isStrokeDeleted,
   getActiveStrokesForPage,
+  getDeletedStrokeIdsForPage,
   getPendingChangesSummary
 } from './pending-changes.js';
 

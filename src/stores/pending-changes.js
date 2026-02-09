@@ -6,7 +6,7 @@ import { writable, derived, get } from 'svelte/store';
 import { strokes } from './strokes.js';
 import { storageStatus } from './storage.js';
 import { logseqPages } from './logseqPages.js';
-import { convertToStorageFormat, deduplicateStrokes } from '../lib/stroke-storage.js';
+import { convertToStorageFormat, deduplicateStrokes, generateStrokeId } from '../lib/stroke-storage.js';
 
 // Set of deleted stroke indices (local only, not synced to LogSeq yet)
 export const deletedIndices = writable(new Set());
@@ -251,6 +251,34 @@ export function getActiveStrokesForPage(book, page) {
         !$deletedIndices.has(index);
     })
     .map(({ stroke }) => stroke);
+}
+
+/**
+ * Get stroke IDs for deleted strokes on a specific page
+ * Converts index-based deletedIndices to stroke ID format used in LogSeq storage
+ * This enables explicit deletion tracking instead of arithmetic inference
+ * @param {number} book - Book ID
+ * @param {number} page - Page number
+ * @returns {Set<string>} Set of stroke IDs (format: "s{startTime}") marked for deletion
+ */
+export function getDeletedStrokeIdsForPage(book, page) {
+  const $strokes = get(strokes);
+  const $deletedIndices = get(deletedIndices);
+
+  const deletedIds = new Set();
+
+  $deletedIndices.forEach(index => {
+    const stroke = $strokes[index];
+    if (!stroke) return;
+
+    const pageInfo = stroke.pageInfo;
+    if (!pageInfo || pageInfo.book !== book || pageInfo.page !== page) return;
+
+    // Generate the same ID format used in storage (s{startTime})
+    deletedIds.add(generateStrokeId(stroke));
+  });
+
+  return deletedIds;
 }
 
 /**

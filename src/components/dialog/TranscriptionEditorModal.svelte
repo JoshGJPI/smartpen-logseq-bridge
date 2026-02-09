@@ -1,30 +1,35 @@
 <!--
-  TranscriptionEditorModal.svelte - Modal interface for editing and consolidating transcription lines
+  TranscriptionEditorModal.svelte - Single-column editor for transcription lines
+  v3.1: Existing LogSeq blocks are editable; changes saved by UUID
 -->
 <script>
   import { createEventDispatcher } from 'svelte';
   import { reassignStrokes, getStrokesSnapshot, updateStrokeBlockUuids, getStrokesInYRange } from '$stores/strokes.js';
   import { updatePageStrokes } from '$lib/logseq-api.js';
   import { getLogseqSettings } from '$stores/settings.js';
-  
+
   export let book;
   export let page;
-  export let lines = []; // Array of line objects from MyScript
+  export let lines = []; // Array of line objects (merged: existing LogSeq + new MyScript)
   export let visible = false;
-  
+
   const dispatch = createEventDispatcher();
-  
+
   // Local state for editing
   let editedLines = [];
   let selectedIndices = new Set();
   let history = [];
   let historyIndex = -1;
-  
+
+  // Snapshot of original content for existing blocks (blockUuid → text)
+  // Used to detect which existing blocks were actually modified
+  let originalContent = new Map();
+
   // Initialize edited lines when modal opens
   $: if (visible && lines.length > 0) {
     initializeEditor();
   }
-  
+
   function initializeEditor() {
     editedLines = lines.map((line, index) => ({
       ...line,
@@ -32,11 +37,20 @@
       originalIndex: index,
       userModified: false
     }));
+
+    // Snapshot original text for existing blocks
+    originalContent = new Map();
+    lines.forEach(line => {
+      if (line.blockUuid) {
+        originalContent.set(line.blockUuid, line.text);
+      }
+    });
+
     selectedIndices = new Set();
     history = [JSON.parse(JSON.stringify(editedLines))];
     historyIndex = 0;
   }
-  
+
   // Add to history for undo/redo
   function addToHistory() {
     // Remove any future history if we're not at the end
@@ -44,11 +58,11 @@
     history.push(JSON.parse(JSON.stringify(editedLines)));
     historyIndex++;
   }
-  
+
   // Merge selected lines or adjacent lines
   function mergeLines(startIndex) {
     if (editedLines.length < 2) return;
-    
+
     let indices;
     if (selectedIndices.size >= 2) {
       // Merge selected lines
@@ -58,15 +72,14 @@
       if (startIndex >= editedLines.length - 1) return;
       indices = [startIndex, startIndex + 1];
     }
-    
+
     // Get lines to merge
     const linesToMerge = indices.map(i => editedLines[i]);
-    
-    // Create merged line
-    // CRITICAL FIX: Track ALL block UUIDs for proper stroke reassignment and deletion
+
+    // Track ALL block UUIDs for proper stroke reassignment and deletion
     const allBlockUuids = linesToMerge
       .map(l => l.blockUuid)
-      .filter(Boolean); // Remove nulls
+      .filter(Boolean);
 
     const mergedLine = {
       text: linesToMerge.map(l => l.text).join(' '),
@@ -77,16 +90,16 @@
       },
       mergedLineCount: linesToMerge.reduce((sum, l) => sum + (l.mergedLineCount || 1), 0),
       indentLevel: linesToMerge[0].indentLevel || 0,
-      blockUuid: linesToMerge[0].blockUuid, // Primary block UUID (host block)
-      mergedBlockUuids: allBlockUuids, // ALL block UUIDs (for stroke reassignment)
-      blocksToDelete: allBlockUuids.slice(1), // Non-primary blocks to delete
-      syncStatus: 'modified', // Mark as modified since merge operation occurred
+      blockUuid: linesToMerge[0].blockUuid,
+      mergedBlockUuids: allBlockUuids,
+      blocksToDelete: allBlockUuids.slice(1),
+      syncStatus: 'modified',
       id: linesToMerge[0].id,
       originalIndex: linesToMerge[0].originalIndex,
       userModified: true,
       sourceLines: linesToMerge.map(l => l.originalIndex)
     };
-    
+
     // Build new lines array
     const newLines = [];
     let merged = false;
@@ -100,59 +113,51 @@
         newLines.push(line);
       }
     });
-    
+
     editedLines = newLines;
     selectedIndices.clear();
+    selectedIndices = selectedIndices;
     addToHistory();
   }
-  
+
   // Split a line at cursor position
   function splitLine(index, splitText1, splitText2) {
     const line = editedLines[index];
-    
-    // Calculate proportional Y-bounds
+
     const midY = (line.yBounds.minY + line.yBounds.maxY) / 2;
-    
+
     const line1 = {
       text: splitText1.trim(),
       canonical: splitText1.trim(),
-      yBounds: {
-        minY: line.yBounds.minY,
-        maxY: midY
-      },
+      yBounds: { minY: line.yBounds.minY, maxY: midY },
       mergedLineCount: 1,
       indentLevel: line.indentLevel || 0,
-      blockUuid: line.blockUuid, // Preserve UUID for first part
-      syncStatus: line.syncStatus || 'synced',
+      blockUuid: line.blockUuid,
+      syncStatus: line.blockUuid ? 'modified' : (line.syncStatus || 'synced'),
       id: line.id,
       originalIndex: line.originalIndex,
       userModified: true
     };
-    
+
     const line2 = {
       text: splitText2.trim(),
       canonical: splitText2.trim(),
-      yBounds: {
-        minY: midY,
-        maxY: line.yBounds.maxY
-      },
+      yBounds: { minY: midY, maxY: line.yBounds.maxY },
       mergedLineCount: 1,
       indentLevel: line.indentLevel || 0,
-      // No blockUuid for second part - this will create a new block
       syncStatus: 'new',
       id: `${line.id}-split`,
       originalIndex: line.originalIndex,
       userModified: true
     };
-    
-    // Build new lines array
+
     editedLines = [
       ...editedLines.slice(0, index),
       line1,
       line2,
       ...editedLines.slice(index + 1)
     ];
-    
+
     addToHistory();
   }
 
@@ -164,7 +169,7 @@
       if (selectedIndices.has(index)) {
         return {
           ...line,
-          indentLevel: Math.min((line.indentLevel || 0) + 1, 5), // Max indent level 5
+          indentLevel: Math.min((line.indentLevel || 0) + 1, 5),
           userModified: true
         };
       }
@@ -182,7 +187,7 @@
       if (selectedIndices.has(index)) {
         return {
           ...line,
-          indentLevel: Math.max((line.indentLevel || 0) - 1, 0), // Min indent level 0
+          indentLevel: Math.max((line.indentLevel || 0) - 1, 0),
           userModified: true
         };
       }
@@ -198,18 +203,20 @@
       historyIndex--;
       editedLines = JSON.parse(JSON.stringify(history[historyIndex]));
       selectedIndices.clear();
+      selectedIndices = selectedIndices;
     }
   }
-  
+
   // Redo last undone change
   function redo() {
     if (historyIndex < history.length - 1) {
       historyIndex++;
       editedLines = JSON.parse(JSON.stringify(history[historyIndex]));
       selectedIndices.clear();
+      selectedIndices = selectedIndices;
     }
   }
-  
+
   // Toggle line selection
   function toggleSelection(index) {
     if (selectedIndices.has(index)) {
@@ -217,61 +224,69 @@
     } else {
       selectedIndices.add(index);
     }
-    selectedIndices = selectedIndices; // Trigger reactivity
+    selectedIndices = selectedIndices;
   }
-  
+
   // Select all lines
   function selectAll() {
     selectedIndices = new Set(editedLines.map((_, i) => i));
   }
-  
+
   // Smart merge suggestions
   function detectMergeSuggestions() {
     const suggestions = [];
-    
+
     for (let i = 0; i < editedLines.length - 1; i++) {
       const current = editedLines[i];
       const next = editedLines[i + 1];
-      
-      // Heuristics for auto-merge suggestion
-      const sameLine = 
+
+      const sameLine =
         current.indentLevel === next.indentLevel &&
-        !current.text.match(/[.!?]$/) && // Current doesn't end with punctuation
-        next.text.match(/^[a-z]/) && // Next starts with lowercase
-        Math.abs(current.yBounds.maxY - next.yBounds.minY) < 20; // Close together
-      
+        !current.text.match(/[.!?]$/) &&
+        next.text.match(/^[a-z]/) &&
+        Math.abs(current.yBounds.maxY - next.yBounds.minY) < 20;
+
       if (sameLine) {
         suggestions.push({ indices: [i, i + 1], confidence: 0.8 });
       }
     }
-    
+
     return suggestions;
   }
-  
+
   // Apply smart merge suggestions
   function applySmartMerge() {
     const suggestions = detectMergeSuggestions();
     if (suggestions.length > 0) {
-      // Apply first suggestion
       const indices = suggestions[0].indices;
       indices.forEach(i => selectedIndices.add(i));
+      selectedIndices = selectedIndices;
       mergeLines(indices[0]);
     }
   }
-  
+
+  // Handle text input on a line
+  function handleLineInput(index, newText) {
+    editedLines[index].text = newText;
+    editedLines[index].canonical = newText.trim();
+    editedLines[index].userModified = true;
+    // If this is an existing block being edited, mark as modified
+    if (editedLines[index].blockUuid && editedLines[index].syncStatus === 'synced') {
+      editedLines[index].syncStatus = 'modified';
+    }
+    editedLines = editedLines;
+  }
+
   // Save changes and close modal
   async function handleSave() {
     // Track stroke reassignments for merges
     const mergedBlockPairs = [];
     let strokesChanged = false;
 
-    // CRITICAL FIX: Use new blocksToDelete property for explicit merge tracking
     for (const line of editedLines) {
-      // New approach: Use blocksToDelete array from merge operation
       if (line.blocksToDelete && line.blocksToDelete.length > 0 && line.blockUuid) {
         console.log(`Processing merge: ${line.blocksToDelete.length} blocks to delete, survivor: ${line.blockUuid}`);
 
-        // Reassign all strokes from deleted blocks to the surviving block
         for (const deletedBlockUuid of line.blocksToDelete) {
           if (deletedBlockUuid !== line.blockUuid) {
             mergedBlockPairs.push({
@@ -281,12 +296,9 @@
           }
         }
       }
-      // Fallback to old approach for backward compatibility
       else if (line.sourceLines && line.sourceLines.length > 1 && line.blockUuid) {
-        // This line is a merge - find original lines to get their blockUuids
         const sourceLineIndices = line.sourceLines;
 
-        // Get blockUuids from original lines (before merge)
         for (let i = 1; i < sourceLineIndices.length; i++) {
           const originalLine = lines[sourceLineIndices[i]];
           if (originalLine && originalLine.blockUuid && originalLine.blockUuid !== line.blockUuid) {
@@ -307,28 +319,24 @@
         console.log(`Reassigned ${count} strokes from ${deletedBlockUuid} to ${survivingBlockUuid}`);
       }
     }
-    
-    // Handle splits - assign strokes to new blocks by Y-bounds
+
+    // Handle splits
     const splitBlocks = editedLines.filter(line => line.syncStatus === 'new' && line.yBounds);
-    for (const splitLine of splitBlocks) {
-      // This is a new block from a split - no blockUuid yet
-      // The parent handleSave in the component that opened this modal will create the block
-      // and assign strokes based on Y-bounds
-      // We just need to make sure the Y-bounds are preserved
-      console.log(`Split block detected at Y: ${splitLine.yBounds.minY}-${splitLine.yBounds.maxY}`);
+    for (const splitBlock of splitBlocks) {
+      console.log(`Split block detected at Y: ${splitBlock.yBounds.minY}-${splitBlock.yBounds.maxY}`);
     }
-    
-    // CRITICAL: Persist stroke changes if any were made
+
+    // Persist stroke changes if any were made
     if (strokesChanged) {
       try {
         const { host, token } = getLogseqSettings();
-        
+
         if (host) {
           const allStrokes = getStrokesSnapshot();
-          const pageStrokes = allStrokes.filter(s => 
+          const pageStrokes = allStrokes.filter(s =>
             s.pageInfo?.book === book && s.pageInfo?.page === page
           );
-          
+
           if (pageStrokes.length > 0) {
             console.log(`Persisting ${pageStrokes.length} strokes with updated blockUuids`);
             await updatePageStrokes(book, page, pageStrokes, host, token);
@@ -336,27 +344,28 @@
         }
       } catch (error) {
         console.error('Failed to persist stroke changes:', error);
-        // Don't fail the whole save - block updates are more important
       }
     }
-    
+
     dispatch('save', {
       lines: editedLines,
       book,
       page,
-      mergedBlockPairs // Pass merge info to parent for cleanup
+      mergedBlockPairs
     });
     handleClose();
   }
-  
+
   // Close modal without saving
   function handleClose() {
     visible = false;
     dispatch('close');
   }
-  
+
   // Handle keyboard shortcuts
   function handleKeydown(event) {
+    if (!visible) return;
+
     if (event.ctrlKey || event.metaKey) {
       if (event.key === 'z' && !event.shiftKey) {
         event.preventDefault();
@@ -391,20 +400,26 @@
       handleClose();
     }
   }
-  
-  // Format Y-bounds for display
-  function formatBounds(yBounds) {
-    return `Y: ${yBounds.minY.toFixed(0)}-${yBounds.maxY.toFixed(0)}`;
+
+  // Get status label for a line
+  function getStatusLabel(line) {
+    if (line.syncStatus === 'synced' && !line.userModified) return 'synced';
+    if (line.syncStatus === 'modified' || line.userModified) return 'modified';
+    if (line.syncStatus === 'new') return 'new';
+    if (line.blockUuid) return 'synced';
+    return 'new';
   }
-  
+
   // Calculate statistics
   $: stats = {
     totalLines: editedLines.length,
     selected: selectedIndices.size,
     merged: editedLines.filter(l => l.mergedLineCount > 1).length,
-    modified: editedLines.filter(l => l.userModified).length
+    modified: editedLines.filter(l => l.userModified).length,
+    synced: editedLines.filter(l => l.blockUuid && !l.userModified).length,
+    newLines: editedLines.filter(l => !l.blockUuid && l.syncStatus !== 'modified').length
   };
-  
+
   $: mergeSuggestions = detectMergeSuggestions();
 </script>
 
@@ -414,7 +429,13 @@
 <div class="modal-backdrop" on:click={handleClose}>
   <div class="modal-container" on:click|stopPropagation>
     <div class="modal-header">
-      <h2>Edit Transcription - B{book}/P{page}</h2>
+      <h2>Edit Transcription &mdash; B{book}/P{page}</h2>
+      <div class="header-stats">
+        {stats.totalLines} lines
+        {#if stats.synced > 0}<span class="stat-badge synced">{stats.synced} synced</span>{/if}
+        {#if stats.newLines > 0}<span class="stat-badge new">{stats.newLines} new</span>{/if}
+        {#if stats.modified > 0}<span class="stat-badge modified">{stats.modified} modified</span>{/if}
+      </div>
       <button class="close-btn" on:click={handleClose} title="Close (Esc)">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -422,34 +443,34 @@
         </svg>
       </button>
     </div>
-    
+
     <div class="modal-toolbar">
       <div class="toolbar-group">
-        <button 
-          class="tool-btn" 
-          on:click={undo} 
+        <button
+          class="tool-btn"
+          on:click={undo}
           disabled={historyIndex <= 0}
           title="Undo (Ctrl+Z)"
         >
-          ↶ Undo
+          &#8630; Undo
         </button>
-        <button 
-          class="tool-btn" 
-          on:click={redo} 
+        <button
+          class="tool-btn"
+          on:click={redo}
           disabled={historyIndex >= history.length - 1}
           title="Redo (Ctrl+Shift+Z)"
         >
-          ↷ Redo
+          &#8631; Redo
         </button>
       </div>
-      
+
       <div class="toolbar-group">
         <button
           class="tool-btn"
           on:click={selectAll}
           title="Select All (Ctrl+A)"
         >
-          ☑ Select All
+          Select All
         </button>
         <button
           class="tool-btn primary"
@@ -457,7 +478,7 @@
           disabled={selectedIndices.size < 2}
           title="Merge Selected (Ctrl+J)"
         >
-          ⬇ Merge ({selectedIndices.size})
+          Merge ({selectedIndices.size})
         </button>
       </div>
 
@@ -466,135 +487,143 @@
           class="tool-btn"
           on:click={outdentLines}
           disabled={selectedIndices.size === 0}
-          title="Decrease Indent (Tab / Ctrl+[)"
+          title="Decrease Indent (Ctrl+[)"
         >
-          ← Outdent
+          &#8592; Outdent
         </button>
         <button
           class="tool-btn"
           on:click={indentLines}
           disabled={selectedIndices.size === 0}
-          title="Increase Indent (Shift+Tab / Ctrl+])"
+          title="Increase Indent (Ctrl+])"
         >
-          Indent →
+          Indent &#8594;
         </button>
       </div>
-      
+
       {#if mergeSuggestions.length > 0}
       <div class="toolbar-group">
-        <button 
-          class="tool-btn suggest" 
+        <button
+          class="tool-btn suggest"
           on:click={applySmartMerge}
           title="Apply smart merge suggestion"
         >
-          💡 Smart Merge ({mergeSuggestions.length})
+          Smart Merge ({mergeSuggestions.length})
         </button>
       </div>
       {/if}
     </div>
-    
+
     <div class="modal-body">
-      <div class="editor-pane">
-        <div class="pane-header">
-          <h3>Lines</h3>
-          <div class="stats">
-            {stats.totalLines} lines • {stats.selected} selected • {stats.merged} merged
-          </div>
-        </div>
-        
-        <div class="lines-list">
-          {#each editedLines as line, index}
+      <div class="lines-list">
+        {#each editedLines as line, index}
+          {@const status = getStatusLabel(line)}
           <div
             class="line-item"
             class:selected={selectedIndices.has(index)}
             class:merged={line.mergedLineCount > 1}
-            class:modified={line.userModified}
-            class:saved={line.blockUuid}
-            class:read-only={line.blockUuid}
-            title={line.blockUuid ? 'Saved to LogSeq - Read only (manual edits should be done in LogSeq)' : 'New line - can be edited'}
+            class:status-synced={status === 'synced'}
+            class:status-modified={status === 'modified'}
+            class:status-new={status === 'new'}
           >
-            <div class="line-header">
-              <input 
-                type="checkbox" 
+            <div class="line-row" style="padding-left: {(line.indentLevel || 0) * 24}px">
+              <!-- Selection checkbox -->
+              <input
+                type="checkbox"
+                class="line-checkbox"
                 checked={selectedIndices.has(index)}
                 on:change={() => toggleSelection(index)}
               />
-              <span class="line-number">#{index + 1}</span>
-              {#if line.mergedLineCount > 1}
-              <span class="merge-badge" title="Merged from {line.mergedLineCount} lines">
-                ✓ {line.mergedLineCount}
-              </span>
+
+              <!-- Indent guide -->
+              {#if (line.indentLevel || 0) > 0}
+                <span class="indent-guide">
+                  {#each Array(line.indentLevel) as _, i}
+                    <span class="indent-bar" style="left: {-(line.indentLevel - i) * 24 + 8}px"></span>
+                  {/each}
+                </span>
               {/if}
-              <span class="bounds-info">{formatBounds(line.yBounds)}</span>
-            </div>
-            
-            <div class="line-content" style="padding-left: {line.indentLevel * 20}px">
-              <input 
-                type="text" 
-                class="line-input"
+
+              <!-- Bullet point -->
+              <span class="bullet">&#8226;</span>
+
+              <!-- Editable text -->
+              <input
+                type="text"
+                class="line-text"
                 value={line.text}
-                on:input={(e) => {
-                  editedLines[index].text = e.target.value;
-                  editedLines[index].canonical = e.target.value.trim();
-                  editedLines[index].userModified = true;
-                  editedLines = editedLines;
-                }}
+                on:input={(e) => handleLineInput(index, e.target.value)}
+                on:blur={() => addToHistory()}
+                placeholder="Empty line..."
               />
+
+              <!-- Per-line action buttons -->
+              <div class="line-actions">
+                <button
+                  class="action-btn"
+                  on:click={() => mergeLines(index)}
+                  disabled={index >= editedLines.length - 1}
+                  title="Merge with next line"
+                >
+                  &#8595;
+                </button>
+                <button
+                  class="action-btn"
+                  on:click={() => {
+                    const text = line.text;
+                    const mid = Math.floor(text.length / 2);
+                    splitLine(index, text.slice(0, mid), text.slice(mid));
+                  }}
+                  title="Split line"
+                >
+                  &#8596;
+                </button>
+                <button
+                  class="action-btn"
+                  on:click={() => { selectedIndices = new Set([index]); outdentLines(); }}
+                  disabled={(line.indentLevel || 0) <= 0}
+                  title="Outdent"
+                >
+                  &#8592;
+                </button>
+                <button
+                  class="action-btn"
+                  on:click={() => { selectedIndices = new Set([index]); indentLines(); }}
+                  disabled={(line.indentLevel || 0) >= 5}
+                  title="Indent"
+                >
+                  &#8594;
+                </button>
+              </div>
+
+              <!-- Status badge -->
+              <span class="status-badge {status}" title="{status === 'synced' ? 'Saved in LogSeq' : status === 'modified' ? 'Modified locally' : 'New (will create block)'}">
+                {status}
+              </span>
             </div>
-            
-            <div class="line-actions">
-              <button 
-                class="action-btn" 
-                on:click={() => mergeLines(index)}
-                disabled={index >= editedLines.length - 1}
-                title="Merge with next line"
-              >
-                ⬇ Merge
-              </button>
-              <button 
-                class="action-btn" 
-                on:click={() => {
-                  const text = line.text;
-                  const mid = Math.floor(text.length / 2);
-                  splitLine(index, text.slice(0, mid), text.slice(mid));
-                }}
-                title="Split line in half"
-              >
-                ⬌ Split
-              </button>
-            </div>
+
+            {#if line.mergedLineCount > 1}
+              <div class="merge-info" style="padding-left: {(line.indentLevel || 0) * 24 + 28}px">
+                merged from {line.mergedLineCount} lines
+              </div>
+            {/if}
           </div>
-          {/each}
-        </div>
-      </div>
-      
-      <div class="preview-pane">
-        <div class="pane-header">
-          <h3>LogSeq Preview</h3>
-        </div>
-        
-        <div class="preview-content">
-          <div class="preview-section">## Transcribed Content #Display_No_Properties</div>
-          
-          {#each editedLines as line}
-          <div class="preview-block" style="padding-left: {line.indentLevel * 20}px">
-            <div class="preview-text">- {line.text}</div>
-            <!-- Properties hidden by #Display_No_Properties tag in LogSeq -->
-          </div>
-          {/each}
-        </div>
+        {/each}
       </div>
     </div>
-    
+
     <div class="modal-footer">
       <div class="footer-info">
+        {#if stats.selected > 0}
+          <span class="selection-info">{stats.selected} selected</span>
+        {/if}
         {#if stats.modified > 0}
-        <span class="modified-warning">⚠ {stats.modified} lines modified</span>
+          <span class="modified-warning">{stats.modified} line{stats.modified !== 1 ? 's' : ''} modified</span>
         {/if}
       </div>
       <div class="footer-actions">
         <button class="btn btn-cancel" on:click={handleClose}>Cancel</button>
-        <button class="btn btn-primary" on:click={handleSave}>💾 Save Changes</button>
+        <button class="btn btn-primary" on:click={handleSave}>Save Changes</button>
       </div>
     </div>
   </div>
@@ -615,33 +644,55 @@
     z-index: 9999;
     backdrop-filter: blur(2px);
   }
-  
+
   .modal-container {
     background: var(--bg-primary);
     border-radius: 12px;
     width: 90vw;
-    max-width: 1400px;
+    max-width: 900px;
     height: 85vh;
     display: flex;
     flex-direction: column;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
     border: 1px solid var(--border);
   }
-  
+
+  /* Header */
   .modal-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 16px;
     padding: 16px 24px;
     border-bottom: 1px solid var(--border);
   }
-  
+
   .modal-header h2 {
     margin: 0;
-    font-size: 1.25rem;
+    font-size: 1.15rem;
     color: var(--text-primary);
+    white-space: nowrap;
   }
-  
+
+  .header-stats {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    flex: 1;
+  }
+
+  .stat-badge {
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.7rem;
+    font-weight: 600;
+  }
+
+  .stat-badge.synced { background: rgba(107, 114, 128, 0.2); color: #9ca3af; }
+  .stat-badge.new { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+  .stat-badge.modified { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+
   .close-btn {
     background: none;
     border: none;
@@ -650,323 +701,337 @@
     padding: 4px;
     border-radius: 4px;
     transition: all 0.2s;
+    flex-shrink: 0;
   }
-  
+
   .close-btn:hover {
     background: var(--bg-tertiary);
     color: var(--text-primary);
   }
-  
+
+  /* Toolbar */
   .modal-toolbar {
     display: flex;
     gap: 12px;
-    padding: 12px 24px;
+    padding: 10px 24px;
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
     flex-wrap: wrap;
   }
-  
+
   .toolbar-group {
     display: flex;
-    gap: 8px;
+    gap: 6px;
     align-items: center;
   }
-  
+
   .tool-btn {
-    padding: 6px 12px;
+    padding: 5px 10px;
     background: var(--bg-tertiary);
     color: var(--text-primary);
     border: 1px solid var(--border);
-    border-radius: 6px;
-    font-size: 0.875rem;
+    border-radius: 5px;
+    font-size: 0.8rem;
     cursor: pointer;
     transition: all 0.2s;
     white-space: nowrap;
   }
-  
+
   .tool-btn:hover:not(:disabled) {
     background: var(--bg-primary);
     border-color: var(--accent);
   }
-  
+
   .tool-btn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
   }
-  
+
   .tool-btn.primary {
     background: var(--accent);
     color: white;
     border-color: var(--accent);
   }
-  
+
   .tool-btn.primary:hover:not(:disabled) {
     opacity: 0.9;
   }
-  
+
   .tool-btn.suggest {
     background: #f59e0b;
     color: white;
     border-color: #f59e0b;
   }
-  
+
+  /* Body — single column */
   .modal-body {
     flex: 1;
-    display: flex;
     overflow: hidden;
-  }
-  
-  .editor-pane, .preview-pane {
-    flex: 1;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
   }
-  
-  .editor-pane {
-    border-right: 1px solid var(--border);
-  }
-  
-  .pane-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
-    background: var(--bg-secondary);
-    border-bottom: 1px solid var(--border);
-  }
-  
-  .pane-header h3 {
-    margin: 0;
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--text-primary);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-  
-  .stats {
-    font-size: 0.75rem;
-    color: var(--text-tertiary);
-  }
-  
+
   .lines-list {
     flex: 1;
     overflow-y: auto;
-    padding: 8px;
+    padding: 12px 16px;
   }
-  
+
+  /* Line items — LogSeq-style rendered blocks */
   .line-item {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
     border-radius: 6px;
-    margin-bottom: 8px;
-    padding: 10px;
-    transition: all 0.2s;
+    margin-bottom: 2px;
+    transition: background 0.15s;
   }
-  
+
+  .line-item:hover {
+    background: var(--bg-secondary);
+  }
+
   .line-item.selected {
-    border-color: var(--accent);
-    background: rgba(var(--accent-rgb, 59, 130, 246), 0.1);
+    background: rgba(59, 130, 246, 0.08);
   }
-  
+
   .line-item.merged {
     border-left: 3px solid #22c55e;
   }
-  
-  .line-item.modified {
-    border-right: 3px solid #f59e0b;
+
+  /* Status-based left border */
+  .line-item.status-synced {
+    border-left: 3px solid transparent;
   }
 
-  /* CRITICAL: Visual indication for saved blocks (read-only) */
-  .line-item.saved {
-    background: var(--bg-tertiary);
-    opacity: 0.7;
-    border-left: 3px solid #6b7280; /* Gray to indicate read-only */
+  .line-item.status-modified {
+    border-left: 3px solid #f59e0b;
   }
 
-  .line-item.read-only {
-    pointer-events: none; /* Prevent interaction */
-    user-select: none; /* Prevent text selection */
+  .line-item.status-new {
+    border-left: 3px solid var(--accent);
   }
 
-  .line-item.saved::before {
-    content: "🔒 Saved to LogSeq";
-    display: block;
-    font-size: 0.65rem;
-    color: #6b7280;
-    margin-bottom: 4px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .line-header {
+  .line-row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
-    font-size: 0.75rem;
-  }
-  
-  .line-number {
-    color: var(--text-tertiary);
-    font-weight: 500;
-  }
-  
-  .merge-badge {
-    background: #22c55e;
-    color: white;
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-size: 0.7rem;
-    font-weight: 600;
-  }
-  
-  .bounds-info {
-    color: var(--text-tertiary);
-    margin-left: auto;
-  }
-  
-  .line-content {
-    margin-bottom: 8px;
-  }
-  
-  .line-input {
-    width: 100%;
+    gap: 6px;
     padding: 6px 8px;
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    color: var(--text-primary);
-    font-family: 'Courier New', monospace;
-    font-size: 0.85rem;
+    position: relative;
   }
-  
-  .line-input:focus {
+
+  .line-checkbox {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--accent);
+    flex-shrink: 0;
+  }
+
+  /* Indent guides */
+  .indent-guide {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    pointer-events: none;
+  }
+
+  .indent-bar {
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    width: 1px;
+    background: var(--border);
+  }
+
+  .bullet {
+    color: var(--text-tertiary);
+    font-size: 1rem;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+
+  /* Editable text — styled like rendered text, not code */
+  .line-text {
+    flex: 1;
+    min-width: 0;
+    padding: 4px 6px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    transition: border-color 0.15s, background 0.15s;
+  }
+
+  .line-text:hover {
+    border-color: var(--border);
+  }
+
+  .line-text:focus {
     outline: none;
     border-color: var(--accent);
-  }
-  
-  .line-actions {
-    display: flex;
-    gap: 6px;
-  }
-  
-  .action-btn {
-    padding: 4px 10px;
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    font-size: 0.75rem;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  
-  .action-btn:hover:not(:disabled) {
     background: var(--bg-primary);
   }
-  
+
+  .line-text::placeholder {
+    color: var(--text-tertiary);
+    font-style: italic;
+  }
+
+  /* Per-line action buttons — compact icon row */
+  .line-actions {
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.15s;
+    flex-shrink: 0;
+  }
+
+  .line-item:hover .line-actions,
+  .line-item.selected .line-actions {
+    opacity: 1;
+  }
+
+  .action-btn {
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.15s;
+    padding: 0;
+  }
+
+  .action-btn:hover:not(:disabled) {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border-color: var(--accent);
+  }
+
   .action-btn:disabled {
-    opacity: 0.3;
+    opacity: 0.25;
     cursor: not-allowed;
   }
-  
-  .preview-content {
-    flex: 1;
-    overflow-y: auto;
-    padding: 16px;
-    font-family: 'Courier New', monospace;
-    font-size: 0.85rem;
-  }
-  
-  .preview-section {
-    color: var(--text-secondary);
+
+  /* Status badges */
+  .status-badge {
+    font-size: 0.6rem;
     font-weight: 600;
-    margin-bottom: 12px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--border);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 2px 6px;
+    border-radius: 8px;
+    flex-shrink: 0;
+    opacity: 0.7;
   }
-  
-  .preview-block {
-    margin-bottom: 16px;
-    padding: 8px;
-    background: rgba(255, 255, 255, 0.03);
-    border-left: 2px solid var(--border);
-    border-radius: 4px;
+
+  .status-badge.synced {
+    background: rgba(107, 114, 128, 0.15);
+    color: #9ca3af;
   }
-  
-  .preview-text {
-    color: var(--text-primary);
-    margin-bottom: 6px;
-    font-weight: 500;
+
+  .status-badge.modified {
+    background: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+    opacity: 1;
   }
-  
-  .preview-properties {
+
+  .status-badge.new {
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+    opacity: 1;
+  }
+
+  .merge-info {
     font-size: 0.7rem;
-    color: var(--text-tertiary);
-    padding-left: 10px;
-  }
-  
-  .property {
-    margin: 2px 0;
-  }
-  
-  .merged-prop {
     color: #22c55e;
-    font-weight: 600;
+    font-weight: 500;
+    padding-bottom: 4px;
   }
-  
+
+  /* Footer */
   .modal-footer {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 16px 24px;
+    padding: 14px 24px;
     background: var(--bg-secondary);
     border-top: 1px solid var(--border);
   }
-  
+
   .footer-info {
-    font-size: 0.85rem;
+    display: flex;
+    gap: 16px;
+    font-size: 0.8rem;
   }
-  
+
+  .selection-info {
+    color: var(--accent);
+    font-weight: 500;
+  }
+
   .modified-warning {
     color: #f59e0b;
     font-weight: 500;
   }
-  
+
   .footer-actions {
     display: flex;
-    gap: 12px;
+    gap: 10px;
   }
-  
+
   .btn {
     padding: 8px 20px;
     border: none;
     border-radius: 6px;
-    font-size: 0.875rem;
+    font-size: 0.85rem;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s;
   }
-  
+
   .btn-cancel {
     background: var(--bg-tertiary);
     color: var(--text-primary);
     border: 1px solid var(--border);
   }
-  
+
   .btn-cancel:hover {
     background: var(--bg-primary);
   }
-  
+
   .btn-primary {
     background: var(--accent);
     color: white;
   }
-  
+
   .btn-primary:hover {
     opacity: 0.9;
+  }
+
+  /* Scrollbar */
+  .lines-list::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .lines-list::-webkit-scrollbar-track {
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+  }
+
+  .lines-list::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+  }
+
+  .lines-list::-webkit-scrollbar-thumb:hover {
+    background: var(--accent);
   }
 </style>

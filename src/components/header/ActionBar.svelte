@@ -41,6 +41,7 @@
     deletedIndices
   } from '$stores';
   import { getUntranscribedStrokes } from '$stores/strokes.js';
+  import { getDeletedStrokeIdsForPage } from '$stores/pending-changes.js';
   import { writable } from 'svelte/store';
   import SaveConfirmDialog from '$components/dialog/SaveConfirmDialog.svelte';
   
@@ -408,7 +409,9 @@
         }
         
         try {
-          const result = await updatePageStrokes(book, page, activeStrokes, host, token);
+          // Get explicit deletion IDs for this page (only strokes user selected + deleted)
+          const deletedIds = getDeletedStrokeIdsForPage(book, page);
+          const result = await updatePageStrokes(book, page, activeStrokes, host, token, deletedIds);
           
           if (result.success) {
             recordSuccessfulSave(`B${book}/P${page}`, result);

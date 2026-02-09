@@ -627,19 +627,26 @@ export async function loadPageStrokesIntoStore(book, page, host, token = '') {
 /**
  * Update page strokes with incremental deduplication
  * Automatically batches large stroke sets to avoid payload size limits
+ *
+ * CRITICAL (v3.1): Uses append-only strategy with explicit deletions.
+ * LogSeq strokes are the base; new strokes are appended; only explicitly
+ * deleted strokes (via deletedStrokeIds) are removed. This prevents
+ * data loss when only a partial set of strokes is loaded in the canvas.
+ *
  * @param {number} book - Book ID
- * @param {number} page - Page number  
- * @param {Array} newStrokes - New raw strokes from pen
+ * @param {number} page - Page number
+ * @param {Array} newStrokes - New raw strokes from pen (canvas strokes)
  * @param {string} host - LogSeq API host
  * @param {string} token - Optional auth token
+ * @param {Set<string>} deletedStrokeIds - Stroke IDs explicitly marked for deletion (format: "s{startTime}")
  * @returns {Promise<Object>} Result with success status and stats
  */
-export async function updatePageStrokes(book, page, newStrokes, host, token = '') {
+export async function updatePageStrokes(book, page, newStrokes, host, token = '', deletedStrokeIds = new Set()) {
   try {
     // No size limits anymore - chunked storage can handle unlimited strokes
     // Process all strokes in a single operation
-    return await updatePageStrokesSingle(book, page, newStrokes, host, token);
-    
+    return await updatePageStrokesSingle(book, page, newStrokes, host, token, deletedStrokeIds);
+
   } catch (error) {
     console.error('Failed to update page strokes:', error);
     return {
@@ -651,64 +658,80 @@ export async function updatePageStrokes(book, page, newStrokes, host, token = ''
 
 /**
  * Internal function to update page strokes (single batch)
+ *
+ * CRITICAL (v3.1): Append-only with explicit deletions.
+ * - Starts from existing LogSeq strokes as the base
+ * - Removes ONLY strokes in deletedStrokeIds
+ * - Appends new strokes (deduplicated)
+ * - Updates blockUuid on existing strokes if changed
+ * - Never infers deletions from count differences
+ *
  * @private
  */
-async function updatePageStrokesSingle(book, page, newStrokes, host, token = '') {
+async function updatePageStrokesSingle(book, page, newStrokes, host, token = '', deletedStrokeIds = new Set()) {
   const CHUNK_SIZE = 200; // Strokes per chunk (reduced to avoid payload size errors)
-  
+
   try {
     // Get or create the page
     const pageObj = await getOrCreateSmartpenPage(book, page, host, token);
     const pageName = pageObj.name || pageObj.originalName;
-    
+
     // Get existing strokes (handles both old and new format)
     const existingData = await getPageStrokes(book, page, host, token);
-    
+
     // Convert new strokes to storage format
     const pageInfo = newStrokes[0]?.pageInfo || { section: 0, owner: 0, book, page };
     const simplifiedStrokes = convertToStorageFormat(newStrokes);
-    
+
     let allStrokes;
     let isUpdate = false;
     let addedCount = 0;
     let deletedCount = 0;
-    
+
     if (existingData && existingData.strokes) {
-      // Check what changed
-      const uniqueStrokes = deduplicateStrokes(existingData.strokes, simplifiedStrokes);
-      addedCount = uniqueStrokes.length;
-      deletedCount = Math.max(0, existingData.strokes.length - simplifiedStrokes.length);
+      // v3.1 APPEND-ONLY: Start from existing LogSeq strokes as base
 
-      // CRITICAL FIX: Also check if blockUuid has changed on existing strokes
-      let blockUuidChangedCount = 0;
-      if (addedCount === 0 && deletedCount === 0) {
-        // Check if any existing strokes now have blockUuid
-        const existingById = new Map(existingData.strokes.map(s => [s.id, s]));
-        for (const newStroke of simplifiedStrokes) {
-          const existing = existingById.get(newStroke.id);
-          if (existing && existing.blockUuid !== newStroke.blockUuid) {
-            blockUuidChangedCount++;
-          }
-        }
-
-        if (blockUuidChangedCount === 0) {
-          console.log('No changes to strokes');
-          return {
-            success: true,
-            added: 0,
-            deleted: 0,
-            total: existingData.strokes.length,
-            page: pageName
-          };
-        }
-
-        console.log(`BlockUuid changed for ${blockUuidChangedCount} strokes - updating storage`);
+      // Step 1: Remove explicitly deleted strokes
+      let mergedStrokes;
+      if (deletedStrokeIds.size > 0) {
+        mergedStrokes = existingData.strokes.filter(s => !deletedStrokeIds.has(s.id));
+        deletedCount = existingData.strokes.length - mergedStrokes.length;
+        console.log(`Explicit deletions: removed ${deletedCount} strokes from ${existingData.strokes.length} existing`);
+      } else {
+        mergedStrokes = [...existingData.strokes];
       }
 
-      // Use simplifiedStrokes as the source of truth
-      // This handles both additions and deletions correctly
-      // simplifiedStrokes contains ALL active strokes (both existing and new)
-      allStrokes = simplifiedStrokes.sort((a, b) => a.startTime - b.startTime);
+      // Step 2: Append new strokes (deduplicated against remaining existing)
+      const uniqueNew = deduplicateStrokes(mergedStrokes, simplifiedStrokes);
+      addedCount = uniqueNew.length;
+
+      // Step 3: Update blockUuid on existing strokes if canvas version has changes
+      const canvasById = new Map(simplifiedStrokes.map(s => [s.id, s]));
+      let blockUuidChangedCount = 0;
+
+      mergedStrokes = mergedStrokes.map(s => {
+        const canvasVersion = canvasById.get(s.id);
+        if (canvasVersion && canvasVersion.blockUuid !== s.blockUuid) {
+          blockUuidChangedCount++;
+          return { ...s, blockUuid: canvasVersion.blockUuid };
+        }
+        return s;
+      });
+
+      // Check if there are any actual changes
+      if (addedCount === 0 && deletedCount === 0 && blockUuidChangedCount === 0) {
+        console.log('No changes to strokes');
+        return {
+          success: true,
+          added: 0,
+          deleted: 0,
+          total: mergedStrokes.length,
+          page: pageName
+        };
+      }
+
+      // Combine: existing (minus deletions, with updated blockUuids) + new unique strokes
+      allStrokes = [...mergedStrokes, ...uniqueNew].sort((a, b) => a.startTime - b.startTime);
       isUpdate = true;
 
       console.log(`Changes detected: ${addedCount} added, ${deletedCount} deleted, ${blockUuidChangedCount} blockUuid updated`);
@@ -1237,6 +1260,78 @@ export async function getTranscriptLines(book, page, host, token = '') {
 }
 
 /**
+ * Merge existing LogSeq transcript lines with new MyScript transcription lines
+ * Deduplicates by canonical text + Y-bounds overlap to avoid showing the same
+ * content twice when a page has both existing blocks and fresh transcription.
+ *
+ * @param {Array} existingLines - Lines from LogSeq (with blockUuid, syncStatus='synced')
+ * @param {Array} newLines - Lines from MyScript (no blockUuid, syncStatus undefined)
+ * @returns {Array} Merged lines sorted by Y position (top-to-bottom)
+ */
+export function mergeExistingAndNewLines(existingLines, newLines) {
+  if (!existingLines || existingLines.length === 0) {
+    // No existing lines — return new lines as-is with syncStatus
+    return (newLines || []).map(line => ({
+      ...line,
+      syncStatus: line.syncStatus || 'new'
+    }));
+  }
+
+  if (!newLines || newLines.length === 0) {
+    // No new lines — return existing as-is
+    return existingLines;
+  }
+
+  // Mark new lines with syncStatus
+  const markedNewLines = newLines.map(line => ({
+    ...line,
+    syncStatus: line.syncStatus || 'new'
+  }));
+
+  // Deduplicate: skip new lines that match an existing line
+  // Match criteria: similar canonical text AND overlapping Y-bounds
+  const filteredNewLines = markedNewLines.filter(newLine => {
+    const newCanonical = (newLine.canonical || newLine.text || '').trim().toLowerCase();
+    const newBounds = newLine.yBounds || { minY: 0, maxY: 0 };
+
+    for (const existingLine of existingLines) {
+      const existingCanonical = (existingLine.canonical || existingLine.text || '').trim().toLowerCase();
+
+      // Check canonical text similarity
+      if (existingCanonical === newCanonical) {
+        // Exact match — skip this new line
+        console.log(`[mergeLines] Skipping duplicate: "${newCanonical.substring(0, 30)}..."`);
+        return false;
+      }
+
+      // Check Y-bounds overlap for lines with similar content
+      const existingBounds = existingLine.yBounds || { minY: 0, maxY: 0 };
+      const yOverlap = !(newBounds.maxY < existingBounds.minY || existingBounds.maxY < newBounds.minY);
+
+      if (yOverlap && existingCanonical.includes(newCanonical)) {
+        // Existing line contains the new line's text and overlaps in Y — skip
+        console.log(`[mergeLines] Skipping subset line: "${newCanonical.substring(0, 30)}..."`);
+        return false;
+      }
+    }
+
+    return true; // Keep this new line
+  });
+
+  console.log(`[mergeLines] ${existingLines.length} existing + ${filteredNewLines.length} new (${markedNewLines.length - filteredNewLines.length} duplicates removed)`);
+
+  // Combine and sort by Y position (top to bottom on the page)
+  const combined = [...existingLines, ...filteredNewLines];
+  combined.sort((a, b) => {
+    const aY = a.yBounds?.minY || 0;
+    const bY = b.yBounds?.minY || 0;
+    return aY - bY;
+  });
+
+  return combined;
+}
+
+/**
  * Update page transcription data
  * @param {number} book - Book ID
  * @param {number} page - Page number
@@ -1363,22 +1458,29 @@ async function getExistingTranscription(book, page, host, token = '') {
 /**
  * Compute actual changes for a page (for confirmation dialog)
  * Compares active strokes and transcription against what's in LogSeq
+ *
+ * CRITICAL (v3.1): Deletions are counted from explicit deletedStrokeIds only,
+ * not inferred from count differences. This prevents phantom deletion warnings
+ * when only a partial set of strokes is loaded.
+ *
  * @param {number} book - Book ID
  * @param {number} page - Page number
  * @param {Array} activeStrokes - Current active strokes (excluding deleted)
  * @param {Object|null} transcription - Current transcription result (optional)
  * @param {string} host - LogSeq API host
  * @param {string} token - Optional auth token
+ * @param {Set<string>} deletedStrokeIds - Stroke IDs explicitly marked for deletion
  * @returns {Promise<Object>} { strokeAdditions, strokeDeletions, strokeTotal, hasNewTranscription, transcriptionChanged }
  */
-export async function computePageChanges(book, page, activeStrokes, transcription, host, token = '') {
+export async function computePageChanges(book, page, activeStrokes, transcription, host, token = '', deletedStrokeIds = new Set()) {
   try {
     const existingData = await getPageStrokes(book, page, host, token);
-    
+
     let strokeAdditions = 0;
     let strokeDeletions = 0;
+    // Total is existing strokes + new additions - explicit deletions
     let strokeTotal = activeStrokes.length;
-    
+
     if (!existingData || !existingData.strokes) {
       // No existing data - all strokes are additions
       strokeAdditions = activeStrokes.length;
@@ -1386,13 +1488,19 @@ export async function computePageChanges(book, page, activeStrokes, transcriptio
     } else {
       // Convert to storage format for comparison
       const simplifiedStrokes = convertToStorageFormat(activeStrokes);
-      
-      // Find new strokes
+
+      // Find new strokes (ones in canvas but not in LogSeq)
       const uniqueStrokes = deduplicateStrokes(existingData.strokes, simplifiedStrokes);
       strokeAdditions = uniqueStrokes.length;
-      
-      // Calculate deletions
-      strokeDeletions = Math.max(0, existingData.strokes.length - simplifiedStrokes.length);
+
+      // v3.1: Count only explicitly deleted strokes that actually exist in LogSeq
+      if (deletedStrokeIds.size > 0) {
+        const existingIds = new Set(existingData.strokes.map(s => s.id));
+        strokeDeletions = [...deletedStrokeIds].filter(id => existingIds.has(id)).length;
+      }
+
+      // Total after save = existing - deletions + additions
+      strokeTotal = existingData.strokes.length - strokeDeletions + strokeAdditions;
     }
     
     // Check transcription changes

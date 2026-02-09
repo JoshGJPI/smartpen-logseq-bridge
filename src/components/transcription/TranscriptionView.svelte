@@ -18,7 +18,7 @@
     pageTranscriptionCount
   } from '$stores';
   import { bookAliases } from '$stores';
-  import { sendToLogseq } from '$lib/logseq-api.js';
+  import { sendToLogseq, getTranscriptLines, mergeExistingAndNewLines, updateTranscriptBlocksFromEditor } from '$lib/logseq-api.js';
   import { formatBookName, filterTranscriptionProperties } from '$utils/formatting.js';
   
   import LogseqPreview from './LogseqPreview.svelte';
@@ -122,22 +122,76 @@
   }
   
   // Open editor modal for a page
-  function handleEditStructure(pageData) {
-    editingPageData = pageData;
+  // Fetches existing LogSeq blocks and merges with new MyScript lines
+  let isLoadingEditor = false;
+
+  async function handleEditStructure(pageData) {
+    isLoadingEditor = true;
+
+    const { host, token } = getLogseqSettings();
+    let existingLines = [];
+
+    // Fetch existing transcript blocks from LogSeq if connected
+    if (host && $logseqConnected) {
+      try {
+        existingLines = await getTranscriptLines(
+          pageData.pageInfo.book,
+          pageData.pageInfo.page,
+          host,
+          token
+        );
+        if (existingLines.length > 0) {
+          log(`Loaded ${existingLines.length} existing transcript block(s) from LogSeq`, 'info');
+        }
+      } catch (e) {
+        log(`Could not fetch existing transcription: ${e.message}`, 'warning');
+        existingLines = [];
+      }
+    }
+
+    // Merge existing LogSeq blocks with new MyScript lines (deduplicated)
+    const mergedLines = mergeExistingAndNewLines(existingLines, pageData.lines || []);
+
+    editingPageData = { ...pageData, mergedLines };
+    isLoadingEditor = false;
     showEditorModal = true;
   }
   
   // Handle editor modal save
-  function handleEditorSave(event) {
-    const { lines, book, page } = event.detail;
-    
+  // Persists changes to both the local store and LogSeq
+  async function handleEditorSave(event) {
+    const { lines, book, page, mergedBlockPairs } = event.detail;
+
     if (!editingPageData) return;
-    
-    // Update the transcription lines in the store
+
+    // Update the transcription lines in the local store
     updatePageTranscriptionLines(editingPageData.pageKey, lines);
-    
-    log(`Updated structure for Book ${book}/Page ${page}`, 'success');
-    
+
+    // Persist to LogSeq: create new blocks, update changed existing blocks, delete merged blocks
+    const { host, token } = getLogseqSettings();
+    if (host && $logseqConnected) {
+      try {
+        log(`Saving transcription changes to LogSeq...`, 'info');
+        const result = await updateTranscriptBlocksFromEditor(book, page, lines, host, token);
+
+        if (result.success) {
+          const { stats } = result;
+          const actions = [];
+          if (stats.created > 0) actions.push(`${stats.created} created`);
+          if (stats.updated > 0) actions.push(`${stats.updated} updated`);
+          if (stats.deleted > 0) actions.push(`${stats.deleted} deleted`);
+
+          log(`Transcription saved: ${actions.join(', ') || 'no changes'}`, 'success');
+        } else {
+          log(`Failed to save transcription: ${result.error}`, 'error');
+        }
+      } catch (e) {
+        log(`Error saving to LogSeq: ${e.message}`, 'error');
+      }
+    } else {
+      log(`Updated structure for Book ${book}/Page ${page} (local only - LogSeq not connected)`, 'success');
+    }
+
     // Close modal
     showEditorModal = false;
     editingPageData = null;
@@ -341,10 +395,10 @@
 
 <!-- Transcription Editor Modal -->
 {#if showEditorModal && editingPageData}
-<TranscriptionEditorModal 
+<TranscriptionEditorModal
   book={editingPageData.pageInfo.book}
   page={editingPageData.pageInfo.page}
-  lines={editingPageData.lines}
+  lines={editingPageData.mergedLines || editingPageData.lines}
   visible={showEditorModal}
   on:save={handleEditorSave}
   on:close={handleEditorClose}

@@ -4,7 +4,7 @@
 -->
 <script>
   import { createEventDispatcher, onMount } from 'svelte';
-  import { getActiveStrokesForPage } from '$stores/pending-changes.js';
+  import { getActiveStrokesForPage, getDeletedStrokeIdsForPage } from '$stores/pending-changes.js';
   import { getBookAlias } from '$stores/book-aliases.js';
   import { getLogseqSettings } from '$stores';
   import { computePageChanges } from '$lib/logseq-api.js';
@@ -85,13 +85,17 @@
         }
       }
       
+      // Get explicit deletion IDs for accurate deletion count
+      const deletedIds = getDeletedStrokeIdsForPage(pageData.book, pageData.page);
+
       const promise = computePageChanges(
         pageData.book,
         pageData.page,
         activeStrokes,
         transcription,
         host,
-        token
+        token,
+        deletedIds
       ).then(changes => ({
         pageKey: key,
         book: pageData.book,
