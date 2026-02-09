@@ -250,7 +250,8 @@ async function handleMergeConflict(action, host, token) {
     combinedLine,
     action.block.content,
     host,
-    token
+    token,
+    action.block.properties || {}
   );
   
   return { blockUuid: action.block.uuid, strategy: 'merge-all-to-existing' };

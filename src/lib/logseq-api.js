@@ -102,16 +102,18 @@ export async function updateTranscriptBlocksFromEditor(book, page, editedLines, 
           // Existing block - update it
           referencedUuids.add(line.blockUuid);
           
-          // Find the existing block to get its current content
+          // Find the existing block to get its current content and properties
           const existingBlock = existingBlocks.find(b => b.uuid === line.blockUuid);
           const oldContent = existingBlock?.content || '';
-          
+          const existingProperties = existingBlock?.properties || {};
+
           await updateTranscriptBlockWithPreservation(
             line.blockUuid,
             line,
             oldContent,
             host,
-            token
+            token,
+            existingProperties
           );
           
           // Update block stack for hierarchy tracking
@@ -1083,35 +1085,35 @@ export async function createTranscriptBlockWithProperties(parentUuid, line, host
 
 /**
  * Update a transcript block with preservation (v3.0 format)
- * CRITICAL: Y-bounds are NEVER updated (set once on CREATE, immutable thereafter)
- * Only updates content while preserving TODO/DONE markers
+ * Updates content while preserving TODO/DONE markers.
+ * After content update, re-applies all existing block properties
+ * (stroke-y-bounds, id, etc.) since logseq.Editor.updateBlock strips them.
  * @param {string} blockUuid - Block UUID to update
  * @param {Object} line - New line object with text and yBounds
  * @param {string} oldContent - Existing block content
  * @param {string} host - LogSeq API host
  * @param {string} token - Optional auth token
- * @param {boolean} updateYBounds - If true, update Y-bounds (default: false for preservation)
+ * @param {Object} existingProperties - Existing block properties to preserve after content update
  */
-export async function updateTranscriptBlockWithPreservation(blockUuid, line, oldContent, host, token = '', updateYBounds = false) {
+export async function updateTranscriptBlockWithPreservation(blockUuid, line, oldContent, host, token = '', existingProperties = {}) {
   const newContent = updateBlockWithPreservation(oldContent, line.text);
 
-  // Update content
+  // Update content - NOTE: this strips all block properties
   await makeRequest(host, token, 'logseq.Editor.updateBlock', [
     blockUuid,
     newContent
   ]);
 
-  // CRITICAL FIX: Only update Y-bounds if explicitly requested
-  // By default, Y-bounds are IMMUTABLE after creation to prevent drift
-  if (updateYBounds) {
-    const newBounds = formatBounds(line.yBounds);
-    await makeRequest(host, token, 'logseq.Editor.upsertBlockProperty', [
-      blockUuid,
-      'stroke-y-bounds',
-      newBounds
-    ]);
+  // Re-apply all existing properties that were stripped by updateBlock
+  for (const [key, value] of Object.entries(existingProperties)) {
+    if (value != null && value !== '') {
+      await makeRequest(host, token, 'logseq.Editor.upsertBlockProperty', [
+        blockUuid,
+        key,
+        String(value)
+      ]);
+    }
   }
-  // Otherwise, preserve existing Y-bounds
 }
 
 /**
