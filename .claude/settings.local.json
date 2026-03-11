@@ -6,7 +6,8 @@
       "Bash(npm run electron:build:win:*)",
       "Bash(npm run dev:*)",
       "Bash(ls:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "mcp__filesystem__list_directory"
     ]
   }
 }

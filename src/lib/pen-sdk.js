@@ -21,7 +21,7 @@ import {
   updateTransferProgress,
   resetTransferProgress
 } from '$stores/pen.js';
-import { log, openBookSelectionDialog } from '$stores/ui.js';
+import { log, openBookSelectionDialog, setBluetoothStatus } from '$stores/ui.js';
 
 // Local state for tracking current stroke
 let currentStrokeData = null;
@@ -42,12 +42,20 @@ export function initializePenSDK() {
   PenHelper.dotCallback = async (mac, dot) => {
     processDot(dot);
   };
-  
+
   // Message callback - pen events
   PenHelper.messageCallback = async (mac, type, args) => {
     processMessage(mac, type, args);
   };
-  
+
+  // Wrap connectDevice to capture the BluetoothDevice reference so we can
+  // force-disconnect it if a connection attempt times out
+  const originalConnectDevice = PenHelper.connectDevice;
+  PenHelper.connectDevice = async (device) => {
+    connectingDevice = device;
+    return originalConnectDevice.call(PenHelper, device);
+  };
+
   log('Pen SDK initialized', 'info');
 }
 
@@ -59,44 +67,151 @@ export function setCanvasRenderer(renderer) {
   canvasRenderer = renderer;
 }
 
+// Flag to suppress SDK callbacks after a timeout-forced disconnect
+let connectionAborted = false;
+
+// Reference to the BluetoothDevice mid-connection, so we can force-disconnect on timeout
+let connectingDevice = null;
+
 /**
- * Connect to a pen via Bluetooth
- * @param {number} timeoutMs - Connection timeout in milliseconds (default 15s)
+ * Forcibly disconnect any in-progress GATT connection attempts.
+ * Called after a timeout to prevent the SDK's async GATT operations
+ * from completing and triggering connection success callbacks.
  */
-export async function connectPen(timeoutMs = 15000) {
+function abortPendingConnection() {
+  connectionAborted = true;
+
+  // Force-disconnect the device we were trying to connect to
+  if (connectingDevice) {
+    try {
+      connectingDevice.gatt?.disconnect();
+    } catch (e) {
+      // Ignore
+    }
+    connectingDevice = null;
+  }
+
+  // Disconnect any fully-connected pens the SDK tracks
   try {
-    log('Scanning for pens...', 'info');
-    log('💡 Make sure your pen is awake (tap on paper or press button)', 'info');
-    
-    // Create a promise that races between connection and timeout
-    const connectionPromise = PenHelper.scanPen();
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Connection timeout - pen did not respond')), timeoutMs)
-    );
-    
-    await Promise.race([connectionPromise, timeoutPromise]);
-    
-    // The connection success/failure is handled via messageCallback
-    // This just ensures we don't hang forever
+    if (PenHelper.pens && PenHelper.pens.length > 0) {
+      PenHelper.pens.forEach(controller => {
+        try {
+          PenHelper.disconnect(controller);
+        } catch (e) {
+          // Ignore
+        }
+      });
+    }
+  } catch (e) {
+    // Ignore
+  }
+
+  // Clear the SDK's connectingQueue directly — it's a public property.
+  // Without this, the SDK permanently thinks it's still connecting and
+  // blocks all subsequent connection attempts with "Already connected or connecting".
+  try {
+    if (Array.isArray(PenHelper.connectingQueue)) {
+      PenHelper.connectingQueue = [];
+    }
+  } catch (e) {
+    // Ignore
+  }
+}
+
+// Resolver/rejecter for the active connectPen() call.
+// Signalled by handleConnectionSuccess() or handleDisconnected() via processMessage().
+let connectionResolve = null;
+let connectionReject = null;
+
+/**
+ * Connect to a pen via Bluetooth.
+ *
+ * Previous approach raced scanPen() against a timeout — but scanPen() resolves
+ * immediately after the user picks a device in the browser dialog, long before the
+ * SDK has completed GATT binding, characteristic setup, and the VERSION_REQUEST
+ * handshake that produces PEN_CONNECTION_SUCCESS. That made the timeout fire too
+ * early and had nothing real to race against.
+ *
+ * Correct approach: start scanPen() (fire-and-forget), then wait for
+ * PEN_CONNECTION_SUCCESS (resolve) or PEN_DISCONNECTED (reject) to arrive via
+ * processMessage(). The timeout guards that wait, not the scanPen() call itself.
+ *
+ * @param {number} timeoutMs - How long to wait for PEN_CONNECTION_SUCCESS (default 60s)
+ */
+export async function connectPen(timeoutMs = 60000) {
+  connectionAborted = false;
+
+  log('Scanning for pens...', 'info');
+  log('💡 Make sure your pen is awake (tap on paper or press button)', 'info');
+
+  // The full connection flow is:
+  //   scanPen() → requestDevice() [user picks] → connectDevice() → gatt.connect()
+  //   → serviceBinding → characteristicBinding → OnConnected() → 500ms delay
+  //   → VERSION_REQUEST → VERSION_RESPONSE → PEN_CONNECTION_SUCCESS
+  //
+  // scanPen() awaits ALL of this internally — it never returns until the full
+  // handshake completes (or fails). So we must NOT await it here or we block
+  // before we can set up our timeout.
+  //
+  // Instead: fire scanPen() without awaiting, and race two signals:
+  //   1. connectionPromise — resolves via handleConnectionSuccess(),
+  //                          rejects via handleDisconnected() or our timeout
+  //   2. scanErrorPromise  — rejects if scanPen() itself throws (user cancelled
+  //                          the device picker before any connection attempt)
+
+  const connectionPromise = new Promise((resolve, reject) => {
+    connectionResolve = resolve;
+    connectionReject = reject;
+  });
+
+  // Capture any early error from scanPen() (e.g. user closes device picker)
+  const scanErrorPromise = new Promise((_, reject) => {
+    PenHelper.scanPen().catch(reject);
+  });
+
+  // Timeout fires if neither success nor disconnect arrives in time
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(
+      () => reject(new Error('Connection timeout - pen did not respond')),
+      timeoutMs
+    )
+  );
+
+  try {
+    await Promise.race([connectionPromise, scanErrorPromise, timeoutPromise]);
     return true;
   } catch (error) {
-    let errorMessage = `Connection error: ${error.message}`;
-    
-    // Add troubleshooting tips for timeout errors
-    if (error.message.includes('timeout')) {
-      log(errorMessage, 'error');
+    const isTimeout = error.message.includes('timeout');
+    const isCancelled = error.message.toLowerCase().includes('cancel')
+                     || error.message.toLowerCase().includes('chosen')
+                     || error.message.toLowerCase().includes('user');
+
+    if (isTimeout) {
+      log(`Connection error: ${error.message}`, 'error');
       log('💡 Troubleshooting tips:', 'warning');
       log('1. Make sure pen is awake (tap on Ncode paper or press button)', 'info');
       log('2. Remove and reinsert pen cap to reset', 'info');
       log('3. Try disconnecting other Bluetooth devices', 'info');
       log('4. Refresh the page and try again', 'info');
-    } else {
-      log(errorMessage, 'error');
+
+      // Unblock the Bluetooth dialog
+      setBluetoothStatus('error', 'Connection timed out. Make sure the pen is awake and try again.');
+
+      // Tell Electron to cancel its pending Bluetooth callback
+      if (window.electronAPI) {
+        window.electronAPI.cancelBluetoothScan();
+      }
+    } else if (!isCancelled) {
+      log(`Connection error: ${error.message}`, 'error');
     }
-    
-    // Try to clean up connection state
+
+    // Abort in-progress GATT operations and clear SDK connecting queue
+    abortPendingConnection();
     setPenConnected(false);
     throw error;
+  } finally {
+    connectionResolve = null;
+    connectionReject = null;
   }
 }
 
@@ -148,42 +263,57 @@ export async function fetchOfflineData() {
  * Process individual dots from pen
  */
 function processDot(dot) {
-  // Update current page info store
-  currentPageInfo.set(dot.pageInfo);
-  
+  // The SDK sends {x: -1, y: -1, f: 0} on pen-down before it has resolved
+  // the actual position, and the pageInfo at that moment is stale (from the
+  // last page used). Skip these invalid placeholder dots entirely.
+  const isInvalidDot = dot.x === -1 && dot.y === -1;
+
   // Handle stroke building based on dot type
   switch (dot.dotType) {
     case 0: // Pen down - start new stroke
+      // Open a new stroke but leave pageInfo null until the first real dot
+      // arrives with confirmed coordinates and correct page info.
       currentStrokeData = {
-        pageInfo: { ...dot.pageInfo },
+        pageInfo: isInvalidDot ? null : { ...dot.pageInfo },
         startTime: dot.timeStamp,
-        dotArray: [{ x: dot.x, y: dot.y, f: dot.f, timestamp: dot.timeStamp }]
+        dotArray: isInvalidDot ? [] : [{ x: dot.x, y: dot.y, f: dot.f, timestamp: dot.timeStamp }]
       };
       break;
-      
+
     case 1: // Pen move - add to current stroke
       if (currentStrokeData) {
-        currentStrokeData.dotArray.push({ 
-          x: dot.x, 
-          y: dot.y, 
-          f: dot.f, 
-          timestamp: dot.timeStamp 
+        // Latch the correct pageInfo from the first real dot if the pen-down
+        // dot was invalid and left it null.
+        if (!currentStrokeData.pageInfo) {
+          currentStrokeData.pageInfo = { ...dot.pageInfo };
+        }
+        currentStrokeData.dotArray.push({
+          x: dot.x,
+          y: dot.y,
+          f: dot.f,
+          timestamp: dot.timeStamp
         });
       }
       break;
-      
+
     case 2: // Pen up - finalize stroke
       if (currentStrokeData) {
         currentStrokeData.endTime = dot.timeStamp;
-        addStroke(currentStrokeData);
+        // Only save strokes that have confirmed page info and at least one real dot
+        if (currentStrokeData.pageInfo && currentStrokeData.dotArray.length > 0) {
+          addStroke(currentStrokeData);
+        }
         currentStrokeData = null;
       }
       break;
   }
-  
-  // Render to canvas if available
-  if (canvasRenderer) {
-    canvasRenderer.addDot(dot);
+
+  // Update the current page info store and render to canvas only for valid dots
+  if (!isInvalidDot) {
+    currentPageInfo.set(dot.pageInfo);
+    if (canvasRenderer) {
+      canvasRenderer.addDot(dot);
+    }
   }
 }
 
@@ -296,11 +426,22 @@ function processMessage(mac, type, args) {
 }
 
 function handleConnectionSuccess(mac) {
+  connectingDevice = null; // Clear — connection succeeded, no need to force-disconnect
+  if (connectionAborted) {
+    console.warn('Ignoring late connection success — connection was aborted after timeout');
+    setPenConnected(false);
+    return;
+  }
+  // Signal connectPen() that the full handshake is complete
+  if (connectionResolve) {
+    connectionResolve();
+  }
   setPenConnected(true);
   log('Pen connected!', 'success');
 }
 
 function handleSettingInfo(mac, args) {
+  if (connectionAborted) return;
   const controller = PenHelper.pens.find(c => c.info.MacAddress === mac);
   setPenController(controller);
   setPenInfo(args);
@@ -308,6 +449,7 @@ function handleSettingInfo(mac, args) {
 }
 
 async function handleAuthorized(mac) {
+  if (connectionAborted) return;
   setPenAuthorized(true);
   log('Pen authorized successfully', 'success');
   
@@ -333,6 +475,10 @@ async function handleAuthorized(mac) {
 }
 
 function handleDisconnected() {
+  // If a connection attempt is in progress, a disconnect means it failed
+  if (connectionReject) {
+    connectionReject(new Error('Pen disconnected during connection attempt'));
+  }
   setPenConnected(false);
   log('Pen disconnected', 'warning');
 }

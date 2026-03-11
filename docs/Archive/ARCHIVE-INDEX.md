@@ -1,6 +1,6 @@
 # SmartPen-LogSeq Bridge - Archive Index
 
-**Last Updated**: February 6, 2026
+**Last Updated**: March 11, 2026
 
 This document provides an index of archived implementation documentation organized by feature area and date.
 
@@ -31,6 +31,18 @@ This document provides an index of archived implementation documentation organiz
 ---
 
 ## Archive Organization
+
+### Recent Implementations (2026-03)
+
+#### **2026-03-live-capture-canvas-fixes** ✅ COMPLETED
+Live pen capture and canvas rendering bug fixes:
+
+**Files**:
+- `LIVE-CAPTURE-CANVAS-FIXES.md` - Complete fix summary (4 bugs across 3 files)
+
+**Summary**: Fixed invalid pen-down dot artifact (origin-line + stale pageInfo), `calculateBounds` offsetY double-subtraction, zoom/pan reset on every stroke, and auto-fit viewport jumping during live writing. Added `setLiveWritingView()` method and rewrote StrokeCanvas auto-fit to distinguish live vs. offline sessions.
+
+---
 
 ### Recent Implementations (2026-01/02)
 

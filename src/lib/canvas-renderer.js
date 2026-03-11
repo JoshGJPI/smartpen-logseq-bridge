@@ -175,6 +175,32 @@ export class CanvasRenderer {
   }
   
   /**
+   * Set a comfortable view for live writing: 3× zoom with the top of the current
+   * writing area positioned near the top of the viewport (with padding).
+   * Call this when the first live stroke arrives and then keep the view stable.
+   * Does NOT redraw — the caller should trigger a re-render.
+   * @returns {number} New zoom level
+   */
+  setLiveWritingView() {
+    const LIVE_ZOOM = 3;
+    const TOP_PADDING = 50; // px from top of canvas to top of writing content
+    const LEFT_PADDING = 20; // px from left edge to left of writing content
+
+    this.zoom = LIVE_ZOOM;
+
+    // If we have real bounds, position so the content's top-left is in view.
+    // ncodeToScreen: screenX = (dot.x - bounds.minX) * scale * zoom + panX
+    // We want the top of the content at y = TOP_PADDING, so:
+    //   panY = TOP_PADDING  (since minY maps to y=0 in world space after ncodeToScreen)
+    // Similarly for X:
+    //   panX = LEFT_PADDING
+    this.panX = LEFT_PADDING;
+    this.panY = TOP_PADDING;
+
+    return this.zoom;
+  }
+
+  /**
    * Resize canvas to fit container
    */
   resize() {
@@ -216,9 +242,9 @@ export class CanvasRenderer {
         maxX: -Infinity,
         maxY: -Infinity
       };
-      this.zoom = 1;
-      this.panX = 0;
-      this.panY = 0;
+      // Do NOT reset zoom/pan here — view state is managed by the component
+      // (fitToContent or setLiveWritingView). Resetting it here caused the
+      // view to snap back to zoom=1 after every stroke completion.
     }
   }
   
@@ -334,9 +360,12 @@ export class CanvasRenderer {
       currentOffsetX += pageWidth + this.pageSpacing;
     });
     
-    // Align all pages to same baseline
+    // Align all pages so their top edge maps to y=0 in world space.
+    // ncodeToScreen computes: y = (dot.y - bounds.minY + offsetY) * scale
+    // We want this to equal (dot.y - globalMinY) * scale, so:
+    // offsetY = bounds.minY - globalMinY
     this.pageOffsets.forEach(offset => {
-      offset.offsetY = -globalMinY; // Align tops
+      offset.offsetY = offset.bounds.minY - globalMinY;
     });
     
     // Update global bounds with baseline offset

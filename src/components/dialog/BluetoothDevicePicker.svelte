@@ -148,7 +148,7 @@
           <div class="status-section connecting">
             <div class="spinner"></div>
             <p class="status-text">Connecting to {selectedDeviceName}...</p>
-            <p class="hint-text">Please wait while the connection is established</p>
+            <p class="hint-text">Please wait — this can take up to 45 seconds</p>
           </div>
         {/if}
 

@@ -7,7 +7,7 @@
   import { selectedIndices, selectedStrokes, handleStrokeClick, clearSelection, selectAll, selectionCount, selectFromBox } from '$stores';
   import { deletedIndices, pendingChanges } from '$stores';
   import { pastedStrokes, pastedSelection, pastedCount, duplicateStrokes, movePastedStrokes, clearPastedStrokes, deleteSelectedPasted, selectPastedStroke, clearPastedSelection } from '$stores';
-  import { canvasZoom, setCanvasZoom, log, showFilteredStrokes } from '$stores';
+  import { canvasZoom, setCanvasZoom, log, showFilteredStrokes, penConnected } from '$stores';
   import { filteredStrokes } from '$stores/filtered-strokes.js';
   import { pagePositions, useCustomPositions, setPagePosition, movePageBy, clearPagePositions } from '$stores';
   import { pageScales, setPageScale, getPageScale, resetPageScale, resetAllPageScales, hasScaledPages } from '$stores';
@@ -63,6 +63,9 @@
   
   // Track previous stroke count for auto-fit
   let previousStrokeCount = 0;
+  // Set to true once setLiveWritingView() has been called for the current live session.
+  // Reset to false when the pen disconnects so the next session gets the initial zoom.
+  let liveWritingViewSet = false;
   
   // Track previous batch mode state for transition detection
   let wasBatchMode = false;
@@ -212,22 +215,39 @@
   $: if (renderer && visibleStrokes && !$batchMode) {
     const currentCount = visibleStrokes.length;
     const strokesAdded = currentCount > previousStrokeCount;
-    const shouldAutoFit = currentCount > 0 && (previousStrokeCount === 0 || currentCount >= previousStrokeCount + 10);
-    
+
     if (strokesAdded) {
       console.log('📊 Strokes changed:', previousStrokeCount, '->', currentCount);
       // Full reset when new strokes added
       renderStrokes(true);
-      
-      // Auto-fit when strokes are first loaded or batch added
-      if (shouldAutoFit) {
-        setTimeout(() => {
-          fitContent();
-        }, 100);
+
+      if ($penConnected) {
+        // Live writing: set a comfortable writing zoom once on the first stroke,
+        // then leave the view alone so it doesn't jump while the user writes.
+        if (!liveWritingViewSet) {
+          setTimeout(() => {
+            const newZoom = renderer.setLiveWritingView();
+            renderStrokes();
+            if (newZoom) setCanvasZoom(newZoom);
+            liveWritingViewSet = true;
+          }, 100);
+        }
+      } else {
+        // Offline import / manual load: auto-fit to show all content on first load only.
+        if (previousStrokeCount === 0) {
+          setTimeout(() => {
+            fitContent();
+          }, 100);
+        }
       }
-      
+
       previousStrokeCount = currentCount;
     }
+  }
+
+  // Reset liveWritingViewSet when pen disconnects so the next session starts fresh
+  $: if (!$penConnected) {
+    liveWritingViewSet = false;
   }
   
   // Re-render when selection changes (don't reset bounds)

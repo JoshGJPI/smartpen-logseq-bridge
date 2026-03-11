@@ -1,7 +1,7 @@
 # Quick Architecture Reference
 
 **Current Version:** 3.1 (Append-Only with Explicit Deletions)
-**Last Updated:** 2026-02-10
+**Last Updated:** 2026-03-11
 
 This document provides a quick reference for AI assistants working on the smartpen-logseq-bridge project.
 
@@ -47,6 +47,15 @@ This document provides a quick reference for AI assistants working on the smartp
 - `src/components/header/ActionBar.svelte` - Save handler (passes deletedStrokeIds)
 - `src/components/dialog/SaveConfirmDialog.svelte` - Shows accurate change counts
 - `src/components/dialog/TranscriptionEditorModal.svelte` - Single-column editor
+
+### Canvas / Live Writing
+- `src/lib/canvas-renderer.js` - Drawing engine; coordinate transforms; zoom/pan
+  - `calculateBounds()` - Computes page offsets; `offsetY = bounds.minY - globalMinY`
+  - `fitToContent()` - Zoom-to-fit all content (used for offline import)
+  - `setLiveWritingView()` - Fixed 3× zoom at top-left (used for live writing)
+  - `clear(resetBounds)` - Clears canvas; **does NOT reset zoom/pan**
+- `src/lib/pen-sdk.js` - BLE pen connection; `processDot()` filters invalid `{x:-1,y:-1}` pen-down dots
+- `src/components/canvas/StrokeCanvas.svelte` - Canvas host; auto-fit logic distinguishes live vs. offline
 
 ---
 
@@ -176,18 +185,46 @@ smartpen/B3017/P42
 
 ---
 
-## Recent Fixes (February 2026)
+## Recent Fixes
 
-### ✅ Phantom Stroke Deletions (commit 0a836ac)
+### March 2026
+
+#### ✅ Live Capture & Canvas View Stability (2026-03-11)
+Four issues fixed across three files:
+
+1. **Invalid pen-down dot** (`pen-sdk.js` — `processDot()`)
+   - SDK emits `{x:-1, y:-1, f:0}` before resolving position; `pageInfo` is stale from prior session
+   - Fix: skip invalid dots; latch `pageInfo` from first real pen-move dot
+   - Result: no more origin-lines; correct book/page on first stroke
+
+2. **`calculateBounds` offsetY double-subtraction** (`canvas-renderer.js`)
+   - `offset.offsetY = -globalMinY` caused `ncodeToScreen` to subtract `globalMinY` twice → content off-screen
+   - Fix: `offset.offsetY = offset.bounds.minY - globalMinY`
+
+3. **Zoom/pan reset on every stroke** (`canvas-renderer.js`)
+   - `clear(resetBounds=true)` was resetting `zoom=1, panX=0, panY=0` after every stroke
+   - Fix: removed zoom/pan reset; view state managed only by `fitToContent()` / `setLiveWritingView()`
+
+4. **Auto-fit jumping during live writing** (`StrokeCanvas.svelte`)
+   - Old logic: `fitContent()` fired on first stroke AND every 10 strokes → view jumped repeatedly
+   - Fix: new `setLiveWritingView()` (3× zoom, top-left anchor) called once per session on first live stroke; `fitContent()` used only for offline import (first load only)
+
+See: `docs/Archive/2026-03-live-capture-canvas-fixes/LIVE-CAPTURE-CANVAS-FIXES.md`
+
+---
+
+### February 2026
+
+#### ✅ Phantom Stroke Deletions (commit 0a836ac)
 - Changed from arithmetic to explicit deletion tracking
 - Implemented append-only update strategy
 - Added `getDeletedStrokeIdsForPage()` function
 
-### ✅ Y-Bounds Preservation (commit 8c129a8)
+#### ✅ Y-Bounds Preservation (commit 8c129a8)
 - Fixed transcript updates to preserve Y-bounds
 - Maintains stroke-to-block matching data
 
-### ✅ Edit Structure UI (commit 0a836ac)
+#### ✅ Edit Structure UI (commit 0a836ac)
 - Single-column layout
 - Clearer visual hierarchy
 

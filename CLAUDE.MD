@@ -237,10 +237,28 @@ try {
 - Connection can drop; implement reconnection logic
 
 ### Canvas Coordinate System
-- Ncode coordinates are in pen's coordinate space (typically 0-15000 range)
-- Canvas coordinates are scaled and translated for display
+- Ncode coordinates are in pen's coordinate space (mm, typically 0–160 range for Lamy paper)
+- `canvas-renderer.js` converts via: `screenX = (dot.x - bounds.minX + offsetX) * scale * zoom + panX`
+- `scale = 2.371` converts Ncode mm → screen pixels at zoom=1
+- `calculateBounds()` normalises page content to start at (0,0) in world space
+  - `offsetY` formula: `offset.bounds.minY - globalMinY` (NOT `-globalMinY` — would double-subtract)
+- `clear(resetBounds=true)` resets stroke bounds but **does NOT reset zoom/pan** (view state is managed separately)
 - Page positioning is customizable (stored in pagePositions store)
 - Page scaling is per-page (stored in pageScales store)
+
+### Live Writing vs. Offline Import (Canvas View)
+- **Live writing** (`$penConnected === true`): `setLiveWritingView()` is called once on the first stroke of a session (zoom=3, top-left anchor). The view stays stable for the entire session. Resets when pen disconnects.
+- **Offline import** (`batchMode`): `fitContent()` is called once when the first batch of strokes appears (`previousStrokeCount === 0`). Not called again on subsequent stroke count changes.
+- The `liveWritingViewSet` flag in `StrokeCanvas.svelte` prevents repeated viewport jumps during live writing.
+
+### NeoSmartpen SDK — Invalid Pen-Down Dot
+- The SDK emits `{x: -1, y: -1, f: 0, dotType: 0}` as the first dot of every stroke **before** it has resolved position
+- The `pageInfo` on this placeholder dot is stale from the prior connection session
+- `processDot()` in `pen-sdk.js` detects this via `isInvalidDot = (dot.x === -1 && dot.y === -1)` and:
+  - Leaves `pageInfo: null` and `dotArray: []` until the first real pen-move dot arrives
+  - Latches correct `pageInfo` from the first real dot
+  - Skips invalid dots from canvas renderer and `currentPageInfo` store
+  - Only finalises a stroke if `pageInfo` is confirmed and `dotArray` is non-empty
 
 ### MyScript API Limitations
 - **2,000 requests/month** on free tier
@@ -318,7 +336,8 @@ npm run preview
 - [docs/TRANSCRIPT-STORAGE-SPEC.md](docs/TRANSCRIPT-STORAGE-SPEC.md) - Transcript storage v3.1 architecture
 
 ### Implementation Details
-- [docs/Archive/2026-02-data-loss-fixes/DATA-LOSS-FIXES-SUMMARY.md](docs/Archive/2026-02-data-loss-fixes/DATA-LOSS-FIXES-SUMMARY.md) - Recent fixes (Feb 2026)
+- [docs/Archive/2026-03-live-capture-canvas-fixes/LIVE-CAPTURE-CANVAS-FIXES.md](docs/Archive/2026-03-live-capture-canvas-fixes/LIVE-CAPTURE-CANVAS-FIXES.md) - Live capture & canvas fixes (Mar 2026)
+- [docs/Archive/2026-02-data-loss-fixes/DATA-LOSS-FIXES-SUMMARY.md](docs/Archive/2026-02-data-loss-fixes/DATA-LOSS-FIXES-SUMMARY.md) - Data loss fixes (Feb 2026)
 - [docs/bridge-uuid-system.md](docs/bridge-uuid-system.md) - Custom UUID system documentation
 - [docs/Archive/ARCHIVE-INDEX.md](docs/Archive/ARCHIVE-INDEX.md) - Archived implementation docs index
 
@@ -329,6 +348,16 @@ npm run preview
 - [Svelte 4 Docs](https://svelte.dev/docs/svelte/overview) - Framework reference
 
 ## Recent Changes (Git History Context)
+
+### Major Fixes (March 2026)
+
+**Live Capture & Canvas View Stability (2026-03-11):**
+- Fixed invalid SDK pen-down dot `{x:-1, y:-1}` — was causing origin-line artifact and stale book/page on first stroke
+- Fixed `calculateBounds` `offsetY` double-subtraction bug — was pushing content off-screen above the canvas
+- Removed zoom/pan reset from `clear(resetBounds=true)` — was snapping view back to zoom=1 after every stroke
+- Added `setLiveWritingView()` to `canvas-renderer.js` — sets stable 3× zoom anchored to top-left for writing
+- Rewrote auto-fit logic in `StrokeCanvas.svelte` — live writing gets `setLiveWritingView()` once; offline import gets `fitContent()` once; no more "every 10 strokes" jump
+- See `docs/Archive/2026-03-live-capture-canvas-fixes/LIVE-CAPTURE-CANVAS-FIXES.md`
 
 ### Major Fixes (February 2026)
 

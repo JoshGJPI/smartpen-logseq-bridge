@@ -84,15 +84,18 @@ function createWindow() {
   // Handle device selection from renderer
   ipcMain.on('bluetooth-device-selected', (event, deviceId) => {
     if (bluetoothCallback) {
-      bluetoothCallback(deviceId);
-      // Don't reset state yet - wait for connection result or cancel
+      const cb = bluetoothCallback;
+      bluetoothCallback = null; // Clear before calling to prevent double-invoke
+      cb(deviceId);
     }
   });
 
   // Handle scan cancellation from renderer
   ipcMain.on('bluetooth-scan-cancelled', () => {
     if (bluetoothCallback) {
-      bluetoothCallback(''); // Empty string cancels the request
+      const cb = bluetoothCallback;
+      bluetoothCallback = null; // Clear before calling to prevent double-invoke
+      cb(''); // Empty string cancels the request
     }
     resetBluetoothState();
   });
