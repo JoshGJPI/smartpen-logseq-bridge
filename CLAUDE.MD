@@ -351,6 +351,13 @@ npm run preview
 
 ### Major Fixes (March 2026)
 
+**Offline Import Performance (2026-03-19):**
+- Resolved per-book transfer promise immediately on `OFFLINE_DATA_SEND_SUCCESS` instead of waiting 10s idle timeout — the SDK's own "success" signal is reliable; idle timeout kept as fallback only
+- Reduced `INTER_BOOK_DELAY_MS` from 1000ms → 500ms (BLE stabilisation delay between books)
+- Result: ~75% reduction in import time for multi-book syncs (e.g. 5 books: ~55s → ~13s)
+- Config: `TRANSFER_CONFIG` object in `src/lib/pen-sdk.js:511`
+- See: `docs/QUICK-ARCHITECTURE-REFERENCE.md` → Offline Import Performance
+
 **Live Capture & Canvas View Stability (2026-03-11):**
 - Fixed invalid SDK pen-down dot `{x:-1, y:-1}` — was causing origin-line artifact and stale book/page on first stroke
 - Fixed `calculateBounds` `offsetY` double-subtraction bug — was pushing content off-screen above the canvas

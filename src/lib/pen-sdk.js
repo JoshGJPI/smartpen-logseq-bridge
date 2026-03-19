@@ -387,6 +387,11 @@ function processMessage(mac, type, args) {
     case PenMessageType.OFFLINE_DATA_SEND_SUCCESS:
       console.log('%c✅ OFFLINE_DATA_SEND_SUCCESS - Processing data...', 'background: #2196F3; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold;');
       handleOfflineDataReceived(args);
+      // Resolve immediately — SDK has confirmed successful delivery of all data.
+      // The idle timeout in the transfer loop acts as a fallback only.
+      if (offlineTransferResolver) {
+        offlineTransferResolver({ success: true });
+      }
       break;
       
     case PenMessageType.OFFLINE_DATA_SEND_FAILURE:
@@ -511,7 +516,7 @@ let elapsedTimerInterval = null;     // Timer to update elapsed seconds
 const TRANSFER_CONFIG = {
   IDLE_TIMEOUT_MS: 10000,      // 10 seconds of no data = complete (no global timeout!)
   IDLE_CHECK_INTERVAL_MS: 1000, // Check idle status every second
-  INTER_BOOK_DELAY_MS: 1000,   // Wait 1 second between books
+  INTER_BOOK_DELAY_MS: 500,    // Wait 500ms between books
 };
 
 /**

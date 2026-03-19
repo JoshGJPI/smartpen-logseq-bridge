@@ -1,7 +1,7 @@
 # Quick Architecture Reference
 
 **Current Version:** 3.1 (Append-Only with Explicit Deletions)
-**Last Updated:** 2026-03-11
+**Last Updated:** 2026-03-19
 
 This document provides a quick reference for AI assistants working on the smartpen-logseq-bridge project.
 
@@ -188,6 +188,19 @@ smartpen/B3017/P42
 ## Recent Fixes
 
 ### March 2026
+
+#### ✅ Offline Import Performance (2026-03-19)
+Two changes to `src/lib/pen-sdk.js` to reduce import time for multi-book syncs:
+
+1. **Resolve on `OFFLINE_DATA_SEND_SUCCESS`** — the SDK fires this event after delivering all stroke data for a book. The code now resolves the per-book transfer promise immediately after `handleOfflineDataReceived()` processes the strokes, rather than waiting for a 10-second idle timeout. The idle timeout is retained as a fallback for cases where `SEND_SUCCESS` never fires.
+
+2. **`INTER_BOOK_DELAY_MS` reduced from 1000ms → 500ms** — the delay between requesting sequential books (BLE stabilisation).
+
+Result: a 5-book import that previously took ~55s now takes ~13s. No change to data safety — strokes are fully processed before the promise resolves.
+
+Key config: `TRANSFER_CONFIG` object at `src/lib/pen-sdk.js:511`
+
+---
 
 #### ✅ Live Capture & Canvas View Stability (2026-03-11)
 Four issues fixed across three files:
