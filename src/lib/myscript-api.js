@@ -161,9 +161,10 @@ function normalizeTranscript(text) {
 }
 
 /**
- * Parse MyScript response and extract structured data
+ * Parse MyScript response and extract structured data.
+ * Exported for unit testing.
  */
-function parseMyScriptResponse(response) {
+export function parseMyScriptResponse(response) {
   console.log('MyScript response:', response);
   
   // MyScript returns the text with \n line breaks - TRUST THIS!
@@ -187,14 +188,17 @@ function parseMyScriptResponse(response) {
   // Build lines with word data
   const lines = [];
   
-  // Try to match words to lines based on Y position (baseline)
+  // Try to match words to lines based on Y position (baseline).
+  // searchStart persists across lines so that repeated words (e.g. two lines
+  // both starting with "Line") consume distinct JIIX entries rather than
+  // always matching the first occurrence.
+  let searchStart = 0;
   labelLines.forEach((lineText, lineIdx) => {
     // Find words that match this line's text
     const lineWords = [];
     const lineTextWords = lineText.split(/\s+/).filter(w => w.length > 0);
-    
+
     // Try to find matching words in the words array (only those with bounding boxes)
-    let searchStart = 0;
     for (const textWord of lineTextWords) {
       for (let i = searchStart; i < wordsWithBounds.length; i++) {
         const word = wordsWithBounds[i];
@@ -208,30 +212,25 @@ function parseMyScriptResponse(response) {
     
     // Calculate line position
     let lineX = 0;
-    let lineY = lineIdx * 20;
-    
+    let lineY = 0;
+    let minY = 0;
+    let maxY = 0;
+
     if (lineWords.length > 0) {
       // Use actual word positions - all words in lineWords have valid bounding boxes
       const leftmostWord = lineWords.reduce((left, word) => {
         if (!left) return word;
         return word['bounding-box'].x < left['bounding-box'].x ? word : left;
       }, null);
-      
+
       if (leftmostWord && leftmostWord['bounding-box']) {
         lineX = leftmostWord['bounding-box'].x;
         lineY = leftmostWord['bounding-box'].y;
       }
-    } else if (wordsWithBounds.length > 0) {
-      // Estimate position based on first word with bounds and line index
-      lineX = Math.min(...wordsWithBounds.map(w => w['bounding-box'].x));
-      lineY = lineIdx * 20;
-    }
-    
-    // Calculate Y-bounds from word bounding boxes
-    let minY = lineY;
-    let maxY = lineY;
-    
-    if (lineWords.length > 0) {
+
+      // Calculate Y-bounds from word bounding boxes
+      minY = lineY;
+      maxY = lineY;
       lineWords.forEach(word => {
         if (word && word['bounding-box']) {
           const bbox = word['bounding-box'];
@@ -241,21 +240,68 @@ function parseMyScriptResponse(response) {
           if (wordMaxY > maxY) maxY = wordMaxY;
         }
       });
+    } else if (wordsWithBounds.length > 0) {
+      // No word matches for this line — mark with zero bounds for later interpolation
+      lineX = Math.min(...wordsWithBounds.map(w => w['bounding-box'].x));
+      // minY = maxY = 0 (interpolation pass below will fix these)
     }
-    
+
     lines.push({
       text: lineText,
-      canonical: normalizeTranscript(lineText),  // NEW: Add canonical form for comparison
+      canonical: normalizeTranscript(lineText),
       words: lineWords,
       x: lineX,
       baseline: lineY,
-      yBounds: { minY, maxY },  // NEW: Y-bounds for stroke mapping
-      mergedLineCount: 1,  // NEW: Track if this is a merged line (default: 1 = single line)
-      blockUuid: null,  // NEW: LogSeq block UUID (set after save)
-      syncStatus: 'unsaved'  // NEW: Track sync status
+      yBounds: { minY, maxY },
+      mergedLineCount: 1,
+      blockUuid: null,
+      syncStatus: 'unsaved'
     });
   });
-  
+
+  // Interpolate Y-bounds for lines that failed word matching (yBounds = 0-0).
+  // Uses nearest neighboring lines that did get valid word-match bounds.
+  for (let i = 0; i < lines.length; i++) {
+    const b = lines[i].yBounds;
+    if (b.minY !== 0 || b.maxY !== 0) continue; // already has valid bounds
+
+    // Find nearest predecessor and successor with valid bounds
+    let prev = null;
+    for (let j = i - 1; j >= 0; j--) {
+      if (lines[j].yBounds.minY !== 0 || lines[j].yBounds.maxY !== 0) {
+        prev = { idx: j, bounds: lines[j].yBounds };
+        break;
+      }
+    }
+    let next = null;
+    for (let j = i + 1; j < lines.length; j++) {
+      if (lines[j].yBounds.minY !== 0 || lines[j].yBounds.maxY !== 0) {
+        next = { idx: j, bounds: lines[j].yBounds };
+        break;
+      }
+    }
+
+    if (prev && next) {
+      const span = next.idx - prev.idx;
+      const t = (i - prev.idx) / span;
+      const avgHeight = ((prev.bounds.maxY - prev.bounds.minY) + (next.bounds.maxY - next.bounds.minY)) / 2;
+      const estMinY = prev.bounds.maxY + t * (next.bounds.minY - prev.bounds.maxY);
+      lines[i].yBounds = { minY: estMinY, maxY: estMinY + avgHeight };
+    } else if (prev) {
+      const lineHeight = prev.bounds.maxY - prev.bounds.minY;
+      const estMinY = prev.bounds.maxY + (i - prev.idx) * lineHeight;
+      lines[i].yBounds = { minY: estMinY, maxY: estMinY + lineHeight };
+    } else if (next) {
+      const lineHeight = next.bounds.maxY - next.bounds.minY;
+      const estMaxY = next.bounds.minY - (next.idx - i) * lineHeight;
+      lines[i].yBounds = { minY: estMaxY - lineHeight, maxY: estMaxY };
+    }
+    // If no valid neighbors at all, bounds stay 0-0 (line will be excluded by filter)
+    if (lines[i].yBounds.minY !== 0 || lines[i].yBounds.maxY !== 0) {
+      console.log(`Interpolated Y-bounds for line ${i} ("${lines[i].text.substring(0, 30)}..."): ${lines[i].yBounds.minY.toFixed(1)}-${lines[i].yBounds.maxY.toFixed(1)}`);
+    }
+  }
+
   console.log('Parsed lines:', lines);
   
   // Calculate indentation
