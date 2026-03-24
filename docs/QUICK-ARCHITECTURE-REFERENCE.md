@@ -243,6 +243,23 @@ See: `docs/Archive/2026-03-live-capture-canvas-fixes/LIVE-CAPTURE-CANVAS-FIXES.m
 
 ---
 
+## Unit Test Coverage
+
+Run tests with `npm test` (single run) or `npm run test:watch` (watch mode).
+
+Framework: **Vitest 4.1.1** with happy-dom environment.
+
+| File | Coverage |
+|------|----------|
+| `src/lib/__tests__/stroke-storage.test.js` | `generateStrokeId`, `convertToStorageFormat` (blockUuid preservation), `convertFromStorageFormat` (round-trip), `calculateBounds`, `deduplicateStrokes`, `buildPageStorageObject`, `splitStrokesIntoChunks`, `buildChunkedStorageObjects`, `parseChunkedJsonBlocks`, `parseJsonBlock`/`formatJsonBlock`, `formatTranscribedText`, `formatPageName`, `getPageProperties` |
+| `src/lib/__tests__/logseq-api.test.js` | `mergeExistingAndNewLines` — empty inputs, exact canonical dedup, Y-bounds subset filtering, sorting |
+| `src/lib/__tests__/transcript-updater.test.js` | `updateTranscriptBlocks` — validLines filter (Y-bounds gating, empty text), duplicate prevention, dedupedLines index correctness |
+| `src/lib/__tests__/myscript-api.test.js` | `parseMyScriptResponse` — line parsing, Y-bounds calculation, fallback interpolation, indentation, checkbox normalisation |
+| `src/lib/__tests__/transcript-search.test.js` | `tokenize` (hyphen preservation, property filtering), `searchPages` (partial matching, ranking), `highlightMatches` (HTML escaping, mark injection) |
+| `src/lib/__tests__/stroke-filter.test.js` | `filterDecorativeStrokes` — underline/circle/2-stroke-box detection, threshold behaviour, `detectDecorativeIndices` |
+
+---
+
 ## Testing Checklist
 
 When making changes to stroke/transcription logic, test:

@@ -300,7 +300,30 @@ try {
 
 ## Testing Considerations
 
-When making changes, consider testing:
+### Automated Unit Tests
+
+Run with `npm test` (single pass) or `npm run test:watch` (watch mode).
+Framework: **Vitest 4.1.1**, environment: **happy-dom**.
+
+Existing test files (all in `src/lib/__tests__/`):
+
+| File | What it tests |
+|------|---------------|
+| `stroke-storage.test.js` | Serialisation/deserialisation pipeline — ID generation, `convertToStorageFormat` (blockUuid), `convertFromStorageFormat` round-trip, bounds, deduplication, chunked storage, JSON block parsing |
+| `logseq-api.test.js` | `mergeExistingAndNewLines` — duplicate detection, Y-bounds subset filtering, sort order |
+| `transcript-updater.test.js` | `updateTranscriptBlocks` — validLines filter (Y-bounds gating), duplicate prevention, dedupedLines index correctness |
+| `myscript-api.test.js` | `parseMyScriptResponse` — line parsing, Y-bounds from word bboxes, fallback interpolation, indentation, checkbox normalisation |
+| `transcript-search.test.js` | `tokenize` (hyphen preservation, property filtering), `searchPages` (partial matching, ranking), `highlightMatches` (HTML escaping) |
+| `stroke-filter.test.js` | `filterDecorativeStrokes` / `detectDecorativeIndices` — underline, circle, 2-stroke box detection and threshold behaviour |
+
+When writing new tests follow the patterns in the existing files:
+- Mock Svelte stores and LogSeq API calls (`vi.mock()`) before imports
+- Use small, focused helper factories (`makeStroke`, `line`, `existingBlock`)
+- Test boundary conditions explicitly (empty input, zero bounds, null values)
+
+### Manual Testing Scenarios
+
+When making changes, also verify manually:
 - Pen connection/disconnection flows
 - Offline sync from pen memory
 - Real-time stroke capture
