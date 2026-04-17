@@ -528,7 +528,7 @@ for (const line of lines) {
 - ✅ Fit to content (auto-centers on strokes)
 - ✅ Auto-fit when strokes are imported
 - ✅ Stroke selection (click, Ctrl+click, Shift+click)
-- ✅ SVG and JSON export
+- ✅ SVG, JSON, and Markdown export (selection-aware: exports only selected strokes when a selection is active, otherwise all visible strokes)
 
 ### Transcription
 - ✅ MyScript Cloud API integration

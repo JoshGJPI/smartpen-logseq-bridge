@@ -1073,12 +1073,14 @@
   }
 
   function exportJson() {
-    const { exportData, filename } = buildJsonExportData(visibleStrokes);
+    const exportStrokes = $hasSelection ? $selectedStrokes : visibleStrokes;
+    const { exportData, filename } = buildJsonExportData(exportStrokes);
     downloadFile(JSON.stringify(exportData), filename, 'application/json');
   }
 
   function exportMd() {
-    const pages = buildMdExportData(visibleStrokes);
+    const exportStrokes = $hasSelection ? $selectedStrokes : visibleStrokes;
+    const pages = buildMdExportData(exportStrokes);
     pages.forEach(({ content, filename }) => downloadFile(content, filename, 'text/markdown'));
   }
 

@@ -62,6 +62,7 @@ This document provides a quick reference for AI assistants working on the smartp
   - `clear(resetBounds)` - Clears canvas; **does NOT reset zoom/pan**
 - `src/lib/pen-sdk.js` - BLE pen connection; `processDot()` filters invalid `{x:-1,y:-1}` pen-down dots
 - `src/components/canvas/StrokeCanvas.svelte` - Canvas host; auto-fit logic distinguishes live vs. offline
+  - **Export buttons (JSON / MD / SVG)**: selection-aware — if strokes are selected, export only those; otherwise export all visible strokes. Implemented via `$hasSelection ? $selectedStrokes : visibleStrokes` before calling `buildJsonExportData` / `buildMdExportData` / `openSvgExportDialog`.
 
 ---
 

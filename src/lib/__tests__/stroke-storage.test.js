@@ -497,6 +497,32 @@ describe('buildJsonExportData', () => {
     const { exportData } = buildJsonExportData(rawStrokes);
     expect(() => JSON.stringify(exportData)).not.toThrow();
   });
+
+  // --- selection-subset export ---
+  // The canvas export buttons pass only the selected strokes when a selection
+  // exists, so these functions must work correctly on any sub-array.
+
+  it('exports only the provided subset when fewer strokes than the full page are passed', () => {
+    const allPageStrokes = [
+      makeStrokeOnPage(1000, 3017, 42),
+      makeStrokeOnPage(2000, 3017, 42),
+      makeStrokeOnPage(3000, 3017, 42),
+      makeStrokeOnPage(4000, 3017, 42),
+      makeStrokeOnPage(5000, 3017, 42)
+    ];
+    const selected = allPageStrokes.slice(1, 4); // 3 of 5 strokes
+    const { exportData } = buildJsonExportData(selected);
+    expect(exportData.strokes).toHaveLength(3);
+    const ids = exportData.strokes.map(s => s.id);
+    expect(ids).toEqual(['s2000', 's3000', 's4000']);
+  });
+
+  it('single selected stroke on a page exports as single-page format with correct slug', () => {
+    const { exportData, filename } = buildJsonExportData([makeStrokeOnPage(5000, 3017, 42)]);
+    expect(exportData.slug).toBe('B3017-P42');
+    expect(filename).toBe('B3017_P42_strokes.json');
+    expect(exportData.strokes).toHaveLength(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -581,6 +607,35 @@ describe('buildMdExportData', () => {
   it('handles empty stroke array without throwing', () => {
     expect(() => buildMdExportData([])).not.toThrow();
     expect(buildMdExportData([])).toHaveLength(0);
+  });
+
+  // --- selection-subset export ---
+  // The canvas export buttons pass only the selected strokes when a selection
+  // exists, so these functions must work correctly on any sub-array.
+
+  it('exports only the provided subset when fewer strokes than the full page are passed', () => {
+    const allPageStrokes = [
+      makeStrokeOnPage(1000, 3017, 42),
+      makeStrokeOnPage(2000, 3017, 42),
+      makeStrokeOnPage(3000, 3017, 42),
+      makeStrokeOnPage(4000, 3017, 42),
+      makeStrokeOnPage(5000, 3017, 42)
+    ];
+    const selected = allPageStrokes.slice(1, 4); // 3 of 5 strokes
+    const [{ content }] = buildMdExportData(selected);
+    const blocks = [...content.matchAll(/```json\n([\s\S]*?)\n```/g)].map(m => JSON.parse(m[1]));
+    const chunk = blocks.find(b => b.chunkIndex === 0);
+    expect(chunk.strokes).toHaveLength(3);
+    expect(chunk.strokes.map(s => s.startTime)).toEqual([2000, 3000, 4000]);
+  });
+
+  it('single selected stroke on a page exports as one MD file with correct metadata', () => {
+    const result = buildMdExportData([makeStrokeOnPage(5000, 3017, 42)]);
+    expect(result).toHaveLength(1);
+    expect(result[0].filename).toBe('B3017_P42_strokes.md');
+    const blocks = [...result[0].content.matchAll(/```json\n([\s\S]*?)\n```/g)].map(m => JSON.parse(m[1]));
+    const chunk = blocks.find(b => b.chunkIndex === 0);
+    expect(chunk.strokes).toHaveLength(1);
   });
 });
 
