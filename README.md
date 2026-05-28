@@ -48,14 +48,16 @@ A desktop Electron app for capturing, transcribing, and managing handwritten not
 - **Line Detection**: Intelligent line grouping based on MyScript analysis
 - **Hierarchy Analysis**: Automatic indentation detection for nested structure
 - **Command Recognition**: Extract inline commands like `[page: Meeting Notes]`
-- **Dual Sources**: View transcriptions from both MyScript and LogSeq imports
+- **Source of truth**: Transcriptions are stored alongside their strokes in each `pages/B###/P##.json` file
 
-### LogSeq Integration
-- **Database Scanner**: Browse and search existing LogSeq pages
-- **Selective Import**: Import specific pages from LogSeq database
-- **Smart Storage**: Efficient chunked storage (200 strokes per block)
-- **Conflict Resolution**: Overwrite or append when page already exists
-- **Sync Tracking**: Visual indicators for saved/synced pages
+### Local-Folder Storage (v2.0)
+- **One JSON file per pen page**: `<dataRoot>/pages/B{book}/P{page}.json` — readable, diff-friendly, no database required
+- **Atomic writes**: `.tmp` + rename + fsync — no half-written files even on crash
+- **Hybrid pretty/compact serializer**: document shell pretty-printed; each stroke inlined onto one line. ~40% the size of full pretty-print, still scannable
+- **Browse, import, re-edit**: the Saved Pages tab shows everything in your data folder, organized by book
+- **Atomic append-only save**: explicit deletions only; new strokes deduplicated by ID; transcript merged by Y-bounds overlap with checkbox preservation
+- **Unsaved-changes indicator**: amber dot on the Save button when the canvas has changes; window-close confirmation if you try to leave dirty
+- **Book aliases**: stored in `<dataRoot>/pages/_aliases.json`
 - **Book Aliases**: Custom naming for notebook identifiers
 
 ### Advanced Canvas Features
@@ -388,7 +390,10 @@ This opens the app at `http://localhost:3000` (configured in vite.config.js)
 }
 ```
 
-### LogSeq Storage Format
+### LogSeq Storage Format (v1, removed in v2.0)
+
+> **Note:** v2.0 replaced this format with one JSON file per page on disk. See [docs/LOCAL-STORAGE-PIVOT-SPEC.md §3](docs/LOCAL-STORAGE-PIVOT-SPEC.md) for the current PageDoc shape. The block below is retained for historical context.
+
 ```
 smartpen/B3017/P42
   properties::
@@ -407,6 +412,8 @@ smartpen/B3017/P42
 ```
 
 ## Architecture
+
+> **Note:** The diagrams and module lists in this section describe v1 (LogSeq-backed). The v2.0 storage layer lives in `src/lib/storage/` instead of `logseq-*.js`; the rest is largely unchanged. See [CLAUDE.md](CLAUDE.md) and [docs/LOCAL-STORAGE-PIVOT-SPEC.md](docs/LOCAL-STORAGE-PIVOT-SPEC.md) for the current state.
 
 ### System Overview
 ```
@@ -613,7 +620,19 @@ smartpen-logseq-bridge/
 - Move closer to computer (within 10 meters)
 - Avoid obstacles between pen and computer
 
-### LogSeq Integration
+### Data Folder
+
+**"Folder: not set" or "Folder: missing"**
+- Open Settings → Data Folder → Browse, pick a folder. The app will write `pages/B###/P##.json` files into it.
+- If you've moved the folder, click **Verify** in Settings to re-check.
+
+**Migrating from a v1 LogSeq export**
+- Run: `node scripts/migrate-from-logseq.cjs <folder-of-md-files> "C:\path\to\your\data-folder"`
+- The script is idempotent and never touches the source `.md` files.
+
+### LogSeq Integration (v1, removed)
+
+> **Note:** v2.0 dropped LogSeq integration entirely. The items below are kept as historical reference for users coming from v1. None of these settings exist in v2.0.
 
 **"Cannot connect to LogSeq"**
 - Verify LogSeq is running
