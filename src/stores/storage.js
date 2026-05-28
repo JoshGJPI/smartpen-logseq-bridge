@@ -11,6 +11,25 @@ export const storageStatus = writable({
   savedPages: new Set() // Set of "B{book}/P{page}" strings
 });
 
+/**
+ * v2.0 Unsaved-changes indicator.
+ *
+ * Bumped whenever the canvas state diverges from what was last persisted
+ * (new strokes, pending deletions, pasted strokes). Reset by recordSuccessfulSave.
+ *
+ * This is intentionally a coarse "dirty" flag rather than a precise change-set.
+ * It powers the header dot and the window-close prompt.
+ */
+export const unsavedChanges = writable(false);
+
+export function markUnsavedChanges() {
+  unsavedChanges.set(true);
+}
+
+export function clearUnsavedChanges() {
+  unsavedChanges.set(false);
+}
+
 // Storage statistics
 export const storageStats = writable({
   totalPages: 0,
@@ -54,6 +73,9 @@ export function recordSuccessfulSave(pageKey, result) {
     totalPages: s.totalPages + (result.added > 0 ? 1 : 0),
     lastUpdate: Date.now()
   }));
+
+  // Successful save clears the unsaved-changes flag.
+  unsavedChanges.set(false);
 }
 
 /**

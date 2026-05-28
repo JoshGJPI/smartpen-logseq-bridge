@@ -24,8 +24,6 @@
     setIsTranscribing,
     setActiveTab,
     getMyScriptCredentials,
-    logseqConnected,
-    getLogseqSettings,
     hasTranscription,
     hasPageTranscriptions,
     lastTranscription,
@@ -59,8 +57,10 @@
   });
   import { connectPen, disconnectPen, fetchOfflineData, cancelOfflineTransfer } from '$lib/pen-sdk.js';
   import { transcribeStrokes } from '$lib/myscript-api.js';
-  import { updatePageStrokes } from '$lib/logseq-api.js';
-  import { updateTranscriptBlocks } from '$lib/transcript-updater.js'; // NEW: v2.0 updater
+  // v2.0: sole save path is the local folder
+  import { savePageToFolder } from '$lib/storage/save-page.js';
+  import { dataRoot, dataFolderReady } from '$stores/settings.js';
+  import { unsavedChanges } from '$stores';
   // Removed filtered-strokes import - now handled via user-controlled deselection
   import {
     setStorageSaving,
@@ -152,16 +152,14 @@
   }
   
   function handleShowSaveDialog() {
-    if (!$logseqConnected) {
-      log('Please configure LogSeq connection in Settings', 'warning');
+    if (!$dataRoot || !$dataFolderReady) {
+      log('Please pick a Data Folder in Settings before saving', 'warning');
       return;
     }
-    
     if (!$strokeCount) {
       log('No strokes to save', 'warning');
       return;
     }
-    
     showSaveConfirmDialog = true;
   }
   
@@ -182,7 +180,6 @@
 
     setIsTranscribing(true);
     const transcribeLabel = $hasSelection ? 'selected' : 'all';
-    const { host, token } = getLogseqSettings();
 
     // CRITICAL FIX: Filter strokes by page and handle Y-bounds overlap
     const strokesByPage = new Map();
@@ -335,180 +332,92 @@
 
   
   async function handleSaveToLogseq(event) {
-    // Close dialog
+    // Function name retained for SaveConfirmDialog wiring; semantics now folder-only (v2.0).
     showSaveConfirmDialog = false;
-    
-    // Get selected pages from dialog event
+
     const selectedPageKeys = event?.detail?.selectedPages || [];
-    console.log('[SaveToLogseq] Selected page keys:', selectedPageKeys);
-    
     if (selectedPageKeys.length === 0) {
       log('No pages selected for save', 'warning');
       return;
     }
-    
-    // Convert selected page keys to Set for fast lookup
+
+    if (!$dataRoot || !$dataFolderReady) {
+      log('No data folder configured. Pick one in Settings.', 'error');
+      return;
+    }
+
     const selectedSet = new Set(selectedPageKeys);
-    console.log('[SaveToLogseq] Selected set:', Array.from(selectedSet));
-    
+
     isSavingToLogseq = true;
     setStorageSaving(true);
-    
+
     let savedStrokesCount = 0;
     let savedTranscriptionCount = 0;
     let errorCount = 0;
-    
+
     try {
-      const { host, token } = getLogseqSettings();
-      
-      // Get all pages with changes (additions or deletions)
+      // Group strokes by page (selection-filtered)
       const pagesToSave = new Map();
-      
-      // Group strokes by page, filtering out deleted ones and checking selection
-      $strokes.forEach((stroke, index) => {
+      $strokes.forEach((stroke) => {
         const pageInfo = stroke.pageInfo;
         if (!pageInfo || pageInfo.book === undefined || pageInfo.page === undefined) return;
-        
         const key = `${pageInfo.book}-${pageInfo.page}`;
-        
-        // Skip if this page is not selected
-        if (!selectedSet.has(key)) {
-          console.log(`[SaveToLogseq] Skipping stroke from unselected page: ${key}`);
-          return;
-        }
-        
+        if (!selectedSet.has(key)) return;
         if (!pagesToSave.has(key)) {
-          pagesToSave.set(key, {
-            book: pageInfo.book,
-            page: pageInfo.page,
-            strokes: []
-          });
+          pagesToSave.set(key, { book: pageInfo.book, page: pageInfo.page, strokes: [] });
         }
-        
         pagesToSave.get(key).strokes.push(stroke);
       });
-      
+
       if (pagesToSave.size === 0) {
         log('No selected pages have strokes to save', 'warning');
         return;
       }
-      
-      log(`Saving ${pagesToSave.size} selected page(s)...`, 'info');
+
+      log(`Saving ${pagesToSave.size} selected page(s) to data folder...`, 'info');
       
       // Save each page
       for (const [key, pageData] of pagesToSave) {
-        const { book, page, strokes: pageStrokes } = pageData;
-        
-        console.log(`[SaveToLogseq] Processing page: ${key} (book=${book}, page=${page})`);
-        
-        // Get active strokes (excluding deleted ones) for this page
+        const { book, page } = pageData;
+
         const activeStrokes = getActiveStrokesForPage(book, page);
-        
         if (activeStrokes.length === 0) {
           log(`Skipping B${book}/P${page} (no active strokes)`, 'info');
           continue;
         }
-        
+
         try {
-          // Get explicit deletion IDs for this page (only strokes user selected + deleted)
           const deletedIds = getDeletedStrokeIdsForPage(book, page);
-          const result = await updatePageStrokes(book, page, activeStrokes, host, token, deletedIds);
-          
+
+          // Pull the page transcription (if MyScript ran on this page in this session)
+          const pageInfo = activeStrokes[0]?.pageInfo || { section: 0, owner: 0, book, page };
+          const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${book}/P${page}`;
+          const pageTranscription = $pageTranscriptions.get(pageKey) || null;
+
+          // Single folder save: strokes + transcription merge in one atomic write
+          const result = await savePageToFolder({
+            book,
+            page,
+            activeStrokes,
+            deletedStrokeIds: deletedIds,
+            pageTranscription
+          });
+
           if (result.success) {
             recordSuccessfulSave(`B${book}/P${page}`, result);
-            
-            // Show chunk info if using chunked storage
-            const chunkInfo = result.chunks ? ` (${result.chunks} chunks)` : '';
-            
-            // Build message showing actual changes
+
             const parts = [];
             if (result.added > 0) parts.push(`+${result.added} new`);
             if (result.deleted > 0) parts.push(`-${result.deleted} deleted`);
+            if (result.linesAdded > 0) parts.push(`+${result.linesAdded} transcript line(s)`);
             const changes = parts.length > 0 ? parts.join(', ') + ', ' : '';
-            
-            log(`Saved ${result.page}: ${changes}${result.total} total${chunkInfo}`, 'success');
+
+            log(`Saved B${book}/P${page}: ${changes}${result.total} stroke(s) total`, 'success');
             savedStrokesCount++;
-            
-            // Step 2: Check for page-specific transcription (only if page is selected)
-            const pageInfo = activeStrokes[0]?.pageInfo || { section: 0, owner: 0, book, page };
-            const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${book}/P${page}`;
-            const pageTranscription = $pageTranscriptions.get(pageKey);
-
-            // Only save transcription if this page is in the selected set
-            if (pageTranscription && selectedSet.has(key)) {
-              // NEW v2.0: Save page-specific transcription with property-based blocks
-              log(`Saving transcription blocks to ${result.page}...`, 'info');
-
-              try {
-                // CRITICAL: Pass ALL strokes (including those with blockUuid) for Y-bounds context
-                // The updateTranscriptBlocks function will filter internally
-                const transcriptResult = await updateTranscriptBlocks(
-                  book,
-                  page,
-                  activeStrokes,      // Pass all active strokes for Y-bounds calculation
-                  pageTranscription,   // MyScript result with lines (from untranscribed strokes only)
-                  host,
-                  token
-                );
-
-                if (transcriptResult.success) {
-                  const { stats } = transcriptResult;
-                  const actions = [];
-                  if (stats.created > 0) actions.push(`${stats.created} new`);
-                  if (stats.updated > 0) actions.push(`${stats.updated} updated`);
-                  if (stats.skipped > 0) actions.push(`${stats.skipped} preserved`);
-
-                  log(`✅ Transcription saved: ${actions.join(', ')}`, 'success');
-                  savedTranscriptionCount++;
-                } else {
-                  log(`Failed to save transcription: ${transcriptResult.error}`, 'warning');
-                }
-              } catch (transcriptError) {
-                log(`Error saving transcription: ${transcriptError.message}`, 'warning');
-              }
-            } else if ($hasTranscription && selectedSet.has(key)) {
-              // Fallback to legacy single transcription if no page-specific one exists
-              // AND the page is in the selected set
-              // Check if transcription is for this page
-              const transcriptionStrokes = $selectedStrokes.length > 0 ? $selectedStrokes : $strokes;
-              const firstTranscriptionStroke = transcriptionStrokes[0];
-              
-              if (firstTranscriptionStroke && 
-                  firstTranscriptionStroke.pageInfo.book === book && 
-                  firstTranscriptionStroke.pageInfo.page === page) {
-                
-                log(`Saving legacy transcription to ${result.page}...`, 'info');
-                
-                try {
-                  const transcriptResult = await updateTranscriptBlocks(
-                    book,
-                    page,
-                    transcriptionStrokes,
-                    $lastTranscription,
-                    host,
-                    token
-                  );
-                  
-                  if (transcriptResult.success) {
-                    const { stats } = transcriptResult;
-                    const actions = [];
-                    if (stats.created > 0) actions.push(`${stats.created} new`);
-                    if (stats.updated > 0) actions.push(`${stats.updated} updated`);
-                    if (stats.skipped > 0) actions.push(`${stats.skipped} preserved`);
-                    
-                    log(`✅ Transcription saved: ${actions.join(', ')}`, 'success');
-                    savedTranscriptionCount++;
-                  } else {
-                    log(`Failed to save transcription: ${transcriptResult.error}`, 'warning');
-                  }
-                } catch (transcriptError) {
-                  log(`Error saving transcription: ${transcriptError.message}`, 'warning');
-                }
-              }
-            }
+            if (pageTranscription && result.linesAdded > 0) savedTranscriptionCount++;
           } else {
             recordStorageError(result.error);
-            log(`Failed to save page ${book}/${page}: ${result.error}`, 'error');
+            log(`Failed to save B${book}/P${page}: ${result.error}`, 'error');
             errorCount++;
           }
         } catch (error) {
@@ -672,11 +581,12 @@
     {/if}
   </button>
   
-  <button 
+  <button
     class="action-btn save-logseq-btn"
+    class:dirty={$unsavedChanges}
     on:click={handleShowSaveDialog}
-    disabled={!hasSaveableData || isSavingToLogseq || !$logseqConnected}
-    title="Save strokes and transcription (if available) to LogSeq storage"
+    disabled={!hasSaveableData || isSavingToLogseq || !$dataFolderReady}
+    title={$unsavedChanges ? 'You have unsaved changes — click to save' : 'Save strokes and transcription to the data folder'}
   >
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
       <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
@@ -684,6 +594,9 @@
       <polyline points="7 3 7 8 15 8"/>
     </svg>
     {saveButtonText}
+    {#if $unsavedChanges}
+      <span class="dirty-dot" aria-label="unsaved changes"></span>
+    {/if}
   </button>
   
   <button 
@@ -838,6 +751,26 @@
   .save-logseq-btn:hover:not(:disabled) {
     background: #22c55e;
     border-color: #22c55e;
+  }
+
+  .save-logseq-btn.dirty {
+    animation: dirty-pulse 2.4s ease-in-out infinite;
+  }
+
+  .dirty-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #fde047;       /* amber */
+    box-shadow: 0 0 6px rgba(253, 224, 71, 0.75);
+    display: inline-block;
+    margin-left: 4px;
+    flex-shrink: 0;
+  }
+
+  @keyframes dirty-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(253, 224, 71, 0); }
+    50%      { box-shadow: 0 0 0 4px rgba(253, 224, 71, 0.25); }
   }
   
   .delete-btn {

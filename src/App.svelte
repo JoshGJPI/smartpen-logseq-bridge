@@ -19,14 +19,57 @@
   // Stores
   import { log } from '$stores';
   import { openBluetoothPicker, updateBluetoothDevices, closeBluetoothPicker } from '$stores/ui.js';
+  import { dataRoot, setDataFolderStatus, getDataRoot } from '$stores/settings.js';
+  import { unsavedChanges } from '$stores';
+  import { isAvailable as folderIsAvailable } from '$lib/storage/local-store.js';
+  import { get } from 'svelte/store';
 
   // Initialize pen SDK on mount
   import { initializePenSDK } from '$lib/pen-sdk.js';
+
+  // v2.0: Check data folder availability at boot
+  async function checkDataFolder() {
+    const root = getDataRoot();
+    if (!root) {
+      setDataFolderStatus(false, 'Folder: not set');
+      return;
+    }
+    try {
+      const ok = await folderIsAvailable(root);
+      if (ok) {
+        const basename = root.split(/[\\/]/).pop() || root;
+        setDataFolderStatus(true, `Folder: ${basename}`);
+        log(`Data folder ready: ${root}`, 'success');
+      } else {
+        setDataFolderStatus(false, 'Folder: missing');
+        log(`Data folder not accessible: ${root}`, 'warning');
+      }
+    } catch (err) {
+      setDataFolderStatus(false, 'Folder: error');
+      log(`Data folder check failed: ${err.message}`, 'warning');
+    }
+  }
+
+  // v2.0: Prompt before close if there are unsaved canvas changes.
+  function handleBeforeUnload(event) {
+    if (get(unsavedChanges)) {
+      // Setting returnValue is what triggers the browser/Electron "are you sure?" dialog.
+      event.preventDefault();
+      event.returnValue = 'You have unsaved changes. Leave anyway?';
+      return event.returnValue;
+    }
+  }
 
   onMount(() => {
     initializePenSDK();
     log('Bridge initialized. Click "Connect Pen" to begin.', 'info');
     log('Make sure LogSeq HTTP API is enabled in Settings > Advanced', 'info');
+
+    // Kick off data-folder availability check (non-blocking)
+    checkDataFolder();
+
+    // Unsaved-changes window-close prompt
+    window.addEventListener('beforeunload', handleBeforeUnload);
 
     // Set up Electron IPC listeners for Bluetooth device picker
     if (window.electronAPI) {
@@ -47,6 +90,7 @@
     if (window.electronAPI) {
       window.electronAPI.removeBluetoothListeners();
     }
+    window.removeEventListener('beforeunload', handleBeforeUnload);
   });
 </script>
 

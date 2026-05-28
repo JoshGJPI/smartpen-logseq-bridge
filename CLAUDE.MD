@@ -1,17 +1,20 @@
 # Claude Development Guide
 
-This document provides context for AI assistants (like Claude) working on the smartpen-logseq-bridge project.
+This document provides context for AI assistants (like Claude) working on this project.
 
 ## Project Overview
 
-**smartpen-logseq-bridge** is a sophisticated web application that bridges NeoSmartpen (Lamy Safari) devices with LogSeq's knowledge management system. It enables real-time stroke capture, handwriting recognition, advanced stroke manipulation, and seamless LogSeq integration.
+**smartpen-bridge** (v2.0+, formerly `smartpen-logseq-bridge`) is a desktop Electron app that captures NeoSmartpen (Lamy Safari) strokes, runs handwriting recognition on them, and saves the result as plain JSON files in a user-chosen local folder.
+
+In v1 (≤ 1.3.4) the storage layer was LogSeq's HTTP API. The v2.0 pivot replaced LogSeq with a folder of `<dataRoot>/pages/B###/P##.json` PageDoc files. See `docs/LOCAL-STORAGE-PIVOT-SPEC.md` for the full design and `scripts/migrate-from-logseq.cjs` for the one-shot v1 → v2 importer.
 
 **Tech Stack:**
 - **Frontend**: Svelte 4 (reactive components)
 - **Build Tool**: Vite
+- **Shell**: Electron (Chromium renderer + Node main, for Web Bluetooth + filesystem access)
 - **Pen Integration**: web_pen_sdk (NeoSmartpen Web SDK)
-- **Handwriting Recognition**: MyScript Cloud API
-- **Knowledge Management**: LogSeq HTTP API
+- **Handwriting Recognition**: MyScript Cloud API (proxied through Electron main to preserve HTTP header casing)
+- **Storage**: Local JSON files (atomic write via `<file>.tmp` + rename, in `electron/main.cjs`)
 - **Browser APIs**: Web Bluetooth API, Canvas API
 
 ## Architecture
@@ -21,13 +24,13 @@ This document provides context for AI assistants (like Claude) working on the sm
 App.svelte (Root)
 ├── Header
 │   ├── PenControls (Connect, Fetch, Transcribe)
-│   ├── ActionBar (Save to LogSeq, Clear)
-│   └── SettingsDropdown (MyScript, LogSeq, Book Aliases)
+│   ├── ActionBar (Save to Folder, Clear, unsaved-changes dot)
+│   └── SettingsDropdown (MyScript, Data Folder, Book Aliases)
 ├── LeftPanel
 │   ├── Data Explorer (Tabbed Interface)
 │   │   ├── StrokeList (Browse by book/page)
 │   │   ├── TranscriptionView (View transcribed text)
-│   │   ├── LogSeqDbTab (Database browser)
+│   │   ├── Saved Pages (folder-backed page list — `components/logseq-db/` dir, soon to be renamed)
 │   │   └── RawJsonViewer (Technical inspection)
 │   └── ActivityLog (Real-time feedback)
 └── StrokeCanvas

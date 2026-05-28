@@ -5,15 +5,14 @@
   with a collapsible transcript section beneath it (only when transcript data exists).
 -->
 <script>
-  import { importStrokesFromLogSeq } from '$lib/logseq-import.js';
-  import { getTranscriptLines, updateTranscriptBlocksFromEditor } from '$lib/logseq-api.js';
+  // v2.0: folder-backed Data Explorer (no more LogSeq calls)
+  import { importStrokesFromFolder } from '$lib/storage/load-page.js';
+  import { getPage } from '$lib/storage/local-store.js';
   import TranscriptionPreview from './TranscriptionPreview.svelte';
   import TranscriptionEditorModal from '../dialog/TranscriptionEditorModal.svelte';
   import SyncStatusBadge from './SyncStatusBadge.svelte';
   import {
     pageTranscriptions,
-    logseqHost,
-    logseqToken,
     clearPageTranscription,
     clearStrokeBlockUuids,
     getActiveStrokesForPageFromStore,
@@ -41,7 +40,7 @@
     importProgress = { current: 0, total: page.strokeCount || 0 };
 
     try {
-      const result = await importStrokesFromLogSeq(page, (current, total) => {
+      const result = await importStrokesFromFolder(page, (current, total) => {
         importProgress = { current, total };
       });
       console.log('Import complete:', result);
@@ -97,31 +96,30 @@
   async function handleOpenEditor() {
     loadingLines = true;
     try {
-      const host = $logseqHost || 'http://localhost:12315';
-      const token = $logseqToken || '';
-      const lines = await getTranscriptLines(page.book, page.page, host, token);
-
-      if (lines.length === 0) {
-        alert('No transcription blocks found. Please transcribe the page first.');
+      // v2.0: read transcript directly from the PageDoc
+      let doc = page.pageDoc;
+      if (!doc) doc = await getPage(page.book, page.page);
+      if (!doc || !doc.transcript || !doc.transcript.lines || doc.transcript.lines.length === 0) {
+        alert('No transcription found for this page. Please transcribe it first.');
         return;
       }
 
-      editorLines = lines;
+      // Map TranscriptLine[] → editor's expected line shape.
+      // blockUuid keeps the editor's existing semantics (stable line ID).
+      editorLines = doc.transcript.lines.map(l => ({
+        text: l.text || '',
+        canonical: (l.text || '').trim().toLowerCase(),
+        yBounds: l.yBounds || { minY: 0, maxY: 0 },
+        indentLevel: l.indentLevel || 0,
+        blockUuid: l.id,           // PageDoc TranscriptLine.id → editor blockUuid
+        checked: l.checked,        // preserve TODO/DONE state
+        parentId: l.parentId,
+        syncStatus: 'synced'
+      }));
       showEditorModal = true;
     } catch (error) {
       console.error('Failed to load transcript lines:', error);
-      if (error.message.includes('old transcription format')) {
-        alert(
-          'This page uses the old transcription storage format.\n\n' +
-          'To use the line consolidation editor, please:\n' +
-          '1. Import the strokes from LogSeq\n' +
-          '2. Transcribe the page again\n' +
-          '3. Then you can edit the structure\n\n' +
-          'This will convert it to the new format that supports merge persistence.'
-        );
-      } else {
-        alert(`Failed to load transcription: ${error.message}`);
-      }
+      alert(`Failed to load transcription: ${error.message}`);
     } finally {
       loadingLines = false;
     }
@@ -156,33 +154,106 @@
   async function handleSaveEditor(event) {
     const { lines: editedLines } = event.detail;
     try {
-      const host = $logseqHost || 'http://localhost:12315';
-      const token = $logseqToken || '';
-
-      const result = await updateTranscriptBlocksFromEditor(
-        page.book, page.page, editedLines, host, token
-      );
-
-      console.log('Transcription updated:', result);
-
-      if (result.success) {
-        editedTranscription = editedLines.map(l => '  '.repeat(l.indentLevel || 0) + l.text).join('\n');
-        page.syncStatus = result.stats.created > 0 ? 'new_content' : 'synced';
-        showEditorModal = false;
-        alert(
-          `✓ Successfully saved changes!\n\n` +
-          `Updated: ${result.stats.updated}\n` +
-          `Deleted: ${result.stats.deleted}\n` +
-          `Created: ${result.stats.created || 0}\n` +
-          `Errors: ${result.stats.errors}`
-        );
-      } else {
-        alert(`Failed to update: ${result.error}`);
+      // v2.0: rewrite the PageDoc's transcript section and atomic-write the file.
+      const doc = page.pageDoc || (await getPage(page.book, page.page));
+      if (!doc) {
+        alert(`Could not load page file for B${page.book}/P${page.page}`);
+        return;
       }
+
+      // Track which old line IDs survived so we can also fix up stroke.lineId
+      // references when a line is merged into another (one survivor inherits).
+      const oldLineIds = new Set((doc.transcript?.lines || []).map(l => l.id));
+
+      // Build new TranscriptLine[] from editor output.
+      // Editor's blockUuid is the stable line ID; preserve it for unchanged
+      // lines so stroke.lineId references stay intact.
+      const newLines = editedLines.map(l => ({
+        id: l.blockUuid || randomId(),
+        text: (l.text || '').trim(),
+        indentLevel: l.indentLevel || 0,
+        parentId: null, // recomputed below
+        checked: l.checked ?? null,
+        yBounds: l.yBounds && (l.yBounds.minY !== 0 || l.yBounds.maxY !== 0)
+          ? { minY: l.yBounds.minY, maxY: l.yBounds.maxY }
+          : null
+      }));
+
+      // Recompute parentId from indentLevel sequence (parent = nearest preceding
+      // line with a lower indentLevel).
+      for (let i = 0; i < newLines.length; i++) {
+        const lvl = newLines[i].indentLevel;
+        if (lvl === 0) {
+          newLines[i].parentId = null;
+        } else {
+          for (let j = i - 1; j >= 0; j--) {
+            if ((newLines[j].indentLevel || 0) < lvl) {
+              newLines[i].parentId = newLines[j].id;
+              break;
+            }
+          }
+        }
+      }
+
+      // Handle merged lines: if an editor entry has blocksToDelete + survivor blockUuid,
+      // redirect deleted-line strokes to the survivor.
+      const lineIdRemap = new Map();
+      for (const l of editedLines) {
+        if (Array.isArray(l.blocksToDelete) && l.blockUuid) {
+          for (const dead of l.blocksToDelete) {
+            if (dead && dead !== l.blockUuid) lineIdRemap.set(dead, l.blockUuid);
+          }
+        }
+      }
+
+      // Apply lineId remap + scrub references to lines that no longer exist
+      const liveIds = new Set(newLines.map(l => l.id));
+      const updatedStrokes = (doc.strokes || []).map(s => {
+        let lineId = s.lineId;
+        if (lineId && lineIdRemap.has(lineId)) lineId = lineIdRemap.get(lineId);
+        if (lineId && !liveIds.has(lineId)) lineId = null;
+        return lineId === s.lineId ? s : { ...s, lineId };
+      });
+
+      const nextDoc = {
+        ...doc,
+        metadata: {
+          ...(doc.metadata || {}),
+          lastUpdated: new Date().toISOString()
+        },
+        transcript: {
+          lastTranscribed: new Date().toISOString(),
+          lines: newLines
+        },
+        strokes: updatedStrokes
+      };
+
+      // Editor edits already produced the final PageDoc shape, so we write
+      // it directly via savePage (atomic) — bypassing savePageToFolder, which
+      // would re-merge with on-disk content and clobber the handcrafted
+      // transcript.
+      const { savePage } = await import('$lib/storage/local-store.js');
+      await savePage(page.book, page.page, nextDoc);
+
+      page.pageDoc = nextDoc;
+      editedTranscription = newLines.map(l => '  '.repeat(l.indentLevel || 0) + l.text).join('\n');
+      page.syncStatus = 'synced';
+      showEditorModal = false;
+      log(`Updated transcript for B${page.book}/P${page.page}: ${newLines.length} line(s)`, 'success');
     } catch (error) {
       console.error('Failed to save transcription:', error);
       alert(`Failed to save: ${error.message}`);
     }
+  }
+
+  function randomId() {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    const a = new Uint8Array(16);
+    (typeof crypto !== 'undefined' && crypto.getRandomValues ? crypto.getRandomValues(a) : a.fill(Math.floor(Math.random() * 256)));
+    a[6] = (a[6] & 0x0f) | 0x40;
+    a[8] = (a[8] & 0x3f) | 0x80;
+    const hex = [...a].map(b => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
   }
 </script>
 

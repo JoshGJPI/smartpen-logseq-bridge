@@ -2,10 +2,11 @@
   StrokeList.svelte - List view of strokes grouped by book and page with collapsible headers
 -->
 <script>
-  import { strokes, strokeCount, logseqConnected } from '$stores';
+  import { strokes, strokeCount } from '$stores';
+  import { dataFolderReady } from '$stores/settings.js';
   import { selectionCount } from '$stores';
   import StrokeBookAccordion from './StrokeBookAccordion.svelte';
-  import { importStrokesForLoadedPages } from '../../lib/logseq-import.js';
+  import { importStrokesForLoadedPagesFromFolder as importStrokesForLoadedPages } from '$lib/storage/load-page.js';
   
   // Import progress tracking
   let isImporting = false;
@@ -61,10 +62,10 @@
   // Calculate total page count
   $: totalPages = strokesByBook.reduce((sum, book) => sum + book.pages.length, 0);
   
-  // Handle import from LogSeq
+  // Handle import additional strokes from the data folder
   async function handleImportFromLogSeq() {
-    if (!$logseqConnected) {
-      return; // Button should be disabled, but double-check
+    if (!$dataFolderReady) {
+      return;
     }
     
     isImporting = true;
@@ -96,17 +97,17 @@
         {#if $selectionCount > 0}
           <span class="selection-badge">{$selectionCount} selected</span>
         {/if}
-        <button 
+        <button
           class="import-button"
           on:click={handleImportFromLogSeq}
-          disabled={!$logseqConnected || isImporting}
-          title={!$logseqConnected ? 'Connect to LogSeq first' : 'Import additional strokes from LogSeq for currently loaded pages'}
+          disabled={!$dataFolderReady || isImporting}
+          title={!$dataFolderReady ? 'Pick a Data Folder first' : 'Merge additional strokes from disk for loaded pages'}
         >
           {#if isImporting}
             <span class="spinner"></span>
             Importing...
           {:else}
-            ⬇ Import from LogSeq
+            ⬇ Import from Folder
           {/if}
         </button>
       </div>

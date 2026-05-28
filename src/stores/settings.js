@@ -65,14 +65,6 @@ function createPersistedStore(key, defaultValue) {
 export const myscriptAppKey = createPersistedStore('myscriptAppKey', '');
 export const myscriptHmacKey = createPersistedStore('myscriptHmacKey', '');
 
-// LogSeq API settings (DEPRECATED in v2.0 — kept during the transition; removed in Phase 4)
-export const logseqHost = createPersistedStore('logseqHost', 'http://127.0.0.1:12315');
-export const logseqToken = createPersistedStore('logseqToken', '');
-
-// Connection status (not persisted)
-export const logseqConnected = writable(false);
-export const logseqStatusText = writable('LogSeq: Unknown');
-
 // v2.0 Local-folder storage settings
 export const dataRoot = createPersistedStore('dataRoot', '');           // absolute path
 export const dataFolderReady = writable(false);                          // updated at boot / on folder change
@@ -87,16 +79,6 @@ export const hasMyScriptCredentials = derived(
 );
 
 /**
- * Update LogSeq connection status
- * @param {boolean} connected 
- * @param {string} statusText 
- */
-export function setLogseqStatus(connected, statusText) {
-  logseqConnected.set(connected);
-  logseqStatusText.set(statusText);
-}
-
-/**
  * Get current MyScript credentials (one-time read)
  * Useful for API calls
  */
@@ -104,16 +86,6 @@ export function getMyScriptCredentials() {
   return {
     appKey: (get(myscriptAppKey) || '').trim(),
     hmacKey: (get(myscriptHmacKey) || '').trim()
-  };
-}
-
-/**
- * Get current LogSeq settings (one-time read)
- */
-export function getLogseqSettings() {
-  return {
-    host: get(logseqHost),
-    token: get(logseqToken)
   };
 }
 

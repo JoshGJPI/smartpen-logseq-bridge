@@ -6,8 +6,7 @@
   import { createEventDispatcher, onMount } from 'svelte';
   import { getActiveStrokesForPage, getDeletedStrokeIdsForPage } from '$stores/pending-changes.js';
   import { getBookAlias } from '$stores/book-aliases.js';
-  import { getLogseqSettings } from '$stores';
-  import { computePageChanges } from '$lib/logseq-api.js';
+  import { computePageChangesFolder as computePageChanges } from '$lib/storage/page-changes.js';
   import { strokes, pageTranscriptions } from '$stores';
   
   export let visible = false;
@@ -54,8 +53,6 @@
     totalNewTranscriptions = 0;
     totalChangedTranscriptions = 0;
     
-    const { host, token } = getLogseqSettings();
-    
     // Get all pages with strokes
     const pageMap = new Map();
     $strokes.forEach(stroke => {
@@ -93,8 +90,6 @@
         pageData.page,
         activeStrokes,
         transcription,
-        host,
-        token,
         deletedIds
       ).then(changes => ({
         pageKey: key,

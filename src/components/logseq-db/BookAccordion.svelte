@@ -4,7 +4,7 @@
 <script>
   import { bookAliases } from '$stores';
   import { formatBookName, getBookColor } from '$utils/formatting.js';
-  import { importStrokesFromLogSeq } from '$lib/logseq-import.js';
+  import { importStrokesFromFolder as importStrokesFromLogSeq } from '$lib/storage/load-page.js';
   import PageCard from './PageCard.svelte';
   
   export let bookId; // Book number

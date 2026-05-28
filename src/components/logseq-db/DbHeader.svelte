@@ -1,5 +1,5 @@
 <!--
-  DbHeader.svelte - Header for LogSeq DB tab with refresh and status
+  DbHeader.svelte - Header for the Saved Pages tab (v2.0 folder-backed)
 -->
 <script>
   import { createEventDispatcher } from 'svelte';
@@ -24,21 +24,21 @@
 </script>
 
 <div class="db-header">
-  <button 
-    class="refresh-btn" 
+  <button
+    class="refresh-btn"
     on:click={handleRefresh}
     disabled={scanning || !connected}
-    title="Refresh page list from LogSeq"
+    title="Re-scan the data folder"
   >
     <span class="icon" class:spinning={scanning}>🔄</span>
     Refresh
   </button>
-  
+
   <div class="status">
     {#if connected}
-      <span class="connected">Connected to localhost:12315</span>
+      <span class="connected">Data folder ready</span>
     {:else}
-      <span class="disconnected">Not connected</span>
+      <span class="disconnected">Data folder not ready</span>
     {/if}
   </div>
   

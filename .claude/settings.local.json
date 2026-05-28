@@ -16,7 +16,9 @@
       "PowerShell($c = Get-Content -Path 'C:\\\\Users\\\\joshg\\\\Documents\\\\stroke-data\\\\raw\\\\B390_P139_strokes.json' -Raw; $c.Substring\\(0, [Math]::Min\\(1500, $c.Length\\)\\))",
       "Bash(node \"scripts/migrate-from-logseq.cjs\" \"C:\\\\Users\\\\joshg\\\\Documents\\\\stroke-data\\\\jpi\" \"C:\\\\Users\\\\joshg\\\\AppData\\\\Local\\\\Temp\\\\stroke-data-migration-test\")",
       "Bash(node -e ' *)",
-      "Bash(ls \"C:\\\\Users\\\\joshg\\\\AppData\\\\Local\\\\Temp\\\\stroke-data-migration-test\\\\pages\" && echo \"---\" && ls \"C:\\\\Users\\\\joshg\\\\AppData\\\\Local\\\\Temp\\\\stroke-data-migration-test\\\\pages\\\\B3017\" | head -10 && echo \"---\" && du -sh \"C:\\\\Users\\\\joshg\\\\AppData\\\\Local\\\\Temp\\\\stroke-data-migration-test\\\\pages\")"
+      "Bash(ls \"C:\\\\Users\\\\joshg\\\\AppData\\\\Local\\\\Temp\\\\stroke-data-migration-test\\\\pages\" && echo \"---\" && ls \"C:\\\\Users\\\\joshg\\\\AppData\\\\Local\\\\Temp\\\\stroke-data-migration-test\\\\pages\\\\B3017\" | head -10 && echo \"---\" && du -sh \"C:\\\\Users\\\\joshg\\\\AppData\\\\Local\\\\Temp\\\\stroke-data-migration-test\\\\pages\")",
+      "Bash(node \"scripts/migrate-from-logseq.cjs\" \"C:\\\\Users\\\\joshg\\\\Documents\\\\stroke-data\\\\jpi\" \"C:\\\\Users\\\\joshg\\\\Documents\\\\stroke-data\")",
+      "Bash(grep -rn 'from ['\\\\''\"]$lib/\\(logseq-api\\\\|logseq-scanner\\\\|logseq-import\\\\|transcript-updater\\)' 'C:/Users/joshg/Documents/Claude Access/smartpen-logseq-bridge/src')"
     ]
   }
 }

@@ -3,7 +3,7 @@
 -->
 <script>
   import { penConnected, penAuthorized, penBattery, penInfo, penMemory } from '$stores';
-  import { logseqConnected, logseqStatusText } from '$stores';
+  import { dataFolderReady, dataFolderStatusText } from '$stores/settings.js';
   import ActionBar from '../header/ActionBar.svelte';
   import SettingsDropdown from '../header/SettingsDropdown.svelte';
   
@@ -15,7 +15,7 @@
 
 <header class="header">
   <div class="header-left">
-    <h1 class="title">NeoSmartpen → <span class="accent">LogSeq</span> Bridge</h1>
+    <h1 class="title">NeoSmartpen → <span class="accent">Stroke</span> Bridge</h1>
     
     <div class="status-bar">
       <!-- Pen Status -->
@@ -52,13 +52,13 @@
         </span>
       </div>
       
-      <!-- LogSeq Status -->
+      <!-- Data Folder Status -->
       <div class="status-indicator">
-        <div 
+        <div
           class="status-dot"
-          class:connected={$logseqConnected}
+          class:connected={$dataFolderReady}
         ></div>
-        <span class="status-text">{$logseqStatusText}</span>
+        <span class="status-text">{$dataFolderStatusText}</span>
       </div>
     </div>
   </div>

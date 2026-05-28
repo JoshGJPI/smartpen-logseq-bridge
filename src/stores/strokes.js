@@ -4,6 +4,7 @@
  */
 import { writable, derived } from 'svelte/store';
 import { registerBookId, registerBookIds } from './book-aliases.js';
+import { markUnsavedChanges } from './storage.js';
 
 // Raw stroke data
 export const strokes = writable([]);
@@ -41,6 +42,7 @@ export function addStroke(stroke) {
     registerBookId(stroke.pageInfo.book);
   }
   strokes.update(s => [...s, stroke]);
+  markUnsavedChanges();
 }
 
 /**
@@ -69,6 +71,7 @@ export function addOfflineStrokes(offlineStrokes) {
     registerBookIds(bookIds);
   }
   strokes.update(s => [...s, ...offlineStrokes]);
+  if (offlineStrokes.length > 0) markUnsavedChanges();
 }
 
 /**
@@ -99,13 +102,14 @@ export function clearStrokes() {
  */
 export function removeStrokesByIndices(indices) {
   if (!indices || indices.length === 0) return;
-  
+
   strokes.update(s => {
     // Create a Set for O(1) lookup
     const indicesToRemove = new Set(indices);
     // Filter out the strokes at those indices
     return s.filter((stroke, index) => !indicesToRemove.has(index));
   });
+  markUnsavedChanges();
 }
 
 /**

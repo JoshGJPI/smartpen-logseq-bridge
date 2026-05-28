@@ -1,12 +1,12 @@
 <script>
   import { bookAliases, knownBookIds, setBookAlias, removeBookAlias } from '$stores';
-  import { updateBookPageProperty } from '$lib/logseq-api.js';
-  import { getLogseqSettings, logseqConnected, log } from '$stores';
-  
+  import { dataFolderReady } from '$stores/settings.js';
+  import { setAlias as folderSetAlias, removeAlias as folderRemoveAlias } from '$lib/storage/local-store.js';
+  import { log } from '$stores';
+
   // Track which books are being edited
   let editingBookIds = new Set();
   let aliasInputs = {};
-  let isSyncing = false;
   
   // Reactive: Get sorted list of known books
   $: sortedBookIds = Array.from($knownBookIds).sort((a, b) => Number(a) - Number(b));
@@ -34,109 +34,50 @@
   
   async function saveAlias(bookId) {
     const alias = aliasInputs[bookId]?.trim();
-    
     if (!alias) {
       log('Book alias cannot be empty', 'warning');
       return;
     }
-    
-    // Update local store immediately
+
     setBookAlias(bookId, alias);
-    
-    // Update LogSeq if connected
-    if ($logseqConnected) {
-      const { host, token } = getLogseqSettings();
-      const success = await updateBookPageProperty(Number(bookId), 'bookname', alias, host, token);
-      
-      if (success) {
+
+    if ($dataFolderReady) {
+      try {
+        await folderSetAlias(Number(bookId), alias);
         log(`Saved alias for B${bookId}: ${alias}`, 'success');
-      } else {
-        log(`Failed to save alias for B${bookId} to LogSeq`, 'error');
-        // Revert on failure
+      } catch (err) {
+        log(`Failed to persist alias for B${bookId}: ${err.message}`, 'error');
         removeBookAlias(bookId);
         return;
       }
     } else {
-      log(`Alias saved locally for B${bookId}. Connect to LogSeq to persist.`, 'info');
+      log(`Alias saved in memory for B${bookId}. Set a Data Folder to persist.`, 'info');
     }
-    
-    // Exit edit mode
+
     editingBookIds.delete(bookId);
     editingBookIds = editingBookIds;
   }
-  
+
   async function removeAlias(bookId) {
-    if (!confirm(`Remove alias for B${bookId}?`)) {
-      return;
-    }
-    
-    // Update local store
+    if (!confirm(`Remove alias for B${bookId}?`)) return;
     removeBookAlias(bookId);
     aliasInputs[bookId] = '';
-    
-    // Update LogSeq if connected
-    if ($logseqConnected) {
-      const { host, token } = getLogseqSettings();
-      const success = await updateBookPageProperty(Number(bookId), 'bookname', '', host, token);
-      
-      if (success) {
+
+    if ($dataFolderReady) {
+      try {
+        await folderRemoveAlias(Number(bookId));
         log(`Removed alias for B${bookId}`, 'success');
-      } else {
-        log(`Failed to remove alias for B${bookId} from LogSeq`, 'error');
+      } catch (err) {
+        log(`Failed to remove alias for B${bookId}: ${err.message}`, 'error');
       }
     }
   }
-  
+
   function handleKeydown(event, bookId) {
     if (event.key === 'Enter') {
       saveAlias(bookId);
     } else if (event.key === 'Escape') {
       cancelEditing(bookId);
-    }
-  }
-  
-  async function syncAllAliasesToLogSeq() {
-    if (!$logseqConnected) {
-      log('Connect to LogSeq first to sync aliases', 'warning');
-      return;
-    }
-    
-    const aliasEntries = Object.entries($bookAliases);
-    
-    if (aliasEntries.length === 0) {
-      log('No aliases to sync', 'info');
-      return;
-    }
-    
-    isSyncing = true;
-    const { host, token } = getLogseqSettings();
-    
-    let successCount = 0;
-    let errorCount = 0;
-    
-    log(`Syncing ${aliasEntries.length} book aliases to LogSeq...`, 'info');
-    
-    for (const [bookId, alias] of aliasEntries) {
-      try {
-        const success = await updateBookPageProperty(Number(bookId), 'bookname', alias, host, token);
-        if (success) {
-          successCount++;
-        } else {
-          errorCount++;
-        }
-      } catch (error) {
-        console.error(`Failed to sync alias for B${bookId}:`, error);
-        errorCount++;
-      }
-    }
-    
-    isSyncing = false;
-    
-    if (successCount > 0) {
-      log(`Successfully synced ${successCount} book aliases to LogSeq`, 'success');
-    }
-    if (errorCount > 0) {
-      log(`Failed to sync ${errorCount} book aliases`, 'error');
     }
   }
 </script>
@@ -149,26 +90,11 @@
   {:else}
     <div class="header-section">
       <p class="help-text">
-        Give your notebooks friendly names that will appear throughout the app.
-        {#if !$logseqConnected}
-          <span class="warning">⚠️ Connect to LogSeq to persist aliases.</span>
+        Give your notebooks friendly names that appear throughout the app.
+        {#if !$dataFolderReady}
+          <span class="warning">⚠️ Aliases will only persist once a Data Folder is set.</span>
         {/if}
       </p>
-      
-      {#if $logseqConnected && Object.keys($bookAliases).length > 0}
-        <button 
-          class="btn-sync" 
-          on:click={syncAllAliasesToLogSeq}
-          disabled={isSyncing}
-        >
-          {#if isSyncing}
-            <span class="spinner-small"></span>
-            Syncing...
-          {:else}
-            🔄 Sync All to LogSeq
-          {/if}
-        </button>
-      {/if}
     </div>
     
     <div class="alias-list">

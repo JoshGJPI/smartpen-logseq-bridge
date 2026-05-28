@@ -4,7 +4,7 @@
  */
 import { writable, derived, get } from 'svelte/store';
 import { strokes } from './strokes.js';
-import { storageStatus } from './storage.js';
+import { storageStatus, markUnsavedChanges } from './storage.js';
 import { logseqPages } from './logseqPages.js';
 import { convertToStorageFormat, deduplicateStrokes, generateStrokeId } from '../lib/stroke-storage.js';
 
@@ -24,12 +24,13 @@ const MAX_UNDO_HISTORY = 20;
  */
 export function markStrokesDeleted(indices) {
   if (!indices || indices.length === 0) return;
-  
+
   deletedIndices.update(deleted => {
     const newDeleted = new Set(deleted);
     indices.forEach(i => newDeleted.add(i));
     return newDeleted;
   });
+  markUnsavedChanges();
   
   // Add to undo history
   deletionHistory.update(history => {

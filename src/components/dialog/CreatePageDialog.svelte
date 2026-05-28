@@ -5,15 +5,13 @@
   import { pastedStrokes, pastedSelection, getPastedAsNewPage, clearPastedStrokes } from '$stores';
   import { addOfflineStrokes } from '$stores';
   import { log } from '$stores';
-  import { logseqHost, logseqToken, logseqConnected } from '$stores/settings.js';
+  import { dataFolderReady } from '$stores/settings.js';
   import { logseqPages } from '$stores';
-  import { updatePageStrokes, getPageStrokes } from '$lib/logseq-api.js';
-  
+  // v2.0 folder-backed save
+  import { getPage } from '$lib/storage/local-store.js';
+  import { savePageToFolder } from '$lib/storage/save-page.js';
+
   export let isOpen = false;
-  
-  // LogSeq settings from stores
-  $: host = $logseqHost;
-  $: token = $logseqToken;
   
   let bookNumber = '';
   let pageNumber = '';
@@ -64,7 +62,7 @@
   $: selectedCount = $pastedSelection.size;
   $: strokeCount = selectedCount > 0 ? selectedCount : $pastedStrokes.length;
   $: hasSelection = selectedCount > 0;
-  $: canSave = bookNumber && pageNumber && strokeCount > 0 && !isSaving && $logseqConnected;
+  $: canSave = bookNumber && pageNumber && strokeCount > 0 && !isSaving && $dataFolderReady;
   
   function close() {
     if (isSaving) return; // Don't close while saving
@@ -131,8 +129,9 @@
       let strokesToAddToLocalStore = newStrokes;
       
       if (mode === 'append') {
-        // Get existing strokes and convert them back to full format
-        const existingData = await getPageStrokes(book, page, host, token);
+        // Get existing PageDoc from the folder
+        const existingDoc = await getPage(book, page);
+        const existingData = existingDoc ? { strokes: existingDoc.strokes, pageInfo: existingDoc.pageInfo } : null;
         if (existingData && existingData.strokes && existingData.strokes.length > 0) {
           console.log('📎 Appending to', existingData.strokes.length, 'existing strokes');
           
@@ -187,13 +186,19 @@
         }
       }
       
-      // Save to LogSeq
-      const result = await updatePageStrokes(book, page, strokesToSaveToLogSeq, host, token);
-      
+      // Save to local folder
+      const result = await savePageToFolder({
+        book,
+        page,
+        activeStrokes: strokesToSaveToLogSeq,
+        deletedStrokeIds: new Set(),
+        pageTranscription: null
+      });
+
       if (!result.success) {
         throw new Error(result.error || 'Failed to save strokes');
       }
-      
+
       log(`${mode === 'append' ? 'Appended to' : 'Created'} page B${book}/P${page} with ${newStrokes.length} strokes`, 'success');
       
       // Add only the NEW strokes to main strokes store so they appear on canvas
@@ -243,7 +248,7 @@
       </div>
       
       <div class="dialog-content">
-        {#if !$logseqConnected}
+        {#if !$dataFolderReady}
           <div class="warning">
             <strong>⚠️ LogSeq Not Connected</strong>
             <p>Please connect to LogSeq in Settings before saving duplicated strokes.</p>

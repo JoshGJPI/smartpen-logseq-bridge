@@ -1,6 +1,6 @@
 {
   "name": "smartpen-logseq-bridge",
-  "version": "2.0.0-alpha.1",
+  "version": "2.0.0",
   "description": "Desktop application for capturing NeoSmartpen strokes into a local JSON folder",
   "type": "module",
   "main": "electron/main.cjs",

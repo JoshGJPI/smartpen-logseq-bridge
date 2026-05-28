@@ -13,19 +13,17 @@
     clearPageTranscription,
     updatePageTranscriptionLines,
     log,
-    logseqConnected,
-    getLogseqSettings,
     pageTranscriptionCount,
     clearStrokeBlockUuids,
     getActiveStrokesForPageFromStore
   } from '$stores';
   import { bookAliases } from '$stores';
-  import { sendToLogseq, getTranscriptLines, mergeExistingAndNewLines, updateTranscriptBlocksFromEditor } from '$lib/logseq-api.js';
+  // v2.0: folder-backed transcript edits
+  import { getPage } from '$lib/storage/local-store.js';
   import { formatBookName, filterTranscriptionProperties } from '$utils/formatting.js';
-  
-  import LogseqPreview from './LogseqPreview.svelte';
+
   import TranscriptionEditorModal from '$components/dialog/TranscriptionEditorModal.svelte';
-  
+
   let isSending = false;
   // Track which pages are expanded - using object for better reactivity
   let expandedPages = {};
@@ -46,64 +44,6 @@
       deselectAllPages();
     } else {
       selectAllPages();
-    }
-  }
-  
-  // Send selected pages to LogSeq
-  async function handleSendToLogseq() {
-    if (!$hasPageTranscriptions) {
-      log('No transcriptions to send. Transcribe strokes first.', 'warning');
-      return;
-    }
-    
-    if ($selectedPagesForImport.size === 0) {
-      log('No pages selected for import. Check the boxes next to pages you want to import.', 'warning');
-      return;
-    }
-    
-    isSending = true;
-    log(`Sending ${$selectedPagesForImport.size} page(s) to LogSeq...`, 'info');
-    
-    try {
-      const { host, token } = getLogseqSettings();
-      let successCount = 0;
-      let errorCount = 0;
-      
-      // Send each selected page
-      for (const pageData of $pageTranscriptionsArray) {
-        if (!$selectedPagesForImport.has(pageData.pageKey)) {
-          continue; // Skip unselected pages
-        }
-        
-        const { book, page } = pageData.pageInfo;
-        
-        try {
-          const result = await sendToLogseq(pageData.lines, host, token);
-          
-          if (result.success) {
-            log(`✓ Sent Book ${book}/Page ${page}: ${result.blockCount} blocks`, 'success');
-            successCount++;
-          } else {
-            log(`✗ Failed Book ${book}/Page ${page}: ${result.error}`, 'error');
-            errorCount++;
-          }
-        } catch (error) {
-          log(`✗ Error sending Book ${book}/Page ${page}: ${error.message}`, 'error');
-          errorCount++;
-        }
-      }
-      
-      // Summary
-      if (successCount > 0) {
-        log(`Import complete: ${successCount} page(s) sent successfully`, 'success');
-      }
-      if (errorCount > 0) {
-        log(`${errorCount} page(s) failed to import`, 'error');
-      }
-    } catch (error) {
-      log(`Send error: ${error.message}`, 'error');
-    } finally {
-      isSending = false;
     }
   }
   
@@ -129,34 +69,49 @@
 
   async function handleEditStructure(pageData) {
     isLoadingEditor = true;
-
-    const { host, token } = getLogseqSettings();
     let existingLines = [];
 
-    // Fetch existing transcript blocks from LogSeq if connected
-    if (host && $logseqConnected) {
-      try {
-        existingLines = await getTranscriptLines(
-          pageData.pageInfo.book,
-          pageData.pageInfo.page,
-          host,
-          token
-        );
-        if (existingLines.length > 0) {
-          log(`Loaded ${existingLines.length} existing transcript block(s) from LogSeq`, 'info');
-        }
-      } catch (e) {
-        log(`Could not fetch existing transcription: ${e.message}`, 'warning');
-        existingLines = [];
+    // v2.0: pull existing transcript from the page's PageDoc on disk
+    try {
+      const doc = await getPage(pageData.pageInfo.book, pageData.pageInfo.page);
+      if (doc?.transcript?.lines?.length) {
+        existingLines = doc.transcript.lines.map(l => ({
+          text: l.text || '',
+          canonical: (l.text || '').trim().toLowerCase(),
+          yBounds: l.yBounds || { minY: 0, maxY: 0 },
+          indentLevel: l.indentLevel || 0,
+          blockUuid: l.id,
+          syncStatus: 'synced'
+        }));
+        log(`Loaded ${existingLines.length} existing transcript line(s) from folder`, 'info');
       }
+    } catch (e) {
+      log(`Could not load existing transcription: ${e.message}`, 'warning');
     }
 
-    // Merge existing LogSeq blocks with new MyScript lines (deduplicated)
+    // Merge existing lines with new MyScript lines (text + Y-overlap dedupe)
     const mergedLines = mergeExistingAndNewLines(existingLines, pageData.lines || []);
 
     editingPageData = { ...pageData, mergedLines };
     isLoadingEditor = false;
     showEditorModal = true;
+  }
+
+  /** Local merge — keeps the editor's existing line/new line model intact. */
+  function mergeExistingAndNewLines(existing, fresh) {
+    if (!existing || existing.length === 0) return (fresh || []).map(l => ({ ...l, syncStatus: 'new' }));
+    const out = [...existing];
+    for (const newLine of fresh || []) {
+      const newText = (newLine.text || '').trim().toLowerCase();
+      const dup = existing.some(e => {
+        if ((e.canonical || '') !== newText) return false;
+        const eY = e.yBounds, nY = newLine.yBounds;
+        if (!eY || !nY) return false;
+        return !(eY.maxY + 3 < nY.minY || nY.maxY + 3 < eY.minY);
+      });
+      if (!dup) out.push({ ...newLine, syncStatus: 'new' });
+    }
+    return out;
   }
   
   // Handle editor modal save
@@ -226,28 +181,10 @@
         </button>
       </div>
       
-      <button 
-        class="btn btn-success send-btn"
-        on:click={handleSendToLogseq}
-        disabled={isSending || !$logseqConnected || $selectedPagesForImport.size === 0}
-        title="Send selected pages to LogSeq journal"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="12" y1="5" x2="12" y2="19"/>
-          <polyline points="19 12 12 19 5 12"/>
-        </svg>
-        {#if isSending}
-          Sending...
-        {:else if $selectedPagesForImport.size === 0}
-          Select Pages to Send
-        {:else}
-          Send {$selectedPagesForImport.size} Page{$selectedPagesForImport.size !== 1 ? 's' : ''} to Journal
-        {/if}
-      </button>
-      
-      {#if !$logseqConnected}
-        <p class="hint">Configure LogSeq connection in Settings</p>
-      {/if}
+      <p class="hint">
+        Use the main <strong>Save</strong> button in the header to write transcriptions
+        and strokes to your data folder.
+      </p>
     </div>
     
     <!-- Page List -->
@@ -364,14 +301,6 @@
                 <h4>Transcribed Text</h4>
                 <pre class="text-output">{filterTranscriptionProperties(pageData.text) || 'No text'}</pre>
               </div>
-              
-              <!-- LogSeq Preview -->
-              {#if pageData.lines && pageData.lines.length > 0}
-                <div class="detail-section">
-                  <h4>LogSeq Preview</h4>
-                  <LogseqPreview lines={pageData.lines} />
-                </div>
-              {/if}
               
               <!-- Commands (if any) -->
               {#if pageData.commands && pageData.commands.length > 0}

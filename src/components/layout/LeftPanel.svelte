@@ -25,7 +25,7 @@
   const explorerTabs = [
     { id: 'strokes', label: 'Strokes' },
     { id: 'transcription', label: 'Transcription' },
-    { id: 'logseq-db', label: 'LogSeq DB' },
+    { id: 'logseq-db', label: 'Saved Pages' },
     { id: 'raw', label: 'Raw JSON' }
   ];
 </script>

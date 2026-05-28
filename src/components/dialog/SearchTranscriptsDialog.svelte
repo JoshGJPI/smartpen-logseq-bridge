@@ -5,7 +5,7 @@
   import { onMount } from 'svelte';
   import { logseqPages } from '$stores';
   import { showSearchTranscriptsDialog, closeSearchTranscriptsDialog, log } from '$stores';
-  import { importStrokesFromLogSeq } from '$lib/logseq-import.js';
+  import { importStrokesFromFolder as importStrokesFromLogSeq } from '$lib/storage/load-page.js';
   import { searchPages } from '$lib/transcript-search.js';
   import TranscriptSearchResult from './TranscriptSearchResult.svelte';
   

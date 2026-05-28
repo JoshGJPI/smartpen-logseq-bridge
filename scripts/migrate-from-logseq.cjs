@@ -306,6 +306,24 @@ async function writeFileAtomic(filePath, contents) {
   await fsp.rename(tmp, filePath);
 }
 
+/**
+ * Hybrid PageDoc serializer — keeps the doc shell pretty-printed but inlines
+ * each stroke onto a single line. ~60% smaller than full pretty-print while
+ * preserving per-stroke git diffs.
+ */
+function serializePageDoc(doc) {
+  const { strokes, ...shell } = doc || {};
+  const shellPretty = JSON.stringify(shell, null, 2);
+  const closingBrace = shellPretty.lastIndexOf('}');
+  const head = shellPretty.slice(0, closingBrace).trimEnd();
+  const headWithComma = head.endsWith(',') ? head : head + ',';
+  const strokeLines = (strokes || []).map(s => '    ' + JSON.stringify(s));
+  const strokesBlock = strokeLines.length === 0
+    ? '  "strokes": []'
+    : '  "strokes": [\n' + strokeLines.join(',\n') + '\n  ]';
+  return headWithComma + '\n' + strokesBlock + '\n}\n';
+}
+
 // ---------------------------------------------------------------------------
 // Per-file migration
 // ---------------------------------------------------------------------------
@@ -324,6 +342,19 @@ async function migrateOne(srcPath, outRoot) {
 
   const transcriptLines = flattenTranscriptTree(transcriptRoot);
   const { strokes, pageInfo: strokesPageInfo, bounds } = extractStrokes(strokesRoot);
+
+  // Scrub dangling lineId references — strokes whose blockUuid in v1 pointed
+  // to a transcript block that no longer exists. Pre-existing v1 corruption,
+  // common on pages where the user deleted the transcript without clearing
+  // stroke associations.
+  const lineIdSet = new Set(transcriptLines.map(l => l.id));
+  let scrubbed = 0;
+  for (const s of strokes) {
+    if (s.lineId && !lineIdSet.has(s.lineId)) {
+      s.lineId = null;
+      scrubbed++;
+    }
+  }
 
   // Build pageInfo with the most reliable source for each field
   const pageInfo = {
@@ -349,7 +380,7 @@ async function migrateOne(srcPath, outRoot) {
   };
 
   const outPath = path.join(outRoot, 'pages', `B${ids.book}`, `P${ids.page}.json`);
-  await writeFileAtomic(outPath, JSON.stringify(doc, null, 2));
+  await writeFileAtomic(outPath, serializePageDoc(doc));
 
   return {
     skipped: false,
@@ -357,6 +388,7 @@ async function migrateOne(srcPath, outRoot) {
     page: ids.page,
     strokeCount: strokes.length,
     lineCount: transcriptLines.length,
+    scrubbed,
     outPath
   };
 }
@@ -388,7 +420,7 @@ async function main() {
   console.log();
 
   let ok = 0, skipped = 0, failed = 0;
-  let totalStrokes = 0, totalLines = 0;
+  let totalStrokes = 0, totalLines = 0, totalScrubbed = 0;
 
   for (const file of mdFiles) {
     try {
@@ -398,10 +430,12 @@ async function main() {
         skipped++;
         continue;
       }
-      console.log(`OK    B${result.book}/P${result.page}  strokes=${result.strokeCount}  lines=${result.lineCount}`);
+      const scrubNote = result.scrubbed ? `  (scrubbed ${result.scrubbed} dangling lineIds)` : '';
+      console.log(`OK    B${result.book}/P${result.page}  strokes=${result.strokeCount}  lines=${result.lineCount}${scrubNote}`);
       ok++;
       totalStrokes += result.strokeCount;
       totalLines += result.lineCount;
+      totalScrubbed += result.scrubbed || 0;
     } catch (err) {
       console.error(`FAIL  ${path.basename(file)}: ${err.message}`);
       failed++;
@@ -415,6 +449,7 @@ async function main() {
   console.log(`  Failed:     ${failed}`);
   console.log(`  Strokes:    ${totalStrokes}`);
   console.log(`  Lines:      ${totalLines}`);
+  if (totalScrubbed) console.log(`  Scrubbed:   ${totalScrubbed} dangling lineId reference(s)`);
 }
 
 main().catch(err => {

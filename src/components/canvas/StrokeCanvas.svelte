@@ -19,7 +19,7 @@
   import { formatBookName, filterTranscriptionProperties } from '$utils/formatting.js';
   import { openSearchTranscriptsDialog, openSvgExportDialog } from '$stores';
   import { hasSelection, getSelectedBounds } from '$stores/selection.js';
-  import { logseqConnected } from '$stores';
+  import { dataFolderReady } from '$stores/settings.js';
   import { copyStrokesAsExcalidraw, generateSketchMacro } from '$lib/excalidraw-export.js';
   import { buildJsonExportData, buildMdExportData } from '$lib/stroke-storage.js';
   import CanvasControls from './CanvasControls.svelte';
@@ -1163,7 +1163,7 @@
   }
   
   // Check if search is available
-  $: canSearch = $logseqConnected && $logseqPages.some(p => p.transcriptionText);
+  $: canSearch = $dataFolderReady && $logseqPages.some(p => p.transcriptionText);
   
   // Toggle text view - check for data when clicked
   function handleTextViewToggle() {

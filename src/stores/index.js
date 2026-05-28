@@ -90,14 +90,8 @@ export {
 export {
   myscriptAppKey,
   myscriptHmacKey,
-  logseqHost,
-  logseqToken,
-  logseqConnected,
-  logseqStatusText,
   hasMyScriptCredentials,
-  setLogseqStatus,
   getMyScriptCredentials,
-  getLogseqSettings,
   // v2.0 local-folder storage
   dataRoot,
   dataFolderReady,
@@ -139,7 +133,11 @@ export {
   recordSuccessfulSave,
   recordStorageError,
   clearStorageStatus,
-  isPageSaved
+  isPageSaved,
+  // v2.0 unsaved-changes indicator
+  unsavedChanges,
+  markUnsavedChanges,
+  clearUnsavedChanges
 } from './storage.js';
 
 // Filtered Strokes

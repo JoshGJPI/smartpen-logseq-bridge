@@ -2,28 +2,22 @@
   SettingsDropdown.svelte - Settings panel dropdown for header
 -->
 <script>
-  import { 
-    myscriptAppKey, 
-    myscriptHmacKey, 
-    logseqHost, 
-    logseqToken,
+  import {
+    myscriptAppKey,
+    myscriptHmacKey,
     hasMyScriptCredentials,
-    logseqConnected,
-    setLogseqStatus,
     log,
-    getMyScriptCredentials,
-    getLogseqSettings
+    getMyScriptCredentials
   } from '$stores';
   import { testMyScriptCredentials } from '$lib/myscript-api.js';
-  import { testLogseqConnection } from '$lib/logseq-api.js';
   import BookAliasManager from '../settings/BookAliasManager.svelte';
+  import DataFolderSettings from '../settings/DataFolderSettings.svelte';
   import PenMemoryDialog from '../dialog/PenMemoryDialog.svelte';
   import { penConnected } from '$stores/pen.js';
-  
+
   let isOpen = false;
   let showKeys = false;
   let isTesting = false;
-  let isTestingLogseq = false;
   let showPenMemoryDialog = false;
   
   function toggleDropdown() {
@@ -54,28 +48,6 @@
       log(`MyScript test error: ${error.message}`, 'error');
     } finally {
       isTesting = false;
-    }
-  }
-  
-  async function handleTestLogseq() {
-    isTestingLogseq = true;
-    
-    try {
-      const { host, token } = getLogseqSettings();
-      const result = await testLogseqConnection(host, token);
-      
-      if (result.success) {
-        setLogseqStatus(true, `LogSeq: ${result.graphName || 'Connected'}`);
-        log(`Connected to LogSeq graph: ${result.graphName}`, 'success');
-      } else {
-        setLogseqStatus(false, 'LogSeq: Failed');
-        log(`LogSeq connection failed: ${result.error}`, 'error');
-      }
-    } catch (error) {
-      setLogseqStatus(false, 'LogSeq: Error');
-      log(`LogSeq test error: ${error.message}`, 'error');
-    } finally {
-      isTestingLogseq = false;
     }
   }
   
@@ -186,37 +158,10 @@
         </p>
       </section>
       
-      <!-- LogSeq Settings -->
+      <!-- v2.0: Data Folder (local JSON storage) -->
       <section class="settings-section">
-        <h4>LogSeq Configuration</h4>
-        
-        <div class="input-group">
-          <label for="logseqHost">API Host</label>
-          <input 
-            type="text"
-            id="logseqHost"
-            bind:value={$logseqHost}
-            placeholder="http://127.0.0.1:12315"
-          />
-        </div>
-        
-        <div class="input-group">
-          <label for="logseqToken">API Token (optional)</label>
-          <input 
-            type="password"
-            id="logseqToken"
-            bind:value={$logseqToken}
-            placeholder="Optional"
-          />
-        </div>
-        
-        <button 
-          class="btn btn-secondary" 
-          on:click={handleTestLogseq}
-          disabled={isTestingLogseq}
-        >
-          {isTestingLogseq ? 'Testing...' : '🔗 Test LogSeq Connection'}
-        </button>
+        <h4>Data Folder</h4>
+        <DataFolderSettings />
       </section>
       
       <!-- Book Aliases -->
@@ -348,6 +293,25 @@
     font-weight: 600;
     margin-bottom: 15px;
     color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .badge-new, .badge-legacy {
+    font-size: 0.65rem;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 500;
+    letter-spacing: 0.03em;
+  }
+  .badge-new {
+    background: rgba(74, 222, 128, 0.18);
+    color: #4ade80;
+  }
+  .badge-legacy {
+    background: rgba(160, 160, 160, 0.18);
+    color: #a0a0a0;
   }
 
   .input-group {
