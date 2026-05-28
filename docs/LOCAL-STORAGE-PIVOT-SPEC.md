@@ -1,10 +1,9 @@
 # Local Storage Pivot — v2.0 Spec
 
-**Status:** Approved, in implementation
-**Target version:** 2.0.0 (foundation) → 2.0.x (fine-tuning)
-**Date:** 2026-05-28
+**Status:** ✅ Shipped in v2.0.0 (2026-05-28). Document retained as architectural reference.
+**Version:** 2.0.0+
 
-This document describes the v2.0 architectural pivot: replacing LogSeq as the storage layer with plain JSON files in a user-chosen local folder.
+This document describes the v2.0 architectural pivot: LogSeq has been replaced as the storage layer with plain JSON files in a user-chosen local folder.
 
 ---
 
@@ -191,9 +190,7 @@ export const dataRoot = createPersistedStore('dataRoot', '');     // absolute pa
 export const dataFolderReady = writable(false);                    // updated at boot
 ```
 
-Removed (v2.0.x): `logseqHost`, `logseqToken`, `logseqConnected`, `logseqStatusText`, `getLogseqSettings`, `setLogseqStatus`.
-
-During the transition (Phases 2–3), both sets of settings coexist so the LogSeq save path remains available as a fallback.
+Removed in v2.0.0: `logseqHost`, `logseqToken`, `logseqConnected`, `logseqStatusText`, `getLogseqSettings`, `setLogseqStatus`.
 
 ---
 
@@ -201,27 +198,37 @@ During the transition (Phases 2–3), both sets of settings coexist so the LogSe
 
 **No visible change** to: canvas, pen controls, transcription editor modal, page-card layout, save-confirm dialog, activity log, search dialog.
 
-**Visible changes:**
-- Settings dropdown loses LogSeq Host / Token fields, gains a **Data Folder** field with a Browse button and an Open-in-Explorer button.
-- Header status pill changes from `LogSeq: Connected` to `Folder: stroke-data` (showing the basename of `dataRoot`).
-- The "Data Explorer" tab (renamed from "LogSeq Database") still shows book accordions with page cards, but data comes from `listPages()`.
-- "Save to LogSeq" button reads "Save to Folder".
-- **Unsaved-changes indicator** in the header (new): a small dot or label next to the save button when the canvas has changes that haven't been flushed to disk. Window-close hook prompts confirmation if unsaved changes exist. (User request #5.)
+**Visible changes shipped in v2.0:**
+- Settings dropdown: LogSeq Host / Token fields removed; added **Data Folder** field with Browse, Verify, and Open-in-Explorer buttons.
+- Header status pill: `LogSeq: Connected` → `Folder: stroke-data` (showing the basename of `dataRoot`).
+- Tab renamed: "LogSeq DB" → "Saved Pages". Same layout (book accordions with page cards), data sourced from `listPages()`.
+- Save button: "Save to LogSeq" → context-aware label — "Save Changes" when there are pending changes, "Save (Strokes + Text)" when a transcription is queued, "Save (Strokes)" otherwise. Hover title: "Save strokes and transcription to the data folder."
+- **Unsaved-changes indicator:** amber dot pulses next to the Save button when the canvas has changes that haven't been flushed to disk. Window-close hook prompts confirmation when dirty.
 
 ---
 
 ## 7. Migration
 
-A one-shot importer reads existing `jpi/*.md` files and writes the new `pages/B###/P##.json` shape.
+A one-shot importer reads existing LogSeq-exported `.md` files and writes the new `pages/B###/P##.json` shape.
 
-### Entry points
+### Entry point
 
-- **CLI:** `node scripts/migrate-from-logseq.cjs <jpi-folder> <output-folder>`
-- **In-app:** "File → Migrate from LogSeq export…" menu item runs the same code path via IPC.
+```
+node scripts/migrate-from-logseq.cjs <input-md-folder> <output-data-root>
+```
+
+Example:
+```
+node scripts/migrate-from-logseq.cjs \
+  "C:\Users\joshg\Documents\stroke-data\jpi" \
+  "C:\Users\joshg\Documents\stroke-data"
+```
+
+The script walks `<input-md-folder>` non-recursively, picks up every file matching `Smartpen Data___B{book}___P{page}[suffix].md`, and writes `<output-data-root>/pages/B{book}/P{page}[suffix].json`. Run it multiple times against different source folders to consolidate (e.g. one pass for `jpi/`, one for `raw/`, one for `raw/archive/`).
 
 ### Algorithm
 
-For each `Smartpen Data___B{book}___P{page}.md`:
+For each matching `.md` file:
 
 1. Extract page properties at the top of the file (`book::`, `page::`, `section::`, `owner::`).
 2. Parse the `## Transcribed Content` outliner subtree:
@@ -229,26 +236,44 @@ For each `Smartpen Data___B{book}___P{page}.md`:
    - `id::` property → `lineId`.
    - `stroke-y-bounds:: {min}-{max}` → `yBounds`.
    - TODO/DONE prefix → `checked: true/false`.
-   - Parent linkage from tab depth.
+   - Parent linkage by tab depth.
 3. Parse the `## Raw Stroke Data` subtree:
    - First child block contains metadata JSON.
-   - Subsequent child blocks contain stroke chunks.
+   - Subsequent child blocks contain stroke chunks (each a v1 LogSeq chunked-storage block).
    - Concatenate `strokes[]` from all chunks.
-4. Write `pages/B{book}/P{page}.json` in the new shape, **preserving all existing IDs** so nothing has to be re-transcribed.
-5. Write `pages/_aliases.json` from any LogSeq book-alias info found.
+4. Scrub dangling `lineId` references — strokes whose v1 `blockUuid` pointed to a transcript block that no longer exists in the source file (pre-existing v1 corruption from users deleting transcripts without clearing stroke associations).
+5. Write `pages/B{book}/P{page}[suffix].json` using the hybrid pretty/compact serializer. **Preserves all existing line IDs** so previously transcribed content stays transcribed.
 
-The importer is idempotent and non-destructive: it never deletes the source `jpi/*.md` files.
+The importer is **idempotent** (re-runs overwrite cleanly) and **non-destructive** (source `.md` files are never modified or deleted).
+
+### Letter-suffixed pages
+
+User-created variants like `Smartpen Data___B390___P151b.md` are preserved as `pages/B390/P151b.json`. The integer `pageInfo.page` matches the actual NCode page number from inside the file; the filename suffix is the user's identifier and is honored by both the migrator and the Electron file scanner.
+
+### Aliases
+
+The importer does **not** migrate LogSeq book aliases (those lived as page properties on separate LogSeq pages, not in the `Smartpen Data___*.md` files). Re-enter aliases once in Settings → Book Aliases; they're then persisted to `<dataRoot>/pages/_aliases.json` and survive future runs.
+
+### Migration receipts (real run, 2026-05-28)
+
+The user's actual migration:
+- `jpi/` → 69 pages, 73,264 strokes, 1,318 transcript lines
+- `raw/` → 5 pages (incl. P151b, P151c, P152b suffixes), 1,951 strokes
+- `raw/archive/` → 79 pages, 68,348 strokes, 48 transcript lines
+- **Total: 154 pages, 145,289 strokes, 1,366 transcript lines, 80 MB on disk**
 
 ---
 
-## 8. Implementation Phases
+## 8. Implementation Phases (all complete)
 
-| Phase | Scope | Risk | Version |
-|-------|-------|------|---------|
-| **1 — Foundation** | PageDoc schema, `local-store.js` + Electron impl, IPC handlers, settings, migration importer. LogSeq save still default. | Low — read-only path, no destructive changes | 2.0.0-alpha |
-| **2 — Write path** | `savePage` wired up. "Save to Folder (beta)" alongside LogSeq save. Both run on every save; outputs compared in dev. | Medium — only risk is the writer; mitigated by atomic write + parallel save | 2.0.0-beta |
-| **3 — Default switch** | ActionBar, Data Explorer, transcript-updater point at file store. LogSeq save behind a "Legacy" toggle. Unsaved-changes indicator wired up. | Medium — UI rewire | 2.0.0 |
-| **4 — Cleanup** | Delete `logseq-api.js`, `logseq-scanner.js`, `logseq-import.js`, LogSeq stores, LogSeq settings UI. Rename `components/logseq-db/` → `components/data-explorer/`. Test pass. | Low — pure deletion once Phase 3 is stable | 2.0.1+ |
+| Phase | Scope | Status |
+|-------|-------|--------|
+| **1 — Foundation** | PageDoc schema, `local-store.js` + Electron impl, IPC handlers, settings, migration importer. | ✅ Shipped |
+| **2 — Write path** | `savePage` wired up alongside LogSeq save for parallel verification. | ✅ Shipped |
+| **3 — Default switch** | ActionBar, Data Explorer, transcript-updater point at file store. Unsaved-changes indicator wired up. | ✅ Shipped |
+| **4 — Cleanup** | Deleted `logseq-api.js`, `logseq-scanner.js`, `logseq-import.js`, `transcript-updater.js`, LogSeq stores, LogSeq settings UI. Tests rewritten. | ✅ Shipped |
+
+All four phases shipped in v2.0.0 (2026-05-28). The `components/logseq-db/` folder was *not* renamed (low value churn); the tab it renders is now labeled "Saved Pages".
 
 ---
 
@@ -257,39 +282,45 @@ The importer is idempotent and non-destructive: it never deletes the source `jpi
 - `src/lib/logseq-api.js`
 - `src/lib/logseq-scanner.js`
 - `src/lib/logseq-import.js`
-- `src/stores/logseqPages.js`
-- `src/components/settings/LogseqSettings.svelte`
-- `src/components/logseq-db/` (renamed, not deleted — same UI repurposed)
-- `src/lib/__tests__/logseq-api.test.js` (replaced by `local-store.test.js`)
+- `src/stores/logseqPages.js` — **kept** under the old name (semantically a "saved pages index"; rename was low-value churn)
+- `src/components/logseq-db/` — **kept** under the old name; the rendered tab is now labeled "Saved Pages"
+- `src/components/settings/LogseqSettings.svelte` — deleted
+- `src/components/transcription/LogseqPreview.svelte` — deleted
+- `src/lib/__tests__/logseq-api.test.js`, `transcript-updater.test.js` — deleted
 
-Trimmed (chunked-storage helpers removed):
-- `src/lib/stroke-storage.js` — `splitStrokesIntoChunks`, `buildChunkedStorageObjects`, `parseChunkedJsonBlocks`, `parseJsonBlock`, `formatJsonBlock`.
+Trimmed: `src/lib/stroke-storage.js` dropped `splitStrokesIntoChunks`, `buildChunkedStorageObjects`, `parseChunkedJsonBlocks`, `parseJsonBlock`, `formatJsonBlock`, `buildPageStorageObject`.
 
-Trimmed (block CRUD removed, in-memory mutation kept):
-- `src/lib/transcript-updater.js` — drops `getTranscriptBlocks`, `createTranscriptBlockWithProperties`, `updateTranscriptBlockWithPreservation`. Keeps `mergeExistingAndNewLines`, Y-bounds matching.
+The transcript-merge logic (Y-bounds overlap, checkbox preservation, duplicate-line gating) was ported from the deleted `transcript-updater.js` into `src/lib/storage/save-page.js`.
 
 ---
 
 ## 10. Out of Scope for v2.0
 
-- Web-build file-system support (FSA API). Electron only for now.
+- Web-build file-system support (FSA API). Electron only.
 - Multi-root or workspace concept. Single data root.
-- Sync / conflict resolution across machines. The user is responsible for syncing the folder (Dropbox, git, etc.).
-- Live file-watching (auto-refresh when an external tool edits a `.json`). Listed as a future enhancement.
+- Sync / conflict resolution across machines. User syncs the folder externally (Dropbox, git, etc.).
+- Live file-watching (auto-refresh when an external tool edits a `.json`). Future enhancement.
 - Auto-versioning / backups. Out of scope; user owns version control.
+- Renaming `components/logseq-db/` and `stores/logseqPages.js`. Cosmetic; no value churn.
 
 ---
 
-## 11. Open Items (Tracked Separately)
+## 11. Hybrid Serializer Detail
 
-- [ ] Decide what to do with existing `raw/` folder during migration (deprecate? leave?). Leaning toward leaving in place untouched — no migration action.
-- [ ] Decide whether to move existing `processed/` and `reference/` under `exports/`. Leaning toward: do this in a separate one-shot script the user can opt into; not part of the automatic migration.
-- [ ] Final unsaved-changes indicator design (dot vs. label vs. button color change).
+A pure pretty-printed PageDoc inflates dramatically: with `JSON.stringify(doc, null, 2)`, every point of every stroke spans 5 lines (`[`, `x`, `y`, `ts`, `]`). For a 1,700-stroke page that's ~140k lines of indent whitespace — ~60% of the file is structural noise.
+
+`src/lib/storage/page-doc-format.js` exports `serializePageDoc(doc)` which:
+- Pretty-prints the document shell (`version`, `pageInfo`, `metadata`, `transcript`)
+- Inlines each entry in `strokes[]` as a single line
+
+Result: structure remains scannable, per-stroke diffs still work, file size is ~40% of full-pretty. Both the migration script and the Electron IPC writer (`writePageDoc` in `electron/main.cjs`) use this serializer.
+
+Measured: largest B3017 page went 2479 KB (full pretty) → 986 KB (hybrid).
 
 ---
 
 ## 12. Reference
 
-- v1 architecture: [docs/QUICK-ARCHITECTURE-REFERENCE.md](QUICK-ARCHITECTURE-REFERENCE.md)
-- v1 storage spec: [docs/TRANSCRIPT-STORAGE-SPEC.md](TRANSCRIPT-STORAGE-SPEC.md)
-- CLAUDE.md notes for AI assistants — to be updated alongside Phase 3.
+- v1 architecture: [docs/QUICK-ARCHITECTURE-REFERENCE.md](QUICK-ARCHITECTURE-REFERENCE.md) (canvas/pen still apply; storage details are v1)
+- v1 storage spec: [docs/TRANSCRIPT-STORAGE-SPEC.md](TRANSCRIPT-STORAGE-SPEC.md) (historical)
+- CLAUDE.md — updated for v2.0 (start there for AI-assisted work)

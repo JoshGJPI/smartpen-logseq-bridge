@@ -277,9 +277,17 @@ function extractStrokes(strokeRootNode) {
 
 function parseFilename(filename) {
   // "Smartpen Data___B3017___P42.md"
-  const m = filename.match(/^Smartpen Data___B(\d+)___P(\d+)\.md$/i);
+  // Also accept letter-suffixed pages from manual user workflows:
+  // "Smartpen Data___B390___P151b.md", "Smartpen Data___B390___P127a.md"
+  const m = filename.match(/^Smartpen Data___B(\d+)___P(\d+)([a-zA-Z]?)\.md$/i);
   if (!m) return null;
-  return { book: parseInt(m[1], 10), page: parseInt(m[2], 10) };
+  return {
+    book: parseInt(m[1], 10),
+    page: parseInt(m[2], 10),
+    suffix: m[3] || '',
+    // Filename identifier used for the output .json (preserves user's suffix)
+    pageId: `${m[2]}${m[3] || ''}`
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -379,13 +387,16 @@ async function migrateOne(srcPath, outRoot) {
     strokes
   };
 
-  const outPath = path.join(outRoot, 'pages', `B${ids.book}`, `P${ids.page}.json`);
+  // Preserve filename suffix (e.g. P151b) when writing the output file, so
+  // user-suffixed pages don't collide with their unsuffixed counterparts.
+  const outPath = path.join(outRoot, 'pages', `B${ids.book}`, `P${ids.pageId}.json`);
   await writeFileAtomic(outPath, serializePageDoc(doc));
 
   return {
     skipped: false,
     book: ids.book,
     page: ids.page,
+    pageId: ids.pageId,
     strokeCount: strokes.length,
     lineCount: transcriptLines.length,
     scrubbed,
@@ -413,7 +424,7 @@ async function main() {
 
   const entries = await fsp.readdir(absIn, { withFileTypes: true });
   const mdFiles = entries
-    .filter(e => e.isFile() && /^Smartpen Data___B\d+___P\d+\.md$/i.test(e.name))
+    .filter(e => e.isFile() && /^Smartpen Data___B\d+___P\d+[a-zA-Z]?\.md$/i.test(e.name))
     .map(e => path.join(absIn, e.name));
 
   console.log(`Found ${mdFiles.length} candidate file(s).`);
@@ -431,7 +442,7 @@ async function main() {
         continue;
       }
       const scrubNote = result.scrubbed ? `  (scrubbed ${result.scrubbed} dangling lineIds)` : '';
-      console.log(`OK    B${result.book}/P${result.page}  strokes=${result.strokeCount}  lines=${result.lineCount}${scrubNote}`);
+      console.log(`OK    B${result.book}/P${result.pageId}  strokes=${result.strokeCount}  lines=${result.lineCount}${scrubNote}`);
       ok++;
       totalStrokes += result.strokeCount;
       totalLines += result.lineCount;

@@ -258,9 +258,12 @@ async function listAllPages(root) {
 
     for (const pf of pageFiles) {
       if (!pf.isFile()) continue;
-      const pm = pf.name.match(/^P(\d+)\.json$/);
+      // Accept "P42.json" and letter-suffixed forms like "P151b.json"
+      const pm = pf.name.match(/^P(\d+)([a-zA-Z]?)\.json$/);
       if (!pm) continue;
       const page = parseInt(pm[1], 10);
+      const suffix = pm[2] || '';
+      const pageId = `${page}${suffix}`;
       const filePath = path.join(bookPath, pf.name);
 
       try {
@@ -269,6 +272,8 @@ async function listAllPages(root) {
         pages.push({
           book,
           page,
+          pageId,           // includes suffix if any (used as primary identifier)
+          suffix,
           strokeCount: Array.isArray(doc.strokes) ? doc.strokes.length : 0,
           lastUpdated: doc.metadata?.lastUpdated || null,
           hasTranscription: !!(doc.transcript?.lines?.length),
@@ -281,7 +286,7 @@ async function listAllPages(root) {
     }
   }
 
-  pages.sort((a, b) => (a.book - b.book) || (a.page - b.page));
+  pages.sort((a, b) => (a.book - b.book) || (a.page - b.page) || a.suffix.localeCompare(b.suffix));
   return pages;
 }
 

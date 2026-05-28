@@ -1,19 +1,17 @@
-# NeoSmartpen → LogSeq Bridge
+# NeoSmartpen → Stroke Bridge
 
-A sophisticated bridge application for capturing, transcribing, and managing handwritten notes from NeoSmartpen (Lamy Safari) devices into LogSeq's knowledge management system. Features real-time stroke capture, intelligent handwriting recognition, advanced stroke manipulation, and seamless LogSeq integration.
+A desktop Electron app for capturing, transcribing, and managing handwritten notes from NeoSmartpen (Lamy Safari) devices. Strokes and transcriptions are saved as plain JSON files in a user-chosen local folder.
 
-## 🚀 Live Demo
+> **v2.0 (May 2026):** Replaced LogSeq as the storage backend with local JSON files. See [docs/LOCAL-STORAGE-PIVOT-SPEC.md](docs/LOCAL-STORAGE-PIVOT-SPEC.md). The repo name still says `smartpen-logseq-bridge` for git-history continuity; the product is now just the Smartpen Bridge.
 
-**Try it now:** [https://yourusername.github.io/smartpen-logseq-bridge/](https://yourusername.github.io/smartpen-logseq-bridge/)
+## Quick Start
 
-> **Note:** Replace `yourusername` with your actual GitHub username once deployed.
-
-### Quick Start (No Installation Required)
-1. Open the live demo in **Chrome or Edge browser** (required for Web Bluetooth)
-2. Click **Connect Pen** and pair your Lamy smartpen
-3. Write on Ncode paper and watch strokes appear in real-time
-4. For transcription, you'll need your own MyScript API keys (free tier available)
-5. For LogSeq integration, ensure LogSeq desktop app is running locally with HTTP API enabled
+1. **Build the desktop app** (`npm install && npm run electron:build:win`) or run it directly with `npm run dev`
+2. Open Settings → **Data Folder**, pick a folder (e.g. `Documents/stroke-data`)
+3. Click **Connect Pen** and pair your Lamy smartpen via Bluetooth
+4. Write on Ncode paper and watch strokes appear on canvas in real-time
+5. Click **Save** — your strokes land at `<dataRoot>/pages/B###/P##.json`
+6. (Optional) For transcription, add your own MyScript API keys in Settings (free tier: 2,000 requests/month)
 
 ## ✨ Key Features
 

@@ -70,19 +70,17 @@
   
   let isConnecting = false;
   let isFetchingOffline = false;
-  let isSavingToLogseq = false;
+  let isSaving = false;
   let showSaveConfirmDialog = false;
   
   // Determine what data is available to save
   $: hasSaveableData = $strokeCount > 0;
   $: canDelete = $hasSelection;
   $: saveButtonText = (() => {
-    if (isSavingToLogseq) return 'Saving...';
-    // Check if there are pending changes
-    if ($hasPendingChanges) return 'Save Changes to LogSeq';
-    // Check if any page has transcription available
-    if ($hasPageTranscriptions || $hasTranscription) return 'Save to LogSeq (Strokes + Text)';
-    return 'Save to LogSeq (Strokes)';
+    if (isSaving) return 'Saving…';
+    if ($hasPendingChanges) return 'Save Changes';
+    if ($hasPageTranscriptions || $hasTranscription) return 'Save (Strokes + Text)';
+    return 'Save (Strokes)';
   })();
   
   // Determine which strokes to transcribe (selected or all)
@@ -331,7 +329,7 @@
   }
 
   
-  async function handleSaveToLogseq(event) {
+  async function handleSave(event) {
     // Function name retained for SaveConfirmDialog wiring; semantics now folder-only (v2.0).
     showSaveConfirmDialog = false;
 
@@ -348,7 +346,7 @@
 
     const selectedSet = new Set(selectedPageKeys);
 
-    isSavingToLogseq = true;
+    isSaving = true;
     setStorageSaving(true);
 
     let savedStrokesCount = 0;
@@ -453,7 +451,7 @@
         log(`Failed to save ${errorCount} page(s)`, 'error');
       }
     } finally {
-      isSavingToLogseq = false;
+      isSaving = false;
     }
   }
 </script>
@@ -461,7 +459,7 @@
 <!-- Save Confirmation Dialog -->
 <SaveConfirmDialog 
   visible={showSaveConfirmDialog} 
-  on:confirm={handleSaveToLogseq}
+  on:confirm={handleSave}
   on:cancel={handleCancelSave}
 />
 
@@ -582,10 +580,10 @@
   </button>
   
   <button
-    class="action-btn save-logseq-btn"
+    class="action-btn save-btn"
     class:dirty={$unsavedChanges}
     on:click={handleShowSaveDialog}
-    disabled={!hasSaveableData || isSavingToLogseq || !$dataFolderReady}
+    disabled={!hasSaveableData || isSaving || !$dataFolderReady}
     title={$unsavedChanges ? 'You have unsaved changes — click to save' : 'Save strokes and transcription to the data folder'}
   >
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -742,18 +740,18 @@
     border-color: #22c55e;
   }
   
-  .save-logseq-btn {
+  .save-btn {
     background: var(--success);
     color: white;
     border-color: var(--success);
   }
   
-  .save-logseq-btn:hover:not(:disabled) {
+  .save-btn:hover:not(:disabled) {
     background: #22c55e;
     border-color: #22c55e;
   }
 
-  .save-logseq-btn.dirty {
+  .save-btn.dirty {
     animation: dirty-pulse 2.4s ease-in-out infinite;
   }
 

@@ -54,10 +54,10 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `transcription.js` - MyScript transcription results and cache
 - Page-level transcription data with hierarchy
 
-**LogSeq Integration:**
-- `logseqPages.js` - Scanned database pages
-- `storage.js` - Save status tracking and sync state
-- `book-aliases.js` - Custom book name mappings
+**Saved-Pages Index:**
+- `logseqPages.js` — historical name; holds the scanned list of `pages/B###/P##.json` records the Data Explorer renders. Variable still called `logseqPages` for inertia; nothing LogSeq-specific remains.
+- `storage.js` — save status, unsaved-changes flag (`unsavedChanges` writable, `markUnsavedChanges()`, cleared on successful save)
+- `book-aliases.js` — custom book name mappings (persisted to `<dataRoot>/pages/_aliases.json`)
 
 **UI State:**
 - `ui.js` - Active tab, canvas zoom, UI preferences
@@ -67,26 +67,31 @@ All state is managed through Svelte stores located in `src/stores/`:
 
 **Advanced:**
 - `filtered-strokes.js` - Decorative element detection
-- `pending-changes.js` - Tracks local changes before sync (deletions, additions per page)
-  - `deletedIndices` - Set of stroke indices marked for deletion
-  - `pendingChanges` - Derived store computing additions/deletions per page
-  - `getDeletedStrokeIdsForPage()` - Converts indices to stroke IDs for API calls
-- `settings.js` - Persisted user settings (MyScript keys, LogSeq config)
+- `pending-changes.js` - Tracks local changes before save (deletions, additions per page)
+  - `deletedIndices` — set of stroke indices marked for deletion
+  - `pendingChanges` — derived store computing additions/deletions per page
+  - `getDeletedStrokeIdsForPage()` — converts indices to stroke IDs for the save call
+- `settings.js` — persisted user settings (MyScript keys, `dataRoot`, `dataFolderReady`, `dataFolderStatusText`)
 
 ### Key Libraries
 
 **Core Logic (`src/lib/`):**
 - `pen-sdk.js` - NeoSmartpen SDK wrapper and BLE communication
 - `canvas-renderer.js` - Canvas drawing engine for stroke visualization
-- `myscript-api.js` - MyScript API client for handwriting recognition
-- `logseq-api.js` - LogSeq HTTP API client
-- `logseq-scanner.js` - Database scanning for existing smartpen pages
-- `logseq-import.js` - Page import logic from LogSeq
+- `myscript-api.js` - MyScript API client for handwriting recognition (proxied via IPC in Electron)
 - `stroke-analyzer.js` - Shape detection and analysis
 - `stroke-filter.js` - Decorative element detection (boxes, underlines)
-- `stroke-storage.js` - Storage utilities for LogSeq persistence
+- `stroke-storage.js` - Stroke ID generation, format conversion, bounds, dedupe, user JSON/MD exports
 - `transcript-search.js` - Full-text search across transcriptions
-- `transcript-updater.js` - Transcription update logic
+
+**Storage Layer (`src/lib/storage/`)** — v2.0:
+- `page-doc.js` — PageDoc schema types, `emptyPageDoc()`, `computeBounds()`, `validatePageDoc()`
+- `page-doc-format.js` — hybrid pretty/compact serializer (document shell pretty-printed; each stroke on one line)
+- `local-store.js` — renderer-side facade over `window.storageAPI` IPC: `listPages`, `getPage`, `savePage`, `deletePage`, alias CRUD, `pickFolder`, `isAvailable`, `openInExplorer`
+- `save-page.js` — `savePageToFolder()` — append-only stroke merge with explicit deletions, Y-bounds-based transcript merge with checkbox preservation
+- `load-page.js` — `importStrokesFromFolder()`, `importStrokesForLoadedPagesFromFolder()` — converts StoredStroke → canvas dotArray format
+- `scan.js` — `scanLocalPages()` — populates the `logseqPages` store from disk
+- `page-changes.js` — `computePageChangesFolder()` — preview diff for the SaveConfirmDialog
 
 ## Data Structures
 
@@ -139,21 +144,43 @@ All state is managed through Svelte stores located in `src/stores/`:
 }
 ```
 
-### LogSeq Storage Format
+### v2.0 PageDoc Storage Format
+
+One JSON file per pen page at `<dataRoot>/pages/B{book}/P{page}.json`. Hybrid pretty serializer keeps the document shell pretty-printed but inlines each stroke onto one line (file is ~40% the size of full pretty-print while staying diff-friendly).
+
+```jsonc
+{
+  "version": "2.0",
+  "pageInfo": { "section": 3, "owner": 1012, "book": 3017, "page": 42 },
+  "metadata": {
+    "lastUpdated": "2026-05-28T14:22:01.000Z",
+    "totalStrokes": 385,
+    "bounds": { "minX": 5.43, "maxX": 60.24, "minY": 36.39, "maxY": 64.74 }
+  },
+  "transcript": {
+    "lastTranscribed": "2026-05-28T14:25:00.000Z",
+    "lines": [
+      {
+        "id": "955e79bf-…",            // stable line ID (was blockUuid in v1)
+        "text": "Meeting notes",
+        "indentLevel": 0,
+        "parentId": null,
+        "checked": null,                // null | true (DONE) | false (TODO)
+        "yBounds": { "minY": 1.6, "maxY": 8.6 }
+      }
+    ]
+  },
+  "strokes": [
+    {"id":"s1765313505107","startTime":1765313505107,"endTime":1765313505396,"lineId":"955e79bf-…","points":[[6.56,37.25,1765313505107], …]}
+  ]
+}
 ```
-smartpen/B3017/P42
-  properties::
-    book:: 3017
-    page:: 42
-    section:: 3
-    owner:: 1012
-    timestamp:: 2024-12-22T10:30:00Z
-    stroke-count:: 247
 
-  transcription:: This is the transcribed text
-  with multiple lines and proper indentation
+Letter-suffixed pages (e.g. `P151b.json`) are supported — they came from manual v1 workflows where the user created variants of the same NCode page. The integer `pageInfo.page` matches the NCode page number; the filename suffix is the user's identifier and is preserved.
 
-  stroke-data:: [JSON array of stroke objects]
+Aliases live alongside in `<dataRoot>/pages/_aliases.json`:
+```json
+{ "3017": "Field Notes", "390": "Calc Pad" }
 ```
 
 ## Development Guidelines
@@ -218,17 +245,36 @@ const selectedStrokes = $strokes.filter((_, i) => $selection.has(i));
 strokes.update(s => [...s, newStroke]);
 ```
 
-**Calling LogSeq API:**
+**Saving a page (v2.0):**
 ```javascript
-import { logseqApi } from '../lib/logseq-api.js';
-import { addLog } from '../stores/ui.js';
+import { savePageToFolder } from '$lib/storage/save-page.js';
+import { log } from '$stores';
 
-try {
-  await logseqApi.createPage('smartpen/B3017/P42', content);
-  addLog('success', 'Page saved successfully');
-} catch (error) {
-  addLog('error', `Failed to save: ${error.message}`);
+const result = await savePageToFolder({
+  book, page,
+  activeStrokes,                    // canvas-format strokes (with dotArray)
+  deletedStrokeIds,                 // Set<string> — explicit deletions only
+  pageTranscription                 // MyScript result for untranscribed strokes, or null
+});
+if (result.success) {
+  log(`Saved B${book}/P${page}: +${result.added} new, -${result.deleted} deleted, ${result.total} total`, 'success');
+} else {
+  log(`Save failed: ${result.error}`, 'error');
 }
+```
+
+The save module:
+- Reads the existing PageDoc as the base
+- Applies explicit deletions (never inferred)
+- Appends new strokes deduplicated by id
+- Merges fresh transcript lines via Y-bounds overlap matching, preserves `checked` state on lines whose text matches existing entries
+- Scrubs dangling `lineId` references
+- Writes atomically (`.tmp` + rename + fsync) via IPC to the Electron main process
+
+**Reading a page:**
+```javascript
+import { getPage } from '$lib/storage/local-store.js';
+const doc = await getPage(book, page);   // returns PageDoc or null
 ```
 
 ## Important Implementation Notes
@@ -269,37 +315,36 @@ try {
 - Requires HMAC authentication
 - Process strokes page-by-page to avoid overwhelming API
 
-### LogSeq API Patterns
-- Uses HTTP API (default port 12315)
-- Optional authorization token
-- Pages organized in `smartpen/B###/P##` format
-- Stroke data stored as JSON in `stroke-data` property
-- Transcription stored in `transcription` property
+### Storage Layer (v2.0 — Local Folder)
+- One JSON file per pen page at `<dataRoot>/pages/B###/P##.json`
+- All writes are atomic (`.tmp` + rename via `fs.rename`) — no half-written files
+- Hybrid serializer (`src/lib/storage/page-doc-format.js`) prints the document shell pretty but inlines each stroke onto one line — ~40% smaller than full pretty-print, still diff-friendly
+- The renderer talks to disk via IPC handlers in `electron/main.cjs` exposed as `window.storageAPI` by `electron/preload.cjs`
+- Letter-suffixed pages supported (`P151b.json`) — preserved from manual v1 workflows
 
-### Stroke Persistence Strategy (v3.1 Append-Only)
-- **Append-Only Updates**: LogSeq saves start from existing strokes as base, never replace entire dataset
-- **Explicit Deletions Only**: Deletions tracked in `pending-changes.js` via `deletedIndices` store
-- **No Phantom Deletions**: Missing strokes from canvas ≠ deleted strokes in LogSeq
-- **Stroke IDs**: Format `s{startTime}` for deduplication (see `src/lib/stroke-storage.js`)
-- **BlockUuid Tracking**: Each stroke links to its LogSeq block UUID for bi-directional sync
-- **Duplicated Strokes**: Temporary strokes (isDuplicated: true) can be converted to original when creating new pages
-- **Deletion Timeout**: 15-minute undo window for deleted strokes (see `pending-changes.js`)
+### Stroke Persistence Strategy (v2.0 Append-Only)
+- **Append-Only**: `savePageToFolder()` starts from the existing PageDoc on disk, never replaces wholesale
+- **Explicit Deletions Only**: tracked in `pending-changes.js` (`deletedIndices`), converted to stroke-id sets via `getDeletedStrokeIdsForPage()`
+- **No Phantom Deletions**: missing from canvas ≠ deleted on disk
+- **Stroke IDs**: `s{startTime}` for deduplication (see `src/lib/stroke-storage.js`)
+- **lineId tracking**: each stroke carries an opaque `lineId` linking it to a transcript line (the v1 `blockUuid` field is renamed but semantically identical)
+- **Deletion timeout**: 15-minute undo window for marked-but-not-yet-saved deletions
 
 ## Known Issues and Gotchas
 
-1. **Stroke Deduplication**: Uses timestamp-based IDs (`s{startTime}`) to avoid duplicates when importing from LogSeq. See `stroke-storage.js` for implementation.
+1. **Stroke Deduplication**: Uses timestamp-based IDs (`s{startTime}`). See `stroke-storage.js`.
 
-2. **Append-Only Updates**: Save operations NEVER replace entire LogSeq datasets. Always start from existing strokes and only apply explicit changes (additions/deletions).
+2. **Append-Only Saves**: Save operations NEVER replace the entire PageDoc — only explicit additions and deletions apply.
 
-3. **Deletion Tracking**: Deletions are tracked via `pending-changes.js` store (`deletedIndices`). The `getDeletedStrokeIdsForPage()` function converts indices to stroke IDs for LogSeq API calls.
+3. **Deletion Tracking**: `pending-changes.js` (`deletedIndices`); `getDeletedStrokeIdsForPage()` converts to ID sets.
 
-4. **Page Coordinate Fuzzy Matching**: LogSeq import uses fuzzy matching for section/owner to handle Ncode variations. Focus on book/page for uniqueness.
+4. **Memory Management**: Large stroke datasets (>2000 strokes per page) can impact canvas performance. Use the page selector to limit visible strokes.
 
-5. **Memory Management**: Large stroke datasets (>2000 strokes) can impact canvas performance. Use page filtering to reduce visible strokes.
+5. **LocalStorage Limits**: Settings, page positions, and scales persist to localStorage (~5MB browser limit). The pen-stroke data itself lives in JSON files, not localStorage.
 
-6. **LocalStorage Limits**: Settings, page positions, and scales persist to localStorage. Monitor size (~5MB typical limit).
+6. **Deletion Undo Timeout**: 15-minute window; after that the deletion is permanent at next save.
 
-7. **Deletion Undo Timeout**: Stroke deletions have a 15-minute timeout for undo capability. After timeout, deletions are permanent once saved to LogSeq.
+7. **Unsaved Changes**: Tracked via the `unsavedChanges` store, set by `addStroke()`, `addOfflineStrokes()`, `removeStrokesByIndices()`, `markStrokesDeleted()`. Cleared by `recordSuccessfulSave()`. Header shows an amber dot on the Save button when dirty; window-close hook prompts confirmation.
 
 ## Testing Considerations
 
@@ -312,16 +357,14 @@ Existing test files (all in `src/lib/__tests__/`):
 
 | File | What it tests |
 |------|---------------|
-| `stroke-storage.test.js` | Serialisation/deserialisation pipeline — ID generation, `convertToStorageFormat` (blockUuid), `convertFromStorageFormat` round-trip, bounds, deduplication, chunked storage, JSON block parsing |
-| `logseq-api.test.js` | `mergeExistingAndNewLines` — duplicate detection, Y-bounds subset filtering, sort order |
-| `transcript-updater.test.js` | `updateTranscriptBlocks` — validLines filter (Y-bounds gating), duplicate prevention, dedupedLines index correctness |
+| `stroke-storage.test.js` | ID generation, `convertToStorageFormat` (lineId/blockUuid), `convertFromStorageFormat` round-trip, bounds, deduplication, JSON/MD export builders, `formatTranscribedText` / `formatPageName` / `getPageProperties` |
 | `myscript-api.test.js` | `parseMyScriptResponse` — line parsing, Y-bounds from word bboxes, fallback interpolation, indentation, checkbox normalisation |
 | `transcript-search.test.js` | `tokenize` (hyphen preservation, property filtering), `searchPages` (partial matching, ranking), `highlightMatches` (HTML escaping) |
-| `stroke-filter.test.js` | `filterDecorativeStrokes` / `detectDecorativeIndices` — underline, circle, single-stroke box detection (perimeter-fraction + path-ratio), threshold behaviour, regression for vertical lines and multi-stroke grouping |
+| `stroke-filter.test.js` | `filterDecorativeStrokes` / `detectDecorativeIndices` — underline, circle, single-stroke box detection, threshold behaviour |
 
 When writing new tests follow the patterns in the existing files:
-- Mock Svelte stores and LogSeq API calls (`vi.mock()`) before imports
-- Use small, focused helper factories (`makeStroke`, `line`, `existingBlock`)
+- Mock Svelte stores (`vi.mock()`) before imports if needed
+- Use small, focused helper factories (`makeStroke`, `line`)
 - Test boundary conditions explicitly (empty input, zero bounds, null values)
 
 ### Manual Testing Scenarios
@@ -334,11 +377,13 @@ When making changes, also verify manually:
 - Duplication and dragging strokes
 - Page creation from duplicates
 - Transcription with MyScript
-- LogSeq save/load operations
-- Database scanning and search
+- Save to data folder (Saved Pages tab refreshes, file timestamps update)
+- Re-import a saved page from the Saved Pages tab
+- Edit transcript via the page-card editor; reload to confirm persistence
 - Canvas pan/zoom/navigation
 - Page positioning and scaling
-- Browser compatibility (Chrome/Edge only)
+- Unsaved-changes indicator + window-close prompt
+- Browser compatibility (Electron Chromium only — pure web build is out of scope in v2.0)
 
 ## Useful Commands
 
@@ -356,24 +401,43 @@ npm run preview
 ## Resources
 
 ### Primary Documentation
-- [README.md](README.md) - User-facing documentation
-- [docs/QUICK-ARCHITECTURE-REFERENCE.md](docs/QUICK-ARCHITECTURE-REFERENCE.md) - **START HERE** - Quick v3.1 reference
-- [docs/app-specification.md](docs/app-specification.md) - Complete technical specification
-- [docs/TRANSCRIPT-STORAGE-SPEC.md](docs/TRANSCRIPT-STORAGE-SPEC.md) - Transcript storage v3.1 architecture
+- [README.md](README.md) — User-facing documentation
+- [docs/LOCAL-STORAGE-PIVOT-SPEC.md](docs/LOCAL-STORAGE-PIVOT-SPEC.md) — **START HERE** for v2.0 — full design of the local-folder storage layer
+- [scripts/migrate-from-logseq.cjs](scripts/migrate-from-logseq.cjs) — one-shot importer for v1 LogSeq exports → v2 PageDoc files
+- [docs/QUICK-ARCHITECTURE-REFERENCE.md](docs/QUICK-ARCHITECTURE-REFERENCE.md) — quick architecture lookups (v1 era, mostly still applies for canvas/pen/MyScript)
+- [docs/app-specification.md](docs/app-specification.md) — original technical specification (LogSeq-era; superseded by the pivot spec for storage details)
 
-### Implementation Details
-- [docs/Archive/2026-03-live-capture-canvas-fixes/LIVE-CAPTURE-CANVAS-FIXES.md](docs/Archive/2026-03-live-capture-canvas-fixes/LIVE-CAPTURE-CANVAS-FIXES.md) - Live capture & canvas fixes (Mar 2026)
-- [docs/Archive/2026-02-data-loss-fixes/DATA-LOSS-FIXES-SUMMARY.md](docs/Archive/2026-02-data-loss-fixes/DATA-LOSS-FIXES-SUMMARY.md) - Data loss fixes (Feb 2026)
-- [docs/bridge-uuid-system.md](docs/bridge-uuid-system.md) - Custom UUID system documentation
-- [docs/Archive/ARCHIVE-INDEX.md](docs/Archive/ARCHIVE-INDEX.md) - Archived implementation docs index
+### Implementation Details (historical, mostly v1)
+- [docs/Archive/2026-03-live-capture-canvas-fixes/LIVE-CAPTURE-CANVAS-FIXES.md](docs/Archive/2026-03-live-capture-canvas-fixes/LIVE-CAPTURE-CANVAS-FIXES.md) — Live capture & canvas fixes (Mar 2026)
+- [docs/Archive/2026-02-data-loss-fixes/DATA-LOSS-FIXES-SUMMARY.md](docs/Archive/2026-02-data-loss-fixes/DATA-LOSS-FIXES-SUMMARY.md) — Data loss fixes (Feb 2026, v1)
+- [docs/bridge-uuid-system.md](docs/bridge-uuid-system.md) — Custom UUID system
+- [docs/Archive/ARCHIVE-INDEX.md](docs/Archive/ARCHIVE-INDEX.md) — Archived implementation docs index
 
 ### External APIs
-- [NeoSmartpen Web SDK](https://github.com/NeoSmartpen/WEB-SDK2.0) - SDK documentation
-- [MyScript API Docs](https://developer.myscript.com/) - Handwriting recognition API
-- [LogSeq HTTP API](https://logseq.github.io/plugins/) - Plugin and API documentation
-- [Svelte 4 Docs](https://svelte.dev/docs/svelte/overview) - Framework reference
+- [NeoSmartpen Web SDK](https://github.com/NeoSmartpen/WEB-SDK2.0) — SDK documentation
+- [MyScript API Docs](https://developer.myscript.com/) — Handwriting recognition API
+- [Svelte 4 Docs](https://svelte.dev/docs/svelte/overview) — Framework reference
 
 ## Recent Changes (Git History Context)
+
+### v2.0.0 — LogSeq → Local Folder Pivot (May 2026)
+
+**The big one.** Replaced LogSeq as the storage backend with plain JSON files in a user-chosen local folder.
+
+**Why:** LogSeq's graph DB performance degraded with dense, frequently-rewritten stroke chunks. The chunking, block CRUD, and inter-chunk-delay machinery was bookkeeping for LogSeq's sake, not user value.
+
+**What landed:**
+- New storage layer in `src/lib/storage/` (PageDoc schema, hybrid serializer, IPC-backed local-store, append-only save, Y-bounds transcript merge, folder scanner, page-changes preview)
+- IPC handlers in `electron/main.cjs` (`storage:listPages`, `getPage`, `savePage`, etc.) with atomic writes
+- Settings: dropped `logseqHost`/`logseqToken`/`logseqConnected`; added `dataRoot`/`dataFolderReady`/`dataFolderStatusText`
+- Unsaved-changes indicator: amber dot on the Save button, `beforeunload` confirmation
+- Migration importer at `scripts/migrate-from-logseq.cjs` — parses LogSeq's outliner `.md` files (supports letter-suffixed pages like `P151b.md`) and emits v2 PageDocs. Idempotent + non-destructive
+- Compact-pretty hybrid serializer: doc shell pretty-printed, each stroke on one line (~40% the size of full pretty-print, still diff-friendly)
+- Deleted modules: `logseq-api.js`, `logseq-scanner.js`, `logseq-import.js`, `transcript-updater.js`, `LogseqSettings.svelte`, `LogseqPreview.svelte`, and matching tests
+- Trimmed `stroke-storage.js` of chunked-storage helpers
+- UI rebrand: "Save to LogSeq (Strokes)" → "Save (Strokes)" / "Save Changes" / "Save (Strokes + Text)"; status pill shows the data folder; "LogSeq DB" tab → "Saved Pages"
+
+**See:** [docs/LOCAL-STORAGE-PIVOT-SPEC.md](docs/LOCAL-STORAGE-PIVOT-SPEC.md) for the full design and phasing.
 
 ### Major Fixes (March 2026)
 
@@ -450,18 +514,19 @@ When working with stroke management or transcription storage, be aware of these 
 
 ## Questions to Ask Before Major Changes
 
-1. **State**: Which stores need to be updated? Should state persist to localStorage?
+1. **State**: Which stores need to be updated? Should state persist (localStorage for UI, JSON file for stroke/transcript data)?
 2. **Performance**: Will this impact canvas rendering with 1000+ strokes?
-3. **User Feedback**: Should this operation show progress or log messages?
-4. **Error Handling**: What happens if LogSeq/MyScript API fails?
-5. **Persistence**: Should this survive page refresh? Where is it stored?
-6. **Browser Compatibility**: Does this rely on Chrome-specific APIs?
+3. **User Feedback**: Should this operation show progress or log messages? Trigger the unsaved-changes flag?
+4. **Error Handling**: What happens if MyScript API fails or the data folder is missing?
+5. **Persistence**: Settings → localStorage. Stroke/transcript data → PageDoc files. UI ephemera → not persisted.
+6. **Platform**: Anything filesystem-related must run via IPC; never reach for `fs` from the renderer.
 
 ## Tips for Working with This Codebase
 
 - **Start with stores**: Understanding the data model is key to understanding the app
-- **Follow the data flow**: Pen → Strokes → Canvas/Transcription → LogSeq
+- **Follow the data flow**: Pen → strokes store → canvas / MyScript → `savePageToFolder` → PageDoc on disk
 - **Check ActivityLog**: Most operations log their progress for debugging
 - **Use browser DevTools**: Stores are debuggable in Svelte DevTools extension
 - **Test with real pen**: Some behaviors only manifest with actual hardware
-- **Reference docs**: app-specification.md has detailed technical documentation
+- **Inspect the PageDoc**: Saved data is plain JSON — open the file in any editor to verify what was written. Compact-pretty format keeps each stroke on one line so diffs are readable.
+- **Reference docs**: `docs/LOCAL-STORAGE-PIVOT-SPEC.md` for storage; `docs/QUICK-ARCHITECTURE-REFERENCE.md` for canvas/pen.
