@@ -97,7 +97,13 @@ export {
   hasMyScriptCredentials,
   setLogseqStatus,
   getMyScriptCredentials,
-  getLogseqSettings
+  getLogseqSettings,
+  // v2.0 local-folder storage
+  dataRoot,
+  dataFolderReady,
+  dataFolderStatusText,
+  setDataFolderStatus,
+  getDataRoot
 } from './settings.js';
 
 // UI

@@ -1,7 +1,7 @@
 {
   "name": "smartpen-logseq-bridge",
-  "version": "1.3.4",
-  "description": "Desktop application for connecting NeoSmartpen to LogSeq",
+  "version": "2.0.0-alpha.1",
+  "description": "Desktop application for capturing NeoSmartpen strokes into a local JSON folder",
   "type": "module",
   "main": "electron/main.cjs",
   "author": "Josh Gannon",

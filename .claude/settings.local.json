@@ -11,7 +11,12 @@
       "Bash(npm test:*)",
       "Bash(npx vite:*)",
       "Bash(grep -r \"navPage\\\\|data-on-click\" 'C:\\\\Users\\\\joshg\\\\Documents\\\\Claude Access\\\\LogSeq Plugins\\\\logseq-plugin-excalidraw/src' --include=*.ts --include=*.tsx)",
-      "Bash(grep -r \"max-width\\\\|max-height\\\\|aspect-ratio\" 'C:/Users/joshg/Documents/Claude Access/LogSeq Plugins/logseq-plugin-excalidraw/src' --include=*.ts --include=*.tsx --include=*.css)"
+      "Bash(grep -r \"max-width\\\\|max-height\\\\|aspect-ratio\" 'C:/Users/joshg/Documents/Claude Access/LogSeq Plugins/logseq-plugin-excalidraw/src' --include=*.ts --include=*.tsx --include=*.css)",
+      "Bash(ls \"C:\\\\Users\\\\joshg\\\\Documents\\\\stroke-data\")",
+      "PowerShell($c = Get-Content -Path 'C:\\\\Users\\\\joshg\\\\Documents\\\\stroke-data\\\\raw\\\\B390_P139_strokes.json' -Raw; $c.Substring\\(0, [Math]::Min\\(1500, $c.Length\\)\\))",
+      "Bash(node \"scripts/migrate-from-logseq.cjs\" \"C:\\\\Users\\\\joshg\\\\Documents\\\\stroke-data\\\\jpi\" \"C:\\\\Users\\\\joshg\\\\AppData\\\\Local\\\\Temp\\\\stroke-data-migration-test\")",
+      "Bash(node -e ' *)",
+      "Bash(ls \"C:\\\\Users\\\\joshg\\\\AppData\\\\Local\\\\Temp\\\\stroke-data-migration-test\\\\pages\" && echo \"---\" && ls \"C:\\\\Users\\\\joshg\\\\AppData\\\\Local\\\\Temp\\\\stroke-data-migration-test\\\\pages\\\\B3017\" | head -10 && echo \"---\" && du -sh \"C:\\\\Users\\\\joshg\\\\AppData\\\\Local\\\\Temp\\\\stroke-data-migration-test\\\\pages\")"
     ]
   }
 }

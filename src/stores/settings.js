@@ -65,13 +65,18 @@ function createPersistedStore(key, defaultValue) {
 export const myscriptAppKey = createPersistedStore('myscriptAppKey', '');
 export const myscriptHmacKey = createPersistedStore('myscriptHmacKey', '');
 
-// LogSeq API settings
+// LogSeq API settings (DEPRECATED in v2.0 — kept during the transition; removed in Phase 4)
 export const logseqHost = createPersistedStore('logseqHost', 'http://127.0.0.1:12315');
 export const logseqToken = createPersistedStore('logseqToken', '');
 
 // Connection status (not persisted)
 export const logseqConnected = writable(false);
 export const logseqStatusText = writable('LogSeq: Unknown');
+
+// v2.0 Local-folder storage settings
+export const dataRoot = createPersistedStore('dataRoot', '');           // absolute path
+export const dataFolderReady = writable(false);                          // updated at boot / on folder change
+export const dataFolderStatusText = writable('Folder: not set');
 
 // Derived store: Check if MyScript credentials are configured
 export const hasMyScriptCredentials = derived(
@@ -110,4 +115,22 @@ export function getLogseqSettings() {
     host: get(logseqHost),
     token: get(logseqToken)
   };
+}
+
+/**
+ * Update local data-folder status
+ * @param {boolean} ready
+ * @param {string} [statusText]
+ */
+export function setDataFolderStatus(ready, statusText) {
+  dataFolderReady.set(ready);
+  if (statusText) dataFolderStatusText.set(statusText);
+}
+
+/**
+ * Get current data folder path (one-time read).
+ * @returns {string} Absolute path or empty string if unset.
+ */
+export function getDataRoot() {
+  return get(dataRoot) || '';
 }

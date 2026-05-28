@@ -1,8 +1,10 @@
 // electron/main.cjs
-const { app, BrowserWindow, Menu, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const crypto = require('crypto');
 const https = require('https');
+const fs = require('fs');
+const fsp = require('fs').promises;
 
 let mainWindow;
 
@@ -189,6 +191,211 @@ ipcMain.handle('myscript-api-call', async (_event, { appKey, hmacKey, body }) =>
     return { status: 0, body: err.message };
   }
 });
+
+// ===== Local Storage (v2.0 — replaces LogSeq HTTP API as the data layer) =====
+// One JSON file per pen page at <dataRoot>/pages/B{book}/P{page}.json
+// See docs/LOCAL-STORAGE-PIVOT-SPEC.md for the full design.
+
+function pagesDir(root) {
+  return path.join(root, 'pages');
+}
+
+function bookDir(root, book) {
+  return path.join(pagesDir(root), `B${book}`);
+}
+
+function pagePath(root, book, page) {
+  return path.join(bookDir(root, book), `P${page}.json`);
+}
+
+function aliasesPath(root) {
+  return path.join(pagesDir(root), '_aliases.json');
+}
+
+async function ensureDir(dir) {
+  await fsp.mkdir(dir, { recursive: true });
+}
+
+/** Atomic write: write to a .tmp sibling, fsync, then rename. */
+async function writeFileAtomic(filePath, contents) {
+  await ensureDir(path.dirname(filePath));
+  const tmp = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  const fh = await fsp.open(tmp, 'w');
+  try {
+    await fh.writeFile(contents, 'utf8');
+    await fh.sync();
+  } finally {
+    await fh.close();
+  }
+  await fsp.rename(tmp, filePath);
+}
+
+/** Walk pages/B*\/P*.json and return lightweight PageMeta entries. */
+async function listAllPages(root) {
+  const dir = pagesDir(root);
+  let bookDirs;
+  try {
+    bookDirs = await fsp.readdir(dir, { withFileTypes: true });
+  } catch (err) {
+    if (err.code === 'ENOENT') return [];
+    throw err;
+  }
+
+  const pages = [];
+  for (const entry of bookDirs) {
+    if (!entry.isDirectory()) continue;
+    const m = entry.name.match(/^B(\d+)$/);
+    if (!m) continue;
+    const book = parseInt(m[1], 10);
+    const bookPath = path.join(dir, entry.name);
+
+    let pageFiles;
+    try {
+      pageFiles = await fsp.readdir(bookPath, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const pf of pageFiles) {
+      if (!pf.isFile()) continue;
+      const pm = pf.name.match(/^P(\d+)\.json$/);
+      if (!pm) continue;
+      const page = parseInt(pm[1], 10);
+      const filePath = path.join(bookPath, pf.name);
+
+      try {
+        const raw = await fsp.readFile(filePath, 'utf8');
+        const doc = JSON.parse(raw);
+        pages.push({
+          book,
+          page,
+          strokeCount: Array.isArray(doc.strokes) ? doc.strokes.length : 0,
+          lastUpdated: doc.metadata?.lastUpdated || null,
+          hasTranscription: !!(doc.transcript?.lines?.length),
+          transcriptLineCount: doc.transcript?.lines?.length || 0,
+          path: filePath
+        });
+      } catch (err) {
+        console.warn(`[storage] skipping unreadable ${filePath}:`, err.message);
+      }
+    }
+  }
+
+  pages.sort((a, b) => (a.book - b.book) || (a.page - b.page));
+  return pages;
+}
+
+async function readPageDoc(root, book, page) {
+  const fp = pagePath(root, book, page);
+  try {
+    const raw = await fsp.readFile(fp, 'utf8');
+    return JSON.parse(raw);
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
+async function writePageDoc(root, book, page, doc) {
+  const fp = pagePath(root, book, page);
+  const json = JSON.stringify(doc, null, 2);
+  await writeFileAtomic(fp, json);
+  return fp;
+}
+
+async function deletePageDoc(root, book, page) {
+  const fp = pagePath(root, book, page);
+  try {
+    await fsp.unlink(fp);
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+  }
+}
+
+async function readAliases(root) {
+  try {
+    const raw = await fsp.readFile(aliasesPath(root), 'utf8');
+    const parsed = JSON.parse(raw);
+    return (parsed && typeof parsed === 'object') ? parsed : {};
+  } catch (err) {
+    if (err.code === 'ENOENT') return {};
+    throw err;
+  }
+}
+
+async function writeAliases(root, aliases) {
+  await writeFileAtomic(aliasesPath(root), JSON.stringify(aliases, null, 2));
+}
+
+/** Wraps an IPC handler so thrown errors become `{ok:false, error}` responses. */
+function ipcSafe(fn) {
+  return async (_event, ...args) => {
+    try {
+      const result = await fn(...args);
+      return { ok: true, result };
+    } catch (err) {
+      console.error('[storage IPC] error:', err);
+      return { ok: false, error: err.message || String(err) };
+    }
+  };
+}
+
+ipcMain.handle('storage:pickFolder', async () => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose Smartpen data folder',
+      properties: ['openDirectory', 'createDirectory']
+    });
+    if (result.canceled || !result.filePaths.length) {
+      return { ok: true, result: null };
+    }
+    return { ok: true, result: result.filePaths[0] };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('storage:isAvailable', ipcSafe(async (root) => {
+  if (!root) return false;
+  try {
+    const stat = await fsp.stat(root);
+    return stat.isDirectory();
+  } catch {
+    return false;
+  }
+}));
+
+ipcMain.handle('storage:openInExplorer', ipcSafe(async (root) => {
+  if (!root) throw new Error('No folder set');
+  await shell.openPath(root);
+  return true;
+}));
+
+ipcMain.handle('storage:listPages',   ipcSafe(async (root)              => listAllPages(root)));
+ipcMain.handle('storage:getPage',     ipcSafe(async (root, book, page)  => readPageDoc(root, book, page)));
+ipcMain.handle('storage:savePage',    ipcSafe(async (root, book, page, doc) => {
+  const fp = await writePageDoc(root, book, page, doc);
+  return {
+    success: true,
+    strokeCount: doc.strokes?.length || 0,
+    lineCount: doc.transcript?.lines?.length || 0,
+    path: fp
+  };
+}));
+ipcMain.handle('storage:deletePage',  ipcSafe(async (root, book, page)  => { await deletePageDoc(root, book, page); return true; }));
+ipcMain.handle('storage:getAliases',  ipcSafe(async (root)              => readAliases(root)));
+ipcMain.handle('storage:setAlias',    ipcSafe(async (root, book, alias) => {
+  const aliases = await readAliases(root);
+  aliases[String(book)] = alias;
+  await writeAliases(root, aliases);
+  return aliases;
+}));
+ipcMain.handle('storage:removeAlias', ipcSafe(async (root, book) => {
+  const aliases = await readAliases(root);
+  delete aliases[String(book)];
+  await writeAliases(root, aliases);
+  return aliases;
+}));
 
 function resetBluetoothState() {
   isBluetoothDialogOpen = false;
