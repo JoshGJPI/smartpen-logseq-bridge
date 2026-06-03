@@ -25,7 +25,7 @@
   import { get } from 'svelte/store';
 
   // Initialize pen SDK on mount
-  import { initializePenSDK } from '$lib/pen-sdk.js';
+  import { initializePenSDK, disconnectAllPens } from '$lib/pen-sdk.js';
 
   // v2.0: Check data folder availability at boot
   async function checkDataFolder() {
@@ -51,12 +51,27 @@
   }
 
   // v2.0: Prompt before close if there are unsaved canvas changes.
+  // NOTE: do NOT disconnect the pen here — the user may still cancel the close.
+  // Pen teardown happens in handlePageHide (fires only on a committed unload).
   function handleBeforeUnload(event) {
     if (get(unsavedChanges)) {
       // Setting returnValue is what triggers the browser/Electron "are you sure?" dialog.
       event.preventDefault();
       event.returnValue = 'You have unsaved changes. Leave anyway?';
       return event.returnValue;
+    }
+  }
+
+  // Release the BLE GATT link as the page is actually being torn down (reload,
+  // window close). Fires only after a beforeunload prompt is confirmed, so it
+  // never disconnects a pen the user decided to keep. Synchronous by design —
+  // disconnectAllPens() calls gatt.disconnect() directly. Skipping this leaves
+  // a stale GATT handle that blocks reconnection on Windows until a restart.
+  function handlePageHide() {
+    try {
+      disconnectAllPens();
+    } catch (e) {
+      // best-effort during teardown
     }
   }
 
@@ -70,6 +85,8 @@
 
     // Unsaved-changes window-close prompt
     window.addEventListener('beforeunload', handleBeforeUnload);
+    // Graceful pen teardown on a committed unload (reload / window close)
+    window.addEventListener('pagehide', handlePageHide);
 
     // Set up Electron IPC listeners for Bluetooth device picker
     if (window.electronAPI) {
@@ -82,15 +99,33 @@
       window.electronAPI.onBluetoothDeviceFound((devices) => {
         updateBluetoothDevices(devices);
       });
+
+      // Main process is quitting (close / Ctrl+Q / Windows log-off): release
+      // the BLE GATT link, then tell main it's safe to finish quitting.
+      window.electronAPI.onAppBeforeQuit(() => {
+        try {
+          disconnectAllPens();
+        } catch (e) {
+          // best-effort during shutdown
+        }
+        window.electronAPI.notifyDisconnectComplete();
+      });
     }
   });
 
   onDestroy(() => {
+    // Release any live BLE link as the app tears down.
+    try {
+      disconnectAllPens();
+    } catch (e) {
+      // best-effort
+    }
     // Clean up IPC listeners
     if (window.electronAPI) {
       window.electronAPI.removeBluetoothListeners();
     }
     window.removeEventListener('beforeunload', handleBeforeUnload);
+    window.removeEventListener('pagehide', handlePageHide);
   });
 </script>
 

@@ -527,6 +527,46 @@ function createMenu() {
 // App lifecycle
 app.on('ready', createWindow);
 
+// ===== Graceful pen disconnect on shutdown =====
+// Before the app quits — including a normal close, Ctrl+Q, or a Windows
+// log-off (which Electron surfaces as a quit and where Windows grants apps a
+// brief window to respond) — give the renderer a chance to release the BLE
+// GATT link cleanly via window.electronAPI.onAppBeforeQuit. An ungraceful
+// teardown leaves a stale GATT handle in the Windows Bluetooth stack that
+// blocks the pen from reconnecting until the machine is restarted.
+let shutdownCleanupDone = false;
+let shutdownCleanupInProgress = false;
+
+ipcMain.on('renderer-disconnect-complete', () => {
+  shutdownCleanupDone = true;
+  app.quit();
+});
+
+app.on('before-quit', (event) => {
+  // Cleanup already finished (or impossible) — let the quit proceed.
+  if (shutdownCleanupDone) return;
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
+    shutdownCleanupDone = true;
+    return;
+  }
+  // Already waiting on the renderer — just keep blocking the quit.
+  if (shutdownCleanupInProgress) {
+    event.preventDefault();
+    return;
+  }
+
+  shutdownCleanupInProgress = true;
+  event.preventDefault();
+  mainWindow.webContents.send('app-before-quit');
+
+  // Failsafe: quit anyway if the renderer doesn't acknowledge promptly, so a
+  // hung renderer can never trap the app open.
+  setTimeout(() => {
+    shutdownCleanupDone = true;
+    app.quit();
+  }, 1500);
+});
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();

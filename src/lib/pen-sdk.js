@@ -222,7 +222,7 @@ export async function disconnectPen() {
   let controller;
   const unsubscribe = penController.subscribe(c => controller = c);
   unsubscribe();
-  
+
   if (controller) {
     try {
       PenHelper.disconnect(controller);
@@ -233,6 +233,47 @@ export async function disconnectPen() {
       throw error;
     }
   }
+}
+
+/**
+ * Synchronously release every GATT link the SDK is currently tracking.
+ *
+ * Used on app shutdown / window unload, where the async, store-based
+ * disconnectPen() can't be relied on. `device.gatt.disconnect()` is synchronous
+ * in the Web Bluetooth API, so this completes inside a `pagehide` handler or an
+ * IPC shutdown callback. Releasing the link cleanly here is what prevents the
+ * Windows BLE stack from caching a stale GATT handle that blocks reconnection
+ * until the machine is restarted (see the disconnect/reconnect investigation).
+ *
+ * Best-effort: every step is guarded so a partial/odd SDK state never throws
+ * during shutdown.
+ *
+ * @returns {number} count of GATT links we attempted to close
+ */
+export function disconnectAllPens() {
+  let count = 0;
+  try {
+    const pens = PenHelper.pens || [];
+    pens.forEach(controller => {
+      try {
+        const gatt = controller?.device?.gatt;
+        if (gatt && gatt.connected) {
+          gatt.disconnect();
+          count++;
+        }
+      } catch (e) {
+        // best-effort — ignore per-pen failures during shutdown
+      }
+    });
+  } catch (e) {
+    // best-effort — ignore
+  }
+  try {
+    setPenConnected(false);
+  } catch (e) {
+    // ignore
+  }
+  return count;
 }
 
 /**

@@ -23,11 +23,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.send('bluetooth-connection-complete');
   },
 
+  // Graceful shutdown: main asks the renderer to release the BLE GATT link
+  // before the app quits (including on Windows log-off). The renderer must
+  // reply with notifyDisconnectComplete() so main can finish quitting.
+  onAppBeforeQuit: (callback) => {
+    ipcRenderer.on('app-before-quit', callback);
+  },
+  notifyDisconnectComplete: () => {
+    ipcRenderer.send('renderer-disconnect-complete');
+  },
+
   // Cleanup listeners (call on component unmount)
   removeBluetoothListeners: () => {
     ipcRenderer.removeAllListeners('bluetooth-scanning-started');
     ipcRenderer.removeAllListeners('bluetooth-device-found');
     ipcRenderer.removeAllListeners('bluetooth-connection-result');
+    ipcRenderer.removeAllListeners('app-before-quit');
   },
 
   // MyScript API proxy (routes through Node.js to preserve header casing)
