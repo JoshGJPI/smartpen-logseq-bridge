@@ -21,7 +21,12 @@
       "Bash(grep -rn 'from ['\\\\''\"]$lib/\\(logseq-api\\\\|logseq-scanner\\\\|logseq-import\\\\|transcript-updater\\)' 'C:/Users/joshg/Documents/Claude Access/smartpen-logseq-bridge/src')",
       "Bash(node \"scripts/migrate-from-logseq.cjs\" \"C:\\\\Users\\\\joshg\\\\Documents\\\\stroke-data\\\\raw\" \"C:\\\\Users\\\\joshg\\\\Documents\\\\stroke-data\")",
       "Bash(node \"scripts/migrate-from-logseq.cjs\" \"C:\\\\Users\\\\joshg\\\\Documents\\\\stroke-data\\\\raw\\\\archive\" \"C:\\\\Users\\\\joshg\\\\Documents\\\\stroke-data\")",
-      "WebSearch"
+      "WebSearch",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\joshg\\\\Documents\\\\Claude Access\\\\smartpen-logseq-bridge\" -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(cd \"C:\\\\Users\\\\joshg\\\\Documents\\\\Claude Access\\\\LogSeq Plugins\\\\logseq-plugin-jpi-tools\" && find src/smartpen -type f -name \"*.ts\" -o -name \"*.tsx\" -o -name \"*.js\" -o -name \"*.jsx\" -o -name \"*.css\" -o -name \"*.html\" -o -name \"*.json\" | head -50)",
+      "Bash(Get-ChildItem -Path src/smartpen -Recurse -File)",
+      "Bash(Select-Object FullName)"
     ]
   }
 }

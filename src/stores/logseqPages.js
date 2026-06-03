@@ -22,9 +22,12 @@ export const pagesByBook = derived(logseqPages, ($pages) => {
     }
     grouped[book].push(page);
   }
-  // Sort pages within each book
+  // Sort pages within each book (break page-number ties by suffix so
+  // letter-suffixed variants like P127b follow P127 deterministically)
   for (const book of Object.keys(grouped)) {
-    grouped[book].sort((a, b) => a.page - b.page);
+    grouped[book].sort(
+      (a, b) => (a.page - b.page) || String(a.suffix || '').localeCompare(String(b.suffix || ''))
+    );
   }
   return grouped;
 });

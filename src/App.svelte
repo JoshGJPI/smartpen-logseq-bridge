@@ -16,11 +16,14 @@
   // Canvas components
   import StrokeCanvas from './components/canvas/StrokeCanvas.svelte';
 
+  // Book viewer
+  import BookViewer from './components/viewer/BookViewer.svelte';
+
   // Stores
   import { log } from '$stores';
   import { openBluetoothPicker, updateBluetoothDevices, closeBluetoothPicker } from '$stores/ui.js';
   import { dataRoot, setDataFolderStatus, getDataRoot } from '$stores/settings.js';
-  import { unsavedChanges } from '$stores';
+  import { unsavedChanges, viewerMode, viewerDirty, setViewerMode, clearAllViewerDirty } from '$stores';
   import { isAvailable as folderIsAvailable } from '$lib/storage/local-store.js';
   import { get } from 'svelte/store';
 
@@ -54,7 +57,7 @@
   // NOTE: do NOT disconnect the pen here — the user may still cancel the close.
   // Pen teardown happens in handlePageHide (fires only on a committed unload).
   function handleBeforeUnload(event) {
-    if (get(unsavedChanges)) {
+    if (get(unsavedChanges) || get(viewerDirty)) {
       // Setting returnValue is what triggers the browser/Electron "are you sure?" dialog.
       event.preventDefault();
       event.returnValue = 'You have unsaved changes. Leave anyway?';
@@ -73,6 +76,23 @@
     } catch (e) {
       // best-effort during teardown
     }
+  }
+
+  // Book View instance + shared state bound from BookViewer, so the global
+  // controls (Home, Strokes/Transcript, Single/Spread) can live in the top bar.
+  let bookViewer;
+  let bookViewerContentMode = 'strokes';
+  let bookViewerSpread = true;
+  let bookViewerHasSelection = false;
+
+  // Switch the right pane between the Editor (live StrokeCanvas) and Book View.
+  // Guards against silently dropping unsaved transcript edits when leaving Book View.
+  function switchView(mode) {
+    if (mode === 'editor' && get(viewerDirty)) {
+      if (!window.confirm('You have unsaved transcript edits. Discard them?')) return;
+      clearAllViewerDirty();
+    }
+    setViewerMode(mode);
   }
 
   onMount(() => {
@@ -136,9 +156,70 @@
     <!-- Left Panel: Data Explorer & Activity Log -->
     <LeftPanel />
     
-    <!-- Right: Canvas -->
+    <!-- Right: Canvas or Book View -->
     <div class="canvas-section">
-      <StrokeCanvas />
+      <div class="viewer-topbar">
+        <div class="view-switch">
+          <button
+            class="view-switch-btn"
+            class:active={$viewerMode === 'editor'}
+            on:click={() => switchView('editor')}
+          >Editor</button>
+          <button
+            class="view-switch-btn"
+            class:active={$viewerMode === 'book'}
+            on:click={() => switchView('book')}
+          >Book View</button>
+        </div>
+
+        {#if $viewerMode === 'book' && bookViewerHasSelection}
+          <div class="viewer-globals">
+            <button class="vg-btn icon" on:click={() => bookViewer?.goHome()} title="Back to all pages">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                <polyline points="9 22 9 12 15 12 15 22"/>
+              </svg>
+            </button>
+            <div class="vg-segment">
+              <button
+                class:active={bookViewerContentMode === 'strokes'}
+                on:click={() => bookViewer?.setContentMode('strokes')}
+              >Strokes</button>
+              <button
+                class:active={bookViewerContentMode === 'transcript'}
+                on:click={() => bookViewer?.setContentMode('transcript')}
+              >Transcript</button>
+            </div>
+            <button
+              class="vg-btn"
+              class:active={bookViewerSpread}
+              on:click={() => bookViewer?.toggleSpread()}
+              title={bookViewerSpread ? 'Single page' : 'Two-page spread'}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                {#if bookViewerSpread}
+                  <rect x="3" y="3" width="18" height="18" rx="2"/>
+                  <line x1="12" y1="3" x2="12" y2="21"/>
+                {:else}
+                  <rect x="5" y="3" width="14" height="18" rx="2"/>
+                {/if}
+              </svg>
+              {bookViewerSpread ? 'Spread' : 'Single'}
+            </button>
+          </div>
+        {/if}
+      </div>
+
+      {#if $viewerMode === 'book'}
+        <BookViewer
+          bind:this={bookViewer}
+          bind:contentMode={bookViewerContentMode}
+          bind:twoPageMode={bookViewerSpread}
+          bind:hasSelection={bookViewerHasSelection}
+        />
+      {:else}
+        <StrokeCanvas />
+      {/if}
     </div>
   </main>
   
@@ -198,6 +279,112 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
+  }
+
+  .viewer-topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+
+  .view-switch {
+    display: inline-flex;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 3px;
+    gap: 2px;
+  }
+
+  .view-switch-btn {
+    padding: 6px 16px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .view-switch-btn:hover {
+    color: var(--text-primary);
+  }
+
+  .view-switch-btn.active {
+    background: var(--accent);
+    color: white;
+  }
+
+  /* Book View global controls (shared header for both spread pages) */
+  .viewer-globals {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .vg-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .vg-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+  }
+
+  .vg-btn.icon {
+    padding: 6px 8px;
+  }
+
+  .vg-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+  }
+
+  .vg-segment {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    overflow: hidden;
+  }
+
+  .vg-segment button {
+    padding: 6px 14px;
+    border: none;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .vg-segment button + button {
+    border-left: 1px solid var(--border);
+  }
+
+  .vg-segment button:hover {
+    color: var(--text-primary);
+  }
+
+  .vg-segment button.active {
+    background: var(--accent);
+    color: white;
   }
 
   /* Responsive adjustments */

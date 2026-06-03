@@ -25,14 +25,25 @@ function buildTranscriptionText(lines) {
 }
 
 /**
- * Convert a folder PageDoc → record shape consumed by PageCard.
+ * Convert a folder PageDoc → record shape consumed by PageCard / BookViewer.
+ *
+ * `pageId` is the per-book-unique file identifier including any letter suffix
+ * (e.g. "151b"); `page` is the integer NCode page number, which can collide
+ * across suffixed variants. Consumers should key/navigate by `pageId`.
+ * @param {import('./page-doc.js').PageDoc} doc
+ * @param {import('./page-doc.js').PageMeta} meta - from listPages() (has pageId/suffix)
  */
-function pageDocToRecord(doc, book, page) {
+function pageDocToRecord(doc, meta) {
+  const { book, page } = meta;
+  const pageId = meta.pageId != null ? String(meta.pageId) : String(page);
+  const suffix = meta.suffix || '';
   const transcriptionText = buildTranscriptionText(doc.transcript?.lines);
   return {
-    pageName: `pages/B${book}/P${page}.json`,    // used only as a display string in v2
+    pageName: `pages/B${book}/P${pageId}.json`,   // unique per page (incl. suffix)
     book,
-    page,
+    page,                                          // integer NCode page number
+    pageId,                                        // unique-within-book identifier
+    suffix,
     strokeCount: doc.strokes?.length || 0,
     lastUpdated: doc.metadata?.lastUpdated || null,
     transcribed: !!transcriptionText,
@@ -87,13 +98,16 @@ export async function scanLocalPages() {
     // Read each PageDoc once to build full records (transcription text, etc.)
     const records = [];
     for (const meta of metaList) {
+      // Load by pageId so letter-suffixed variants (e.g. P151b.json) read the
+      // correct file rather than collapsing onto the integer-page file.
+      const pageRef = meta.pageId != null ? meta.pageId : meta.page;
       try {
-        const doc = await getPage(meta.book, meta.page);
+        const doc = await getPage(meta.book, pageRef);
         if (doc) {
-          records.push(pageDocToRecord(doc, meta.book, meta.page));
+          records.push(pageDocToRecord(doc, meta));
         }
       } catch (err) {
-        console.warn(`Skipping unreadable page B${meta.book}/P${meta.page}:`, err.message);
+        console.warn(`Skipping unreadable page B${meta.book}/P${pageRef}:`, err.message);
       }
     }
 

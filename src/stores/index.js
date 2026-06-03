@@ -162,6 +162,22 @@ export {
   updatePageSyncStatus
 } from './logseqPages.js';
 
+// Viewer (Book View pane)
+export {
+  viewerMode,
+  viewerDirty,
+  recentViews,
+  viewerSelection,
+  setViewerMode,
+  toggleViewerMode,
+  markViewerDirtyPage,
+  clearViewerDirtyPage,
+  clearAllViewerDirty,
+  recordRecentView,
+  setViewerSelection,
+  clearViewerSelection
+} from './viewer.js';
+
 // Book Aliases
 export {
   bookAliases,
