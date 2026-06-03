@@ -33,12 +33,25 @@ App.svelte (Root)
 │   │   ├── Saved Pages (folder-backed page list — `components/logseq-db/` dir, soon to be renamed)
 │   │   └── RawJsonViewer (Technical inspection)
 │   └── ActivityLog (Real-time feedback)
-└── StrokeCanvas
-    ├── Canvas Renderer (Drawing engine)
-    ├── CanvasControls (Zoom, fit, reset)
-    ├── PageSelector (Multi-page filtering)
-    └── FilteredStrokesPanel (Decorative strokes)
+└── Canvas Section (Editor ⇄ Book View toggle, in App.svelte)
+    ├── StrokeCanvas (Editor — live capture/edit)
+    │   ├── Canvas Renderer (Drawing engine)
+    │   ├── CanvasControls (Zoom, fit, reset)
+    │   ├── PageSelector (Multi-page filtering)
+    │   └── FilteredStrokesPanel (Decorative strokes)
+    └── BookViewer (Book View — read/edit saved pages as a book)
+        ├── Home grid (recent + collapsible by-book page thumbnails)
+        └── PageSpreadView ×1–2 (side-by-side spread, page-turn nav)
+            ├── SVG stroke render (per-page zoom/pan/fit)
+            └── TranscriptPane (view/inline-edit lines, copy LogSeq markdown)
 ```
+
+The right-hand pane toggles between the **Editor** (`StrokeCanvas`) and **Book View**
+(`BookViewer`) via a segmented control in the top bar (`App.svelte`). Book View's
+global controls (Home · Strokes/Transcript · Single/Spread) live in that same top bar
+and drive the bound `BookViewer` instance; each page's toolbar has a **Load into
+Editor** action that imports that page's strokes into the Editor canvas and switches
+to it.
 
 ### State Management (Svelte Stores)
 
@@ -58,6 +71,13 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `logseqPages.js` — historical name; holds the scanned list of `pages/B###/P##.json` records the Data Explorer renders. Variable still called `logseqPages` for inertia; nothing LogSeq-specific remains.
 - `storage.js` — save status, unsaved-changes flag (`unsavedChanges` writable, `markUnsavedChanges()`, cleared on successful save)
 - `book-aliases.js` — custom book name mappings (persisted to `<dataRoot>/pages/_aliases.json`)
+
+**Book View (v2.1):**
+- `viewer.js` — Book View pane state:
+  - `viewerMode` (`'editor' | 'book'`) — which view the right pane shows; `setViewerMode()`, `toggleViewerMode()`
+  - `viewerDirty` (derived) + `markViewerDirtyPage()`/`clearViewerDirtyPage()` — per-page unsaved-transcript-edit tracking, kept **separate** from the canvas `unsavedChanges` so saving a transcript never masks unsaved stroke changes (App's `beforeunload` checks both)
+  - `viewerSelection` — last-open `{book, pageId}`, persisted to localStorage so Book View reopens the same spread across toggles/reload; `setViewerSelection()`/`clearViewerSelection()`
+  - `recentViews` + `recordRecentView()` — recently-opened pages for the home grid
 
 **UI State:**
 - `ui.js` - Active tab, canvas zoom, UI preferences
@@ -90,8 +110,13 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `local-store.js` — renderer-side facade over `window.storageAPI` IPC: `listPages`, `getPage`, `savePage`, `deletePage`, alias CRUD, `pickFolder`, `isAvailable`, `openInExplorer`
 - `save-page.js` — `savePageToFolder()` — append-only stroke merge with explicit deletions, Y-bounds-based transcript merge with checkbox preservation
 - `load-page.js` — `importStrokesFromFolder()`, `importStrokesForLoadedPagesFromFolder()` — converts StoredStroke → canvas dotArray format
-- `scan.js` — `scanLocalPages()` — populates the `logseqPages` store from disk
+- `scan.js` — `scanLocalPages()` — populates the `logseqPages` store from disk. Records carry `pageId`/`suffix` (the per-book-unique file identifier incl. any letter suffix) and load by `pageId`, so letter-suffixed variants (`P127.json` + `P127b.json`) don't collapse onto the integer page
 - `page-changes.js` — `computePageChangesFolder()` — preview diff for the SaveConfirmDialog
+
+**Book View Layer (`src/lib/viewer/`)** — v2.1:
+- `page-svg.js` — `computeStrokeBounds()`, `strokeToPathD()`, `generateThumbnailSVG()` — SVG render for the spread pages + home-grid thumbnails (`NCODE_SCALE = 2.371`)
+- `transcript-markdown.js` — `linesToLogseqMarkdown()` — tab-indented `- ` bullets with `- TODO`/`- DONE` markers; `key:: value` property lines stripped (LogSeq-pasteable copy)
+- `save-transcript.js` — `saveTranscriptLines(book, pageId, lines)` — writes inline transcript edits back to the PageDoc verbatim (getPage → replace `transcript.lines` → scrub deleted `lineId`s on strokes → `savePage`); `recomputeParentIds()` keeps the hierarchy consistent after indent edits
 
 ## Data Structures
 
@@ -361,6 +386,9 @@ Existing test files (all in `src/lib/__tests__/`):
 | `myscript-api.test.js` | `parseMyScriptResponse` — line parsing, Y-bounds from word bboxes, fallback interpolation, indentation, checkbox normalisation |
 | `transcript-search.test.js` | `tokenize` (hyphen preservation, property filtering), `searchPages` (partial matching, ranking), `highlightMatches` (HTML escaping) |
 | `stroke-filter.test.js` | `filterDecorativeStrokes` / `detectDecorativeIndices` — underline, circle, single-stroke box detection, threshold behaviour |
+| `page-svg.test.js` | `computeStrokeBounds`, `strokeToPathD` (scaling, normalisation, <2-point skip), `generateThumbnailSVG` (empty placeholder, dimensions) |
+| `transcript-markdown.test.js` | `linesToLogseqMarkdown` — tab indentation, TODO/DONE markers, `::` property stripping, blank-line drop, `isPropertyLine` |
+| `save-transcript.test.js` | `recomputeParentIds` (hierarchy by indent), `saveTranscriptLines` (verbatim write, lineId scrub on deleted lines, timestamp bump, missing-page guard; mocks `getPage`/`savePage`) |
 
 When writing new tests follow the patterns in the existing files:
 - Mock Svelte stores (`vi.mock()`) before imports if needed
@@ -419,6 +447,45 @@ npm run preview
 - [Svelte 4 Docs](https://svelte.dev/docs/svelte/overview) — Framework reference
 
 ## Recent Changes (Git History Context)
+
+### v2.1 / v2.0.2 — Book View + Editor handoff (June 2026)
+
+**A read-and-edit "Book View" for saved pages.** The right-hand pane now toggles
+between the **Editor** (the existing `StrokeCanvas` capture/edit surface) and **Book
+View** (`BookViewer`), letting the user read their notebooks as side-by-side spreads
+and view/edit/copy transcripts now that LogSeq is gone.
+
+**What landed:**
+- New `src/components/viewer/` — `BookViewer` (home grid + spread layout + page-turn
+  nav), `PageSpreadView` (per-page SVG stroke render with zoom/pan/fit, or transcript),
+  `TranscriptPane` (inline structured editor + copy)
+- New `src/lib/viewer/` — `page-svg.js`, `transcript-markdown.js`, `save-transcript.js`
+  (+ unit tests `page-svg.test.js`, `transcript-markdown.test.js`, `save-transcript.test.js`)
+- New `src/stores/viewer.js` — pane mode, per-page dirty tracking, persisted selection,
+  recents (see Stores section)
+- **Strokes ⇄ Transcript toggle** (viewer-wide); transcript shows hierarchy + TODO/DONE
+- **Inline transcript editing** — edit text, Tab/Shift+Tab indent, cycle TODO/DONE,
+  add/delete lines; saves back to the PageDoc verbatim (separate dirty flag from the
+  canvas so a transcript save never masks unsaved strokes)
+- **Copy** transcript as LogSeq-pasteable markdown (tab indents, `- TODO`/`- DONE`,
+  `::` properties stripped)
+- **Single/Spread** with page-turn nav; home grid with recent + collapsible by-book
+  thumbnails (collapsed by default so large books don't bury navigation)
+- **Load into Editor** (per page) — imports that page's strokes into the live canvas
+  and switches to the Editor for editing
+- **State persistence** — Book View reopens the last spread across Editor/Book toggles
+  and app reloads (`viewerSelection` in localStorage)
+
+**Fixes made along the way:**
+- `scan.js` now carries `pageId`/`suffix` and loads by `pageId`, so letter-suffixed
+  pages (`P127.json` + `P127b.json`) no longer collide into one duplicate record — this
+  also fixed the Saved Pages tab crashing on such books (`BookAccordion` keys by
+  `pageName`). `pagesByBook` breaks page-number ties by suffix.
+- `StrokeCanvas` `onMount` now seeds the page filter from already-loaded pages and does
+  a full render + fit, so "Load into Editor" shows the page immediately. Previously
+  `visibleStrokes` (filtered by an initially-empty `selectedPages`) raced the
+  `PageSelector` auto-select on a fresh mount, leaving the canvas blank until a filter
+  was toggled.
 
 ### v2.0.0 — LogSeq → Local Folder Pivot (May 2026)
 

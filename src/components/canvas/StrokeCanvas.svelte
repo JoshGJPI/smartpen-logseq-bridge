@@ -2,7 +2,7 @@
   StrokeCanvas.svelte - Main canvas wrapper with controls
 -->
 <script>
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { strokes, strokeCount, pages, clearStrokes, batchMode } from '$stores';
   import { selectedIndices, selectedStrokes, handleStrokeClick, clearSelection, selectAll, selectionCount, selectFromBox } from '$stores';
   import { deletedIndices, pendingChanges } from '$stores';
@@ -119,10 +119,24 @@
   onMount(async () => {
     const { CanvasRenderer } = await import('$lib/canvas-renderer.js');
     renderer = new CanvasRenderer(canvasElement);
-    
-    // Initial render
-    renderStrokes();
-    
+
+    // Initial render.
+    // If strokes were already in the store before this canvas mounted (e.g. via
+    // "Load into Editor" from Book View), the page filter starts empty so
+    // visibleStrokes is empty, and the PageSelector's auto-select may not yield a
+    // stroke-count change for the render reactive block to catch — leaving the
+    // canvas blank until a filter is toggled. Seed the selection from the pages
+    // that already exist, then do a full render (with bounds) and fit.
+    if (selectedPages.size === 0 && pageOptions.length > 0) {
+      selectedPages = new Set(pageOptions);
+      await tick(); // let visibleStrokes recompute from the new selection
+    }
+    renderStrokes(true);
+    if (visibleStrokes.length > 0) {
+      previousStrokeCount = visibleStrokes.length; // avoid a redundant auto-fit
+      setTimeout(() => fitContent(), 100);
+    }
+
     // Handle resize
     const resizeObserver = new ResizeObserver(() => {
       if (renderer) {
