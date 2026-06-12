@@ -65,7 +65,8 @@
   import {
     setStorageSaving,
     recordSuccessfulSave,
-    recordStorageError
+    recordStorageError,
+    clearUnsavedChanges
   } from '$stores/storage.js';
   
   let isConnecting = false;
@@ -130,6 +131,9 @@
   function handleClearCanvas() {
     clearStrokes();
     clearDeletedIndices();
+    // Nothing left on the canvas → nothing to save. Clear the indicator too, or
+    // it stays latched with no way to clear it (Save is disabled at 0 strokes).
+    clearUnsavedChanges();
     log('Canvas cleared', 'info');
   }
   
@@ -449,6 +453,16 @@
       }
       if (errorCount > 0) {
         log(`Failed to save ${errorCount} page(s)`, 'error');
+      }
+
+      // Reconcile the unsaved-changes indicator after a clean save.
+      // This MUST run after the deletion cleanup above: removeStrokesByIndices()
+      // calls markUnsavedChanges(), which would otherwise re-latch the indicator
+      // immediately after recordSuccessfulSave() cleared it — leaving the dot lit
+      // with nothing left to save (Save then reports "nothing to save"). Only
+      // clear when nothing failed, so genuinely unsaved work still warns.
+      if (errorCount === 0 && savedStrokesCount > 0) {
+        clearUnsavedChanges();
       }
     } finally {
       isSaving = false;

@@ -35,6 +35,13 @@ function getStrokeId(stroke) {
  */
 function transformStoredToCanvasFormat(doc, onProgress = null) {
   const pageInfo = doc.pageInfo || {};
+  // Share ONE pageInfo object across every stroke and every dot of this page.
+  // pageInfo is identical for all of them, so spreading a fresh `{ ...pageInfo }`
+  // per dot (as this used to) allocated one small object per dot — millions of
+  // identical 4-key objects for a large book, which dominated heap use when
+  // loading many pages. pageInfo is treated as read-only downstream (canvas
+  // render, transcript matching), so a single shared reference is safe.
+  const sharedPageInfo = { ...pageInfo };
   const storedStrokes = Array.isArray(doc.strokes) ? doc.strokes : [];
   const total = storedStrokes.length;
 
@@ -44,7 +51,7 @@ function transformStoredToCanvasFormat(doc, onProgress = null) {
     }
     const points = s.points || [];
     return {
-      pageInfo: { ...pageInfo },
+      pageInfo: sharedPageInfo,
       startTime: s.startTime,
       endTime: s.endTime,
       // PageDoc carries lineId; in-memory canvas keeps it as blockUuid for
@@ -61,7 +68,7 @@ function transformStoredToCanvasFormat(doc, onProgress = null) {
           f: 100,                                // Default pressure (light)
           dotType,
           timestamp: typeof ts === 'number' ? ts : undefined,
-          pageInfo: { ...pageInfo }
+          pageInfo: sharedPageInfo
         };
       })
     };

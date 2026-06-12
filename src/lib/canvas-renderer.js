@@ -513,6 +513,53 @@ export class CanvasRenderer {
   }
   
   /**
+   * Compute (and cache) a stroke's bounding box in Ncode space.
+   * Cached on the stroke as `_nb` — Ncode coords never change after capture, so
+   * the box is reusable across zoom/pan/scale changes (those only affect the
+   * screen transform, applied separately in isStrokeOffscreen).
+   * @param {Object} stroke
+   * @param {Array} dots - stroke.dotArray (passed in to avoid re-resolving)
+   * @returns {{minX:number,minY:number,maxX:number,maxY:number}}
+   */
+  strokeNcodeBounds(stroke, dots) {
+    if (stroke._nb) return stroke._nb;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 0; i < dots.length; i++) {
+      const d = dots[i];
+      if (d.x < minX) minX = d.x;
+      if (d.y < minY) minY = d.y;
+      if (d.x > maxX) maxX = d.x;
+      if (d.y > maxY) maxY = d.y;
+    }
+    stroke._nb = { minX, minY, maxX, maxY };
+    return stroke._nb;
+  }
+
+  /**
+   * Fast viewport-culling test: is the stroke's screen bounding box entirely
+   * outside the visible canvas? Transforms only the two Ncode-bounds corners
+   * (the screen transform is linear/monotonic, so the corners map to the screen
+   * bbox), which is O(1) versus O(dots) for actually drawing the stroke.
+   * @returns {boolean} true if the stroke can be skipped this frame
+   */
+  isStrokeOffscreen(stroke, dots, pageInfo) {
+    const nb = this.strokeNcodeBounds(stroke, dots);
+    const a = this.ncodeToScreen({ x: nb.minX, y: nb.minY, f: 0 }, pageInfo);
+    const b = this.ncodeToScreen({ x: nb.maxX, y: nb.maxY, f: 0 }, pageInfo);
+    const left = Math.min(a.x, b.x);
+    const right = Math.max(a.x, b.x);
+    const top = Math.min(a.y, b.y);
+    const bottom = Math.max(a.y, b.y);
+    const margin = 24; // px slack so stroke caps near the edge aren't clipped
+    return (
+      right < -margin ||
+      left > this.viewWidth + margin ||
+      bottom < -margin ||
+      top > this.viewHeight + margin
+    );
+  }
+
+  /**
    * Draw a stroke from store data
    * @param {Object} stroke - Stroke object with dotArray and pageInfo
    * @param {boolean} highlighted - Whether to highlight this stroke
@@ -522,9 +569,15 @@ export class CanvasRenderer {
   drawStroke(stroke, highlighted = false, filtered = false, deleted = false) {
     const dots = stroke.dotArray || stroke.dots || [];
     if (dots.length < 2) return;
-    
+
     const pageInfo = stroke.pageInfo;
-    
+
+    // Viewport culling: skip strokes whose screen bounding box is entirely
+    // off-canvas. With many pages laid out in a grid, only a handful are visible
+    // at typical edit zoom, so this avoids transforming/stroking the dots of the
+    // ~95% that aren't on screen — the dominant per-frame cost.
+    if (this.isStrokeOffscreen(stroke, dots, pageInfo)) return;
+
     // Determine color and style based on state
     let color, baseWidth, opacity;
     

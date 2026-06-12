@@ -23,6 +23,7 @@
   import { log } from '$stores';
   import { openBluetoothPicker, updateBluetoothDevices, closeBluetoothPicker } from '$stores/ui.js';
   import { dataRoot, setDataFolderStatus, getDataRoot } from '$stores/settings.js';
+  import { graphRoot, publishToGraph, setGraphFolderStatus, getGraphRoot } from '$stores/settings.js';
   import { unsavedChanges, viewerMode, viewerDirty, setViewerMode, clearAllViewerDirty } from '$stores';
   import { isAvailable as folderIsAvailable } from '$lib/storage/local-store.js';
   import { get } from 'svelte/store';
@@ -53,16 +54,40 @@
     }
   }
 
-  // v2.0: Prompt before close if there are unsaved canvas changes.
-  // NOTE: do NOT disconnect the pen here — the user may still cancel the close.
-  // Pen teardown happens in handlePageHide (fires only on a committed unload).
-  function handleBeforeUnload(event) {
-    if (get(unsavedChanges) || get(viewerDirty)) {
-      // Setting returnValue is what triggers the browser/Electron "are you sure?" dialog.
-      event.preventDefault();
-      event.returnValue = 'You have unsaved changes. Leave anyway?';
-      return event.returnValue;
+  // "Publish to graph": check the LogSeq graph folder at boot so the status dot
+  // is accurate. Only meaningful when publishing is enabled.
+  async function checkGraphFolder() {
+    const root = getGraphRoot();
+    if (!root) {
+      setGraphFolderStatus(false, 'Graph: not set');
+      return;
     }
+    try {
+      const ok = await folderIsAvailable(root);
+      if (ok) {
+        const basename = root.split(/[\\/]/).pop() || root;
+        setGraphFolderStatus(true, `Graph: ${basename}`);
+        if (get(publishToGraph)) log(`Graph publish target ready: ${root}`, 'info');
+      } else {
+        setGraphFolderStatus(false, 'Graph: missing');
+        if (get(publishToGraph)) log(`Graph folder not accessible: ${root}`, 'warning');
+      }
+    } catch (err) {
+      setGraphFolderStatus(false, 'Graph: error');
+      if (get(publishToGraph)) log(`Graph folder check failed: ${err.message}`, 'warning');
+    }
+  }
+
+  // v2.0: Mirror unsaved-changes state to the Electron main process.
+  // Main owns the close/quit confirmation now — a native, visible dialog driven
+  // by the window 'close' event (see electron/main.cjs). A renderer beforeunload
+  // returnValue does NOT show a prompt in Electron; it silently cancels the
+  // close, which is exactly what made the window appear unable to close while
+  // leaving the user no warning. Pushing the real dirty state here means the
+  // warning appears only when there are genuinely unsaved strokes or transcript
+  // edits, and the close can never be silently blocked.
+  $: if (typeof window !== 'undefined' && window.electronAPI?.setUnsavedState) {
+    window.electronAPI.setUnsavedState($unsavedChanges || $viewerDirty);
   }
 
   // Release the BLE GATT link as the page is actually being torn down (reload,
@@ -102,9 +127,9 @@
 
     // Kick off data-folder availability check (non-blocking)
     checkDataFolder();
+    // Same for the LogSeq graph publish target (non-blocking)
+    checkGraphFolder();
 
-    // Unsaved-changes window-close prompt
-    window.addEventListener('beforeunload', handleBeforeUnload);
     // Graceful pen teardown on a committed unload (reload / window close)
     window.addEventListener('pagehide', handlePageHide);
 
@@ -144,7 +169,6 @@
     if (window.electronAPI) {
       window.electronAPI.removeBluetoothListeners();
     }
-    window.removeEventListener('beforeunload', handleBeforeUnload);
     window.removeEventListener('pagehide', handlePageHide);
   });
 </script>

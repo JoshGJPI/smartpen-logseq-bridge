@@ -11,6 +11,7 @@
 import { get } from 'svelte/store';
 import { dataRoot } from '$stores/settings.js';
 import { PAGE_DOC_VERSION, emptyPageDoc, computeBounds, validatePageDoc } from './page-doc.js';
+import { publishPageToGraph } from './publish-graph.js';
 
 export { PAGE_DOC_VERSION, emptyPageDoc, computeBounds, validatePageDoc };
 
@@ -105,7 +106,18 @@ export async function savePage(book, page, doc) {
     throw new Error(`PageDoc validation failed: ${issues.join('; ')}`);
   }
   const res = await backend.savePage(requireRoot(), book, page, doc);
-  return unwrap(res, 'savePage');
+  const result = unwrap(res, 'savePage');
+
+  // Mirror the saved page into the LogSeq graph if "Publish to graph" is on.
+  // This is the single choke point all save paths funnel through (capture save,
+  // transcript edits, page-card rewrites), so every persisted change is
+  // mirrored. Best-effort: publishPageToGraph never throws — a graph-write
+  // failure must not break the authoritative bridge save. `page` here is the
+  // bridge's file identifier (integer, or a letter-suffixed pageId like
+  // "151b"), which is exactly the asset/manifest identity we want.
+  await publishPageToGraph(book, page, doc);
+
+  return result;
 }
 
 export async function deletePage(book, page) {

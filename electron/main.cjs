@@ -8,12 +8,21 @@ const fsp = require('fs').promises;
 
 let mainWindow;
 
+// ===== Close / quit gate state =====
+// rendererUnsaved mirrors the renderer's unsaved-changes flag (synced over IPC),
+// so the close gate can show a visible warning before discarding work.
+// isQuitting latches once the user has confirmed (or there was nothing to
+// confirm) so the gate's second pass lets the window close.
+let rendererUnsaved = false;
+let isQuitting = false;
+
 // ===== Bluetooth State =====
 let isBluetoothDialogOpen = false;
 let bluetoothCallback = null;
 let discoveredDevices = [];
 
 function createWindow() {
+  isQuitting = false; // fresh window starts in the "not quitting" state
   mainWindow = new BrowserWindow({
     width: 1600,
     height: 1000,
@@ -51,6 +60,42 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+
+  // ===== Close / quit gate =====
+  // The single place that decides whether the window may close. Fires for the X
+  // button directly, and for Ctrl+Q / menu Exit / Windows log-off via
+  // before-quit → mainWindow.close(). We drive shutdown ourselves so we can
+  // (1) show a real, visible unsaved-changes warning — Electron does NOT show a
+  // prompt for a renderer beforeunload returnValue, it just silently cancels the
+  // close — and (2) guarantee teardown even if the renderer is unresponsive:
+  // mainWindow.destroy() force-closes without waiting on a (possibly pegged)
+  // renderer, so the app can never get stuck open requiring Task Manager.
+  mainWindow.on('close', (event) => {
+    if (isQuitting) return; // already confirmed — allow the close to proceed
+
+    event.preventDefault();
+    if (!confirmDiscardUnsaved()) return; // user chose to stay
+
+    isQuitting = true;
+
+    // Ask the renderer to release the BLE GATT link (synchronous on its side).
+    // A clean release is what stops the Windows Bluetooth stack from caching a
+    // stale handle that blocks reconnection until a reboot.
+    try {
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('app-before-quit');
+      }
+    } catch (_) {
+      // best-effort during teardown
+    }
+
+    // Destroy as soon as the renderer acks (renderer-disconnect-complete), or
+    // unconditionally after a short grace period. Terminal either way, so a hung
+    // or memory-pegged renderer can never trap the window open.
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy();
+    }, 1200);
   });
 
   // ===== Web Bluetooth Device Selection (IPC-based) =====
@@ -210,6 +255,24 @@ function pagePath(root, book, page) {
 
 function aliasesPath(root) {
   return path.join(pagesDir(root), '_aliases.json');
+}
+
+// ----- "Publish to graph" target paths (JPI Tools plugin asset storage) -----
+// The plugin (v1.9.66+) discovers pages from smartpen-index.json under its
+// mandatory storages/<plugin-id>/ asset sub-folder. See the bridge module
+// src/lib/storage/graph-index.js and the plugin's migrate-smartpen-assets.mjs.
+const JPI_PLUGIN_ID = 'logseq-plugin-jpi-tools';
+
+function graphAssetsDir(graphRoot) {
+  return path.join(graphRoot, 'assets', 'storages', JPI_PLUGIN_ID);
+}
+
+function graphAssetPath(graphRoot, book, pageId) {
+  return path.join(graphAssetsDir(graphRoot), `smartpen-B${book}-P${pageId}.json`);
+}
+
+function graphIndexPath(graphRoot) {
+  return path.join(graphAssetsDir(graphRoot), 'smartpen-index.json');
 }
 
 async function ensureDir(dir) {
@@ -420,6 +483,63 @@ ipcMain.handle('storage:removeAlias', ipcSafe(async (root, book) => {
   return aliases;
 }));
 
+// ===== "Publish to graph" — mirror saved pages into a LogSeq graph folder =====
+// Pure filesystem writes (no LogSeq runtime). The renderer (src/lib/storage/
+// publish-graph.js) does the smartpen-specific building (PageDoc serialize +
+// index upsert) and hands us already-serialized text; main only computes the
+// convention paths from book/pageId (so a bad pageId can't escape the asset
+// folder) and writes atomically, exactly like the page store.
+
+async function requireGraphRoot(graphRoot) {
+  if (!graphRoot || typeof graphRoot !== 'string') {
+    throw new Error('No graph folder set');
+  }
+  let stat;
+  try {
+    stat = await fsp.stat(graphRoot);
+  } catch {
+    throw new Error(`Graph folder not found: ${graphRoot}`);
+  }
+  if (!stat.isDirectory()) throw new Error(`Graph folder is not a directory: ${graphRoot}`);
+}
+
+// Read the current smartpen-index.json (string), or null if it doesn't exist.
+ipcMain.handle('storage:readGraphIndex', ipcSafe(async (graphRoot) => {
+  await requireGraphRoot(graphRoot);
+  try {
+    return await fsp.readFile(graphIndexPath(graphRoot), 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  }
+}));
+
+// Write a page's asset + the (already-upserted) index manifest, atomically.
+ipcMain.handle('storage:publishToGraph', ipcSafe(async (graphRoot, book, pageId, assetText, indexText) => {
+  await requireGraphRoot(graphRoot);
+
+  const bookNum = Number(book);
+  if (!Number.isFinite(bookNum)) throw new Error(`Invalid book: ${book}`);
+
+  // pageId is the bridge filename identifier: digits + an optional letter
+  // suffix (e.g. "42", "151b"). Validate to keep the write inside the asset dir.
+  const pid = String(pageId);
+  if (!/^\d+[a-zA-Z]?$/.test(pid)) throw new Error(`Invalid pageId: ${pageId}`);
+
+  if (typeof assetText !== 'string' || typeof indexText !== 'string') {
+    throw new Error('publishToGraph: assetText and indexText must be strings');
+  }
+
+  const assetPath = graphAssetPath(graphRoot, bookNum, pid);
+  const indexPath = graphIndexPath(graphRoot);
+
+  // Asset first (the data), then the manifest that points discovery at it.
+  await writeFileAtomic(assetPath, assetText);
+  await writeFileAtomic(indexPath, indexText);
+
+  return { assetPath, indexPath };
+}));
+
 function resetBluetoothState() {
   isBluetoothDialogOpen = false;
   bluetoothCallback = null;
@@ -440,7 +560,10 @@ function createMenu() {
           label: 'Reload',
           accelerator: 'CmdOrCtrl+R',
           click: () => {
-            if (mainWindow) mainWindow.reload();
+            // Reload throws away in-memory canvas/transcript state. It bypasses
+            // the window 'close' gate, so confirm here too when there are
+            // unsaved changes.
+            if (mainWindow && confirmDiscardUnsaved()) mainWindow.reload();
           }
         },
         {
@@ -527,44 +650,50 @@ function createMenu() {
 // App lifecycle
 app.on('ready', createWindow);
 
-// ===== Graceful pen disconnect on shutdown =====
-// Before the app quits — including a normal close, Ctrl+Q, or a Windows
-// log-off (which Electron surfaces as a quit and where Windows grants apps a
-// brief window to respond) — give the renderer a chance to release the BLE
-// GATT link cleanly via window.electronAPI.onAppBeforeQuit. An ungraceful
-// teardown leaves a stale GATT handle in the Windows Bluetooth stack that
-// blocks the pen from reconnecting until the machine is restarted.
-let shutdownCleanupDone = false;
-let shutdownCleanupInProgress = false;
+// ===== Graceful shutdown =====
+// Releasing the BLE GATT link cleanly before teardown stops the Windows
+// Bluetooth stack from caching a stale handle that blocks reconnection until a
+// reboot. The window 'close' gate (in createWindow) drives this; the handlers
+// below keep its state current and funnel every quit path through that one gate.
 
-ipcMain.on('renderer-disconnect-complete', () => {
-  shutdownCleanupDone = true;
-  app.quit();
+// Keep the close gate's mirror of the renderer's unsaved-changes state current.
+ipcMain.on('unsaved-state-changed', (_event, hasUnsaved) => {
+  rendererUnsaved = !!hasUnsaved;
 });
 
+// Visible, native confirmation shown before discarding unsaved work. Returns
+// true if it's OK to proceed (discard), false to abort. No dialog when clean,
+// so a normal close stays one click.
+function confirmDiscardUnsaved() {
+  if (!rendererUnsaved) return true;
+  if (!mainWindow || mainWindow.isDestroyed()) return true;
+  const choice = dialog.showMessageBoxSync(mainWindow, {
+    type: 'warning',
+    buttons: ['Cancel', 'Discard & Close'],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+    title: 'Unsaved Changes',
+    message: 'You have unsaved changes.',
+    detail: 'Strokes or transcript edits you haven’t saved will be lost if you continue.'
+  });
+  return choice === 1; // index 1 = "Discard & Close"
+}
+
+// The renderer finished releasing the BLE link in response to 'app-before-quit'.
+// Destroy now (faster than the gate's grace timer); window-all-closed then quits.
+ipcMain.on('renderer-disconnect-complete', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy();
+});
+
+// Ctrl+Q, menu Exit, and Windows log-off arrive here. Route them through the
+// same window 'close' gate so they get the unsaved-changes warning and the
+// terminal teardown, rather than a separate path that could diverge.
 app.on('before-quit', (event) => {
-  // Cleanup already finished (or impossible) — let the quit proceed.
-  if (shutdownCleanupDone) return;
-  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
-    shutdownCleanupDone = true;
-    return;
-  }
-  // Already waiting on the renderer — just keep blocking the quit.
-  if (shutdownCleanupInProgress) {
-    event.preventDefault();
-    return;
-  }
-
-  shutdownCleanupInProgress = true;
+  if (isQuitting) return; // gate already ran — let the quit proceed
+  if (!mainWindow || mainWindow.isDestroyed()) return;
   event.preventDefault();
-  mainWindow.webContents.send('app-before-quit');
-
-  // Failsafe: quit anyway if the renderer doesn't acknowledge promptly, so a
-  // hung renderer can never trap the app open.
-  setTimeout(() => {
-    shutdownCleanupDone = true;
-    app.quit();
-  }, 1500);
+  mainWindow.close();
 });
 
 app.on('window-all-closed', () => {

@@ -70,6 +70,13 @@ export const dataRoot = createPersistedStore('dataRoot', '');           // absol
 export const dataFolderReady = writable(false);                          // updated at boot / on folder change
 export const dataFolderStatusText = writable('Folder: not set');
 
+// "Publish to graph" — mirror each saved page into a LogSeq graph folder as
+// assets (PageDoc + smartpen-index.json) for the JPI Tools plugin to render.
+export const graphRoot = createPersistedStore('graphRoot', '');         // absolute path to the LogSeq graph root
+export const publishToGraph = createPersistedStore('publishToGraph', false); // mirror on save?
+export const graphFolderReady = writable(false);                         // updated at boot / on folder change
+export const graphFolderStatusText = writable('Graph: not set');
+
 // Derived store: Check if MyScript credentials are configured
 export const hasMyScriptCredentials = derived(
   [myscriptAppKey, myscriptHmacKey],
@@ -105,4 +112,22 @@ export function setDataFolderStatus(ready, statusText) {
  */
 export function getDataRoot() {
   return get(dataRoot) || '';
+}
+
+/**
+ * Update LogSeq-graph publish-folder status.
+ * @param {boolean} ready
+ * @param {string} [statusText]
+ */
+export function setGraphFolderStatus(ready, statusText) {
+  graphFolderReady.set(ready);
+  if (statusText) graphFolderStatusText.set(statusText);
+}
+
+/**
+ * Get current LogSeq graph root path (one-time read).
+ * @returns {string} Absolute path or empty string if unset.
+ */
+export function getGraphRoot() {
+  return get(graphRoot) || '';
 }

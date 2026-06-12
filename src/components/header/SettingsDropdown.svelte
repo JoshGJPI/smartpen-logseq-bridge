@@ -12,6 +12,7 @@
   import { testMyScriptCredentials } from '$lib/myscript-api.js';
   import BookAliasManager from '../settings/BookAliasManager.svelte';
   import DataFolderSettings from '../settings/DataFolderSettings.svelte';
+  import GraphFolderSettings from '../settings/GraphFolderSettings.svelte';
   import PenMemoryDialog from '../dialog/PenMemoryDialog.svelte';
   import { penConnected } from '$stores/pen.js';
 
@@ -163,7 +164,13 @@
         <h4>Data Folder</h4>
         <DataFolderSettings />
       </section>
-      
+
+      <!-- Publish to LogSeq graph (mirror saved pages as plugin assets) -->
+      <section class="settings-section">
+        <h4>Publish to LogSeq Graph</h4>
+        <GraphFolderSettings />
+      </section>
+
       <!-- Book Aliases -->
       <section class="settings-section">
         <BookAliasManager />

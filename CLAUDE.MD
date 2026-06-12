@@ -91,7 +91,7 @@ All state is managed through Svelte stores located in `src/stores/`:
   - `deletedIndices` — set of stroke indices marked for deletion
   - `pendingChanges` — derived store computing additions/deletions per page
   - `getDeletedStrokeIdsForPage()` — converts indices to stroke IDs for the save call
-- `settings.js` — persisted user settings (MyScript keys, `dataRoot`, `dataFolderReady`, `dataFolderStatusText`)
+- `settings.js` — persisted user settings (MyScript keys, `dataRoot`, `dataFolderReady`, `dataFolderStatusText`; **Publish to graph:** `graphRoot`, `publishToGraph`, `graphFolderReady`, `graphFolderStatusText`)
 
 ### Key Libraries
 
@@ -107,8 +107,10 @@ All state is managed through Svelte stores located in `src/stores/`:
 **Storage Layer (`src/lib/storage/`)** — v2.0:
 - `page-doc.js` — PageDoc schema types, `emptyPageDoc()`, `computeBounds()`, `validatePageDoc()`
 - `page-doc-format.js` — hybrid pretty/compact serializer (document shell pretty-printed; each stroke on one line)
-- `local-store.js` — renderer-side facade over `window.storageAPI` IPC: `listPages`, `getPage`, `savePage`, `deletePage`, alias CRUD, `pickFolder`, `isAvailable`, `openInExplorer`
+- `local-store.js` — renderer-side facade over `window.storageAPI` IPC: `listPages`, `getPage`, `savePage`, `deletePage`, alias CRUD, `pickFolder`, `isAvailable`, `openInExplorer`. **`savePage()` is the single choke point all PageDoc writes funnel through** — it also fires the optional "Publish to graph" mirror after a successful save (see `publish-graph.js`)
 - `save-page.js` — `savePageToFolder()` — append-only stroke merge with explicit deletions, Y-bounds-based transcript merge with checkbox preservation
+- `graph-index.js` — pure helpers for **Publish to graph**: `smartpenAssetName()`/`smartpenAssetRelPath()` (the `smartpen-B{book}-P{pageId}.json` asset convention), `buildSmartpenIndexEntry()`, `upsertSmartpenIndex()`, `emptySmartpenIndex()`. Mirrors the JPI Tools plugin's `tools/migrate-smartpen-assets.mjs` index logic (plugin spec §4.6/§6.1). Identity (`book`+`pageId`) comes from the bridge filename, never `doc.pageInfo`
+- `publish-graph.js` — `publishPageToGraph(book, pageId, doc)` — renderer facade that mirrors a saved PageDoc into a LogSeq graph folder when enabled: reads `smartpen-index.json`, upserts this page's entry (+ book alias), then writes the asset (`serializePageDoc`, verbatim) + index via IPC. **Best-effort: never throws** — a graph-write failure logs a warning but never fails the authoritative bridge save. No LogSeq runtime dependency (pure filesystem)
 - `load-page.js` — `importStrokesFromFolder()`, `importStrokesForLoadedPagesFromFolder()` — converts StoredStroke → canvas dotArray format
 - `scan.js` — `scanLocalPages()` — populates the `logseqPages` store from disk. Records carry `pageId`/`suffix` (the per-book-unique file identifier incl. any letter suffix) and load by `pageId`, so letter-suffixed variants (`P127.json` + `P127b.json`) don't collapse onto the integer page
 - `page-changes.js` — `computePageChangesFolder()` — preview diff for the SaveConfirmDialog
@@ -447,6 +449,47 @@ npm run preview
 - [Svelte 4 Docs](https://svelte.dev/docs/svelte/overview) — Framework reference
 
 ## Recent Changes (Git History Context)
+
+### Publish to graph — close the loop with the JPI Tools plugin (June 2026)
+
+**Optionally mirror each saved page into a LogSeq graph as plugin assets.** The
+JPI Tools LogSeq plugin (v1.9.66+) went "page-less": it reads smartpen strokes
+from graph **assets** and discovers pages from an index manifest, not from
+in-page chunked JSON. This feature lets the bridge publish directly into the
+graph on every save, so newly-captured pages are renderable in LogSeq without the
+one-shot `migrate-smartpen-assets.mjs` step.
+
+**What landed:**
+- **Settings:** `graphRoot` (folder picker, mirrors `dataRoot`) + `publishToGraph`
+  toggle ("Publish to LogSeq graph on save"), persisted to localStorage. New
+  `GraphFolderSettings.svelte` section in the Settings dropdown; boot-time folder
+  verification in `App.svelte` (`checkGraphFolder`).
+- **On save (when enabled)** the bridge also writes two files into the graph
+  (pure filesystem, atomic `.tmp`+rename, no LogSeq runtime):
+  1. `<graphRoot>/assets/storages/logseq-plugin-jpi-tools/smartpen-B{book}-P{pageId}.json`
+     — the PageDoc **verbatim** (same `serializePageDoc` hybrid serializer).
+  2. `<graphRoot>/assets/storages/logseq-plugin-jpi-tools/smartpen-index.json`
+     — the discovery manifest, with this page's entry added/replaced and the book
+     alias merged (plugin spec §4.6). **No transcript outliner / thin `.md` page**
+     — transcript stays inside the asset.
+- **Single choke point:** publish is fired from `local-store.js` `savePage()`, so
+  every save path (capture save, Book View transcript edits, page-card rewrites)
+  mirrors automatically. **Best-effort** — `publishPageToGraph` never throws; a
+  graph-write failure logs a warning but never fails the bridge save.
+- **Letter-suffixed pages** (`P151b`) preserved on the asset name + index entry;
+  identity (`book`+`pageId`) comes from the bridge filename, never `doc.pageInfo`
+  (mirrors `migrate-from-logseq.cjs`/`parseFilename`).
+- **New files:** `src/lib/storage/graph-index.js` (pure, tested in
+  `graph-index.test.js`), `src/lib/storage/publish-graph.js`,
+  `src/components/settings/GraphFolderSettings.svelte`. **Edited:** `electron/main.cjs`
+  (`storage:readGraphIndex` + `storage:publishToGraph` IPC), `electron/preload.cjs`,
+  `settings.js`, `stores/index.js`, `local-store.js`, `SettingsDropdown.svelte`,
+  `App.svelte`.
+
+**Design source:** the plugin repo's `spec/smartpen-stroke-asset-externalization.md`
+(§4 storage model, §6.1 bridge publish) and `tools/migrate-smartpen-assets.mjs`
+(`--from-clean` does this same write batch-wise; `--from-clean`/`--write-index`
+remain the way to back-fill already-saved pages that predate this feature).
 
 ### v2.1 / v2.0.2 — Book View + Editor handoff (June 2026)
 

@@ -18,9 +18,8 @@
   import { bookAliases } from '$stores';
   import { formatBookName, filterTranscriptionProperties } from '$utils/formatting.js';
   import { openSearchTranscriptsDialog, openSvgExportDialog } from '$stores';
-  import { hasSelection, getSelectedBounds } from '$stores/selection.js';
+  import { hasSelection } from '$stores/selection.js';
   import { dataFolderReady } from '$stores/settings.js';
-  import { copyStrokesAsExcalidraw, generateSketchMacro } from '$lib/excalidraw-export.js';
   import { buildJsonExportData, buildMdExportData } from '$lib/stroke-storage.js';
   import CanvasControls from './CanvasControls.svelte';
   import PageSelector from './PageSelector.svelte';
@@ -206,6 +205,7 @@
     return () => {
       resizeObserver.disconnect();
       window.removeEventListener('keydown', handleKeyDown);
+      if (rafId) cancelAnimationFrame(rafId);
     };
   });
   
@@ -333,9 +333,44 @@
     renderStrokes(false);
   }
   
+  // rAF-coalesced render scheduling.
+  // The frequent call sites below (selection/zoom/pan/pendingChanges reactive
+  // blocks, and every mousemove during a drag/pan) used to each trigger a full
+  // synchronous repaint of all visible strokes. renderStrokes(false) now
+  // collapses every request within a frame into a single paint, so a burst of
+  // mousemoves or a cascade of reactive updates costs one redraw instead of N.
+  //
+  // Full-reset renders (new strokes, layout reset) run SYNCHRONOUSLY: they
+  // recompute bounds/page layout that callers read immediately afterwards (e.g.
+  // fitContent() → fitToContent() reads renderer.bounds), and they're
+  // infrequent, so there's nothing to coalesce.
+  let renderScheduled = false;
+  let rafId = null;
+
   function renderStrokes(fullReset = false) {
     if (!renderer) return;
-    
+    if (fullReset) {
+      // Supersede any pending coalesced redraw and render now.
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+        renderScheduled = false;
+      }
+      renderStrokesNow(true);
+      return;
+    }
+    if (renderScheduled) return;
+    renderScheduled = true;
+    rafId = requestAnimationFrame(() => {
+      renderScheduled = false;
+      rafId = null;
+      renderStrokesNow(false);
+    });
+  }
+
+  function renderStrokesNow(fullReset = false) {
+    if (!renderer) return;
+
     if (fullReset) {
       renderer.clear(true);
       // Pre-calculate bounds for consistent coordinate transformation
@@ -1098,34 +1133,6 @@
     pages.forEach(({ content, filename }) => downloadFile(content, filename, 'text/markdown'));
   }
 
-  async function copySketchMacro() {
-    if (!$hasSelection) return;
-    const bounds = getSelectedBounds();
-    if (!bounds) { log('No stroke bounds found', 'warning'); return; }
-    // Determine page name from selected strokes
-    const firstStroke = $selectedStrokes[0];
-    if (!firstStroke?.pageInfo) { log('Selected strokes have no page info', 'warning'); return; }
-    const { book, page } = firstStroke.pageInfo;
-    const pageName = `smartpen/B${book}/P${page}`;
-    const macro = generateSketchMacro(pageName, bounds);
-    try {
-      await navigator.clipboard.writeText(macro);
-      log(`Sketch macro copied: ${macro}`, 'success');
-    } catch (err) {
-      log('Failed to copy macro to clipboard', 'error');
-    }
-  }
-
-  async function copyForExcalidraw() {
-    if (!$hasSelection) return;
-    try {
-      await copyStrokesAsExcalidraw($selectedStrokes);
-      log(`${$selectionCount} strokes copied for Excalidraw`, 'success');
-    } catch (err) {
-      log('Failed to copy Excalidraw data', 'error');
-    }
-  }
-
   function downloadFile(content, filename, mimeType) {
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
@@ -1350,29 +1357,16 @@
         🔍 Search Transcripts
       </button>
       
-      {#if $selectionCount > 0}
-        <button
-          class="header-btn duplicate-btn"
-          on:click={handleDuplicate}
-          title="Duplicate selected strokes (Ctrl+D)"
-        >
-          🔄 Duplicate
-        </button>
-        <button
-          class="header-btn"
-          on:click={copySketchMacro}
-          title="Copy LogSeq sketch renderer macro for selected strokes"
-        >
-          📋 Sketch Macro
-        </button>
-        <button
-          class="header-btn"
-          on:click={copyForExcalidraw}
-          title="Copy selected strokes as Excalidraw clipboard data"
-        >
-          ✏️ Excalidraw
-        </button>
-      {/if}
+      <button
+        class="header-btn duplicate-btn"
+        on:click={handleDuplicate}
+        disabled={$selectionCount === 0}
+        title={$selectionCount > 0
+          ? 'Duplicate selected strokes (Ctrl+D)'
+          : 'Select strokes to duplicate'}
+      >
+        🔄 Duplicate
+      </button>
       
       {#if $pastedCount > 0}
         <button 
@@ -1592,13 +1586,17 @@
     padding-bottom: 10px;
     margin-bottom: 15px;
     border-bottom: 1px solid var(--border);
-    flex-wrap: wrap;
+    /* Stay a single row regardless of how many selection-dependent buttons are
+       shown — wrapping here changes the header height and shifts the canvas
+       below, which makes clicking a specific stroke difficult. */
+    flex-wrap: nowrap;
   }
-  
+
   .header-left {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-shrink: 0;
   }
   
   .header-title {
@@ -1613,11 +1611,17 @@
     gap: 6px;
     flex: 1;
     justify-content: center;
+    /* Absorb any overflow here (horizontal scroll) instead of forcing the
+       header to wrap onto a second row. */
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: thin;
   }
-  
+
   .header-right {
     display: flex;
     align-items: center;
+    flex-shrink: 0;
   }
   
   .header-btn {

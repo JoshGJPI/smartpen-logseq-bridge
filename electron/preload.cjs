@@ -33,6 +33,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.send('renderer-disconnect-complete');
   },
 
+  // Mirror the renderer's "unsaved changes" state to main, so the close/quit
+  // gate can show a real, visible confirmation dialog before discarding work.
+  // (Electron does NOT surface a prompt from a beforeunload returnValue on its
+  // own — it just silently cancels the close, which looked like "won't close".)
+  setUnsavedState: (hasUnsaved) => {
+    ipcRenderer.send('unsaved-state-changed', !!hasUnsaved);
+  },
+
   // Cleanup listeners (call on component unmount)
   removeBluetoothListeners: () => {
     ipcRenderer.removeAllListeners('bluetooth-scanning-started');
@@ -61,4 +69,8 @@ contextBridge.exposeInMainWorld('storageAPI', {
   getAliases:       (root)                   => ipcRenderer.invoke('storage:getAliases', root),
   setAlias:         (root, book, alias)      => ipcRenderer.invoke('storage:setAlias', root, book, alias),
   removeAlias:      (root, book)             => ipcRenderer.invoke('storage:removeAlias', root, book),
+
+  // "Publish to graph" — mirror a saved page into a LogSeq graph folder
+  readGraphIndex:   (graphRoot)                                    => ipcRenderer.invoke('storage:readGraphIndex', graphRoot),
+  publishToGraph:   (graphRoot, book, pageId, assetText, indexText) => ipcRenderer.invoke('storage:publishToGraph', graphRoot, book, pageId, assetText, indexText),
 });

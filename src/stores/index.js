@@ -97,7 +97,14 @@ export {
   dataFolderReady,
   dataFolderStatusText,
   setDataFolderStatus,
-  getDataRoot
+  getDataRoot,
+  // "Publish to graph" — mirror saved pages into a LogSeq graph
+  graphRoot,
+  publishToGraph,
+  graphFolderReady,
+  graphFolderStatusText,
+  setGraphFolderStatus,
+  getGraphRoot
 } from './settings.js';
 
 // UI
