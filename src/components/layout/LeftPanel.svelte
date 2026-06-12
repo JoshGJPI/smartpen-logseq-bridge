@@ -7,7 +7,6 @@
   // Components
   import ActivityLog from './ActivityLog.svelte';
   import StrokeList from '../strokes/StrokeList.svelte';
-  import RawJsonViewer from '../strokes/RawJsonViewer.svelte';
   import LogSeqDbTab from '../logseq-db/LogSeqDbTab.svelte';
   import TranscriptionView from '../transcription/TranscriptionView.svelte';
   
@@ -25,8 +24,7 @@
   const explorerTabs = [
     { id: 'strokes', label: 'Strokes' },
     { id: 'transcription', label: 'Transcription' },
-    { id: 'logseq-db', label: 'Saved Pages' },
-    { id: 'raw', label: 'Raw JSON' }
+    { id: 'logseq-db', label: 'Saved Pages' }
   ];
 </script>
 
@@ -68,8 +66,6 @@
           <TranscriptionView />
         {:else if $activeTab === 'logseq-db'}
           <LogSeqDbTab />
-        {:else if $activeTab === 'raw'}
-          <RawJsonViewer />
         {/if}
       </div>
     {:else if $mainTab === 'log'}
