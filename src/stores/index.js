@@ -225,7 +225,11 @@ export {
   isStrokeDeleted,
   getActiveStrokesForPage,
   getDeletedStrokeIdsForPage,
-  getPendingChangesSummary
+  getPendingChangesSummary,
+  // On-disk stroke-id index (powers the additions diff without holding strokes resident)
+  onDiskStrokeIds,
+  noteOnDiskStrokeIds,
+  forgetOnDiskStrokeIds
 } from './pending-changes.js';
 
 // Page Scales (Per-Page Resize)

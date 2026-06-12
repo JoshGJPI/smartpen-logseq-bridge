@@ -89,8 +89,9 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `filtered-strokes.js` - Decorative element detection
 - `pending-changes.js` - Tracks local changes before save (deletions, additions per page)
   - `deletedIndices` — set of stroke indices marked for deletion
-  - `pendingChanges` — derived store computing additions/deletions per page
+  - `pendingChanges` — derived store computing additions/deletions per page (pure core `computePendingChangesMap()`, tested)
   - `getDeletedStrokeIdsForPage()` — converts indices to stroke IDs for the save call
+  - `onDiskStrokeIds` + `noteOnDiskStrokeIds()` — perf #3: since `logseqPages` records no longer carry strokes, the additions diff uses a small `pageKey → Set<strokeId>` map populated ONLY for pages currently on the canvas (primed by `load-page.js` import + `save-page.js` save; lazily backfilled and evicted by a `canvasPageKeys` subscription). Never reads strokes off `logseqPages`.
 - `settings.js` — persisted user settings (MyScript keys, `dataRoot`, `dataFolderReady`, `dataFolderStatusText`; **Publish to graph:** `graphRoot`, `publishToGraph`, `graphFolderReady`, `graphFolderStatusText`)
 
 ### Key Libraries
@@ -112,11 +113,12 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `graph-index.js` — pure helpers for **Publish to graph**: `smartpenAssetName()`/`smartpenAssetRelPath()` (the `smartpen-B{book}-P{pageId}.json` asset convention), `buildSmartpenIndexEntry()`, `upsertSmartpenIndex()`, `emptySmartpenIndex()`. Mirrors the JPI Tools plugin's `tools/migrate-smartpen-assets.mjs` index logic (plugin spec §4.6/§6.1). Identity (`book`+`pageId`) comes from the bridge filename, never `doc.pageInfo`
 - `publish-graph.js` — `publishPageToGraph(book, pageId, doc)` — renderer facade that mirrors a saved PageDoc into a LogSeq graph folder when enabled: reads `smartpen-index.json`, upserts this page's entry (+ book alias), then writes the asset (`serializePageDoc`, verbatim) + index via IPC. **Best-effort: never throws** — a graph-write failure logs a warning but never fails the authoritative bridge save. No LogSeq runtime dependency (pure filesystem)
 - `load-page.js` — `importStrokesFromFolder()`, `importStrokesForLoadedPagesFromFolder()` — converts StoredStroke → canvas dotArray format
-- `scan.js` — `scanLocalPages()` — populates the `logseqPages` store from disk. Records carry `pageId`/`suffix` (the per-book-unique file identifier incl. any letter suffix) and load by `pageId`, so letter-suffixed variants (`P127.json` + `P127b.json`) don't collapse onto the integer page
+- `scan.js` — `scanLocalPages()` + `metaToRecord()` (pure, tested) — populates the `logseqPages` store from disk. **Metadata-only (perf #3):** records carry summary fields ONLY (`strokeCount`, `lastUpdated`, `transcriptionText`, `transcribed`, `transcriptLineCount`, `pageId`/`suffix`) — never `strokes`/`pageDoc`/`strokeData`, so the corpus never stays resident; each page's strokes load lazily on view. Records load by `pageId`, so letter-suffixed variants (`P127.json` + `P127b.json`) don't collapse onto the integer page. (`main.cjs listAllPages` → `extractPageMeta` parses just the doc shell, skipping the strokes array, so the scan is fast; the tiny `transcriptionText` rides along to power search/preview without loading strokes.)
 - `page-changes.js` — `computePageChangesFolder()` — preview diff for the SaveConfirmDialog
 
 **Book View Layer (`src/lib/viewer/`)** — v2.1:
 - `page-svg.js` — `computeStrokeBounds()`, `strokeToPathD()`, `generateThumbnailSVG()` — SVG render for the spread pages + home-grid thumbnails (`NCODE_SCALE = 2.371`)
+- `page-cache.js` — small LRU (`getCachedPage`/`invalidatePage`/`clearPageCache`, MAX 6) over full PageDocs. Book View loads strokes lazily through this (records no longer embed them, perf #3) so turning a spread doesn't re-read disk; older docs are evicted. Keyed by `B{book}/P{pageId}` (suffix-safe)
 - `transcript-markdown.js` — `linesToLogseqMarkdown()` — tab-indented `- ` bullets with `- TODO`/`- DONE` markers; `key:: value` property lines stripped (LogSeq-pasteable copy)
 - `save-transcript.js` — `saveTranscriptLines(book, pageId, lines)` — writes inline transcript edits back to the PageDoc verbatim (getPage → replace `transcript.lines` → scrub deleted `lineId`s on strokes → `savePage`); `recomputeParentIds()` keeps the hierarchy consistent after indent edits
 

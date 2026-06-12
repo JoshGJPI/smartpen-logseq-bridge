@@ -9,9 +9,10 @@
 <script>
   import { onMount, tick } from 'svelte';
   import { NCODE_SCALE, computeStrokeBounds, strokeToPathD } from '$lib/viewer/page-svg.js';
+  import { getCachedPage } from '$lib/viewer/page-cache.js';
   import TranscriptPane from './TranscriptPane.svelte';
 
-  /** store record: { book, page, strokes, pageDoc, ... } */
+  /** store record: lightweight { book, page, pageId, strokeCount, ... } — NO strokes */
   export let record;
   export let bookAlias = '';
   export let contentMode = 'strokes'; // 'strokes' | 'transcript'
@@ -33,8 +34,47 @@
   let panStartPanX = 0;
   let panStartPanY = 0;
 
-  $: strokes = (record && (record.strokes || (record.pageDoc && record.pageDoc.strokes))) || [];
-  $: lines = (record && record.pageDoc && record.pageDoc.transcript && record.pageDoc.transcript.lines) || [];
+  // The PageDoc (with strokes + transcript) is loaded lazily — records no longer
+  // carry strokes (perf #3). A small LRU keeps recently-viewed docs so turning a
+  // spread doesn't re-read disk each time.
+  let doc = null;
+  let loadingDoc = false;
+  let loadedKey = null;
+
+  $: if (record) loadDoc(record);
+
+  function idOf(rec) {
+    return rec.pageId != null ? String(rec.pageId) : String(rec.page);
+  }
+
+  async function loadDoc(rec) {
+    const key = `${rec.book}:${idOf(rec)}`;
+    if (key === loadedKey) return; // already loaded/loading this exact page
+    loadedKey = key;
+    doc = null;
+    loadingDoc = true;
+    try {
+      const d = await getCachedPage(rec.book, idOf(rec));
+      if (loadedKey !== key) return; // a newer record won the race
+      doc = d;
+      await tick();
+      requestAnimationFrame(fitContent); // fit once strokes are in the DOM
+    } catch (e) {
+      if (loadedKey === key) console.warn('Book View: failed to load page', key, e);
+    } finally {
+      if (loadedKey === key) loadingDoc = false;
+    }
+  }
+
+  // Reflect a transcript save back into the locally-held doc so display mode
+  // shows the edits immediately (the parent also updates the store + cache).
+  function handleSaved(b, p, savedLines) {
+    if (doc) doc = { ...doc, transcript: { ...(doc.transcript || {}), lines: savedLines } };
+    onTranscriptSaved(b, p, savedLines);
+  }
+
+  $: strokes = (doc && doc.strokes) || [];
+  $: lines = (doc && doc.transcript && doc.transcript.lines) || [];
   $: bounds = computeStrokeBounds(strokes);
   $: svgWidth = bounds ? (bounds.maxX - bounds.minX) * NCODE_SCALE : 0;
   $: svgHeight = bounds ? (bounds.maxY - bounds.minY) * NCODE_SCALE : 0;
@@ -97,7 +137,7 @@
   <div class="pv-toolbar">
     <div class="pv-left">
       <span class="pv-title">{title}</span>
-      <span class="pv-stats">{strokes.length} strokes</span>
+      <span class="pv-stats">{record.strokeCount} strokes</span>
     </div>
 
     <div class="pv-center">
@@ -131,7 +171,9 @@
     {/if}
 
     {#if contentMode === 'transcript'}
-      <TranscriptPane {lines} book={record.book} page={pageId} {pageKey} onSaved={onTranscriptSaved} />
+      <TranscriptPane {lines} book={record.book} page={pageId} {pageKey} onSaved={handleSaved} />
+    {:else if loadingDoc}
+      <div class="pv-empty">Loading…</div>
     {:else if bounds}
       <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
       <div

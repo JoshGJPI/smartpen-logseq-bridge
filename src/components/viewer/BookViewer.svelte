@@ -6,9 +6,10 @@
   Page state: one or two PageSpreadView pages with page-turn navigation and the
   viewer-wide Strokes⇄Transcript / Single⇄Spread toggles.
 
-  Reads page data (strokes + transcript) straight from the logseqPages store
-  (each record already carries its full pageDoc). Transcript edits saved by a
-  child pane are reflected back into the store here.
+  Reads page data lazily: the logseqPages records are lightweight (no strokes),
+  so strokes/transcript for a shown page are loaded on demand via the LRU page
+  cache. Transcript edits saved by a child pane are reflected back into the
+  store here (lightweight fields) and the page's cached doc is invalidated.
 -->
 <script>
   import { onMount } from 'svelte';
@@ -31,6 +32,7 @@
   import { scanLocalPages } from '$lib/storage/scan.js';
   import { importStrokesFromFolder } from '$lib/storage/load-page.js';
   import { generateThumbnailSVG } from '$lib/viewer/page-svg.js';
+  import { getCachedPage, invalidatePage, clearPageCache } from '$lib/viewer/page-cache.js';
   import PageSpreadView from './PageSpreadView.svelte';
 
   // Shared viewer state — bound by App.svelte so the global controls (Home,
@@ -80,17 +82,15 @@
     .map((rv) => (grouped[rv.book] || []).find((p) => idOf(p) === rv.pageId))
     .filter(Boolean);
 
-  function strokesOf(record) {
-    return (record && (record.strokes || (record.pageDoc && record.pageDoc.strokes))) || [];
-  }
-
-  // Compute thumbnails lazily (after first paint) and cache, so a home view of
-  // many dense pages doesn't block the initial render.
+  // Thumbnails render lazily from the page's PageDoc (loaded on demand, not held
+  // in the record). The rendered SVG strings are tiny, so they stay in thumbCache
+  // for the session; the underlying docs go through the LRU page cache and are
+  // released. Keyed by pageId so P151 and P151b don't collide.
   async function thumbAsync(record) {
-    const key = `${record.book}:${record.page}`;
+    const key = `${record.book}:${idOf(record)}`;
     if (thumbCache.has(key)) return thumbCache.get(key);
-    await new Promise((r) => setTimeout(r, 0));
-    const svg = generateThumbnailSVG(strokesOf(record), 240, 180);
+    const doc = await getCachedPage(record.book, idOf(record));
+    const svg = generateThumbnailSVG((doc && doc.strokes) || [], 240, 180);
     thumbCache.set(key, svg);
     return svg;
   }
@@ -144,7 +144,10 @@
   // Strokes" behaviour — non-destructive to anything already on the canvas.
   async function loadRecordIntoEditor(record) {
     if (!record || !guardNav()) return;
-    await importStrokesFromFolder(record);
+    // Reuse the cached doc if present (e.g. the page is open in a spread) to
+    // avoid a second disk read; importStrokesFromFolder lazily loads otherwise.
+    const pageDoc = await getCachedPage(record.book, idOf(record));
+    await importStrokesFromFolder({ ...record, pageDoc });
     setViewerMode('editor');
   }
 
@@ -159,31 +162,30 @@
     twoPageMode = !twoPageMode;
   }
 
-  // Reflect a saved transcript back into the store so the display refreshes.
-  // `pageId` is the unique-within-book file identifier (string, incl. suffix).
+  // Reflect a saved transcript back into the store record — lightweight fields
+  // only (no strokes/pageDoc residency) — and drop the cached doc so a re-view
+  // re-reads the fresh transcript. `pageId` is the unique-within-book id.
   function applyTranscriptToStore(book, pageId, lines) {
+    const transcriptionText = lines.length
+      ? lines.map((l) => '  '.repeat(l.indentLevel || 0) + (l.text || '')).join('\n')
+      : null;
     logseqPages.update((pages) =>
       pages.map((p) => {
         if (p.book !== book || idOf(p) !== String(pageId)) return p;
-        const transcriptionText = lines.length
-          ? lines.map((l) => '  '.repeat(l.indentLevel || 0) + (l.text || '')).join('\n')
-          : null;
-        const pageDoc = p.pageDoc
-          ? { ...p.pageDoc, transcript: { ...(p.pageDoc.transcript || {}), lines } }
-          : p.pageDoc;
         return {
           ...p,
-          pageDoc,
-          strokeData: pageDoc,
           transcriptionText,
           transcribed: !!transcriptionText,
+          transcriptLineCount: lines.length,
         };
       })
     );
+    invalidatePage(book, pageId);
   }
 
   async function rescan() {
     thumbCache.clear();
+    clearPageCache();
     await scanLocalPages();
   }
 
@@ -245,7 +247,7 @@
             {#if expandedBooks.has(b)}
               <div class="bv-grid">
                 {#each grouped[b] as r (`${r.book}:${idOf(r)}`)}
-                  <button class="bv-card" on:click={() => selectPage(r)} title="P{idOf(r)} · {strokesOf(r).length} strokes">
+                  <button class="bv-card" on:click={() => selectPage(r)} title="P{idOf(r)} · {r.strokeCount} strokes">
                     <div class="bv-thumb">
                       {#await thumbAsync(r) then svg}{@html svg}{/await}
                     </div>

@@ -19,7 +19,13 @@
     log
   } from '$stores';
 
-  export let page; // LogSeqPageData object
+  export let page; // lightweight page record (no strokes/pageDoc)
+
+  // A page is identified by pageId (incl. any letter suffix, e.g. "151b"); the
+  // integer page.page can collide across variants, so all folder reads/writes
+  // for this card go through pageRef. Records no longer embed the PageDoc, so
+  // the editor loads it lazily on demand.
+  $: pageRef = page.pageId != null ? page.pageId : page.page;
 
   let importing = false;
   let importProgress = { current: 0, total: 0 };
@@ -96,9 +102,8 @@
   async function handleOpenEditor() {
     loadingLines = true;
     try {
-      // v2.0: read transcript directly from the PageDoc
-      let doc = page.pageDoc;
-      if (!doc) doc = await getPage(page.book, page.page);
+      // v2.0: read transcript directly from the PageDoc (loaded lazily by pageId)
+      const doc = await getPage(page.book, pageRef);
       if (!doc || !doc.transcript || !doc.transcript.lines || doc.transcript.lines.length === 0) {
         alert('No transcription found for this page. Please transcribe it first.');
         return;
@@ -155,9 +160,9 @@
     const { lines: editedLines } = event.detail;
     try {
       // v2.0: rewrite the PageDoc's transcript section and atomic-write the file.
-      const doc = page.pageDoc || (await getPage(page.book, page.page));
+      const doc = await getPage(page.book, pageRef);
       if (!doc) {
-        alert(`Could not load page file for B${page.book}/P${page.page}`);
+        alert(`Could not load page file for B${page.book}/P${pageRef}`);
         return;
       }
 
@@ -233,13 +238,17 @@
       // would re-merge with on-disk content and clobber the handcrafted
       // transcript.
       const { savePage } = await import('$lib/storage/local-store.js');
-      await savePage(page.book, page.page, nextDoc);
+      await savePage(page.book, pageRef, nextDoc);
 
-      page.pageDoc = nextDoc;
+      // Update lightweight record fields only — don't stash the full doc back
+      // onto the record (that's the residency removed in perf #3).
       editedTranscription = newLines.map(l => '  '.repeat(l.indentLevel || 0) + l.text).join('\n');
+      page.transcriptionText = editedTranscription || null;
+      page.transcribed = !!editedTranscription;
+      page.transcriptLineCount = newLines.length;
       page.syncStatus = 'synced';
       showEditorModal = false;
-      log(`Updated transcript for B${page.book}/P${page.page}: ${newLines.length} line(s)`, 'success');
+      log(`Updated transcript for B${page.book}/P${pageRef}: ${newLines.length} line(s)`, 'success');
     } catch (error) {
       console.error('Failed to save transcription:', error);
       alert(`Failed to save: ${error.message}`);

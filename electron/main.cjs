@@ -293,6 +293,74 @@ async function writeFileAtomic(filePath, contents) {
   await fsp.rename(tmp, filePath);
 }
 
+/**
+ * Build the 2-space-indented transcription text from transcript lines.
+ * Mirrors the renderer-side builder in src/lib/storage/scan.js so the Data
+ * Explorer and transcript search get identical text — without the renderer ever
+ * having to load a page's strokes.
+ */
+function buildTranscriptionText(lines) {
+  if (!Array.isArray(lines) || lines.length === 0) return null;
+  return lines.map(l => '  '.repeat(l.indentLevel || 0) + (l.text || '')).join('\n');
+}
+
+/**
+ * Count serialized stroke entries in the tail of a PageDoc (the slice starting
+ * at the top-level "strokes" key). The hybrid serializer writes each stored
+ * stroke on its own 4-space-indented line beginning with `{`, and full
+ * pretty-print indents each array element's opening brace the same way, so this
+ * matches both layouts. Used only when metadata.totalStrokes is missing.
+ */
+function countStrokeLines(tail) {
+  const m = tail.match(/\n {4}\{/g);
+  return m ? m.length : 0;
+}
+
+/**
+ * Extract lightweight page metadata from a PageDoc's raw JSON WITHOUT parsing
+ * the (potentially huge) strokes array — parsing 2.88M dot arrays across a large
+ * library is what made opening the Saved Pages tab take seconds.
+ *
+ * The hybrid serializer always emits "strokes" as the final top-level key, so we
+ * slice it off and parse just the document shell (version/pageInfo/metadata/
+ * transcript), reading the stroke count from metadata.totalStrokes. Falls back to
+ * a full parse if the layout is unexpected (older / hand-edited files).
+ *
+ * @returns {{strokeCount:number, lastUpdated:string|null, hasTranscription:boolean, transcriptLineCount:number, transcriptionText:string|null}}
+ */
+function extractPageMeta(raw) {
+  const marker = '\n  "strokes":';
+  const idx = raw.lastIndexOf(marker);
+  if (idx !== -1) {
+    // Close the shell cleanly: drop the trailing comma that preceded "strokes".
+    const shell = raw.slice(0, idx).replace(/,\s*$/, '') + '\n}';
+    try {
+      const doc = JSON.parse(shell);
+      const lines = doc?.transcript?.lines;
+      let strokeCount = doc?.metadata?.totalStrokes;
+      if (!Number.isFinite(strokeCount)) strokeCount = countStrokeLines(raw.slice(idx));
+      return {
+        strokeCount: strokeCount || 0,
+        lastUpdated: doc?.metadata?.lastUpdated || null,
+        hasTranscription: !!(lines && lines.length),
+        transcriptLineCount: (lines && lines.length) || 0,
+        transcriptionText: buildTranscriptionText(lines)
+      };
+    } catch {
+      // fall through to a full parse
+    }
+  }
+  const doc = JSON.parse(raw);
+  const lines = doc?.transcript?.lines;
+  return {
+    strokeCount: Array.isArray(doc.strokes) ? doc.strokes.length : 0,
+    lastUpdated: doc?.metadata?.lastUpdated || null,
+    hasTranscription: !!(lines && lines.length),
+    transcriptLineCount: (lines && lines.length) || 0,
+    transcriptionText: buildTranscriptionText(lines)
+  };
+}
+
 /** Walk pages/B*\/P*.json and return lightweight PageMeta entries. */
 async function listAllPages(root) {
   const dir = pagesDir(root);
@@ -331,16 +399,20 @@ async function listAllPages(root) {
 
       try {
         const raw = await fsp.readFile(filePath, 'utf8');
-        const doc = JSON.parse(raw);
+        const meta = extractPageMeta(raw);
         pages.push({
           book,
           page,
           pageId,           // includes suffix if any (used as primary identifier)
           suffix,
-          strokeCount: Array.isArray(doc.strokes) ? doc.strokes.length : 0,
-          lastUpdated: doc.metadata?.lastUpdated || null,
-          hasTranscription: !!(doc.transcript?.lines?.length),
-          transcriptLineCount: doc.transcript?.lines?.length || 0,
+          strokeCount: meta.strokeCount,
+          lastUpdated: meta.lastUpdated,
+          hasTranscription: meta.hasTranscription,
+          transcriptLineCount: meta.transcriptLineCount,
+          // Transcript text is tiny next to strokes; carrying it here keeps the
+          // Data Explorer preview + full-text search working without the renderer
+          // ever holding stroke arrays resident.
+          transcriptionText: meta.transcriptionText,
           path: filePath
         });
       } catch (err) {

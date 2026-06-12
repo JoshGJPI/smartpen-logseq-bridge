@@ -74,13 +74,18 @@ export const PAGE_DOC_VERSION = '2.0';
  */
 
 /**
- * @typedef {Object} PageMeta - Lightweight summary for the Data Explorer list
+ * @typedef {Object} PageMeta - Lightweight summary for the Data Explorer list.
+ *   Deliberately excludes the strokes array (the bulk of a PageDoc) so the
+ *   renderer never holds the full corpus resident; strokes load lazily per page.
  * @property {number} book
- * @property {number} page
+ * @property {number} page             - Integer NCode page number
+ * @property {string} pageId           - Unique-within-book id incl. any letter suffix (e.g. "151b")
+ * @property {string} suffix           - Letter suffix, or "" for plain integer pages
  * @property {number} strokeCount
- * @property {string} lastUpdated
+ * @property {string|null} lastUpdated
  * @property {boolean} hasTranscription
  * @property {number} transcriptLineCount
+ * @property {string|null} transcriptionText - 2-space-indented transcript text (small; powers search/preview)
  * @property {string} path             - Absolute path to the .json file
  */
 

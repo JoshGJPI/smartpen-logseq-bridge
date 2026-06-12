@@ -26,17 +26,19 @@
   import { graphRoot, publishToGraph, setGraphFolderStatus, getGraphRoot } from '$stores/settings.js';
   import { unsavedChanges, viewerMode, viewerDirty, setViewerMode, clearAllViewerDirty } from '$stores';
   import { isAvailable as folderIsAvailable } from '$lib/storage/local-store.js';
+  import { scanLocalPages } from '$lib/storage/scan.js';
   import { get } from 'svelte/store';
 
   // Initialize pen SDK on mount
   import { initializePenSDK, disconnectAllPens } from '$lib/pen-sdk.js';
 
-  // v2.0: Check data folder availability at boot
+  // v2.0: Check data folder availability at boot. Returns true once the folder
+  // is confirmed accessible, so the caller can preload the saved-pages metadata.
   async function checkDataFolder() {
     const root = getDataRoot();
     if (!root) {
       setDataFolderStatus(false, 'Folder: not set');
-      return;
+      return false;
     }
     try {
       const ok = await folderIsAvailable(root);
@@ -44,13 +46,16 @@
         const basename = root.split(/[\\/]/).pop() || root;
         setDataFolderStatus(true, `Folder: ${basename}`);
         log(`Data folder ready: ${root}`, 'success');
+        return true;
       } else {
         setDataFolderStatus(false, 'Folder: missing');
         log(`Data folder not accessible: ${root}`, 'warning');
+        return false;
       }
     } catch (err) {
       setDataFolderStatus(false, 'Folder: error');
       log(`Data folder check failed: ${err.message}`, 'warning');
+      return false;
     }
   }
 
@@ -125,8 +130,14 @@
     log('Bridge initialized. Click "Connect Pen" to begin.', 'info');
     log('Make sure LogSeq HTTP API is enabled in Settings > Advanced', 'info');
 
-    // Kick off data-folder availability check (non-blocking)
-    checkDataFolder();
+    // Kick off data-folder availability check (non-blocking). Once the folder is
+    // confirmed ready, preload the saved-pages metadata so the Saved Pages tab and
+    // Book View are populated the moment they open. The scan is metadata-only
+    // (perf #3) — fast and low-residency — so there's no downside to doing it at
+    // boot; scanLocalPages() coalesces with any tab-triggered scan.
+    checkDataFolder().then((ready) => {
+      if (ready) scanLocalPages();
+    });
     // Same for the LogSeq graph publish target (non-blocking)
     checkGraphFolder();
 

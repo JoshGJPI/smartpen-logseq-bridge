@@ -4,57 +4,63 @@
  * Drop-in replacement for src/lib/logseq-scanner.js. Reads from local-store
  * (pages/B###/P##.json) and emits the same record shape the UI components
  * expect, so PageCard / BookAccordion / LogSeqDbTab can use it unchanged.
+ *
+ * v2 perf (#3): the scan is METADATA-ONLY. It builds records straight from the
+ * lightweight PageMeta returned by `listPages()` and never loads a page's
+ * strokes. Records carry only summary fields (strokeCount, lastUpdated,
+ * transcript text, etc.) — NOT the strokes array or the full PageDoc. Each
+ * page's strokes load lazily, on demand, when the page is actually opened
+ * (Book View spread / thumbnail, "Import Strokes", Editor handoff). This keeps
+ * the whole library from staying resident for the entire session.
  */
 
 import { get } from 'svelte/store';
 import { log, setLogseqPages, setScanning } from '$stores';
 import { registerBookIds, setBookAliases } from '$stores/book-aliases.js';
 import { dataRoot, dataFolderReady } from '$stores/settings.js';
-import { listPages, getPage, getAliases } from './local-store.js';
+import { listPages, getAliases } from './local-store.js';
 
 /**
- * Build the transcription text from a PageDoc's transcript.lines.
- * Mirrors the v1 LogSeq scanner's `extractTranscriptionText` output (2-space
- * indents reflecting the line hierarchy).
- */
-function buildTranscriptionText(lines) {
-  if (!Array.isArray(lines) || lines.length === 0) return null;
-  return lines
-    .map(l => '  '.repeat(l.indentLevel || 0) + (l.text || ''))
-    .join('\n');
-}
-
-/**
- * Convert a folder PageDoc → record shape consumed by PageCard / BookViewer.
+ * Convert a lightweight PageMeta → record shape consumed by PageCard / BookViewer.
  *
  * `pageId` is the per-book-unique file identifier including any letter suffix
  * (e.g. "151b"); `page` is the integer NCode page number, which can collide
  * across suffixed variants. Consumers should key/navigate by `pageId`.
- * @param {import('./page-doc.js').PageDoc} doc
- * @param {import('./page-doc.js').PageMeta} meta - from listPages() (has pageId/suffix)
+ *
+ * Pure (no I/O) so it can be unit-tested. Crucially it does NOT embed strokes /
+ * pageDoc / strokeData — those are loaded lazily per page (see load-page.js,
+ * page-cache.js).
+ *
+ * @param {import('./page-doc.js').PageMeta} meta
  */
-function pageDocToRecord(doc, meta) {
+export function metaToRecord(meta) {
   const { book, page } = meta;
   const pageId = meta.pageId != null ? String(meta.pageId) : String(page);
   const suffix = meta.suffix || '';
-  const transcriptionText = buildTranscriptionText(doc.transcript?.lines);
+  const transcriptionText = meta.transcriptionText || null;
   return {
     pageName: `pages/B${book}/P${pageId}.json`,   // unique per page (incl. suffix)
     book,
     page,                                          // integer NCode page number
     pageId,                                        // unique-within-book identifier
     suffix,
-    strokeCount: doc.strokes?.length || 0,
-    lastUpdated: doc.metadata?.lastUpdated || null,
-    transcribed: !!transcriptionText,
+    strokeCount: meta.strokeCount || 0,
+    lastUpdated: meta.lastUpdated || null,
+    transcribed: meta.hasTranscription != null ? !!meta.hasTranscription : !!transcriptionText,
+    transcriptLineCount: meta.transcriptLineCount || 0,
+    // Transcript text is small (no strokes) so it rides along for the Data
+    // Explorer preview and full-text search. Strokes/pageDoc are intentionally
+    // absent — consumers fetch them lazily via getPage / page-cache.
     transcriptionText,
-    // The full PageDoc — UI uses these for in-canvas import and transcript edits
-    pageDoc: doc,
-    strokes: doc.strokes || [],
-    strokeData: doc,                              // unified — full doc is the data
     syncStatus: 'clean'
   };
 }
+
+// Guards against overlapping scans. Several entry points can fire close
+// together at startup — the boot preload (App.svelte), the Saved Pages tab's
+// data-folder-ready reactive, and Book View's onMount — so coalesce them: the
+// first scan runs, the rest no-op and pick up the result reactively.
+let scanInFlight = false;
 
 /**
  * Scan the local data folder for smartpen pages and populate the store.
@@ -70,6 +76,8 @@ export async function scanLocalPages() {
     return false;
   }
 
+  if (scanInFlight) return false;
+  scanInFlight = true;
   setScanning(true);
 
   try {
@@ -86,7 +94,8 @@ export async function scanLocalPages() {
       console.warn('Failed to load aliases:', aliasErr);
     }
 
-    // List all pages (lightweight metadata)
+    // List all pages (lightweight metadata — no strokes loaded). This single
+    // pass is the whole scan now; we no longer re-read every page with getPage.
     const metaList = await listPages();
 
     if (metaList.length === 0) {
@@ -95,21 +104,7 @@ export async function scanLocalPages() {
       return true;
     }
 
-    // Read each PageDoc once to build full records (transcription text, etc.)
-    const records = [];
-    for (const meta of metaList) {
-      // Load by pageId so letter-suffixed variants (e.g. P151b.json) read the
-      // correct file rather than collapsing onto the integer-page file.
-      const pageRef = meta.pageId != null ? meta.pageId : meta.page;
-      try {
-        const doc = await getPage(meta.book, pageRef);
-        if (doc) {
-          records.push(pageDocToRecord(doc, meta));
-        }
-      } catch (err) {
-        console.warn(`Skipping unreadable page B${meta.book}/P${pageRef}:`, err.message);
-      }
-    }
+    const records = metaList.map(metaToRecord);
 
     // Register book IDs so aliases UI shows them
     const bookIds = [...new Set(records.map(r => r.book))];
@@ -123,6 +118,7 @@ export async function scanLocalPages() {
     log(`Folder scan failed: ${err.message}`, 'error');
     return false;
   } finally {
+    scanInFlight = false;
     setScanning(false);
   }
 }

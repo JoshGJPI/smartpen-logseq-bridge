@@ -27,6 +27,7 @@
 
 import { getPage, savePage } from './local-store.js';
 import { emptyPageDoc, computeBounds, PAGE_DOC_VERSION } from './page-doc.js';
+import { noteOnDiskStrokeIds } from '$stores/pending-changes.js';
 
 /* -----------------------------------------------------------------
  *  Stroke shape conversion
@@ -315,6 +316,13 @@ export async function savePageToFolder(input) {
     };
 
     const result = await savePage(book, page, doc);
+
+    // Refresh the on-disk stroke-id index so pendingChanges reflects the save
+    // immediately (just-saved strokes stop counting as additions) without a
+    // full rescan. `page` is the integer NCode page used for capture saves,
+    // which matches how canvas strokes are grouped in pendingChanges.
+    noteOnDiskStrokeIds(book, page, merged);
+
     return {
       success: true,
       added: addedCount,
