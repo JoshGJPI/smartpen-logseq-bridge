@@ -452,6 +452,48 @@ npm run preview
 
 ## Recent Changes (Git History Context)
 
+### v2.2.0 — Book View transcript editor: ordering fix + editing UX (July 2026)
+
+**Fixed scrambled transcript order on re-transcribe, plus a batch of Book View
+transcript-editor improvements.**
+
+**Transcript merge ordering (bug fix):**
+- `mergeTranscript()` in `save-page.js` used to re-sort the **entire** merged
+  list (existing + new lines) by `yBounds.minY` after appending. That scrambled
+  the established order — new MyScript lines interleaved into the existing
+  transcript by vertical page position, and any line missing `yBounds` (→ `0`)
+  jumped to the top. Now existing lines keep their order untouched; only the
+  **new** lines are sorted among themselves and **appended to the end**. New
+  transcription always lands at the bottom, matching the "append" mental model.
+
+**Book View transcript editor (`TranscriptPane.svelte`) UX:**
+- **Vertical reordering** — move a line up/down via ↑/↓ row buttons or **Alt+↑ /
+  Alt+↓**. `saveTranscriptLines()` → `recomputeParentIds()` keeps the hierarchy
+  consistent after a reorder.
+- **Strokes shown alongside while editing** — clicking **Edit** on a page's
+  transcript makes the companion Book View slot show *that same page's strokes*
+  for reference. The editor keeps its slot (draft preserved); only the companion
+  slot remounts. Works in Single and Spread modes. Coordinated in
+  `BookViewer.svelte` via `editingSide` + slot resolution; `PageSpreadView`
+  forwards a `onEditingChange` signal up from `TranscriptPane`.
+- **Removed the TODO/DONE toggle** from the editor (existing `checked` state is
+  still preserved in data and rendered read-only in display mode).
+- **Full-width line inputs** — the per-row action group (reorder/indent) now
+  floats over the right edge of the input, revealed on hover / `:focus-within`
+  with a feathered white backdrop, so text uses the whole row at rest.
+- **Add / Delete block moved to the `.tp-toolbar`** — **Delete** acts on the
+  focused line (disabled when nothing selected or only one line remains).
+  **Add** is always active: adds a **sibling** after the selected block's whole
+  subtree, or **appends to the end** when nothing is selected. Toolbar buttons
+  use `on:mousedown|preventDefault` so they don't blur the focused line
+  (`activeIndex` tracks it).
+- **Page-turn arrows confined to `.tp-body`** — in transcript mode `.pv-nav`
+  gets a top offset (`.below-toolbar`) so the prev/next arrows no longer overlap
+  the toolbar's Edit/Copy/Save buttons.
+
+**Edited:** `src/lib/storage/save-page.js`, `src/components/viewer/TranscriptPane.svelte`,
+`src/components/viewer/PageSpreadView.svelte`, `src/components/viewer/BookViewer.svelte`.
+
 ### Publish to graph — close the loop with the JPI Tools plugin (June 2026)
 
 **Optionally mirror each saved page into a LogSeq graph as plugin assets.** The

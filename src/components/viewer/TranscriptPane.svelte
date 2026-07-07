@@ -12,7 +12,7 @@
   tracked per page in the viewer store (separate from the canvas unsaved flag).
 -->
 <script>
-  import { tick } from 'svelte';
+  import { tick, onDestroy } from 'svelte';
   import { log, markViewerDirtyPage, clearViewerDirtyPage } from '$stores';
   import { linesToLogseqMarkdown } from '$lib/viewer/transcript-markdown.js';
   import { saveTranscriptLines } from '$lib/viewer/save-transcript.js';
@@ -25,6 +25,8 @@
   export let pageKey;
   /** (book, page, lines) => void — lets the parent update the store after save */
   export let onSaved = () => {};
+  /** (editing:boolean) => void — lets Book View show this page's strokes alongside while editing */
+  export let onEditingChange = () => {};
 
   let editing = false;
   let saving = false;
@@ -33,6 +35,8 @@
   let inputEls = [];
   /** working copy while editing */
   let draft = [];
+  /** index of the line whose input currently has focus (-1 = none selected) */
+  let activeIndex = -1;
 
   function makeLineId() {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -64,14 +68,18 @@
     draft = cloneLines(lines);
     if (draft.length === 0) draft = [blankLine()];
     editing = true;
+    activeIndex = -1;
     setDirty(false);
+    onEditingChange(true);
   }
 
   function cancel() {
     if (dirty && !window.confirm('Discard your transcript edits?')) return;
     editing = false;
     draft = [];
+    activeIndex = -1;
     setDirty(false);
+    onEditingChange(false);
   }
 
   async function save() {
@@ -84,6 +92,7 @@
       const saved = cloneLines(draft);
       editing = false;
       setDirty(false);
+      onEditingChange(false);
       onSaved(book, page, saved);
       const count = saved.filter((l) => l.text.trim() !== '').length;
       log(`Saved transcript B${book}/P${page} (${count} line${count === 1 ? '' : 's'})`, 'success');
@@ -124,11 +133,21 @@
       setDirty(true);
     }
   }
-  function cycleCheck(i) {
-    const c = draft[i].checked;
-    draft[i].checked = c === null ? false : c === false ? true : null;
+  async function moveLineUp(i) {
+    if (i <= 0) return;
+    [draft[i - 1], draft[i]] = [draft[i], draft[i - 1]];
     draft = draft;
     setDirty(true);
+    await tick();
+    inputEls[i - 1]?.focus();
+  }
+  async function moveLineDown(i) {
+    if (i >= draft.length - 1) return;
+    [draft[i + 1], draft[i]] = [draft[i], draft[i + 1]];
+    draft = draft;
+    setDirty(true);
+    await tick();
+    inputEls[i + 1]?.focus();
   }
   async function addLineBelow(i) {
     const lvl = i >= 0 ? draft[i].indentLevel || 0 : 0;
@@ -138,6 +157,25 @@
     await tick();
     inputEls[i + 1]?.focus();
   }
+  // Toolbar "Add": if a block is selected, add a sibling after it (and its
+  // whole subtree, so children aren't orphaned); otherwise append to the end.
+  async function addBlock() {
+    let insertAt, lvl;
+    if (activeIndex < 0 || activeIndex >= draft.length) {
+      insertAt = draft.length;
+      lvl = 0;
+    } else {
+      lvl = draft[activeIndex].indentLevel || 0;
+      let j = activeIndex + 1;
+      while (j < draft.length && (draft[j].indentLevel || 0) > lvl) j++;
+      insertAt = j;
+    }
+    draft.splice(insertAt, 0, blankLine(lvl));
+    draft = draft;
+    setDirty(true);
+    await tick();
+    inputEls[insertAt]?.focus();
+  }
   async function deleteLine(i) {
     draft.splice(i, 1);
     draft = draft;
@@ -146,7 +184,10 @@
     inputEls[Math.max(0, i - 1)]?.focus();
   }
   function onKey(e, i) {
-    if (e.key === 'Tab') {
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.altKey) {
+      e.preventDefault();
+      e.key === 'ArrowUp' ? moveLineUp(i) : moveLineDown(i);
+    } else if (e.key === 'Tab') {
       e.preventDefault();
       e.shiftKey ? outdentLine(i) : indentLine(i);
     } else if (e.key === 'Enter') {
@@ -165,6 +206,12 @@
   }
 
   $: hasContent = lines.some((l) => (l.text || '').trim() !== '');
+
+  // If this pane is torn down while still editing (e.g. the spread is
+  // reconfigured), let Book View drop the paired strokes view.
+  onDestroy(() => {
+    if (editing) onEditingChange(false);
+  });
 </script>
 
 <div class="transcript-pane">
@@ -172,6 +219,20 @@
     <span class="tp-title">Transcript</span>
     <div class="tp-actions">
       {#if editing}
+        <button
+          class="tp-btn"
+          on:mousedown|preventDefault
+          on:click={addBlock}
+          title="Add a sibling block after the selected line, or append to the end"
+        >＋ Add</button>
+        <button
+          class="tp-btn danger"
+          on:mousedown|preventDefault
+          on:click={() => deleteLine(activeIndex)}
+          disabled={activeIndex < 0 || draft.length <= 1}
+          title="Delete the selected block"
+        >🗑 Delete</button>
+        <span class="tp-toolbar-divider"></span>
         <button class="tp-btn" on:click={copy} title="Copy as LogSeq markdown">Copy</button>
         <button class="tp-btn primary" on:click={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
         <button class="tp-btn muted" on:click={cancel} disabled={saving}>Cancel</button>
@@ -184,16 +245,9 @@
 
   <div class="tp-body">
     {#if editing}
-      <div class="tp-edit-hint">Tab / Shift+Tab to indent · Enter for a new line · click the box to toggle TODO/DONE</div>
+      <div class="tp-edit-hint">Tab / Shift+Tab to indent · Alt+↑ / Alt+↓ to reorder · Enter for a new line</div>
       {#each draft as line, i (line.id)}
         <div class="tp-edit-row" style="margin-left: {(line.indentLevel || 0) * 1.5}rem">
-          <button
-            class="tp-check"
-            class:todo={line.checked === false}
-            class:done={line.checked === true}
-            on:click={() => cycleCheck(i)}
-            title="Toggle none / TODO / DONE"
-          >{markerSymbol(line.checked)}</button>
           <input
             class="tp-input"
             type="text"
@@ -201,13 +255,15 @@
             bind:this={inputEls[i]}
             on:input={() => setDirty(true)}
             on:keydown={(e) => onKey(e, i)}
+            on:focus={() => (activeIndex = i)}
+            on:blur={() => { if (activeIndex === i) activeIndex = -1; }}
             placeholder="(empty line)"
           />
           <div class="tp-row-actions">
+            <button class="tp-icon" on:click={() => moveLineUp(i)} disabled={i === 0} title="Move up (Alt+↑)">↑</button>
+            <button class="tp-icon" on:click={() => moveLineDown(i)} disabled={i === draft.length - 1} title="Move down (Alt+↓)">↓</button>
             <button class="tp-icon" on:click={() => outdentLine(i)} title="Outdent (Shift+Tab)">⇤</button>
             <button class="tp-icon" on:click={() => indentLine(i)} title="Indent (Tab)">⇥</button>
-            <button class="tp-icon" on:click={() => addLineBelow(i)} title="Add line below">＋</button>
-            <button class="tp-icon danger" on:click={() => deleteLine(i)} title="Delete line">🗑</button>
           </div>
         </div>
       {/each}
@@ -271,7 +327,10 @@
   .tp-btn.primary { background: #4a7cf7; border-color: #4a7cf7; color: #fff; }
   .tp-btn.primary:hover:not(:disabled) { background: #3a6ce7; }
   .tp-btn.muted { color: #999; }
+  .tp-btn.danger { color: #c0392b; }
+  .tp-btn.danger:hover:not(:disabled) { background: #fdeaea; border-color: #e6b0aa; }
   .tp-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .tp-toolbar-divider { width: 1px; align-self: stretch; background: #e6e6e6; margin: 2px 2px; }
 
   .tp-body {
     flex: 1;
@@ -310,25 +369,11 @@
 
   /* ---- edit ---- */
   .tp-edit-row {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 6px;
     margin-bottom: 4px;
   }
-  .tp-check {
-    flex-shrink: 0;
-    width: 26px;
-    height: 26px;
-    border: 1px solid #ddd;
-    border-radius: 5px;
-    background: #fafafa;
-    cursor: pointer;
-    color: #bbb;
-    font-size: 14px;
-    line-height: 1;
-  }
-  .tp-check.todo { color: #e07b00; border-color: #f0c890; }
-  .tp-check.done { color: #2e9e54; border-color: #a7d8b8; }
   .tp-input {
     flex: 1;
     min-width: 0;
@@ -340,7 +385,30 @@
     font-family: inherit;
   }
   .tp-input:focus { outline: none; border-color: #4a7cf7; }
-  .tp-row-actions { display: flex; gap: 2px; flex-shrink: 0; }
+  /* The action group floats over the right edge of the (full-width) text input,
+     revealed on hover / keyboard focus. Its white background + feathered shadow
+     covers the text underneath so the controls stay legible; at rest the row
+     gives its whole width to the transcript text. */
+  .tp-row-actions {
+    position: absolute;
+    right: 5px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    gap: 2px;
+    padding: 2px 3px;
+    border-radius: 6px;
+    background: #fff;
+    box-shadow: 0 0 7px 5px #fff;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s;
+  }
+  .tp-edit-row:hover .tp-row-actions,
+  .tp-edit-row:focus-within .tp-row-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
   .tp-icon {
     width: 24px;
     height: 26px;
@@ -352,8 +420,8 @@
     font-size: 13px;
     line-height: 1;
   }
-  .tp-icon:hover { background: #f0f0f0; color: #333; }
-  .tp-icon.danger:hover { background: #fdeaea; color: #c0392b; }
+  .tp-icon:hover:not(:disabled) { background: #f0f0f0; color: #333; }
+  .tp-icon:disabled { opacity: 0.3; cursor: not-allowed; }
 
   .tp-empty {
     display: flex;

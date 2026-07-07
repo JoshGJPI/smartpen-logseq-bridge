@@ -78,6 +78,30 @@
   $: hasNextSingle = currentIndex >= 0 && currentIndex < currentBookPages.length - 1;
   $: hasNextSpread = currentIndex >= 0 && currentIndex + 2 <= currentBookPages.length - 1;
 
+  // While a transcript is being edited, both spread slots focus that one page:
+  // the editor stays in its slot and the companion slot shows the same page's
+  // strokes for reference. `editingSide` says which physical slot hosts the
+  // editor ('left' | 'right'); null means normal browsing.
+  let editingSide = null;
+  $: editingRecord =
+    editingSide === 'left' ? leftRecord : editingSide === 'right' ? rightRecord : null;
+
+  // Physical slot resolution → { record, mode }. Keying panes by record id means
+  // the editor slot keeps its identity (record + mode unchanged) across the
+  // transition, so its draft survives; only the companion slot remounts.
+  $: slotA = editingRecord
+    ? { record: editingRecord, mode: editingSide === 'left' ? 'transcript' : 'strokes' }
+    : (leftRecord ? { record: leftRecord, mode: contentMode } : null);
+  $: slotB = editingRecord
+    ? { record: editingRecord, mode: editingSide === 'right' ? 'transcript' : 'strokes' }
+    : (twoPageMode && rightRecord ? { record: rightRecord, mode: contentMode } : null);
+  // Companion strokes pane is forced visible during editing even in single mode.
+  $: showSlotB = !!editingRecord || twoPageMode;
+
+  function reportEditing(side, isEditing) {
+    editingSide = isEditing ? side : null;
+  }
+
   $: recentRecords = $recentViews
     .map((rv) => (grouped[rv.book] || []).find((p) => idOf(p) === rv.pageId))
     .filter(Boolean);
@@ -105,12 +129,14 @@
 
   function selectPage(record) {
     if (!guardNav()) return;
+    editingSide = null;
     setViewerSelection(record.book, idOf(record));
     recordRecentView(record.book, idOf(record));
   }
 
   export function goHome() {
     if (!guardNav()) return;
+    editingSide = null;
     clearViewerSelection();
   }
 
@@ -122,6 +148,7 @@
 
   function prevSpread() {
     if (currentIndex <= 0 || !guardNav()) return;
+    editingSide = null;
     const step = twoPageMode ? 2 : 1;
     const rec = currentBookPages[Math.max(0, currentIndex - step)];
     setViewerSelection(rec.book, idOf(rec));
@@ -130,6 +157,7 @@
 
   function nextSpread() {
     if (!guardNav()) return;
+    editingSide = null;
     const step = twoPageMode ? 2 : 1;
     const t = currentIndex + step;
     if (t < currentBookPages.length) {
@@ -154,11 +182,13 @@
   export function setContentMode(mode) {
     if (mode === contentMode) return;
     if (!guardNav()) return;
+    editingSide = null;
     contentMode = mode;
   }
 
   export function toggleSpread() {
     if (!guardNav()) return;
+    editingSide = null;
     twoPageMode = !twoPageMode;
   }
 
@@ -262,38 +292,40 @@
     </div>
   {:else}
     <!-- Page / spread view -->
-    <div class="bv-body" class:spread={twoPageMode}>
-      {#key `${leftRecord.book}:${idOf(leftRecord)}`}
+    <div class="bv-body" class:spread={showSlotB}>
+      {#key `${slotA.record.book}:${idOf(slotA.record)}`}
         <div class="bv-page">
           <PageSpreadView
-            record={leftRecord}
-            bookAlias={aliasFor(leftRecord.book)}
-            {contentMode}
-            {hasPrev}
-            hasNext={twoPageMode ? false : hasNextSingle}
-            onPrev={prevSpread}
-            onNext={twoPageMode ? null : nextSpread}
+            record={slotA.record}
+            bookAlias={aliasFor(slotA.record.book)}
+            contentMode={slotA.mode}
+            hasPrev={editingRecord ? false : hasPrev}
+            hasNext={editingRecord ? false : (twoPageMode ? false : hasNextSingle)}
+            onPrev={editingRecord ? null : prevSpread}
+            onNext={editingRecord ? null : (twoPageMode ? null : nextSpread)}
             onTranscriptSaved={applyTranscriptToStore}
-            onLoadIntoEditor={() => loadRecordIntoEditor(leftRecord)}
+            onLoadIntoEditor={() => loadRecordIntoEditor(slotA.record)}
+            onEditingChange={(e) => reportEditing('left', e)}
           />
         </div>
       {/key}
 
-      {#if twoPageMode}
+      {#if showSlotB}
         <div class="bv-spine"></div>
-        {#if rightRecord}
-          {#key `${rightRecord.book}:${idOf(rightRecord)}`}
+        {#if slotB}
+          {#key `${slotB.record.book}:${idOf(slotB.record)}`}
             <div class="bv-page">
               <PageSpreadView
-                record={rightRecord}
-                bookAlias={aliasFor(rightRecord.book)}
-                {contentMode}
+                record={slotB.record}
+                bookAlias={aliasFor(slotB.record.book)}
+                contentMode={slotB.mode}
                 hasPrev={false}
-                hasNext={hasNextSpread}
+                hasNext={editingRecord ? false : hasNextSpread}
                 onPrev={null}
-                onNext={nextSpread}
+                onNext={editingRecord ? null : nextSpread}
                 onTranscriptSaved={applyTranscriptToStore}
-                onLoadIntoEditor={() => loadRecordIntoEditor(rightRecord)}
+                onLoadIntoEditor={() => loadRecordIntoEditor(slotB.record)}
+                onEditingChange={(e) => reportEditing('right', e)}
               />
             </div>
           {/key}

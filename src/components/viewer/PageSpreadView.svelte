@@ -23,6 +23,7 @@
   export let onNext = null;
   export let onTranscriptSaved = () => {};
   export let onLoadIntoEditor = () => {};
+  export let onEditingChange = () => {};
 
   let containerEl;
   let zoom = 1;
@@ -160,18 +161,18 @@
 
   <div class="pv-area" bind:this={containerEl}>
     {#if hasPrev && onPrev}
-      <button class="pv-nav prev" on:click={onPrev} title="Previous page">
+      <button class="pv-nav prev" class:below-toolbar={contentMode === 'transcript'} on:click={onPrev} title="Previous page">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
       </button>
     {/if}
     {#if hasNext && onNext}
-      <button class="pv-nav next" on:click={onNext} title="Next page">
+      <button class="pv-nav next" class:below-toolbar={contentMode === 'transcript'} on:click={onNext} title="Next page">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
       </button>
     {/if}
 
     {#if contentMode === 'transcript'}
-      <TranscriptPane {lines} book={record.book} page={pageId} {pageKey} onSaved={handleSaved} />
+      <TranscriptPane {lines} book={record.book} page={pageId} {pageKey} onSaved={handleSaved} {onEditingChange} />
     {:else if loadingDoc}
       <div class="pv-empty">Loading…</div>
     {:else if bounds}
@@ -283,6 +284,10 @@
   .pv-nav:hover { background: rgba(0, 0, 0, 0.04); color: rgba(0, 0, 0, 0.55); }
   .pv-nav.prev { left: 0; }
   .pv-nav.next { right: 0; }
+  /* In transcript mode the TranscriptPane's toolbar (Edit / Copy / Save …) sits
+     at the top of this area; keep the page-turn arrows below it so they don't
+     capture clicks meant for those buttons. */
+  .pv-nav.below-toolbar { top: 44px; }
 
   .pv-empty {
     flex: 1;

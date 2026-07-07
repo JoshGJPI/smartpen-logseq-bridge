@@ -132,16 +132,19 @@ function isDuplicate(newLine, existingLines) {
  * lines untouched. Returns { lines, lineIdAssignments: Map<strokeId,lineId> }.
  */
 function mergeTranscript(existingLines, myscriptLines, storedStrokes) {
-  const lines = [...existingLines];
+  // Existing lines keep their order untouched — the user (or an earlier
+  // transcription) established it, and re-sorting the whole list scrambles it.
+  const existing = [...existingLines];
   const lineIdAssignments = new Map(); // strokeId → new lineId
 
   if (!myscriptLines || myscriptLines.length === 0) {
-    return { lines, lineIdAssignments };
+    return { lines: existing, lineIdAssignments };
   }
 
   // Generate IDs upfront so parent linkage by index works
   const newIds = myscriptLines.map(() => randomUUID());
 
+  const newLines = [];
   for (let i = 0; i < myscriptLines.length; i++) {
     const ms = myscriptLines[i];
     const text = (ms.text || '').trim();
@@ -160,11 +163,11 @@ function mergeTranscript(existingLines, myscriptLines, storedStrokes) {
         : null
     };
 
-    if (isDuplicate(lineRecord, lines)) {
+    if (isDuplicate(lineRecord, existing)) {
       continue;
     }
 
-    lines.push(lineRecord);
+    newLines.push(lineRecord);
 
     // Attach lineId to strokes whose Y range overlaps the new line
     const matchingStrokeIds = strokesIntersectingLine(lineRecord, storedStrokes);
@@ -174,14 +177,16 @@ function mergeTranscript(existingLines, myscriptLines, storedStrokes) {
     }
   }
 
-  // Sort by yBounds.minY (top-to-bottom on the page) for readability
-  lines.sort((a, b) => {
+  // Order the NEW lines among themselves top-to-bottom on the page, then append
+  // them after the existing transcript. New transcription always lands at the
+  // end rather than being interleaved into the existing lines by Y-position.
+  newLines.sort((a, b) => {
     const ay = a.yBounds?.minY ?? 0;
     const by = b.yBounds?.minY ?? 0;
     return ay - by;
   });
 
-  return { lines, lineIdAssignments };
+  return { lines: [...existing, ...newLines], lineIdAssignments };
 }
 
 /* -----------------------------------------------------------------
