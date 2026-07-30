@@ -69,27 +69,9 @@ export function selectRange(fromIndex, toIndex, addToExisting = false) {
     return newSel;
   });
   
-  // Also adjust lastSelectedIndex if needed
-  lastSelectedIndex.update(lastIndex => {
-    if (lastIndex === null) return null;
-    
-    // If the last selected index was deleted, clear it
-    if (removedIndices.includes(lastIndex)) {
-      return null;
-    }
-    
-    // Count how many removed indices are before it
-    let shift = 0;
-    for (const removedIndex of sorted) {
-      if (removedIndex < lastIndex) {
-        shift++;
-      } else {
-        break;
-      }
-    }
-    
-    return lastIndex - shift;
-  });
+  // The range end becomes the new anchor, so a follow-up Shift+click extends
+  // from where this range stopped.
+  lastSelectedIndex.set(toIndex);
 }
 
 /**
@@ -227,6 +209,23 @@ export function adjustSelectionAfterDeletion(removedIndices) {
     });
 
     return newSel;
+  });
+
+  // The anchor shifts the same way the selection does — otherwise the next
+  // Shift+click extends from a stale index (or one that no longer exists).
+  lastSelectedIndex.update(lastIndex => {
+    if (lastIndex === null) return null;
+    if (removedIndices.includes(lastIndex)) return null;
+
+    let shift = 0;
+    for (const removedIndex of sorted) {
+      if (removedIndex < lastIndex) {
+        shift++;
+      } else {
+        break;
+      }
+    }
+    return lastIndex - shift;
   });
 }
 

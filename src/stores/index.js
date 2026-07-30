@@ -98,9 +98,8 @@ export {
   dataFolderStatusText,
   setDataFolderStatus,
   getDataRoot,
-  // "Publish to graph" — mirror saved pages into a LogSeq graph
+  // "Export to LogSeq" — publish curated strokes into a LogSeq graph
   graphRoot,
-  publishToGraph,
   graphFolderReady,
   graphFolderStatusText,
   setGraphFolderStatus,

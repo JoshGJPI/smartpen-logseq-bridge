@@ -60,10 +60,17 @@ A desktop Electron app for capturing, transcribing, and managing handwritten not
 - **Book aliases**: stored in `<dataRoot>/pages/_aliases.json`
 - **Book Aliases**: Custom naming for notebook identifiers
 
+### Publish Sketches to LogSeq (v2.3)
+- **Selective**: publish only the strokes you select — sketches go to the graph, private notes stay out
+- **Additive**: each export adds to what that page already has, so a page accumulates sketches over time; re-exporting the same strokes is a no-op
+- **Transcript-free**: recognised text is never written to the graph
+- **No LogSeq runtime needed**: writes JPI Tools plugin assets straight to the graph folder, for rendering via `{{renderer :smartpen-sketch, …}}`
+- **Whole-page backfill**: publish an entire saved page from the Saved Pages tab
+
 ### Advanced Canvas Features
 - **Pan & Zoom**: Alt+drag to pan, Ctrl+scroll to zoom
 - **Text View Mode**: Toggle between stroke view and transcribed text
-- **Export Options**: Save as SVG or JSON
+- **Export Options**: Save as SVG, JSON, or MD; publish to LogSeq
 - **Visual Feedback**: Color-coded borders for different books/pages
 - **Selection Indicators**: Clear visual feedback for selected elements
 - **Hover Cursors**: Contextual cursors for different interactions
@@ -74,12 +81,12 @@ A desktop Electron app for capturing, transcribing, and managing handwritten not
   - **Transcription Tab**: View transcribed text with hierarchy
   - **LogSeq DB Tab**: Explore saved pages with lazy import
   - **Analysis Tab**: Raw JSON inspection and statistics
-- **Search Transcripts**: Full-text search across all transcribed pages in LogSeq
+- **Search Transcripts**: Full-text search across all transcribed pages in your data folder
 - **Activity Log**: Real-time feedback on all operations
 - **Storage Stats**: Track saved pages and sync status
 
 ### Professional Workflow Support
-- **Create New Pages**: Convert duplicated strokes to new LogSeq pages
+- **Create New Pages**: Convert duplicated strokes to new pages in your data folder
 - **Coordinate Normalization**: Automatic anchor point calculation
 - **Batch Operations**: Process multiple pages efficiently
 - **Persistent Settings**: MyScript keys, LogSeq config, UI state
@@ -137,14 +144,18 @@ This opens the app at `http://localhost:3000` (configured in vite.config.js)
 5. Enter your keys in the **MyScript Settings** section
 6. Click **Test Keys** to verify
 
-### 4. Enable LogSeq HTTP API (Optional)
+### 4. Set a LogSeq Graph Folder (Optional)
 
-1. Open LogSeq
-2. Go to **Settings** > **Advanced**
-3. Enable **Developer mode**
-4. Enable **HTTP APIs server** (default port: 12315)
-5. Optionally set an authorization token
-6. In the bridge app, click **⚙️ Settings** and configure LogSeq connection
+Only needed if you want to publish sketches to LogSeq. Requires the JPI Tools
+plugin (v1.9.66+) installed in that graph.
+
+1. Click **⚙️ Settings** > **LogSeq Graph**
+2. **Browse…** to your graph's root folder (the one containing `assets/`)
+3. Confirm the status dot turns green
+
+No LogSeq HTTP API, developer mode, or running LogSeq instance is required —
+the bridge writes plugin assets straight to disk. (v1 used the HTTP API; that
+was removed in v2.0.)
 
 ### 5. Connect Your Pen
 
@@ -338,6 +349,19 @@ This opens the app at `http://localhost:3000` (configured in vite.config.js)
 - Exports raw stroke data
 - Includes all metadata and dot arrays
 - For programmatic analysis or backup
+
+**Export to LogSeq (⇪ LogSeq):**
+- Publishes strokes into your LogSeq graph as JPI Tools plugin assets, so
+  sketches render in LogSeq via `{{renderer :smartpen-sketch, …}}`
+- Select strokes first to publish just those; with nothing selected, publishes
+  the visible page. `⇪ LogSeq` on a Saved Pages card publishes that whole page
+- **Additive** — each export adds to what that page already has in the graph, so
+  you can publish sketches one at a time. Re-exporting the same strokes changes
+  nothing
+- **Never includes transcript text** — only the strokes you chose
+- Your data folder stays the complete notebook; the graph gets only what you send
+- Which region a given sketch renders is chosen in LogSeq (the plugin's
+  Visualizer emits the bounds), not here
 
 ## Data Structure
 
@@ -903,7 +927,18 @@ For issues, questions, or feature requests:
 
 ## Version History
 
-- **0.3.0** (Current) - Electron desktop app + transcript improvements
+- **2.3.0** (Current) - Export to LogSeq: manual, selective, additive stroke
+  publishing (replaced auto-publish-on-save); transcript never exported
+
+- **2.2.0** - Book View transcript editor: re-transcribe ordering fix, line
+  reordering, strokes-alongside-editing
+
+- **2.1.0** - Book View: read saved pages as side-by-side spreads, inline
+  transcript editing, Load into Editor
+
+- **2.0.0** - LogSeq → local-folder storage pivot (PageDoc JSON files)
+
+- **0.3.0** - Electron desktop app + transcript improvements
   - Electron desktop app conversion
   - Transcript data loss fixes (Y-bounds, blockUuid preservation)
   - Hierarchical block creation order fix

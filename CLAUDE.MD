@@ -92,7 +92,7 @@ All state is managed through Svelte stores located in `src/stores/`:
   - `pendingChanges` — derived store computing additions/deletions per page (pure core `computePendingChangesMap()`, tested)
   - `getDeletedStrokeIdsForPage()` — converts indices to stroke IDs for the save call
   - `onDiskStrokeIds` + `noteOnDiskStrokeIds()` — perf #3: since `logseqPages` records no longer carry strokes, the additions diff uses a small `pageKey → Set<strokeId>` map populated ONLY for pages currently on the canvas (primed by `load-page.js` import + `save-page.js` save; lazily backfilled and evicted by a `canvasPageKeys` subscription). Never reads strokes off `logseqPages`.
-- `settings.js` — persisted user settings (MyScript keys, `dataRoot`, `dataFolderReady`, `dataFolderStatusText`; **Publish to graph:** `graphRoot`, `publishToGraph`, `graphFolderReady`, `graphFolderStatusText`)
+- `settings.js` — persisted user settings (MyScript keys, `dataRoot`, `dataFolderReady`, `dataFolderStatusText`; **Export to LogSeq:** `graphRoot`, `graphFolderReady`, `graphFolderStatusText` — no publish-on-save flag, removed in v2.3)
 
 ### Key Libraries
 
@@ -108,10 +108,11 @@ All state is managed through Svelte stores located in `src/stores/`:
 **Storage Layer (`src/lib/storage/`)** — v2.0:
 - `page-doc.js` — PageDoc schema types, `emptyPageDoc()`, `computeBounds()`, `validatePageDoc()`
 - `page-doc-format.js` — hybrid pretty/compact serializer (document shell pretty-printed; each stroke on one line)
-- `local-store.js` — renderer-side facade over `window.storageAPI` IPC: `listPages`, `getPage`, `savePage`, `deletePage`, alias CRUD, `pickFolder`, `isAvailable`, `openInExplorer`. **`savePage()` is the single choke point all PageDoc writes funnel through** — it also fires the optional "Publish to graph" mirror after a successful save (see `publish-graph.js`)
+- `local-store.js` — renderer-side facade over `window.storageAPI` IPC: `listPages`, `getPage`, `savePage`, `deletePage`, alias CRUD, `pickFolder`, `isAvailable`, `openInExplorer`. **`savePage()` is the single choke point all PageDoc writes funnel through.** It does NOT publish to the LogSeq graph — that was removed in v2.3 (see `graph-export.js`)
 - `save-page.js` — `savePageToFolder()` — append-only stroke merge with explicit deletions, Y-bounds-based transcript merge with checkbox preservation
-- `graph-index.js` — pure helpers for **Publish to graph**: `smartpenAssetName()`/`smartpenAssetRelPath()` (the `smartpen-B{book}-P{pageId}.json` asset convention), `buildSmartpenIndexEntry()`, `upsertSmartpenIndex()`, `emptySmartpenIndex()`. Mirrors the JPI Tools plugin's `tools/migrate-smartpen-assets.mjs` index logic (plugin spec §4.6/§6.1). Identity (`book`+`pageId`) comes from the bridge filename, never `doc.pageInfo`
-- `publish-graph.js` — `publishPageToGraph(book, pageId, doc)` — renderer facade that mirrors a saved PageDoc into a LogSeq graph folder when enabled: reads `smartpen-index.json`, upserts this page's entry (+ book alias), then writes the asset (`serializePageDoc`, verbatim) + index via IPC. **Best-effort: never throws** — a graph-write failure logs a warning but never fails the authoritative bridge save. No LogSeq runtime dependency (pure filesystem)
+- `graph-index.js` — pure helpers for **Export to LogSeq**: `smartpenAssetName()`/`smartpenAssetRelPath()` (the `smartpen-B{book}-P{pageId}.json` asset convention), `buildSmartpenIndexEntry()`, `upsertSmartpenIndex()`, `emptySmartpenIndex()`. Mirrors the JPI Tools plugin's `tools/migrate-smartpen-assets.mjs` index logic (plugin spec §4.6/§6.1). Identity (`book`+`pageId`) comes from the bridge filename, never `doc.pageInfo`
+- `publish-graph.js` — graph **transport only**: `readGraphPage(book, pageId)` (the published asset, or null) and `writeGraphPage(book, pageId, doc)` (asset via `serializePageDoc` + `smartpen-index.json` upsert, both atomic via IPC). **Throws on failure** — export is a deliberate user action, so errors surface. No LogSeq runtime dependency (pure filesystem). Does *not* decide what to publish
+- `graph-export.js` — **what** to publish. Pure core (`stripTranscriptRefs`, `mergeGraphStrokes`, `resolveGraphPageInfo`, `buildGraphPageDoc`, `groupCanvasStrokesByPage`) + facades `exportSelectionToGraph(canvasStrokes)` (fans out one merge+write per page in the selection) and `exportPageDocToGraph(book, pageId, doc)` (whole-page backfill). Two invariants: **additive** (merge into what's already published, dedupe by stroke id — re-exporting is a safe no-op) and **transcript-free** (`transcript.lines` emptied, every `lineId` cleared). Tested in `graph-export.test.js`
 - `load-page.js` — `importStrokesFromFolder()`, `importStrokesForLoadedPagesFromFolder()` — converts StoredStroke → canvas dotArray format
 - `scan.js` — `scanLocalPages()` + `metaToRecord()` (pure, tested) — populates the `logseqPages` store from disk. **Metadata-only (perf #3):** records carry summary fields ONLY (`strokeCount`, `lastUpdated`, `transcriptionText`, `transcribed`, `transcriptLineCount`, `pageId`/`suffix`) — never `strokes`/`pageDoc`/`strokeData`, so the corpus never stays resident; each page's strokes load lazily on view. Records load by `pageId`, so letter-suffixed variants (`P127.json` + `P127b.json`) don't collapse onto the integer page. (`main.cjs listAllPages` → `extractPageMeta` parses just the doc shell, skipping the strokes array, so the scan is fast; the tiny `transcriptionText` rides along to power search/preview without loading strokes.)
 - `page-changes.js` — `computePageChangesFolder()` — preview diff for the SaveConfirmDialog
@@ -393,6 +394,8 @@ Existing test files (all in `src/lib/__tests__/`):
 | `page-svg.test.js` | `computeStrokeBounds`, `strokeToPathD` (scaling, normalisation, <2-point skip), `generateThumbnailSVG` (empty placeholder, dimensions) |
 | `transcript-markdown.test.js` | `linesToLogseqMarkdown` — tab indentation, TODO/DONE markers, `::` property stripping, blank-line drop, `isPropertyLine` |
 | `save-transcript.test.js` | `recomputeParentIds` (hierarchy by indent), `saveTranscriptLines` (verbatim write, lineId scrub on deleted lines, timestamp bump, missing-page guard; mocks `getPage`/`savePage`) |
+| `graph-index.test.js` | `smartpenAssetName`/`smartpenAssetRelPath`, `buildSmartpenIndexEntry`, `upsertSmartpenIndex` (replace-in-place, alias merge, sorting, corrupt-input normalisation) |
+| `graph-export.test.js` | `stripTranscriptRefs`, `mergeGraphStrokes` (dedupe by id, existing wins, re-export is a no-op), `resolveGraphPageInfo`, `buildGraphPageDoc` (**transcript never published**, bounds/totalStrokes recomputed), `groupCanvasStrokesByPage` (multi-page fan-out, orphan counting), `exportSelectionToGraph`/`exportPageDocToGraph` (merge into published page, per-page failure isolation, letter-suffix identity; mocks `publish-graph.js`) |
 
 When writing new tests follow the patterns in the existing files:
 - Mock Svelte stores (`vi.mock()`) before imports if needed
@@ -412,6 +415,11 @@ When making changes, also verify manually:
 - Save to data folder (Saved Pages tab refreshes, file timestamps update)
 - Re-import a saved page from the Saved Pages tab
 - Edit transcript via the page-card editor; reload to confirm persistence
+- Export to LogSeq: select strokes → ⇪ LogSeq → asset appears under
+  `<graph>/assets/storages/logseq-plugin-jpi-tools/`; export a second, different
+  selection on the same page and confirm both stroke sets are present (additive);
+  re-export the same selection and confirm it adds nothing; confirm no transcript
+  text in the asset
 - Canvas pan/zoom/navigation
 - Page positioning and scaling
 - Unsaved-changes indicator + window-close prompt
@@ -451,6 +459,62 @@ npm run preview
 - [Svelte 4 Docs](https://svelte.dev/docs/svelte/overview) — Framework reference
 
 ## Recent Changes (Git History Context)
+
+### v2.3.0 — Export to LogSeq: manual, selective, additive (July 2026)
+
+**Replaced auto-publish-on-save with an explicit stroke export.** The graph copy
+is no longer a mirror of the notebook — it is a curated *book of sketches*
+containing only what the user chose to publish. The bridge's `stroke-data/`
+folder remains the complete digital twin.
+
+**Why:** mirroring every save pushed private notes into the graph and offered no
+way to publish just a sketch. The user wants to select strokes, send those, and
+add more to the same page later.
+
+**What landed:**
+- **`graph-export.js` (new)** — the export policy. **Additive**: every export
+  merges into the page's existing graph asset, deduplicated by stroke id, so
+  sketches accumulate on a page and re-exporting an overlapping selection is a
+  no-op. **Transcript-free**: `transcript.lines` is always emptied and every
+  `lineId` cleared — recognised text is exactly the private content selective
+  export exists to keep out of the graph (the plugin surfaces it via
+  `copySmartpenTranscript`). Multi-page selections fan out to one merge+write
+  per page; strokes lacking `pageInfo` are counted as orphans, not dropped.
+- **`publish-graph.js` (rewritten)** — now transport only: `readGraphPage()` +
+  `writeGraphPage()`. Throws on failure (was best-effort/never-throws) because
+  export is now a deliberate action, not a background side-effect.
+- **`storage:readGraphAsset` IPC (new)** — additive merge needs to *read* the
+  published asset; only `readGraphIndex` existed. Book/pageId validation
+  extracted into `requireGraphBook`/`requireGraphPageId` and shared with
+  `publishToGraph`.
+- **Decoupled from save** — the `publishPageToGraph()` call in `local-store.js`
+  `savePage()` is gone, along with the `publishToGraph` setting and its toggle.
+  `graphRoot` stays as the export target.
+- **UI** — "⇪ LogSeq" button in the canvas export toolbar (uses the same
+  `$hasSelection ? $selectedStrokes : visibleStrokes` rule as SVG/JSON/MD), and
+  a per-page "⇪ LogSeq" button on `PageCard` for whole-page backfill of pages
+  saved before this existed. Both disabled until a graph folder is verified.
+- **Region cropping stays in LogSeq** — the plugin renders a sub-region from
+  bounds in `{{renderer :smartpen-sketch, …, minX, minY, maxX, maxY}}`, chosen in
+  the Visualizer where the result is visible. The bridge only decides *which
+  strokes exist* in the graph.
+
+**Also fixed:** `selectRange()` in `stores/selection.js` referenced
+`removedIndices`/`sorted` — undefined in that scope, so **every Shift+click range
+select threw a ReferenceError**. The block was a copy-paste of the tail of
+`adjustSelectionAfterDeletion`; `selectRange` now just sets the anchor to the
+range end, and the deletion-shift logic was restored to
+`adjustSelectionAfterDeletion`, which had been silently leaving
+`lastSelectedIndex` stale after a delete.
+
+**New:** `src/lib/storage/graph-export.js`, `src/lib/__tests__/graph-export.test.js`.
+**Edited:** `electron/main.cjs`, `electron/preload.cjs`, `publish-graph.js`,
+`local-store.js`, `stores/settings.js`, `stores/index.js`, `stores/selection.js`,
+`App.svelte`, `StrokeCanvas.svelte`, `PageCard.svelte`, `GraphFolderSettings.svelte`.
+
+**Supersedes** the June 2026 "Publish to graph" entry below — the asset/index
+file format and the plugin contract are unchanged; only *when* and *what* the
+bridge writes changed.
 
 ### v2.2.0 — Book View transcript editor: ordering fix + editing UX (July 2026)
 
@@ -494,7 +558,12 @@ transcript-editor improvements.**
 **Edited:** `src/lib/storage/save-page.js`, `src/components/viewer/TranscriptPane.svelte`,
 `src/components/viewer/PageSpreadView.svelte`, `src/components/viewer/BookViewer.svelte`.
 
-### Publish to graph — close the loop with the JPI Tools plugin (June 2026)
+### Publish to graph — close the loop with the JPI Tools plugin (June 2026) — SUPERSEDED by v2.3.0
+
+> **Historical.** The auto-mirror-on-save described here was replaced in v2.3.0 by
+> the manual, selective, additive **Export to LogSeq** flow. The asset/index file
+> format and plugin contract below still apply; the `publishToGraph` setting and
+> the `savePage()` hook no longer exist.
 
 **Optionally mirror each saved page into a LogSeq graph as plugin assets.** The
 JPI Tools LogSeq plugin (v1.9.66+) went "page-less": it reads smartpen strokes

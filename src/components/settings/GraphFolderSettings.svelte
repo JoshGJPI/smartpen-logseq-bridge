@@ -1,15 +1,18 @@
 <!--
-  GraphFolderSettings.svelte — "Publish to graph" configuration.
+  GraphFolderSettings.svelte — LogSeq graph target for stroke export.
 
-  Picks a LogSeq graph root and toggles whether each saved page is mirrored into
-  it as JPI Tools plugin assets (PageDoc + smartpen-index.json). Mirrors
-  DataFolderSettings (Browse / Verify / Open in Explorer); the folder picker,
-  availability check, and open-in-explorer IPC are reused as-is.
+  Picks the LogSeq graph root that "Export to LogSeq" publishes into as JPI Tools
+  plugin assets (PageDoc + smartpen-index.json). Mirrors DataFolderSettings
+  (Browse / Verify / Open in Explorer); the folder picker, availability check,
+  and open-in-explorer IPC are reused as-is.
+
+  There is deliberately no "publish on save" toggle: export is an explicit,
+  additive, per-selection action so the graph stays a curated book of sketches
+  rather than a full mirror of the notebook.
 -->
 <script>
   import {
     graphRoot,
-    publishToGraph,
     graphFolderReady,
     graphFolderStatusText,
     setGraphFolderStatus,
@@ -69,11 +72,6 @@
 </script>
 
 <div class="folder-settings">
-  <label class="toggle">
-    <input type="checkbox" bind:checked={$publishToGraph} />
-    <span>Publish to LogSeq graph on save</span>
-  </label>
-
   <div class="input-group">
     <label for="graphRoot">LogSeq graph folder</label>
     <input
@@ -102,17 +100,17 @@
     </button>
   </div>
 
-  {#if $publishToGraph && !$graphFolderReady}
-    <p class="hint warn-hint">
-      Publishing is on but the graph folder isn’t verified — saves won’t be mirrored until you pick a valid folder.
-    </p>
-  {/if}
-
   <p class="hint">
-    When on, each save also writes the page to
-    <code>&lt;graph&gt;/assets/storages/logseq-plugin-jpi-tools/</code> (the PageDoc
-    asset + <code>smartpen-index.json</code>) so the JPI Tools plugin can render it.
-    Your <code>stroke-data</code> folder stays the working store; this is a published mirror.
+    Target for <strong>Export to LogSeq</strong>. Exported strokes are written to
+    <code>&lt;graph&gt;/assets/storages/logseq-plugin-jpi-tools/</code> (a PageDoc
+    asset per page + <code>smartpen-index.json</code>) so the JPI Tools plugin can
+    render them.
+  </p>
+  <p class="hint">
+    Export is additive — each export adds to what that page already has in the
+    graph, so you can publish sketches one at a time. Transcript text is never
+    exported. Your <code>stroke-data</code> folder stays the complete notebook;
+    the graph only gets what you send it.
   </p>
 </div>
 
@@ -121,17 +119,6 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-  }
-  .toggle {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 0.85rem;
-    color: var(--text-primary, #fff);
-    cursor: pointer;
-  }
-  .toggle input {
-    width: auto;
   }
   .status-row {
     display: flex;
@@ -159,9 +146,6 @@
     color: var(--text-secondary, #a0a0a0);
     margin: 0;
     line-height: 1.4;
-  }
-  .warn-hint {
-    color: var(--accent, #e94560);
   }
   .hint code {
     background: rgba(255,255,255,0.06);

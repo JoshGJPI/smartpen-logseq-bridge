@@ -23,7 +23,7 @@
   import { log } from '$stores';
   import { openBluetoothPicker, updateBluetoothDevices, closeBluetoothPicker } from '$stores/ui.js';
   import { dataRoot, setDataFolderStatus, getDataRoot } from '$stores/settings.js';
-  import { graphRoot, publishToGraph, setGraphFolderStatus, getGraphRoot } from '$stores/settings.js';
+  import { graphRoot, setGraphFolderStatus, getGraphRoot } from '$stores/settings.js';
   import { unsavedChanges, viewerMode, viewerDirty, setViewerMode, clearAllViewerDirty } from '$stores';
   import { isAvailable as folderIsAvailable } from '$lib/storage/local-store.js';
   import { scanLocalPages } from '$lib/storage/scan.js';
@@ -59,8 +59,8 @@
     }
   }
 
-  // "Publish to graph": check the LogSeq graph folder at boot so the status dot
-  // is accurate. Only meaningful when publishing is enabled.
+  // "Export to LogSeq": check the graph folder at boot so the status dot is
+  // accurate before the user reaches for the export button.
   async function checkGraphFolder() {
     const root = getGraphRoot();
     if (!root) {
@@ -72,14 +72,14 @@
       if (ok) {
         const basename = root.split(/[\\/]/).pop() || root;
         setGraphFolderStatus(true, `Graph: ${basename}`);
-        if (get(publishToGraph)) log(`Graph publish target ready: ${root}`, 'info');
+        log(`LogSeq graph export target ready: ${root}`, 'info');
       } else {
         setGraphFolderStatus(false, 'Graph: missing');
-        if (get(publishToGraph)) log(`Graph folder not accessible: ${root}`, 'warning');
+        log(`Graph folder not accessible: ${root}`, 'warning');
       }
     } catch (err) {
       setGraphFolderStatus(false, 'Graph: error');
-      if (get(publishToGraph)) log(`Graph folder check failed: ${err.message}`, 'warning');
+      log(`Graph folder check failed: ${err.message}`, 'warning');
     }
   }
 

@@ -19,8 +19,9 @@
   import { formatBookName, filterTranscriptionProperties } from '$utils/formatting.js';
   import { openSearchTranscriptsDialog, openSvgExportDialog } from '$stores';
   import { hasSelection } from '$stores/selection.js';
-  import { dataFolderReady } from '$stores/settings.js';
+  import { dataFolderReady, graphFolderReady } from '$stores/settings.js';
   import { buildJsonExportData, buildMdExportData } from '$lib/stroke-storage.js';
+  import { exportSelectionToGraph } from '$lib/storage/graph-export.js';
   import CanvasControls from './CanvasControls.svelte';
   import PageSelector from './PageSelector.svelte';
   import FilteredStrokesPanel from '../strokes/FilteredStrokesPanel.svelte';
@@ -34,6 +35,9 @@
   
   // Decorative detection state
   let isDetecting = false;
+
+  // "Export to LogSeq" in-flight guard (disk I/O in the graph folder)
+  let isExportingToGraph = false;
   
   // Text view toggle state
   let showTextView = false;
@@ -1133,6 +1137,52 @@
     pages.forEach(({ content, filename }) => downloadFile(content, filename, 'text/markdown'));
   }
 
+  /**
+   * Publish the current selection (or, with nothing selected, the visible page)
+   * into the LogSeq graph for the JPI Tools plugin to render.
+   *
+   * Additive by design: this merges into whatever that page already has in the
+   * graph, so sketches can be published one at a time and the graph becomes a
+   * book of sketches rather than a mirror of the notebook. Transcript text is
+   * never included — see src/lib/storage/graph-export.js.
+   */
+  async function exportToGraph() {
+    const exportStrokes = $hasSelection ? $selectedStrokes : visibleStrokes;
+    if (exportStrokes.length === 0) {
+      log('No strokes to export', 'warning');
+      return;
+    }
+    if (!$graphFolderReady) {
+      log('No LogSeq graph folder set — choose one in Settings → LogSeq Graph', 'warning');
+      return;
+    }
+
+    isExportingToGraph = true;
+    try {
+      const { results, orphans } = await exportSelectionToGraph(exportStrokes);
+
+      if (orphans > 0) {
+        log(`${orphans} stroke(s) skipped — no page info to publish them under`, 'warning');
+      }
+
+      for (const r of results) {
+        if (!r.success) {
+          log(`Export to LogSeq failed for B${r.book}/P${r.pageId}: ${r.error}`, 'error');
+          continue;
+        }
+        const dupNote = r.duplicates > 0 ? `, ${r.duplicates} already published` : '';
+        log(
+          `Exported to LogSeq B${r.book}/P${r.pageId}: +${r.added} stroke(s)${dupNote} — ${r.total} total on page`,
+          r.added > 0 ? 'success' : 'info'
+        );
+      }
+    } catch (err) {
+      log(`Export to LogSeq failed: ${err.message}`, 'error');
+    } finally {
+      isExportingToGraph = false;
+    }
+  }
+
   function downloadFile(content, filename, mimeType) {
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
@@ -1555,6 +1605,18 @@
       </button>
       <button class="btn btn-secondary small" on:click={exportJson}>JSON</button>
       <button class="btn btn-secondary small" on:click={exportMd}>MD</button>
+      <button
+        class="btn btn-secondary small export-graph"
+        on:click={exportToGraph}
+        disabled={isExportingToGraph || !$graphFolderReady}
+        title={$graphFolderReady
+          ? ($hasSelection
+              ? `Publish ${$selectionCount} selected stroke(s) to the LogSeq graph (adds to what's already there)`
+              : 'Publish the visible strokes to the LogSeq graph (adds to what\'s already there)')
+          : 'Set a LogSeq graph folder in Settings first'}
+      >
+        {isExportingToGraph ? '⏳ Exporting…' : '⇪ LogSeq'}{#if $hasSelection && !isExportingToGraph} ({$selectionCount}){/if}
+      </button>
     </div>
   </div>
 

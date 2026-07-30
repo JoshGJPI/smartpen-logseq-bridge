@@ -11,6 +11,8 @@
   import TranscriptionPreview from './TranscriptionPreview.svelte';
   import TranscriptionEditorModal from '../dialog/TranscriptionEditorModal.svelte';
   import SyncStatusBadge from './SyncStatusBadge.svelte';
+  import { exportPageDocToGraph } from '$lib/storage/graph-export.js';
+  import { graphFolderReady } from '$stores/settings.js';
   import {
     pageTranscriptions,
     clearPageTranscription,
@@ -34,6 +36,7 @@
   let editorLines = [];
   let loadingLines = false;
   let transcriptExpanded = false;
+  let exportingToGraph = false;
 
   // Update edited transcription when page changes
   $: editedTranscription = page.transcriptionText || '';
@@ -53,6 +56,44 @@
     } finally {
       importing = false;
       importProgress = { current: 0, total: 0 };
+    }
+  }
+
+  /**
+   * Publish this whole saved page into the LogSeq graph — the backfill path for
+   * pages captured before selective export existed, and for pages the user is
+   * happy to publish in full. Additive and transcript-free, same as the
+   * selection export from the canvas.
+   */
+  async function handleExportToGraph() {
+    if (!$graphFolderReady) {
+      log('No LogSeq graph folder set — choose one in Settings → LogSeq Graph', 'warning');
+      return;
+    }
+
+    exportingToGraph = true;
+    try {
+      const doc = await getPage(page.book, pageRef);
+      if (!doc) {
+        log(`Could not load page file for B${page.book}/P${pageRef}`, 'error');
+        return;
+      }
+
+      const r = await exportPageDocToGraph(page.book, pageRef, doc);
+      if (!r.success) {
+        log(`Export to LogSeq failed for B${r.book}/P${r.pageId}: ${r.error}`, 'error');
+        return;
+      }
+
+      const dupNote = r.duplicates > 0 ? `, ${r.duplicates} already published` : '';
+      log(
+        `Exported to LogSeq B${r.book}/P${r.pageId}: +${r.added} stroke(s)${dupNote} — ${r.total} total on page`,
+        r.added > 0 ? 'success' : 'info'
+      );
+    } catch (err) {
+      log(`Export to LogSeq failed: ${err.message}`, 'error');
+    } finally {
+      exportingToGraph = false;
     }
   }
 
@@ -302,6 +343,21 @@
         Import Strokes
       {/if}
     </button>
+
+    <button
+      class="graph-btn"
+      on:click={handleExportToGraph}
+      disabled={exportingToGraph || !$graphFolderReady}
+      title={$graphFolderReady
+        ? 'Publish this whole page to the LogSeq graph (adds to what\'s already there; no transcript)'
+        : 'Set a LogSeq graph folder in Settings first'}
+    >
+      {#if exportingToGraph}
+        <span class="spinner">⏳</span>
+      {:else}
+        ⇪ LogSeq
+      {/if}
+    </button>
   </div>
 
   <!-- ── Collapsible transcript section ────────────────────────────────── -->
@@ -422,6 +478,35 @@
 
   .import-btn:disabled {
     opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  /* Secondary to Import Strokes — publishing is the occasional action. */
+  .graph-btn {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    background: transparent;
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.18));
+    border-radius: 5px;
+    color: var(--text-secondary, #a0a0a0);
+    cursor: pointer;
+    font-size: 0.78rem;
+    font-weight: 500;
+    transition: color 0.2s, border-color 0.2s, transform 0.2s;
+    white-space: nowrap;
+  }
+
+  .graph-btn:hover:not(:disabled) {
+    color: var(--text-primary, #fff);
+    border-color: var(--accent-color, #2196f3);
+    transform: translateY(-1px);
+  }
+
+  .graph-btn:disabled {
+    opacity: 0.45;
     cursor: not-allowed;
   }
 

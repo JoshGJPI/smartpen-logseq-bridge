@@ -70,7 +70,8 @@ contextBridge.exposeInMainWorld('storageAPI', {
   setAlias:         (root, book, alias)      => ipcRenderer.invoke('storage:setAlias', root, book, alias),
   removeAlias:      (root, book)             => ipcRenderer.invoke('storage:removeAlias', root, book),
 
-  // "Publish to graph" — mirror a saved page into a LogSeq graph folder
+  // "Export to graph" — publish curated strokes into a LogSeq graph folder
   readGraphIndex:   (graphRoot)                                    => ipcRenderer.invoke('storage:readGraphIndex', graphRoot),
+  readGraphAsset:   (graphRoot, book, pageId)                      => ipcRenderer.invoke('storage:readGraphAsset', graphRoot, book, pageId),
   publishToGraph:   (graphRoot, book, pageId, assetText, indexText) => ipcRenderer.invoke('storage:publishToGraph', graphRoot, book, pageId, assetText, indexText),
 });

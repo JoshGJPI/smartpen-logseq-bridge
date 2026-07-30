@@ -586,17 +586,43 @@ ipcMain.handle('storage:readGraphIndex', ipcSafe(async (graphRoot) => {
   }
 }));
 
+// pageId is the bridge filename identifier: digits + an optional letter suffix
+// (e.g. "42", "151b"). Validating it keeps every graph read/write inside the
+// asset dir — it is interpolated straight into a filename.
+function requireGraphPageId(pageId) {
+  const pid = String(pageId);
+  if (!/^\d+[a-zA-Z]?$/.test(pid)) throw new Error(`Invalid pageId: ${pageId}`);
+  return pid;
+}
+
+function requireGraphBook(book) {
+  const bookNum = Number(book);
+  if (!Number.isFinite(bookNum)) throw new Error(`Invalid book: ${book}`);
+  return bookNum;
+}
+
+// Read a page's published asset (string), or null if it hasn't been published.
+// Needed by the additive export: the graph asset is an independently curated
+// subset, so each export must merge into whatever is already there rather than
+// overwrite it.
+ipcMain.handle('storage:readGraphAsset', ipcSafe(async (graphRoot, book, pageId) => {
+  await requireGraphRoot(graphRoot);
+  const bookNum = requireGraphBook(book);
+  const pid = requireGraphPageId(pageId);
+  try {
+    return await fsp.readFile(graphAssetPath(graphRoot, bookNum, pid), 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  }
+}));
+
 // Write a page's asset + the (already-upserted) index manifest, atomically.
 ipcMain.handle('storage:publishToGraph', ipcSafe(async (graphRoot, book, pageId, assetText, indexText) => {
   await requireGraphRoot(graphRoot);
 
-  const bookNum = Number(book);
-  if (!Number.isFinite(bookNum)) throw new Error(`Invalid book: ${book}`);
-
-  // pageId is the bridge filename identifier: digits + an optional letter
-  // suffix (e.g. "42", "151b"). Validate to keep the write inside the asset dir.
-  const pid = String(pageId);
-  if (!/^\d+[a-zA-Z]?$/.test(pid)) throw new Error(`Invalid pageId: ${pageId}`);
+  const bookNum = requireGraphBook(book);
+  const pid = requireGraphPageId(pageId);
 
   if (typeof assetText !== 'string' || typeof indexText !== 'string') {
     throw new Error('publishToGraph: assetText and indexText must be strings');
