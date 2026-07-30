@@ -120,7 +120,7 @@ All state is managed through Svelte stores located in `src/stores/`:
 **Book View Layer (`src/lib/viewer/`)** — v2.1:
 - `page-svg.js` — `computeStrokeBounds()`, `strokeToPathD()`, `generateThumbnailSVG()` — SVG render for the spread pages + home-grid thumbnails (`NCODE_SCALE = 2.371`)
 - `page-cache.js` — small LRU (`getCachedPage`/`invalidatePage`/`clearPageCache`, MAX 6) over full PageDocs. Book View loads strokes lazily through this (records no longer embed them, perf #3) so turning a spread doesn't re-read disk; older docs are evicted. Keyed by `B{book}/P{pageId}` (suffix-safe)
-- `transcript-markdown.js` — `linesToLogseqMarkdown()` — tab-indented `- ` bullets with `- TODO`/`- DONE` markers; `key:: value` property lines stripped (LogSeq-pasteable copy)
+- `transcript-markdown.js` — `linesToLogseqMarkdown()` — tab-indented `- ` bullets with `- TODO`/`- DONE` markers; `key:: value` property lines stripped (LogSeq-pasteable copy). Also `indentMarkdownBlock()`, `textToTranscriptLines()` (flat-text fallback) and `pagesToLogseqMarkdown()` (multi-page payload: one page copies bare, several nest under `- {label}` bullets) — used by the canvas text-view copy
 - `save-transcript.js` — `saveTranscriptLines(book, pageId, lines)` — writes inline transcript edits back to the PageDoc verbatim (getPage → replace `transcript.lines` → scrub deleted `lineId`s on strokes → `savePage`); `recomputeParentIds()` keeps the hierarchy consistent after indent edits
 
 ## Data Structures
@@ -392,7 +392,7 @@ Existing test files (all in `src/lib/__tests__/`):
 | `transcript-search.test.js` | `tokenize` (hyphen preservation, property filtering), `searchPages` (partial matching, ranking), `highlightMatches` (HTML escaping) |
 | `stroke-filter.test.js` | `filterDecorativeStrokes` / `detectDecorativeIndices` — underline, circle, single-stroke box detection, threshold behaviour |
 | `page-svg.test.js` | `computeStrokeBounds`, `strokeToPathD` (scaling, normalisation, <2-point skip), `generateThumbnailSVG` (empty placeholder, dimensions) |
-| `transcript-markdown.test.js` | `linesToLogseqMarkdown` — tab indentation, TODO/DONE markers, `::` property stripping, blank-line drop, `isPropertyLine` |
+| `transcript-markdown.test.js` | `linesToLogseqMarkdown` — tab indentation, TODO/DONE markers, `::` property stripping, blank-line drop, `isPropertyLine`; `indentMarkdownBlock`, `textToTranscriptLines` (tab/2-space indent inference, blank drop), `pagesToLogseqMarkdown` (bare single page vs. labelled multi-page nesting, empty-page skip) |
 | `save-transcript.test.js` | `recomputeParentIds` (hierarchy by indent), `saveTranscriptLines` (verbatim write, lineId scrub on deleted lines, timestamp bump, missing-page guard; mocks `getPage`/`savePage`) |
 | `graph-index.test.js` | `smartpenAssetName`/`smartpenAssetRelPath`, `buildSmartpenIndexEntry`, `upsertSmartpenIndex` (replace-in-place, alias merge, sorting, corrupt-input normalisation) |
 | `graph-export.test.js` | `stripTranscriptRefs`, `mergeGraphStrokes` (dedupe by id, existing wins, re-export is a no-op), `resolveGraphPageInfo`, `buildGraphPageDoc` (**transcript never published**, bounds/totalStrokes recomputed), `groupCanvasStrokesByPage` (multi-page fan-out, orphan counting), `exportSelectionToGraph`/`exportPageDocToGraph` (merge into published page, per-page failure isolation, letter-suffix identity; mocks `publish-graph.js`) |
@@ -418,6 +418,12 @@ When making changes, also verify manually:
 - Clear the canvas, then import a page with **fewer** strokes than were cleared —
   pages must lay out side by side without needing Reset Layout
 - Edit transcript via the page-card editor; reload to confirm persistence
+- Canvas text view: import a transcribed page → **📝 Show Text** → per-page **📋 Copy**
+  button appears in the page's top-right corner and the header shows **📋 Copy
+  Transcript**; paste into LogSeq and confirm hierarchy + TODO/DONE survive.
+  With two pages shown, confirm each page's button copies just that page and the
+  header button copies both under labelled parent bullets; pan/zoom and confirm
+  the buttons track their pages
 - Export to LogSeq: select strokes → ⇪ LogSeq → asset appears under
   `<graph>/assets/storages/logseq-plugin-jpi-tools/`; export a second, different
   selection on the same page and confirm both stroke sets are present (additive);
@@ -462,6 +468,32 @@ npm run preview
 - [Svelte 4 Docs](https://svelte.dev/docs/svelte/overview) — Framework reference
 
 ## Recent Changes (Git History Context)
+
+### Copy transcript from the canvas (July 2026)
+
+Copying a transcript for LogSeq used to be possible only in Book View's
+`TranscriptPane`, so a page loaded in the Editor had no copy path. The canvas
+**text view** (`📝 Show Text`) now offers the same copy:
+
+- **Per-page button** — `renderTranscribedText()` in `StrokeCanvas.svelte` now
+  collects `renderer.getPageBoundsScreen(pageKey)` for every page whose text
+  actually rendered into `textPageOverlays`, and the markup positions a faint
+  `📋 Copy` button (`.page-copy-btn`) in each page's top-right corner. Positions
+  are recomputed on every paint, so they follow pan/zoom/page layout; overlays
+  are dropped when leaving text view.
+- **Header button** — `📋 Copy Transcript` copies every page currently rendered
+  in text view (`pagesToLogseqMarkdown`: a single page pastes bare, several nest
+  under `- {book} · P{page}` parent bullets).
+- **Line source** — MyScript results already carry structured `lines`; saved
+  pages are metadata-only records, so `resolveTranscriptLines()` lazily reads the
+  PageDoc via `getCachedPage(book, pageId)` (suffix-safe) to get indent levels
+  and TODO/DONE state, falling back to `textToTranscriptLines()` on the rendered
+  text if neither is available.
+
+**Edited:** `src/lib/viewer/transcript-markdown.js` (new `indentMarkdownBlock`,
+`textToTranscriptLines`, `pagesToLogseqMarkdown`),
+`src/components/canvas/StrokeCanvas.svelte`,
+`src/lib/__tests__/transcript-markdown.test.js`.
 
 ### Clear-canvas fixes (July 2026)
 

@@ -59,3 +59,67 @@ export function linesToLogseqMarkdown(lines) {
     .map(lineToMarkdown)
     .join('\n');
 }
+
+/**
+ * Indent an already-built markdown block by whole levels (tabs), so it can be
+ * nested under a parent bullet.
+ * @param {string} md
+ * @param {number} levels
+ * @returns {string}
+ */
+export function indentMarkdownBlock(md, levels = 1) {
+  if (!md) return '';
+  const pad = '\t'.repeat(Math.max(0, levels));
+  return md
+    .split('\n')
+    .map((l) => pad + l)
+    .join('\n');
+}
+
+/**
+ * Last-resort conversion of a flat transcript STRING into line objects, for
+ * sources that only kept the rendered text (e.g. a `savedPages` record whose
+ * PageDoc couldn't be read). Leading tabs — or pairs of spaces — become
+ * indent levels; blank lines are dropped by linesToLogseqMarkdown.
+ * @param {string} text
+ * @returns {Array<{text:string, indentLevel:number, checked:null}>}
+ */
+export function textToTranscriptLines(text) {
+  if (typeof text !== 'string' || text === '') return [];
+  return text
+    .split('\n')
+    .map((raw) => {
+      const leading = /^[\t ]*/.exec(raw)[0];
+      const tabs = (leading.match(/\t/g) || []).length;
+      const indentLevel = tabs > 0 ? tabs : Math.floor(leading.length / 2);
+      return { text: raw.trim(), indentLevel, checked: null };
+    })
+    .filter((l) => l.text !== '');
+}
+
+/**
+ * Build one clipboard payload from several pages' transcripts.
+ *
+ * A single page copies exactly like Book View's copy (bare bullets, no header),
+ * so the common case pastes clean. With more than one page each block is nested
+ * under a top-level `- {label}` bullet so the pages stay distinguishable in
+ * LogSeq. Pages with no copyable text are skipped.
+ *
+ * @param {Array<{label?:string, lines?:Array}>} pages
+ * @returns {string}
+ */
+export function pagesToLogseqMarkdown(pages) {
+  const blocks = (Array.isArray(pages) ? pages : [])
+    .map((p) => ({
+      label: (p && p.label) || '',
+      md: linesToLogseqMarkdown(p && p.lines)
+    }))
+    .filter((b) => b.md !== '');
+
+  if (blocks.length === 0) return '';
+  if (blocks.length === 1) return blocks[0].md;
+
+  return blocks
+    .map((b) => `- ${b.label}\n${indentMarkdownBlock(b.md, 1)}`)
+    .join('\n');
+}

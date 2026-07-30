@@ -22,6 +22,8 @@
   import { dataFolderReady, graphFolderReady } from '$stores/settings.js';
   import { buildJsonExportData, buildMdExportData } from '$lib/stroke-storage.js';
   import { exportSelectionToGraph } from '$lib/storage/graph-export.js';
+  import { pagesToLogseqMarkdown, textToTranscriptLines } from '$lib/viewer/transcript-markdown.js';
+  import { getCachedPage } from '$lib/viewer/page-cache.js';
   import CanvasControls from './CanvasControls.svelte';
   import PageSelector from './PageSelector.svelte';
   import FilteredStrokesPanel from '../strokes/FilteredStrokesPanel.svelte';
@@ -41,7 +43,15 @@
   
   // Text view toggle state
   let showTextView = false;
-  
+
+  // Copy-transcript state (text view). `textPageOverlays` positions a small
+  // "Copy" button over each page that actually rendered text, recomputed on
+  // every paint so it tracks pan/zoom/layout.
+  let textPageOverlays = [];
+  let isCopyingTranscript = false;
+  let copiedPageKey = null;
+  let copiedResetTimer = null;
+
   // Page filtering - now supports multiple selections
   let selectedPages = new Set();
   $: pageOptions = Array.from($pages.keys());
@@ -1304,6 +1314,10 @@
           transcriptions.push({
             pageKey: pt.pageKey,
             text: pt.text,
+            // Structured lines (indent levels / TODO-DONE state) drive the
+            // LogSeq-format copy; `text` is what the canvas renders.
+            lines: Array.isArray(pt.lines) ? pt.lines : null,
+            pageId: String(pt.pageInfo.page),
             pageInfo: pt.pageInfo,
             strokeCount: pt.strokeCount,
             source: 'myscript'
@@ -1331,6 +1345,10 @@
         transcriptions.push({
           pageKey: pageKey,
           text: lsPage.transcriptionText,
+          // Metadata-only scan records carry no lines — the copy path lazily
+          // reads the PageDoc by pageId (suffix-safe) to get the hierarchy.
+          lines: null,
+          pageId: lsPage.pageId != null ? String(lsPage.pageId) : String(lsPage.page),
           pageInfo: {
             section: lsPage.section || 0,
             owner: lsPage.owner || 0,
@@ -1355,11 +1373,12 @@
   // Render transcribed text on canvas within page boundaries
   function renderTranscribedText() {
     if (!renderer) return;
-    
+
     const visibleTranscriptions = getVisibleTranscriptions();
-    
+    const overlays = [];
+
     console.log('📝 Rendering transcribed text for', visibleTranscriptions.length, 'pages');
-    
+
     visibleTranscriptions.forEach(pageData => {
       if (!pageData.text || !pageData.text.trim()) {
         console.log('  ⚠️ No text for', pageData.pageKey);
@@ -1395,12 +1414,109 @@
       }
       
       console.log('  ✅ Rendering text for', matchingPageKey, '(', filteredText.length, 'chars )');
-      
+
       // Render filtered text inside the page boundaries using the correct pageKey
       renderer.drawPageText(matchingPageKey, filteredText);
+
+      // Place a copy button over this page (screen coords, so it follows pan/zoom)
+      const rect = renderer.getPageBoundsScreen(matchingPageKey);
+      if (rect) {
+        overlays.push({
+          key: matchingPageKey,
+          entry: pageData,
+          left: rect.left,
+          top: rect.top,
+          width: rect.width
+        });
+      }
     });
+
+    textPageOverlays = overlays;
   }
-  
+
+  /**
+   * Resolve a transcription entry to structured transcript lines for the
+   * LogSeq-format copy. MyScript results already carry `lines`; saved pages are
+   * metadata-only records, so read the PageDoc (cached, suffix-safe by pageId).
+   * Falls back to parsing the rendered text if neither is available.
+   */
+  async function resolveTranscriptLines(entry) {
+    if (Array.isArray(entry.lines) && entry.lines.length > 0) return entry.lines;
+
+    try {
+      const doc = await getCachedPage(entry.pageInfo.book, entry.pageId);
+      const lines = doc && doc.transcript && doc.transcript.lines;
+      if (Array.isArray(lines) && lines.length > 0) return lines;
+    } catch (err) {
+      console.warn('Could not read PageDoc transcript for copy:', err);
+    }
+
+    return textToTranscriptLines(filterTranscriptionProperties(entry.text));
+  }
+
+  /**
+   * Copy one or more pages' transcripts to the clipboard as LogSeq-pasteable
+   * outliner markdown (same format as Book View's Copy).
+   */
+  async function copyTranscripts(entries, overlayKey = null) {
+    if (isCopyingTranscript) return;
+
+    if (!entries || entries.length === 0) {
+      log('No transcription data available to copy', 'warning');
+      return;
+    }
+
+    isCopyingTranscript = true;
+    try {
+      const pageBlocks = [];
+      for (const entry of entries) {
+        const lines = await resolveTranscriptLines(entry);
+        pageBlocks.push({
+          label: `${formatBookName(entry.pageInfo.book, $bookAliases)} · P${entry.pageId}`,
+          lines
+        });
+      }
+
+      const md = pagesToLogseqMarkdown(pageBlocks);
+      if (!md) {
+        log('Nothing to copy — transcript is empty', 'warning');
+        return;
+      }
+
+      await navigator.clipboard.writeText(md);
+
+      const what = entries.length === 1
+        ? `transcript B${entries[0].pageInfo.book}/P${entries[0].pageId}`
+        : `${entries.length} page transcripts`;
+      log(`Copied ${what} to clipboard (LogSeq format)`, 'success');
+
+      // Brief on-button confirmation
+      copiedPageKey = overlayKey || 'all';
+      if (copiedResetTimer) clearTimeout(copiedResetTimer);
+      copiedResetTimer = setTimeout(() => { copiedPageKey = null; }, 1500);
+    } catch (err) {
+      log(`Failed to copy transcript: ${err.message}`, 'error');
+    } finally {
+      isCopyingTranscript = false;
+    }
+  }
+
+  // Copies exactly what the canvas is showing: the pages whose text actually
+  // rendered (an entry with no matching page in the renderer draws nothing).
+  function copyAllVisibleTranscripts() {
+    const rendered = textPageOverlays.map(o => o.entry);
+    copyTranscripts(rendered.length > 0 ? rendered : getVisibleTranscriptions());
+  }
+
+  onDestroy(() => {
+    if (copiedResetTimer) clearTimeout(copiedResetTimer);
+  });
+
+  // Drop the copy overlays when leaving text view
+  $: if (!showTextView && textPageOverlays.length > 0) {
+    textPageOverlays = [];
+  }
+
   // Re-render when text view toggle changes
   $: if (renderer && showTextView !== undefined) {
     renderStrokes(false);
@@ -1533,13 +1649,25 @@
           </button>
         {/if}
         {#if $strokeCount > 0}
-          <button 
-            class="header-btn text-toggle-btn" 
+          <button
+            class="header-btn text-toggle-btn"
             on:click={handleTextViewToggle}
             title={showTextView ? 'Show stroke view' : 'Show text view'}
           >
             {showTextView ? '✏️ Show Strokes' : '📝 Show Text'}
           </button>
+          {#if showTextView}
+            <button
+              class="header-btn copy-transcript-btn"
+              on:click={copyAllVisibleTranscripts}
+              disabled={isCopyingTranscript || textPageOverlays.length === 0}
+              title={textPageOverlays.length > 1
+                ? `Copy ${textPageOverlays.length} page transcripts as LogSeq markdown`
+                : 'Copy transcript as LogSeq markdown'}
+            >
+              {copiedPageKey === 'all' ? '✅ Copied' : '📋 Copy Transcript'}{#if textPageOverlays.length > 1 && copiedPageKey !== 'all'} ({textPageOverlays.length}){/if}
+            </button>
+          {/if}
         {/if}
       {/if}
     </div>
@@ -1573,8 +1701,23 @@
       on:wheel={handleWheel}
     ></canvas>
     
+    <!-- Per-page copy buttons (text view only). Positioned in screen coords from
+         the renderer, so they follow pan/zoom/page layout. -->
+    {#each textPageOverlays as overlay (overlay.key)}
+      <button
+        class="page-copy-btn"
+        class:copied={copiedPageKey === overlay.key}
+        style="left: {overlay.left + overlay.width - 8}px; top: {overlay.top + 6}px;"
+        on:click|stopPropagation={() => copyTranscripts([overlay.entry], overlay.key)}
+        disabled={isCopyingTranscript}
+        title={`Copy B${overlay.entry.pageInfo.book}/P${overlay.entry.pageId} transcript as LogSeq markdown`}
+      >
+        {copiedPageKey === overlay.key ? '✅ Copied' : '📋 Copy'}
+      </button>
+    {/each}
+
     {#if isBoxSelecting}
-      <div 
+      <div
         class="selection-box"
         style="
           left: {Math.min(boxStartX, boxCurrentX)}px;
@@ -1865,7 +2008,62 @@
     pointer-events: none;
     z-index: 10;
   }
-  
+
+  /* Per-page copy button in text view — sits in the page's top-right corner.
+     Faint at rest so it doesn't compete with the transcript, solid on hover. */
+  .page-copy-btn {
+    position: absolute;
+    transform: translateX(-100%);
+    z-index: 11;
+    padding: 3px 8px;
+    font-size: 0.7rem;
+    font-family: inherit;
+    line-height: 1.4;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.85);
+    color: #333;
+    cursor: pointer;
+    opacity: 0.5;
+    transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+    white-space: nowrap;
+  }
+
+  .canvas-container:hover .page-copy-btn {
+    opacity: 0.85;
+  }
+
+  .page-copy-btn:hover:not(:disabled) {
+    opacity: 1;
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+
+  .page-copy-btn:disabled {
+    cursor: default;
+    opacity: 0.4;
+  }
+
+  .page-copy-btn.copied {
+    opacity: 1;
+    background: #16a34a;
+    border-color: #16a34a;
+    color: white;
+  }
+
+  .copy-transcript-btn {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  .copy-transcript-btn:hover:not(:disabled) {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+
   .canvas-hint {
     position: absolute;
     bottom: 8px;
