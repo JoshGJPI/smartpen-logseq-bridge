@@ -73,7 +73,11 @@ export function clearSavedPages() {
  * Update a specific page's sync status
  * @param {number} book - Book ID
  * @param {number} page - Page number
- * @param {string} status - Sync status ('clean' | 'unsaved' | 'in-canvas')
+ * @param {string} status - Sync status ('clean' | 'unsaved')
+ *
+ * Note: 'in-canvas' is NOT set here — whether a page's strokes are loaded is
+ * derived from the strokes store (`canvasPageKeys`) so the badge follows the
+ * canvas. Stamping it onto the record left it latched after a canvas Clear.
  */
 export function updatePageSyncStatus(book, page, status) {
   savedPages.update(pages => {

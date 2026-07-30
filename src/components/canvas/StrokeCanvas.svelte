@@ -68,6 +68,9 @@
   
   // Track previous stroke count for auto-fit
   let previousStrokeCount = 0;
+  // Whether the strokes store had anything in it on the last render pass — used
+  // to detect the canvas being emptied (Clear), which needs a layout reset.
+  let hadCanvasStrokes = false;
   // Set to true once setLiveWritingView() has been called for the current live session.
   // Reset to false when the pen disconnects so the next session gets the initial zoom.
   let liveWritingViewSet = false;
@@ -236,7 +239,23 @@
     const currentCount = visibleStrokes.length;
     const strokesAdded = currentCount > previousStrokeCount;
 
-    if (strokesAdded) {
+    // Canvas emptied (Clear button, or every stroke removed). Only a full-reset
+    // render recomputes page layout, so without this the renderer kept the
+    // cleared pages' offsets AND previousStrokeCount stayed high — so the next
+    // import, if it brought fewer strokes than were cleared, didn't count as
+    // "strokes added" and never got a layout pass: its page rendered with no
+    // offset of its own, piled at the origin with anything else loaded after,
+    // until the user hit Reset Layout. Reset the tracking state here so a
+    // post-clear import is treated as a first load again.
+    const canvasEmptied = hadCanvasStrokes && $strokeCount === 0;
+    hadCanvasStrokes = $strokeCount > 0;
+
+    if (canvasEmptied) {
+      previousStrokeCount = 0;
+      // A fresh canvas deserves a fresh writing view on the next live stroke.
+      liveWritingViewSet = false;
+      renderStrokes(true);
+    } else if (strokesAdded) {
       console.log('📊 Strokes changed:', previousStrokeCount, '->', currentCount);
       // Full reset when new strokes added
       renderStrokes(true);

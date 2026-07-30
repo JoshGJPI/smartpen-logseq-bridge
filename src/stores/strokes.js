@@ -29,6 +29,20 @@ export const pages = derived(strokes, $strokes => {
 // Stroke count
 export const strokeCount = derived(strokes, $strokes => $strokes.length);
 
+// Set of "B{book}/P{page}" keys that currently have strokes on the canvas.
+// The Saved Pages list reads this to show its "In canvas" badge. It used to be
+// written imperatively onto the page record when strokes were imported, which
+// left the badge latched on after the canvas was cleared; derived from the
+// strokes themselves it can never disagree with what's actually loaded.
+export const canvasPageKeys = derived(pages, $pages => {
+  const keys = new Set();
+  for (const key of $pages.keys()) {
+    const match = key.match(/B(\d+)\/P(\d+)/);
+    if (match) keys.add(`B${match[1]}/P${match[2]}`);
+  }
+  return keys;
+});
+
 // Current page info (for tracking which page is being written to)
 export const currentPageInfo = writable(null);
 

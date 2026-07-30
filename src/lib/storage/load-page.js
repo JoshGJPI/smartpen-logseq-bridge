@@ -6,7 +6,9 @@
  *   1. Convert StoredStroke → canvas format (dotArray with dotType/timestamp)
  *   2. Dedupe against existing in-memory strokes by id
  *   3. Update strokes store
- *   4. Update sync status
+ *
+ * (The "In canvas" badge in the Saved Pages list is derived from the strokes
+ * store, so importing needs no extra bookkeeping to light it up.)
  *
  * The canvas-format conversion matches v1 exactly so downstream code
  * (canvas-renderer, transcript-updater, decorative filter) doesn't care
@@ -14,7 +16,7 @@
  */
 
 import { get } from 'svelte/store';
-import { strokes, log, updatePageSyncStatus, noteOnDiskStrokeIds } from '$stores';
+import { strokes, log, noteOnDiskStrokeIds } from '$stores';
 import { registerBookIds } from '$stores/book-aliases.js';
 import { getPage } from './local-store.js';
 
@@ -190,8 +192,10 @@ export async function importStrokesFromFolder(pageData, onProgress = null) {
     const current = get(strokes);
     const result = mergeStrokes(current, canvasStrokes);
 
+    // No sync-status stamp here — the "In canvas" badge is derived from the
+    // strokes store (canvasPageKeys), so it appears now and disappears the
+    // moment these strokes leave the canvas (Clear, save-time removal, …).
     strokes.set(result.strokes);
-    updatePageSyncStatus(pageData.book, pageData.page, 'in-canvas');
 
     const tail = result.duplicatesSkipped > 0
       ? ` (${result.duplicatesSkipped} duplicates skipped)`

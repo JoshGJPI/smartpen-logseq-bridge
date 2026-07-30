@@ -537,7 +537,7 @@ smartpen-logseq-bridge/
 │   │   │   ├── SavedPagesTab.svelte
 │   │   │   ├── BookAccordion.svelte
 │   │   │   ├── PageCard.svelte
-│   │   │   └── SyncStatusBadge.svelte
+│   │   │   └── TranscriptionPreview.svelte
 │   │   ├── pen/            # Pen controls
 │   │   │   ├── PenControls.svelte
 │   │   │   ├── PenInfo.svelte

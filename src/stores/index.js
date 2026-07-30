@@ -7,6 +7,7 @@ export {
   strokes,
   pages,
   strokeCount,
+  canvasPageKeys,
   currentPageInfo,
   batchMode,
   addStroke,

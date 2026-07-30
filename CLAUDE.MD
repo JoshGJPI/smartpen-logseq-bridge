@@ -58,7 +58,7 @@ to it.
 All state is managed through Svelte stores located in `src/stores/`:
 
 **Core Data:**
-- `strokes.js` - All captured strokes from pen
+- `strokes.js` - All captured strokes from pen; `pages` (derived, `S/O/B/P` → strokes) and `canvasPageKeys` (derived, `Set<"B{book}/P{page}">`) expose what's currently loaded — the Saved Pages list reads `canvasPageKeys` to disable Import Strokes for pages already on the canvas
 - `selection.js` - Selected stroke indices and selection state
 - `clipboard.js` - Copied strokes for duplication
 - `pasted-strokes.js` - Duplicated/pasted strokes management
@@ -413,7 +413,10 @@ When making changes, also verify manually:
 - Page creation from duplicates
 - Transcription with MyScript
 - Save to data folder (Saved Pages tab refreshes, file timestamps update)
-- Re-import a saved page from the Saved Pages tab
+- Re-import a saved page from the Saved Pages tab (Import Strokes greys out while
+  that page is loaded, re-enables after Clear)
+- Clear the canvas, then import a page with **fewer** strokes than were cleared —
+  pages must lay out side by side without needing Reset Layout
 - Edit transcript via the page-card editor; reload to confirm persistence
 - Export to LogSeq: select strokes → ⇪ LogSeq → asset appears under
   `<graph>/assets/storages/logseq-plugin-jpi-tools/`; export a second, different
@@ -459,6 +462,35 @@ npm run preview
 - [Svelte 4 Docs](https://svelte.dev/docs/svelte/overview) — Framework reference
 
 ## Recent Changes (Git History Context)
+
+### Clear-canvas fixes (July 2026)
+
+Two bugs that only showed up after using **Clear** and then importing again.
+
+- **Stale "In canvas" state.** `importStrokesFromFolder()` stamped
+  `syncStatus: 'in-canvas'` onto the `savedPages` record and nothing ever unset it,
+  so the badge stayed lit after the canvas was cleared. Canvas membership is now
+  derived (`canvasPageKeys` in `stores/strokes.js`) and surfaced by **greying out
+  Import Strokes** instead of a badge — the badge pill squeezed the page title out
+  of the card header. `SyncStatusBadge.svelte` deleted (no other users);
+  `updatePageSyncStatus()` remains for a future `'unsaved'` state but is
+  currently uncalled.
+- **Pages piled at the origin.** Page layout (`calculateBounds()` → `pageOffsets`)
+  is only recomputed by a full-reset render, whose sole trigger in
+  `StrokeCanvas.svelte` was `visibleStrokes.length > previousStrokeCount`. Clear
+  didn't reset `previousStrokeCount`, so importing a page with fewer strokes than
+  were cleared never counted as "strokes added": the renderer kept the cleared
+  pages' offsets, the new page had none, and `getScreenCoords()` fell back to
+  global bounds — everything drawn on top of everything else until the user hit
+  Reset Layout. The reactive block now detects the canvas emptying (via
+  `$strokeCount`, so page-filter toggles keep their existing no-repack behaviour),
+  full-resets to drop the stale layout, zeroes `previousStrokeCount` so the next
+  import is treated as a first load (layout + auto-fit), and clears
+  `liveWritingViewSet` so live writing re-anchors on a fresh canvas.
+
+**Known gap:** `handleClearCanvas()` in `ActionBar.svelte` doesn't clear
+`selectedIndices`, so a pre-clear selection still holds raw indices that point at
+whatever is imported next.
 
 ### v2.3.0 — Export to LogSeq: manual, selective, additive (July 2026)
 

@@ -48,7 +48,7 @@ This document provides a quick reference for AI assistants working on the smartp
 - `src/components/dialog/SaveConfirmDialog.svelte` - Shows accurate change counts
 - `src/components/dialog/TranscriptionEditorModal.svelte` - Single-column editor
 - `src/components/logseq-db/PageCard.svelte` - Per-page card in LogSeq DB tab
-  - Compact header row: sync badge · icon · page title · ▶ expand · Import Strokes
+  - Compact header row: icon · page title · ▶ expand · Import Strokes (greyed out while the page's strokes are on the canvas — `canvasPageKeys`; the old "In canvas" badge lived here and crowded out the title)
   - Collapsible transcript section (expand arrow only shown when transcript exists)
   - Transcript section header: `TRANSCRIPTION:` · `[Edit]` · `[↺ Reset]`
   - Reset Transcript clears `blockUuid` from loaded strokes + in-memory transcription entry
@@ -62,6 +62,7 @@ This document provides a quick reference for AI assistants working on the smartp
   - `clear(resetBounds)` - Clears canvas; **does NOT reset zoom/pan**
 - `src/lib/pen-sdk.js` - BLE pen connection; `processDot()` filters invalid `{x:-1,y:-1}` pen-down dots
 - `src/components/canvas/StrokeCanvas.svelte` - Canvas host; auto-fit logic distinguishes live vs. offline
+  - `renderStrokes(true)` (full reset) is the **only** path that recomputes page layout via `calculateBounds()`. It runs when strokes are added, when the canvas empties (Clear — which also zeroes `previousStrokeCount` so the next import re-lays out and re-fits), and on Reset Layout. Page-filter changes deliberately use `renderStrokes(false)` so hiding a page doesn't repack the others.
   - **Export buttons (JSON / MD / SVG)**: selection-aware — if strokes are selected, export only those; otherwise export all visible strokes. Implemented via `$hasSelection ? $selectedStrokes : visibleStrokes` before calling `buildJsonExportData` / `buildMdExportData` / `openSvgExportDialog`.
 
 ---

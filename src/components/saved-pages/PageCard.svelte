@@ -10,7 +10,6 @@
   import { getPage } from '$lib/storage/local-store.js';
   import TranscriptionPreview from './TranscriptionPreview.svelte';
   import TranscriptionEditorModal from '../dialog/TranscriptionEditorModal.svelte';
-  import SyncStatusBadge from './SyncStatusBadge.svelte';
   import { exportPageDocToGraph } from '$lib/storage/graph-export.js';
   import { graphFolderReady } from '$stores/settings.js';
   import {
@@ -18,6 +17,7 @@
     clearPageTranscription,
     clearStrokeBlockUuids,
     getActiveStrokesForPageFromStore,
+    canvasPageKeys,
     log
   } from '$stores';
 
@@ -43,6 +43,14 @@
 
   // Convenience flag
   $: hasTranscription = !!(page.transcriptionText || editedTranscription);
+
+  // Whether this page's strokes are already on the canvas — derived from the
+  // strokes themselves, not stamped onto the record at import time (the old
+  // imperative flag stayed lit after the canvas was cleared). Matched on the
+  // integer page number, which is what canvas strokes carry in pageInfo.
+  // Shown by greying out Import Strokes rather than a badge: a badge in the
+  // header row squeezed the page title out of the card.
+  $: inCanvas = $canvasPageKeys.has(`B${page.book}/P${page.page}`);
 
   async function handleImport() {
     importing = true;
@@ -313,7 +321,6 @@
   <div class="page-header">
     <span class="page-icon">📄</span>
     <span class="page-title">Page {page.page}</span>
-    <SyncStatusBadge status={page.syncStatus} />
     <span class="spacer"></span>
 
     {#if hasTranscription}
@@ -329,8 +336,12 @@
 
     <button
       class="import-btn"
+      class:loaded={inCanvas}
       on:click={handleImport}
-      disabled={importing}
+      disabled={importing || inCanvas}
+      title={inCanvas
+        ? 'Already in the canvas — clear the canvas to import it again'
+        : 'Import this page\'s strokes into the canvas'}
     >
       {#if importing}
         <span class="spinner">⏳</span>
@@ -479,6 +490,14 @@
   .import-btn:disabled {
     opacity: 0.55;
     cursor: not-allowed;
+  }
+
+  /* Page already on the canvas: drop the accent fill so it reads as unavailable
+     rather than as a dimmed call to action. */
+  .import-btn.loaded {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-tertiary, #808080);
+    opacity: 1;
   }
 
   /* Secondary to Import Strokes — publishing is the occasional action. */
