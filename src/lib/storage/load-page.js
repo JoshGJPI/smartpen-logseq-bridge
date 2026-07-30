@@ -2,7 +2,7 @@
  * Load Page — folder-backed replacement for logseq-import.js.
  *
  * Reads a PageDoc and merges its strokes into the canvas store, mirroring the
- * v1 importStrokesFromLogSeq() flow:
+ * v1 importStrokesFromFolder() flow:
  *   1. Convert StoredStroke → canvas format (dotArray with dotType/timestamp)
  *   2. Dedupe against existing in-memory strokes by id
  *   3. Update strokes store
@@ -165,7 +165,7 @@ export async function importStrokesFromFolder(pageData, onProgress = null) {
       doc = await getPage(pageData.book, pageRef);
       if (!doc) throw new Error(`Page file not found for B${pageData.book}/P${pageRef}`);
       // Do NOT stash the doc back onto pageData — these records live in the
-      // logseqPages store, and caching the strokes there is the residency we're
+      // savedPages store, and caching the strokes there is the residency we're
       // removing. The doc is used locally below and then released.
     }
 

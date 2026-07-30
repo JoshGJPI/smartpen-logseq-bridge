@@ -5,7 +5,7 @@
   with a collapsible transcript section beneath it (only when transcript data exists).
 -->
 <script>
-  // v2.0: folder-backed Data Explorer (no more LogSeq calls)
+  // Folder-backed Data Explorer
   import { importStrokesFromFolder } from '$lib/storage/load-page.js';
   import { getPage } from '$lib/storage/local-store.js';
   import TranscriptionPreview from './TranscriptionPreview.svelte';
@@ -174,7 +174,7 @@
   /**
    * Reset transcript — strips blockUuid from all loaded strokes on this page
    * and clears any in-memory transcription entry so the page can be re-transcribed.
-   * LogSeq blocks are not deleted; they will be overwritten on the next save.
+   * The saved transcript is not deleted; it is overwritten on the next save.
    */
   function handleResetTranscript() {
     const pageStrokes = getActiveStrokesForPageFromStore(page.book, page.page);
@@ -377,7 +377,7 @@
           <button
             class="action-btn action-btn--warning"
             on:click={handleResetTranscript}
-            title="Reset transcript — removes block associations from strokes so this page can be re-transcribed (LogSeq blocks are not deleted)"
+            title="Reset transcript — removes block associations from strokes so this page can be re-transcribed"
           >
             ↺ Reset
           </button>

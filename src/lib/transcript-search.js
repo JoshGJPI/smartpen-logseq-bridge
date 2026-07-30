@@ -29,7 +29,7 @@ export function tokenize(text) {
 /**
  * Search pages by transcription text (bag-of-words)
  * Uses partial token matching to allow progressive filtering
- * @param {Array} pages - Array of LogSeqPageData objects
+ * @param {Array} pages - Array of SavedPageData objects
  * @param {string} query - Search query
  * @returns {Array} Matching pages with match scores
  */

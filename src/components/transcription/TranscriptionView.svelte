@@ -64,7 +64,7 @@
   }
   
   // Open editor modal for a page
-  // Fetches existing LogSeq blocks and merges with new MyScript lines
+  // Fetches existing transcript lines and merges with new MyScript lines
   let isLoadingEditor = false;
 
   async function handleEditStructure(pageData) {
@@ -115,17 +115,17 @@
   }
   
   // Handle editor modal save
-  // Updates only the local store - LogSeq save happens via "Save to LogSeq" button
+  // Updates only the local store - the file write happens via the Save button
   function handleEditorSave(event) {
     const { lines, book, page, mergedBlockPairs } = event.detail;
 
     if (!editingPageData) return;
 
     // Update the transcription lines in the local store only
-    // LogSeq save will happen when user clicks "Save to LogSeq" button
+    // The file write happens when the user clicks Save
     updatePageTranscriptionLines(editingPageData.pageKey, lines);
 
-    log(`Updated structure for Book ${book}/Page ${page} (use "Save to LogSeq" to persist changes)`, 'success');
+    log(`Updated structure for Book ${book}/Page ${page} (use Save to persist changes)`, 'success');
 
     // Close modal
     showEditorModal = false;
@@ -141,7 +141,7 @@
   /**
    * Reset transcript for a page — clears both the in-memory transcription and
    * the blockUuid property on every stroke so the page can be fully re-transcribed.
-   * LogSeq blocks are NOT deleted; they will be overwritten when the user saves again.
+   * The saved transcript is not deleted; it is overwritten when the user saves again.
    */
   function handleResetTranscript(pageData) {
     const { book, page } = pageData.pageInfo;
@@ -231,7 +231,7 @@
               <button
                 class="btn-icon reset-btn"
                 on:click={() => handleResetTranscript(pageData)}
-                title="Reset transcript — removes block associations from strokes so this page can be re-transcribed (LogSeq blocks are not deleted)"
+                title="Reset transcript — removes block associations from strokes so this page can be re-transcribed"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>

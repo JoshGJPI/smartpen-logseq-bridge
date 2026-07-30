@@ -119,7 +119,7 @@ export function formatBookDisplay(bookId, aliases = {}, showPrefix = false) {
 }
 
 /**
- * Filter out LogSeq properties from transcription text
+ * Filter out property lines from transcription text
  * Removes property lines like "stroke-y-bounds::" and "canonical-transcript::"
  * @param {string} text - Transcription text that may contain properties
  * @returns {string} Filtered text without property lines

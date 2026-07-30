@@ -30,7 +30,7 @@ App.svelte (Root)
 │   ├── Data Explorer (Tabbed Interface)
 │   │   ├── StrokeList (Browse by book/page)
 │   │   ├── TranscriptionView (View transcribed text)
-│   │   ├── Saved Pages (folder-backed page list — `components/logseq-db/` dir, soon to be renamed)
+│   │   ├── Saved Pages (folder-backed page list — `components/saved-pages/`)
 │   │   └── RawJsonViewer (Technical inspection)
 │   └── ActivityLog (Real-time feedback)
 └── Canvas Section (Editor ⇄ Book View toggle, in App.svelte)
@@ -68,7 +68,7 @@ All state is managed through Svelte stores located in `src/stores/`:
 - Page-level transcription data with hierarchy
 
 **Saved-Pages Index:**
-- `logseqPages.js` — historical name; holds the scanned list of `pages/B###/P##.json` records the Data Explorer renders. Variable still called `logseqPages` for inertia; nothing LogSeq-specific remains.
+- `saved-pages.js` — holds the scanned list of `pages/B###/P##.json` records the Data Explorer renders. Store is `savedPages` (renamed from `logseqPages` in v2.3; nothing LogSeq-specific remains).
 - `storage.js` — save status, unsaved-changes flag (`unsavedChanges` writable, `markUnsavedChanges()`, cleared on successful save)
 - `book-aliases.js` — custom book name mappings (persisted to `<dataRoot>/pages/_aliases.json`)
 
@@ -91,7 +91,7 @@ All state is managed through Svelte stores located in `src/stores/`:
   - `deletedIndices` — set of stroke indices marked for deletion
   - `pendingChanges` — derived store computing additions/deletions per page (pure core `computePendingChangesMap()`, tested)
   - `getDeletedStrokeIdsForPage()` — converts indices to stroke IDs for the save call
-  - `onDiskStrokeIds` + `noteOnDiskStrokeIds()` — perf #3: since `logseqPages` records no longer carry strokes, the additions diff uses a small `pageKey → Set<strokeId>` map populated ONLY for pages currently on the canvas (primed by `load-page.js` import + `save-page.js` save; lazily backfilled and evicted by a `canvasPageKeys` subscription). Never reads strokes off `logseqPages`.
+  - `onDiskStrokeIds` + `noteOnDiskStrokeIds()` — perf #3: since `savedPages` records no longer carry strokes, the additions diff uses a small `pageKey → Set<strokeId>` map populated ONLY for pages currently on the canvas (primed by `load-page.js` import + `save-page.js` save; lazily backfilled and evicted by a `canvasPageKeys` subscription). Never reads strokes off `savedPages`.
 - `settings.js` — persisted user settings (MyScript keys, `dataRoot`, `dataFolderReady`, `dataFolderStatusText`; **Export to LogSeq:** `graphRoot`, `graphFolderReady`, `graphFolderStatusText` — no publish-on-save flag, removed in v2.3)
 
 ### Key Libraries
@@ -114,7 +114,7 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `publish-graph.js` — graph **transport only**: `readGraphPage(book, pageId)` (the published asset, or null) and `writeGraphPage(book, pageId, doc)` (asset via `serializePageDoc` + `smartpen-index.json` upsert, both atomic via IPC). **Throws on failure** — export is a deliberate user action, so errors surface. No LogSeq runtime dependency (pure filesystem). Does *not* decide what to publish
 - `graph-export.js` — **what** to publish. Pure core (`stripTranscriptRefs`, `mergeGraphStrokes`, `resolveGraphPageInfo`, `buildGraphPageDoc`, `groupCanvasStrokesByPage`) + facades `exportSelectionToGraph(canvasStrokes)` (fans out one merge+write per page in the selection) and `exportPageDocToGraph(book, pageId, doc)` (whole-page backfill). Two invariants: **additive** (merge into what's already published, dedupe by stroke id — re-exporting is a safe no-op) and **transcript-free** (`transcript.lines` emptied, every `lineId` cleared). Tested in `graph-export.test.js`
 - `load-page.js` — `importStrokesFromFolder()`, `importStrokesForLoadedPagesFromFolder()` — converts StoredStroke → canvas dotArray format
-- `scan.js` — `scanLocalPages()` + `metaToRecord()` (pure, tested) — populates the `logseqPages` store from disk. **Metadata-only (perf #3):** records carry summary fields ONLY (`strokeCount`, `lastUpdated`, `transcriptionText`, `transcribed`, `transcriptLineCount`, `pageId`/`suffix`) — never `strokes`/`pageDoc`/`strokeData`, so the corpus never stays resident; each page's strokes load lazily on view. Records load by `pageId`, so letter-suffixed variants (`P127.json` + `P127b.json`) don't collapse onto the integer page. (`main.cjs listAllPages` → `extractPageMeta` parses just the doc shell, skipping the strokes array, so the scan is fast; the tiny `transcriptionText` rides along to power search/preview without loading strokes.)
+- `scan.js` — `scanLocalPages()` + `metaToRecord()` (pure, tested) — populates the `savedPages` store from disk. **Metadata-only (perf #3):** records carry summary fields ONLY (`strokeCount`, `lastUpdated`, `transcriptionText`, `transcribed`, `transcriptLineCount`, `pageId`/`suffix`) — never `strokes`/`pageDoc`/`strokeData`, so the corpus never stays resident; each page's strokes load lazily on view. Records load by `pageId`, so letter-suffixed variants (`P127.json` + `P127b.json`) don't collapse onto the integer page. (`main.cjs listAllPages` → `extractPageMeta` parses just the doc shell, skipping the strokes array, so the scan is fast; the tiny `transcriptionText` rides along to power search/preview without loading strokes.)
 - `page-changes.js` — `computePageChangesFolder()` — preview diff for the SaveConfirmDialog
 
 **Book View Layer (`src/lib/viewer/`)** — v2.1:

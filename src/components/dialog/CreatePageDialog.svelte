@@ -6,7 +6,7 @@
   import { addOfflineStrokes } from '$stores';
   import { log } from '$stores';
   import { dataFolderReady } from '$stores/settings.js';
-  import { logseqPages } from '$stores';
+  import { savedPages } from '$stores';
   // v2.0 folder-backed save
   import { getPage } from '$lib/storage/local-store.js';
   import { savePageToFolder } from '$lib/storage/save-page.js';
@@ -22,10 +22,10 @@
   let showBookSuggestions = false;
   let showPageSuggestions = false;
   
-  // Get unique books and pages from LogSeq data
-  $: allBooks = [...new Set($logseqPages.map(p => p.book))].sort((a, b) => a - b);
+  // Get unique books and pages from saved-page data
+  $: allBooks = [...new Set($savedPages.map(p => p.book))].sort((a, b) => a - b);
   $: allPagesForBook = bookNumber 
-    ? $logseqPages.filter(p => p.book === parseInt(bookNumber)).map(p => p.page).sort((a, b) => a - b)
+    ? $savedPages.filter(p => p.book === parseInt(bookNumber)).map(p => p.page).sort((a, b) => a - b)
     : [];
   
   // Update suggestions when input changes
@@ -55,7 +55,7 @@
   
   // Check if page exists
   $: pageExists = bookNumber && pageNumber 
-    ? $logseqPages.some(p => p.book === parseInt(bookNumber) && p.page === parseInt(pageNumber))
+    ? $savedPages.some(p => p.book === parseInt(bookNumber) && p.page === parseInt(pageNumber))
     : false;
   
   // Determine which strokes to save: selected if any, otherwise all
@@ -124,8 +124,8 @@
       
       console.log('💾 Saving', newStrokes.length, 'strokes as B', book, '/P', page, `(${mode})`);
       
-      // Prepare strokes for LogSeq storage and local store
-      let strokesToSaveToLogSeq = newStrokes;
+      // Prepare strokes for the folder save and the local store
+      let strokesToSave = newStrokes;
       let strokesToAddToLocalStore = newStrokes;
       
       if (mode === 'append') {
@@ -176,9 +176,9 @@
             }))
           }));
           
-          // For LogSeq: save COMBINED (existing + new with offset)
-          strokesToSaveToLogSeq = [...existingFullFormat, ...offsetNewStrokes];
-          console.log('📦 Total strokes to save to LogSeq:', strokesToSaveToLogSeq.length);
+          // For the file: save COMBINED (existing + new with offset)
+          strokesToSave = [...existingFullFormat, ...offsetNewStrokes];
+          console.log('📦 Total strokes to save:', strokesToSave.length);
           
           // For local store: only add the NEW strokes (with offset)
           strokesToAddToLocalStore = offsetNewStrokes;
@@ -190,7 +190,7 @@
       const result = await savePageToFolder({
         book,
         page,
-        activeStrokes: strokesToSaveToLogSeq,
+        activeStrokes: strokesToSave,
         deletedStrokeIds: new Set(),
         pageTranscription: null
       });
@@ -250,16 +250,16 @@
       <div class="dialog-content">
         {#if !$dataFolderReady}
           <div class="warning">
-            <strong>⚠️ LogSeq Not Connected</strong>
-            <p>Please connect to LogSeq in Settings before saving duplicated strokes.</p>
+            <strong>⚠️ No Data Folder</strong>
+            <p>Pick a data folder in Settings before saving duplicated strokes.</p>
           </div>
         {/if}
         
         <p class="info">
           {#if hasSelection}
-            Save <strong>{strokeCount} selected</strong> duplicated stroke{strokeCount !== 1 ? 's' : ''} as a new page in LogSeq.
+            Save <strong>{strokeCount} selected</strong> duplicated stroke{strokeCount !== 1 ? 's' : ''} as a new page in your data folder.
           {:else}
-            Save <strong>all {strokeCount}</strong> duplicated stroke{strokeCount !== 1 ? 's' : ''} as a new page in LogSeq.
+            Save <strong>all {strokeCount}</strong> duplicated stroke{strokeCount !== 1 ? 's' : ''} as a new page in your data folder.
           {/if}
         </p>
         
@@ -336,7 +336,7 @@
         {#if !pageExists}
           <p class="hint">
             This will create a new page entry at <code>B{bookNumber || '?'}/P{pageNumber || '?'}</code>
-            and save the stroke data to LogSeq.
+            and save the stroke data to your data folder.
           </p>
         {/if}
       </div>

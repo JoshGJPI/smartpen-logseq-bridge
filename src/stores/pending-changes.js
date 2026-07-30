@@ -1,5 +1,5 @@
 /**
- * Pending Changes Store - Tracks local changes before sync to LogSeq
+ * Pending Changes Store - Tracks local changes before they are saved to disk
  * Handles stroke deletions with undo capability and per-page change tracking
  */
 import { writable, derived, get } from 'svelte/store';
@@ -7,7 +7,7 @@ import { strokes } from './strokes.js';
 import { storageStatus, markUnsavedChanges } from './storage.js';
 import { generateStrokeId } from '../lib/stroke-storage.js';
 
-// Set of deleted stroke indices (local only, not synced to LogSeq yet)
+// Set of deleted stroke indices (local only, not yet written to disk)
 export const deletedIndices = writable(new Set());
 
 // Undo history - array of deletion operations
@@ -121,7 +121,7 @@ export const canUndo = derived(
  *
  *  pendingChanges needs to know which canvas strokes already exist on disk so
  *  it can tell genuine additions apart from strokes that are merely loaded. It
- *  used to read the full strokes array out of every logseqPages record — exactly
+ *  used to read the full strokes array out of every savedPages record — exactly
  *  the residency removed in perf #3. Instead we keep a small map of on-disk
  *  stroke IDs, populated ONLY for pages that currently have canvas strokes and
  *  evicted when those pages leave the canvas, so the whole library never stays
@@ -345,7 +345,7 @@ export function getActiveStrokesForPage(book, page) {
 
 /**
  * Get stroke IDs for deleted strokes on a specific page
- * Converts index-based deletedIndices to stroke ID format used in LogSeq storage
+ * Converts index-based deletedIndices to stroke ID format used in the PageDoc
  * This enables explicit deletion tracking instead of arithmetic inference
  * @param {number} book - Book ID
  * @param {number} page - Page number

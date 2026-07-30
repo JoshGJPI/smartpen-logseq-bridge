@@ -1,6 +1,6 @@
 /**
  * Book Aliases Store - Track user-friendly names for books
- * Aliases are stored in LogSeq as a 'bookName' property on book pages
+ * Aliases are stored in <dataRoot>/pages/_aliases.json
  */
 import { writable, derived } from 'svelte/store';
 
@@ -11,7 +11,7 @@ import { writable, derived } from 'svelte/store';
 export const bookAliases = writable({});
 
 /**
- * List of known book IDs (from current session + LogSeq)
+ * List of known book IDs (from current session + saved pages)
  */
 export const knownBookIds = writable(new Set());
 
@@ -26,7 +26,7 @@ export const booksWithoutAliases = derived(
 );
 
 /**
- * Set book aliases (typically loaded from LogSeq)
+ * Set book aliases (typically loaded from _aliases.json)
  * @param {Object} aliases - Map of bookId to alias
  */
 export function setBookAliases(aliases) {
@@ -70,7 +70,7 @@ export function getBookAlias(bookId) {
 }
 
 /**
- * Register a book ID as known (from strokes or LogSeq)
+ * Register a book ID as known (from strokes or saved pages)
  * @param {number|string} bookId - Book ID
  */
 export function registerBookId(bookId) {

@@ -3,7 +3,7 @@ import { computePendingChangesMap } from '$stores/pending-changes.js';
 
 /**
  * computePendingChangesMap is the pure core of the dirty-state diff. It used to
- * read whole stroke arrays off the logseqPages records; now it diffs canvas
+ * read whole stroke arrays off the savedPages records; now it diffs canvas
  * strokes against a small on-disk stroke-id index. These tests pin that an
  * active canvas stroke counts as an "addition" only when it isn't already on
  * disk — the behaviour that drives the "Save Changes" label and the canvas

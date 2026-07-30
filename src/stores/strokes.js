@@ -114,7 +114,7 @@ export function removeStrokesByIndices(indices) {
 
 /**
  * Load strokes from storage format into the store
- * Used when loading data from LogSeq - restores blockUuid associations
+ * Used when loading a saved page - restores lineId associations
  * @param {Array} storedStrokes - Strokes from storage (with blockUuid)
  * @param {Object} pageInfo - Page info to attach
  */

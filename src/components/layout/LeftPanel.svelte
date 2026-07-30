@@ -7,7 +7,7 @@
   // Components
   import ActivityLog from './ActivityLog.svelte';
   import StrokeList from '../strokes/StrokeList.svelte';
-  import LogSeqDbTab from '../logseq-db/LogSeqDbTab.svelte';
+  import SavedPagesTab from '../saved-pages/SavedPagesTab.svelte';
   import TranscriptionView from '../transcription/TranscriptionView.svelte';
   
   // Store for data explorer tabs
@@ -24,7 +24,7 @@
   const explorerTabs = [
     { id: 'strokes', label: 'Strokes' },
     { id: 'transcription', label: 'Transcription' },
-    { id: 'logseq-db', label: 'Saved Pages' }
+    { id: 'saved-pages', label: 'Saved Pages' }
   ];
 </script>
 
@@ -64,8 +64,8 @@
           <StrokeList />
         {:else if $activeTab === 'transcription'}
           <TranscriptionView />
-        {:else if $activeTab === 'logseq-db'}
-          <LogSeqDbTab />
+        {:else if $activeTab === 'saved-pages'}
+          <SavedPagesTab />
         {/if}
       </div>
     {:else if $mainTab === 'log'}

@@ -128,7 +128,6 @@
   onMount(() => {
     initializePenSDK();
     log('Bridge initialized. Click "Connect Pen" to begin.', 'info');
-    log('Make sure LogSeq HTTP API is enabled in Settings > Advanced', 'info');
 
     // Kick off data-folder availability check (non-blocking). Once the folder is
     // confirmed ready, preload the saved-pages metadata so the Saved Pages tab and

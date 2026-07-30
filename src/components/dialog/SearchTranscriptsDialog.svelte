@@ -3,9 +3,9 @@
 -->
 <script>
   import { onMount } from 'svelte';
-  import { logseqPages } from '$stores';
+  import { savedPages } from '$stores';
   import { showSearchTranscriptsDialog, closeSearchTranscriptsDialog, log } from '$stores';
-  import { importStrokesFromFolder as importStrokesFromLogSeq } from '$lib/storage/load-page.js';
+  import { importStrokesFromFolder } from '$lib/storage/load-page.js';
   import { searchPages } from '$lib/transcript-search.js';
   import TranscriptSearchResult from './TranscriptSearchResult.svelte';
   
@@ -15,7 +15,7 @@
   let importProgress = { current: 0, total: 0, message: '' };
   
   // Filter pages with transcription text
-  $: pagesWithTranscription = $logseqPages.filter(p => p.transcriptionText);
+  $: pagesWithTranscription = $savedPages.filter(p => p.transcriptionText);
   
   // Search results (debounced)
   let searchResults = [];
@@ -64,7 +64,7 @@
       };
       
       try {
-        const result = await importStrokesFromLogSeq(page);
+        const result = await importStrokesFromFolder(page);
         if (result.success) {
           successCount++;
         }
@@ -137,7 +137,7 @@
         {#if pagesWithTranscription.length === 0}
           <div class="empty-state">
             <div class="icon">📄</div>
-            <p>No pages with transcription text found in LogSeq.</p>
+            <p>No pages with transcription text found.</p>
             <p class="hint">Transcribe and save pages first.</p>
           </div>
         {:else if searchQuery && searchResults.length === 0}

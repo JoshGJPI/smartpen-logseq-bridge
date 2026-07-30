@@ -1,6 +1,6 @@
 <!--
   SaveConfirmDialog.svelte - Git-style commit confirmation dialog
-  Shows pending changes before saving to LogSeq
+  Shows pending changes before saving to the data folder
 -->
 <script>
   import { createEventDispatcher, onMount } from 'svelte';
@@ -177,7 +177,7 @@
   <!-- Dialog -->
   <div class="dialog">
     <div class="dialog-header">
-      <h2>💾 Confirm Save to LogSeq</h2>
+      <h2>💾 Confirm Save</h2>
       <button class="close-btn" on:click={handleCancel} title="Cancel">✕</button>
     </div>
     
@@ -263,7 +263,7 @@
     
       {#if selectedStrokeDeletions > 0}
         <div class="warning">
-          ⚠️ Deleted strokes will be permanently removed from LogSeq storage after this save.
+          ⚠️ Deleted strokes will be permanently removed from the saved page after this save.
         </div>
       {/if}
     {/if}

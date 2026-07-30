@@ -4,7 +4,7 @@
 <script>
   import { bookAliases } from '$stores';
   import { formatBookName, getBookColor } from '$utils/formatting.js';
-  import { importStrokesFromFolder as importStrokesFromLogSeq } from '$lib/storage/load-page.js';
+  import { importStrokesFromFolder } from '$lib/storage/load-page.js';
   import PageCard from './PageCard.svelte';
   
   export let bookId; // Book number
@@ -38,7 +38,7 @@
       importProgress.currentPage = i + 1;
       
       try {
-        const result = await importStrokesFromLogSeq(page, (current, total) => {
+        const result = await importStrokesFromFolder(page, (current, total) => {
           importProgress = { 
             current, 
             total, 

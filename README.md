@@ -79,7 +79,7 @@ A desktop Electron app for capturing, transcribing, and managing handwritten not
 - **Four-Tab Interface**:
   - **Strokes Tab**: Browse strokes by book and page with collapsible headers
   - **Transcription Tab**: View transcribed text with hierarchy
-  - **LogSeq DB Tab**: Explore saved pages with lazy import
+  - **Saved Pages Tab**: Explore saved pages with lazy import
   - **Analysis Tab**: Raw JSON inspection and statistics
 - **Search Transcripts**: Full-text search across all transcribed pages in your data folder
 - **Activity Log**: Real-time feedback on all operations
@@ -89,7 +89,7 @@ A desktop Electron app for capturing, transcribing, and managing handwritten not
 - **Create New Pages**: Convert duplicated strokes to new pages in your data folder
 - **Coordinate Normalization**: Automatic anchor point calculation
 - **Batch Operations**: Process multiple pages efficiently
-- **Persistent Settings**: MyScript keys, LogSeq config, UI state
+- **Persistent Settings**: MyScript keys, data/graph folders, UI state
 - **Error Recovery**: Graceful handling of connection issues
 - **Progress Tracking**: Visual feedback for long operations
 
@@ -100,7 +100,7 @@ A desktop Electron app for capturing, transcribing, and managing handwritten not
 2. **HTTPS connection** (provided automatically by GitHub Pages)
 3. **NeoSmartpen** with Bluetooth capability (Lamy Safari / NWP-F80 tested)
 4. **Ncode paper** for the pen to track positions
-5. **LogSeq desktop app** with HTTP API enabled (optional, for integration)
+5. **LogSeq graph folder** (optional, only to publish sketches — no running LogSeq needed)
 6. **MyScript Developer Account** for handwriting recognition (free tier: 2,000 requests/month)
 
 ### For Local Development
@@ -274,7 +274,7 @@ was removed in v2.0.)
 
 **Scan Database:**
 1. Connect to LogSeq
-2. Click **Refresh** in **LogSeq DB** tab
+2. Click **Refresh** in the **Saved Pages** tab
 3. Scanner finds all smartpen pages
 4. View organized by book with page counts
 
@@ -465,7 +465,7 @@ App.svelte (Root)
 │   ├── Data Explorer (Tabbed Interface)
 │   │   ├── StrokeList (Browse by book/page)
 │   │   ├── TranscriptionView (View transcribed text)
-│   │   ├── LogSeqDbTab (Database browser)
+│   │   ├── SavedPagesTab (Saved-page browser)
 │   │   └── RawJsonViewer (Technical inspection)
 │   └── ActivityLog (Real-time feedback)
 └── StrokeCanvas
@@ -490,7 +490,7 @@ App.svelte (Root)
 - `transcriptionByPage` - Organized transcription data
 
 **LogSeq:**
-- `logseqPages` - Scanned database pages
+- `savedPages` - Scanned saved-page index
 - `storage` - Save status tracking
 - `bookAliases` - Custom book names
 
@@ -533,8 +533,8 @@ smartpen-logseq-bridge/
 │   │   │   ├── LeftPanel.svelte
 │   │   │   ├── Sidebar.svelte
 │   │   │   └── ActivityLog.svelte
-│   │   ├── logseq-db/      # Database browser
-│   │   │   ├── LogSeqDbTab.svelte
+│   │   ├── saved-pages/    # Saved-page browser
+│   │   │   ├── SavedPagesTab.svelte
 │   │   │   ├── BookAccordion.svelte
 │   │   │   ├── PageCard.svelte
 │   │   │   └── SyncStatusBadge.svelte
@@ -567,7 +567,7 @@ smartpen-logseq-bridge/
 │   │   ├── settings.js     # Persisted settings
 │   │   ├── ui.js           # UI state
 │   │   ├── storage.js      # LogSeq storage tracking
-│   │   ├── logseqPages.js  # Database scan results
+│   │   ├── saved-pages.js  # Saved-page scan results
 │   │   ├── bookAliases.js  # Book name mappings
 │   │   ├── clipboard.js    # Copy/paste
 │   │   ├── pastedStrokes.js # Duplicated strokes
@@ -666,7 +666,7 @@ smartpen-logseq-bridge/
 - Try clicking "Test Connection" to diagnose
 
 **"Pages not appearing in database"**
-- Click "Refresh" in LogSeq DB tab to re-scan
+- Click "Refresh" in the Saved Pages tab to re-scan
 - Check that pages exist under `smartpen/` namespace
 - Verify pages have `stroke-data` property
 - Scanner looks for format: `smartpen/B###/P##`

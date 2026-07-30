@@ -1,7 +1,7 @@
 /**
  * page-cache — a tiny LRU over full PageDocs for Book View.
  *
- * v2 perf (#3): the `logseqPages` records no longer carry strokes, so Book View
+ * v2 perf (#3): the `savedPages` records no longer carry strokes, so Book View
  * loads each page's PageDoc lazily, on demand. This cache keeps the last few
  * viewed docs resident so page-turning a spread (and re-rendering its two pages)
  * doesn't re-read disk every time, while older entries are evicted so the whole

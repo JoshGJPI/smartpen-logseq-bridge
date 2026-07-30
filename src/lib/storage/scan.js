@@ -3,7 +3,7 @@
  *
  * Drop-in replacement for src/lib/logseq-scanner.js. Reads from local-store
  * (pages/B###/P##.json) and emits the same record shape the UI components
- * expect, so PageCard / BookAccordion / LogSeqDbTab can use it unchanged.
+ * expect, so PageCard / BookAccordion / SavedPagesTab can use it unchanged.
  *
  * v2 perf (#3): the scan is METADATA-ONLY. It builds records straight from the
  * lightweight PageMeta returned by `listPages()` and never loads a page's
@@ -15,7 +15,7 @@
  */
 
 import { get } from 'svelte/store';
-import { log, setLogseqPages, setScanning } from '$stores';
+import { log, setSavedPages, setScanning } from '$stores';
 import { registerBookIds, setBookAliases } from '$stores/book-aliases.js';
 import { dataRoot, dataFolderReady } from '$stores/settings.js';
 import { listPages, getAliases } from './local-store.js';
@@ -64,7 +64,7 @@ let scanInFlight = false;
 
 /**
  * Scan the local data folder for smartpen pages and populate the store.
- * Replaces scanLogSeqPages().
+ * Replaces scanSavedPages().
  * @returns {Promise<boolean>}
  */
 export async function scanLocalPages() {
@@ -100,7 +100,7 @@ export async function scanLocalPages() {
 
     if (metaList.length === 0) {
       log('No saved pages found.', 'info');
-      setLogseqPages([]);
+      setSavedPages([]);
       return true;
     }
 
@@ -110,7 +110,7 @@ export async function scanLocalPages() {
     const bookIds = [...new Set(records.map(r => r.book))];
     if (bookIds.length > 0) registerBookIds(bookIds);
 
-    setLogseqPages(records);
+    setSavedPages(records);
     log(`Scanned ${records.length} page(s) across ${bookIds.length} book(s)`, 'success');
     return true;
   } catch (err) {

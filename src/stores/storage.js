@@ -1,5 +1,5 @@
 /**
- * Storage Store - Manages LogSeq storage state
+ * Storage Store - Manages save state for the local data folder
  */
 import { writable, derived } from 'svelte/store';
 
@@ -129,7 +129,7 @@ export const storageStatusMessage = derived(
   storageStatus,
   $status => {
     if ($status.isSaving) {
-      return 'Saving to LogSeq...';
+      return 'Saving...';
     }
     if ($status.lastError) {
       return `Error: ${$status.lastError.message}`;

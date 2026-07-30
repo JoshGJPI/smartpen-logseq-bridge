@@ -155,18 +155,18 @@ export {
   getFilteredStrokeByIndex
 } from './filtered-strokes.js';
 
-// LogSeq Pages
+// Saved Pages (data-folder index)
 export {
-  logseqPages,
+  savedPages,
   isScanning,
   lastScanTime,
   pagesByBook,
   bookIds,
-  setLogseqPages,
+  setSavedPages,
   setScanning,
-  clearLogseqPages,
+  clearSavedPages,
   updatePageSyncStatus
-} from './logseqPages.js';
+} from './saved-pages.js';
 
 // Viewer (Book View pane)
 export {

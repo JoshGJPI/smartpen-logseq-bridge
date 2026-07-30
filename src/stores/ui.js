@@ -4,7 +4,7 @@
 import { writable, derived } from 'svelte/store';
 
 // Active tab in data explorer
-export const activeTab = writable('strokes'); // 'strokes' | 'transcription' | 'logseq-db'
+export const activeTab = writable('strokes'); // 'strokes' | 'transcription' | 'saved-pages'
 
 // Sidebar collapsed state
 export const sidebarCollapsed = writable(false);

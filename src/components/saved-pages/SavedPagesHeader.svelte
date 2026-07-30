@@ -1,5 +1,5 @@
 <!--
-  DbHeader.svelte - Header for the Saved Pages tab (v2.0 folder-backed)
+  SavedPagesHeader.svelte - Header for the Saved Pages tab (v2.0 folder-backed)
 -->
 <script>
   import { createEventDispatcher } from 'svelte';

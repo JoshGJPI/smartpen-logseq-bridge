@@ -1,19 +1,18 @@
 <!--
-  LogSeqDbTab.svelte — Data Explorer tab (v2.0: folder-backed).
-  Source of truth is now <dataRoot>/pages/B###/P##.json files.
-  Kept under the old filename for now; rename happens in Phase 4.
+  SavedPagesTab.svelte — Data Explorer tab, backed by the local data folder.
+  Source of truth is <dataRoot>/pages/B###/P##.json.
 -->
 <script>
   import { onMount } from 'svelte';
-  import { logseqPages, pagesByBook, bookIds, isScanning, lastScanTime, log } from '$stores';
+  import { savedPages, pagesByBook, bookIds, isScanning, lastScanTime, log } from '$stores';
   import { dataRoot, dataFolderReady } from '$stores/settings.js';
   import { scanLocalPages } from '$lib/storage/scan.js';
-  import DbHeader from './DbHeader.svelte';
+  import SavedPagesHeader from './SavedPagesHeader.svelte';
   import BookAccordion from './BookAccordion.svelte';
 
   // Scan on mount once the data folder is known to be ready
   onMount(async () => {
-    if ($dataFolderReady && $logseqPages.length === 0) {
+    if ($dataFolderReady && $savedPages.length === 0) {
       await handleRefresh();
     }
   });
@@ -30,8 +29,8 @@
   }
 </script>
 
-<div class="logseq-db-tab">
-  <DbHeader
+<div class="saved-pages-tab">
+  <SavedPagesHeader
     connected={$dataFolderReady}
     scanning={$isScanning}
     lastScan={$lastScanTime}
@@ -75,7 +74,7 @@
 </div>
 
 <style>
-  .logseq-db-tab {
+  .saved-pages-tab {
     height: 100%;
     display: flex;
     flex-direction: column;

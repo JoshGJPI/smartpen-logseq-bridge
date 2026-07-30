@@ -1,6 +1,6 @@
 <!--
   TranscriptionEditorModal.svelte - Single-column editor for transcription lines
-  v3.1: Existing LogSeq blocks are editable; changes saved by UUID
+  v3.1: Existing transcript lines are editable; changes saved by UUID
 -->
 <script>
   import { createEventDispatcher } from 'svelte';
@@ -8,7 +8,7 @@
 
   export let book;
   export let page;
-  export let lines = []; // Array of line objects (merged: existing LogSeq + new MyScript)
+  export let lines = []; // Array of line objects (merged: existing + new MyScript)
   export let visible = false;
 
   const dispatch = createEventDispatcher();
@@ -275,7 +275,7 @@
     editedLines = editedLines;
   }
 
-  // Save changes locally and close modal (does NOT save to LogSeq)
+  // Save changes locally and close modal (does NOT write to disk)
   function handleSave() {
     // Track stroke reassignments for merges
     const mergedBlockPairs = [];
@@ -572,7 +572,7 @@
               </div>
 
               <!-- Status badge -->
-              <span class="status-badge {status}" title="{status === 'synced' ? 'Saved in LogSeq' : status === 'modified' ? 'Modified locally' : 'New (will create block)'}">
+              <span class="status-badge {status}" title="{status === 'synced' ? 'Saved to disk' : status === 'modified' ? 'Modified locally' : 'New (will create block)'}">
                 {status}
               </span>
             </div>

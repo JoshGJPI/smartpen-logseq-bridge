@@ -6,7 +6,7 @@
   Page state: one or two PageSpreadView pages with page-turn navigation and the
   viewer-wide Strokes⇄Transcript / Single⇄Spread toggles.
 
-  Reads page data lazily: the logseqPages records are lightweight (no strokes),
+  Reads page data lazily: the savedPages records are lightweight (no strokes),
   so strokes/transcript for a shown page are loaded on demand via the LRU page
   cache. Transcript edits saved by a child pane are reflected back into the
   store here (lightweight fields) and the page's cached doc is invalidated.
@@ -15,7 +15,7 @@
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
   import {
-    logseqPages,
+    savedPages,
     pagesByBook,
     bookIds,
     bookAliases,
@@ -199,7 +199,7 @@
     const transcriptionText = lines.length
       ? lines.map((l) => '  '.repeat(l.indentLevel || 0) + (l.text || '')).join('\n')
       : null;
-    logseqPages.update((pages) =>
+    savedPages.update((pages) =>
       pages.map((p) => {
         if (p.book !== book || idOf(p) !== String(pageId)) return p;
         return {
@@ -220,7 +220,7 @@
   }
 
   onMount(() => {
-    if ($logseqPages.length === 0 && !$isScanning) {
+    if ($savedPages.length === 0 && !$isScanning) {
       scanLocalPages();
     }
   });
@@ -237,7 +237,7 @@
         </button>
       </div>
 
-      {#if $isScanning && $logseqPages.length === 0}
+      {#if $isScanning && $savedPages.length === 0}
         <div class="bv-msg">Scanning data folder…</div>
       {:else if books.length === 0}
         <div class="bv-msg">

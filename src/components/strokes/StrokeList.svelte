@@ -63,7 +63,7 @@
   $: totalPages = strokesByBook.reduce((sum, book) => sum + book.pages.length, 0);
   
   // Handle import additional strokes from the data folder
-  async function handleImportFromLogSeq() {
+  async function handleImportFromFolder() {
     if (!$dataFolderReady) {
       return;
     }
@@ -99,7 +99,7 @@
         {/if}
         <button
           class="import-button"
-          on:click={handleImportFromLogSeq}
+          on:click={handleImportFromFolder}
           disabled={!$dataFolderReady || isImporting}
           title={!$dataFolderReady ? 'Pick a Data Folder first' : 'Merge additional strokes from disk for loaded pages'}
         >

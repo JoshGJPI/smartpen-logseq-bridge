@@ -14,7 +14,7 @@
   import { deselectIndices } from '$stores/selection.js';
   import { detectDecorativeIndices } from '$lib/stroke-filter.js';
   import { pageTranscriptionsArray } from '$stores';
-  import { logseqPages } from '$stores';
+  import { savedPages } from '$stores';
   import { bookAliases } from '$stores';
   import { formatBookName, filterTranscriptionProperties } from '$utils/formatting.js';
   import { openSearchTranscriptsDialog, openSvgExportDialog } from '$stores';
@@ -1234,7 +1234,7 @@
   }
   
   // Check if search is available
-  $: canSearch = $dataFolderReady && $logseqPages.some(p => p.transcriptionText);
+  $: canSearch = $dataFolderReady && $savedPages.some(p => p.transcriptionText);
   
   // Toggle text view - check for data when clicked
   function handleTextViewToggle() {
@@ -1257,7 +1257,7 @@
     log(`Displaying transcription text for ${transcriptions.length} page(s)`, 'info');
   }
   
-  // Get transcriptions for visible pages (from both MyScript and LogSeq)
+  // Get transcriptions for visible pages (from both MyScript and saved pages)
   // This function now matches pages more intelligently, handling section/owner mismatches
   function getVisibleTranscriptions() {
     const transcriptions = [];
@@ -1293,9 +1293,9 @@
       });
     }
     
-    // Add LogSeq imported pages (only if not already in MyScript transcriptions)
-    if ($logseqPages) {
-      $logseqPages.forEach(lsPage => {
+    // Add saved pages (only if not already in MyScript transcriptions)
+    if ($savedPages) {
+      $savedPages.forEach(lsPage => {
         if (!lsPage.transcriptionText) return;
         
         // Check if we already have this page from MyScript (match by book/page)
@@ -1304,7 +1304,7 @@
         );
         if (alreadyExists) return;
         
-        // Use the LogSeq pageKey format, but check if it matches any selected page
+        // Use the stored pageKey format, but check if it matches any selected page
         const pageKey = `S${lsPage.section || 0}/O${lsPage.owner || 0}/B${lsPage.book}/P${lsPage.page}`;
         
         if (!matchesPage(pageKey, lsPage.book, lsPage.page)) return;
@@ -1319,7 +1319,7 @@
             page: lsPage.page
           },
           strokeCount: lsPage.strokeCount || 0,
-          source: 'logseq'
+          source: 'saved'
         });
       });
     }
@@ -1347,7 +1347,7 @@
         return;
       }
       
-      // Filter out LogSeq properties before displaying
+      // Filter out property lines before displaying
       const filteredText = filterTranscriptionProperties(pageData.text);
       
       if (!filteredText || !filteredText.trim()) {
@@ -1356,7 +1356,7 @@
       }
       
       // Need to find the actual pageKey used in the renderer
-      // The pageData.pageKey might be from LogSeq (S0/O0/...) but renderer has real pen data (S3/O1012/...)
+      // The pageData.pageKey might be from a saved page (S0/O0/...) but renderer has real pen data (S3/O1012/...)
       const book = pageData.pageInfo.book;
       const page = pageData.pageInfo.page;
       
@@ -1401,8 +1401,8 @@
         on:click={openSearchTranscriptsDialog}
         disabled={!canSearch}
         title={canSearch 
-          ? 'Search transcribed text in LogSeq database'
-          : 'Connect to LogSeq and scan pages with transcriptions first'}
+          ? 'Search transcribed text in your saved pages'
+          : 'Save and transcribe some pages first'}
       >
         🔍 Search Transcripts
       </button>

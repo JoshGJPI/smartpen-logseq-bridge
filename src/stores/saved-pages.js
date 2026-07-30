@@ -1,10 +1,17 @@
 /**
- * LogSeq Pages Store - Track smartpen data stored in LogSeq
+ * Saved Pages Store — the scanned index of PageDoc files in the data folder.
+ *
+ * Records are metadata-only (see storage/scan.js): stroke counts, timestamps and
+ * transcript text, never the strokes themselves, so the whole corpus never stays
+ * resident. Strokes load lazily per page.
+ *
+ * Formerly `logseqPages.js`, from when LogSeq was the storage backend — renamed
+ * in v2.3. Nothing here is LogSeq-specific.
  */
 import { writable, derived } from 'svelte/store';
 
-// Raw page data from LogSeq
-export const logseqPages = writable([]);
+// Page metadata records, one per PageDoc file found by the scanner
+export const savedPages = writable([]);
 
 // Loading state
 export const isScanning = writable(false);
@@ -13,7 +20,7 @@ export const isScanning = writable(false);
 export const lastScanTime = writable(null);
 
 // Pages grouped by book
-export const pagesByBook = derived(logseqPages, ($pages) => {
+export const pagesByBook = derived(savedPages, ($pages) => {
   const grouped = {};
   for (const page of $pages) {
     const book = page.book;
@@ -38,11 +45,11 @@ export const bookIds = derived(pagesByBook, ($grouped) => {
 });
 
 /**
- * Set the list of LogSeq pages
+ * Set the list of saved pages
  * @param {Array} pages - Array of page data objects
  */
-export function setLogseqPages(pages) {
-  logseqPages.set(pages);
+export function setSavedPages(pages) {
+  savedPages.set(pages);
   lastScanTime.set(Date.now());
 }
 
@@ -55,10 +62,10 @@ export function setScanning(scanning) {
 }
 
 /**
- * Clear all LogSeq page data
+ * Clear all saved-page data
  */
-export function clearLogseqPages() {
-  logseqPages.set([]);
+export function clearSavedPages() {
+  savedPages.set([]);
   lastScanTime.set(null);
 }
 
@@ -69,7 +76,7 @@ export function clearLogseqPages() {
  * @param {string} status - Sync status ('clean' | 'unsaved' | 'in-canvas')
  */
 export function updatePageSyncStatus(book, page, status) {
-  logseqPages.update(pages => {
+  savedPages.update(pages => {
     return pages.map(p => {
       if (p.book === book && p.page === page) {
         return { ...p, syncStatus: status };

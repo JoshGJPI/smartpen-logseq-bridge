@@ -156,7 +156,7 @@ export function clearPastedSelection() {
  * @param {number} book - Target book number
  * @param {number} page - Target page number
  * @param {Set} selectedIndices - Optional set of indices to convert (defaults to all)
- * @returns {Array} Strokes ready for LogSeq storage
+ * @returns {Array} Strokes ready for storage
  */
 export function getPastedAsNewPage(book, page, selectedIndices = null) {
   const allStrokes = get(pastedStrokes);
