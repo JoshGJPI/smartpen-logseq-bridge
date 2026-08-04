@@ -38,6 +38,7 @@ App.svelte (Root)
     │   ├── Canvas Renderer (Drawing engine)
     │   ├── CanvasControls (Zoom, fit, reset)
     │   ├── PageSelector (Multi-page filtering)
+    │   ├── PointEditPanel (Edit Points mode — stray-point list + delete)
     │   └── FilteredStrokesPanel (Decorative strokes)
     └── BookViewer (Book View — read/edit saved pages as a book)
         ├── Home grid (recent + collapsible by-book page thumbnails)
@@ -83,6 +84,10 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `sketch.js` — the pressure → thickness render profile (`sketchProfile`, `sketchPresetName`, `sketchPresets`, `sketchProfileSummary`, `applySketchPreset()`, `updateSketchProfile()`, `resetSketchProfile()`). Persisted to localStorage: it's a *display* preference, so it restyles every sketch at once and never touches disk. Any manual edit clears the preset name (showing "Brush" as active after its numbers changed would lie).
 - `strokes.js` also owns the flag itself — `sketchStrokeCount` (derived), `setStrokesSketch()` / `markStrokesAsSketch()` / `unmarkStrokesAsSketch()`. Flagging marks the session dirty (the flag lives in the PageDoc) and drops the renderer's cached `_sw` width array.
 
+**Point Editing (v2.5):**
+- `point-edit.js` — the canvas "Edit Points" mode: `pointEditMode`, `selectedPoints` (keys `"{strokeIndex}:{pointIndex}"`), `pointEditStrokes` (derived from the stroke selection, capped at `MAX_POINT_EDIT_STROKES`), `strayPoints`/`strayPointKeys` (advisory detection), `selectPoint()`/`selectPoints()`, `deleteSelectedPoints()`, `deleteStrayPoints()`, `enterPointEditMode()`/`exitPointEditMode()`. A `selectedIndices` subscription prunes point keys whose stroke leaves the selection and exits the mode when the selection empties
+- `strokes.js` owns the mutation — `removeStrokePoints(Map<strokeIndex, Set<pointIndex>>)` and `clearPointEditMarkers(book, page)`. **This is the only code in the app that mutates captured geometry.** It preserves `startTime`/`endTime` (and so the `s{startTime}` id), every surviving point's force, and the sketch flag; it refuses to reduce a stroke below 2 points and reports those in `refused`; it stamps the edited stroke with the in-memory `pointsEdited` marker that gates the save-time rewrite
+
 **UI State:**
 - `ui.js` - Active tab, canvas zoom, UI preferences
 - `page-order.js` - Custom page positioning/layout
@@ -91,11 +96,11 @@ All state is managed through Svelte stores located in `src/stores/`:
 
 **Advanced:**
 - `filtered-strokes.js` - Decorative element detection
-- `pending-changes.js` - Tracks local changes before save (additions, modifications, deletions per page)
+- `pending-changes.js` - Tracks local changes before save (additions, edits, modifications, deletions per page)
   - `deletedIndices` — set of stroke indices marked for deletion
-  - `pendingChanges` — derived store computing additions/**modifications**/deletions per page (pure core `computePendingChangesMap()`, tested). `modifications` are strokes already on disk whose sketch flag was toggled since — a real unsaved change that moves no stroke count. A stroke that is both new and flagged counts once, as an addition
+  - `pendingChanges` — derived store computing additions/**edits**/**modifications**/deletions per page (pure core `computePendingChangesMap()`, tested). `edits` are strokes already on disk whose *geometry* shrank (points deleted); `modifications` are strokes already on disk whose *sketch flag* was toggled. Both move no stroke count. **Every stroke lands in exactly one bucket:** new-and-anything is an addition (the save writes the whole stroke), and edited-and-reflagged is an edit (the stronger claim; one save carries both)
   - `getDeletedStrokeIdsForPage()` — converts indices to stroke IDs for the save call
-  - `onDiskStrokeIds` + `noteOnDiskStrokeIds()` — perf #3: since `savedPages` records no longer carry strokes, the diff uses a small `pageKey → Map<strokeId, {sketch}>` map populated ONLY for pages currently on the canvas (primed by `load-page.js` import + `save-page.js` save; lazily backfilled and evicted by a `canvasPageKeys` subscription). Never reads strokes off `savedPages`. Entries are flag-sized records, never strokes — `points` is what makes the corpus expensive and geometry is immutable under append-only, so keep any future field here just as small
+  - `onDiskStrokeIds` + `noteOnDiskStrokeIds()` — perf #3: since `savedPages` records no longer carry strokes, the diff uses a small `pageKey → Map<strokeId, {sketch, points}>` map populated ONLY for pages currently on the canvas (primed by `load-page.js` import + `save-page.js` save; lazily backfilled and evicted by a `canvasPageKeys` subscription). Never reads strokes off `savedPages`. Entries are scalar-sized records, never strokes — `points` here is a *count*, not the array; keep any future field just as small. The count is what makes the edit diff **self-clearing**: the post-save refresh brings it in line and the page stops reporting an edit with no flag to reset
 - `settings.js` — persisted user settings (MyScript keys, `dataRoot`, `dataFolderReady`, `dataFolderStatusText`; **Export to LogSeq:** `graphRoot`, `graphFolderReady`, `graphFolderStatusText` — no publish-on-save flag, removed in v2.3)
 
 ### Key Libraries
@@ -107,6 +112,7 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `stroke-analyzer.js` - Shape detection and analysis
 - `stroke-filter.js` - Decorative element detection (boxes, underlines)
 - `stroke-storage.js` - Stroke ID generation, format conversion, bounds, dedupe, user JSON/MD exports
+- `point-edit.js` - Point-level stroke editing (pure): `detectStrayPoints()` (`origin` — at/near Ncode (0,0) or non-finite; `jump` — far from both neighbours, relative to the stroke's median spacing **and** past `MIN_JUMP_DISTANCE`, an absolute floor that keeps short flick strokes out of the results), `detectStrayPointsForStrokes()`, `removePointsFromStroke()` (identity- and force-preserving, re-tags `dotType`, drops the `_nb`/`_sw` caches, refuses to go below `MIN_STROKE_POINTS`), `pointKey`/`parsePointKey`/`groupPointKeys`, `formatPointCoords`
 - `sketch-width.js` - Pressure → line thickness mapping for sketch strokes (pure): profile normalisation/presets, `pressureToUnit`, `smoothSeries` (symmetric, spike attenuation), `limitSlew`, `widthsForPressures`, `widthsForStrokeSeries` (the single "no pressure data → flatWidth" rule), `profileKey` for width-cache tagging
 - `transcript-search.js` - Full-text search across transcriptions
 
@@ -377,12 +383,13 @@ const doc = await getPage(book, page);   // returns PageDoc or null
 - **Stroke IDs**: `s{startTime}` for deduplication (see `src/lib/stroke-storage.js`)
 - **lineId tracking**: each stroke carries an opaque `lineId` linking it to a transcript line (the v1 `blockUuid` field is renamed but semantically identical)
 - **Deletion timeout**: 15-minute undo window for marked-but-not-yet-saved deletions
+- **The one geometry exception (v2.5)**: `savePageToFolder()` rewrites a stored stroke's `points` when — and only when — the canvas copy carries the in-memory `pointsEdited` marker, which `removeStrokePoints()` alone sets. Gated on explicit intent rather than "the canvas has fewer points than disk" precisely so a dotArray filtered by some future code path can never destroy stored geometry. `strokeToStored()` builds stored strokes from a fixed key list, so the marker cannot reach disk
 
 ## Known Issues and Gotchas
 
 1. **Stroke Deduplication**: Uses timestamp-based IDs (`s{startTime}`). See `stroke-storage.js`.
 
-2. **Append-Only Saves**: Save operations NEVER replace the entire PageDoc — only explicit additions and deletions apply.
+2. **Append-Only Saves**: Save operations NEVER replace the entire PageDoc — only explicit additions, deletions, and (v2.5) point edits carrying the `pointsEdited` marker apply.
 
 3. **Deletion Tracking**: `pending-changes.js` (`deletedIndices`); `getDeletedStrokeIdsForPage()` converts to ID sets.
 
@@ -413,9 +420,10 @@ Existing test files (all in `src/lib/__tests__/`):
 | `sketch-width.test.js` | `normalizeProfile` (defaults, swapped/degenerate sanitising, null-vs-zero), presets, `profileKey`, `pressureToUnit` (band/clamp/NaN), `widthForPressure` (endpoints, gamma character), `smoothSeries` (symmetry, spike attenuation, edge windows), `limitSlew` (bidirectional), `widthsForPressures` (full pipeline, gap filling, all-missing → flatWidth), `strokePressures`/`hasPressureData` |
 | `sketch-store.test.js` | `stores/sketch.js` (sanitised load, persistence, corrupt JSON, presets, edit-clears-preset, reset, summary) and the `stores/strokes.js` flag helpers (mark/unmark, Set or array, no-op detection, unsaved-changes signalling, `_sw` cache invalidation, `sketchStrokeCount`) |
 | `canvas-renderer-sketch.test.js` | Renderer sketch path against a recording 2D-context stub: uniform handwriting (and that width no longer depends on the final dot), multi-width sketch runs, monotonic ramp, full segment coverage, run batching/quantisation, dashed fallback for deleted/decorative, width caching + profile invalidation, pasted-sketch taper |
-| `save-page.test.js` | `strokeToStored` (force as 4th element, integer rounding, null-timestamp placeholder, 3-element fallback for missing force, `sketch` omitted when false, key order); `savePageToFolder` sketch-flag sync onto strokes already on disk (mark, unmark removes the key, untouched when absent from canvas, points never rewritten, lineId sync preserved) |
-| `pending-changes.test.js` | `computePendingChangesMap` — additions vs. the on-disk stroke-state index, explicit deletions, page separation/`isSaved`, missing `pageInfo`; sketch-flag **modifications** (flag on, flag off, absent-vs-false, matching flag, new-and-flagged counted once as an addition, unknown page, deleted stroke excluded, mixed page, modification-only page enters the map) |
-| `page-changes.test.js` | `computePageChangesFolder` — the SaveConfirmDialog's own diff against the PageDoc on disk: additions, `strokeModifications` (both directions, absent-vs-false, new-and-flagged once), deletions + `strokeTotal` arithmetic, error fallback, transcription new/changed (mocks `getPage`) |
+| `save-page.test.js` | `strokeToStored` (force as 4th element, integer rounding, null-timestamp placeholder, 3-element fallback for missing force, `sketch` omitted when false, key order); `savePageToFolder` sketch-flag sync onto strokes already on disk (mark, unmark removes the key, untouched when absent from canvas, points never rewritten *without the marker*, lineId sync preserved); **point edits** (rewrite gated on `pointsEdited`, refused without it, id/startTime/endTime survive losing the first point, force + sketch flag survive, marker never written to disk, other strokes untouched, bounds recomputed, key order stable, new-stroke case reports `edited: 0`) |
+| `point-edit.test.js` | `detectStrayPoints` (origin exact/near/leading, non-finite, interior jump, fast-movement and short-flick non-detections, absolute-floor boundary, short strokes, single reason per point); `detectStrayPointsForStrokes`; `removePointsFromStroke` (order, identity preserved both ends, force + sketch preserved, `dotType` re-tag, cache drop, no mutation, min-points refusal, no-ops, Set input); key helpers; `removeStrokePoints`/`clearPointEditMarkers` store behaviour (marker stamping, dirty signalling, partial refusal, per-page clearing); `stores/point-edit.js` mode + selection (entry refusals, derived strokes/point count/strays, key pruning when a stroke leaves the selection, exit when the selection empties, toggle, select/delete strays, selection cleared after a delete) |
+| `pending-changes.test.js` | `computePendingChangesMap` — additions vs. the on-disk stroke-state index, explicit deletions, page separation/`isSaved`, missing `pageInfo`; sketch-flag **modifications** (flag on, flag off, absent-vs-false, matching flag, new-and-flagged counted once as an addition, unknown page, deleted stroke excluded, mixed page, modification-only page enters the map); geometry **edits** (fewer points than stored, self-clearing when counts agree, silent on unknown stored count, edited-and-reflagged counted once as an edit, new stroke stays an addition, deleted stroke excluded, edit-only page enters the map, all four categories side by side) |
+| `page-changes.test.js` | `computePageChangesFolder` — the SaveConfirmDialog's own diff against the PageDoc on disk: additions, `strokeModifications` (both directions, absent-vs-false, new-and-flagged once), `strokeEdits` (point-count difference, self-clearing, `strokeTotal` unmoved, edited-and-reflagged once, new stroke stays an addition, error fallback, all four categories side by side), deletions + `strokeTotal` arithmetic, error fallback, transcription new/changed (mocks `getPage`) |
 | `transcript-markdown.test.js` | `linesToLogseqMarkdown` — tab indentation, TODO/DONE markers, `::` property stripping, blank-line drop, `isPropertyLine`; `indentMarkdownBlock`, `textToTranscriptLines` (tab/2-space indent inference, blank drop), `pagesToLogseqMarkdown` (bare single page vs. labelled multi-page nesting, empty-page skip) |
 | `save-transcript.test.js` | `recomputeParentIds` (hierarchy by indent), `saveTranscriptLines` (verbatim write, lineId scrub on deleted lines, timestamp bump, missing-page guard; mocks `getPage`/`savePage`) |
 | `graph-index.test.js` | `smartpenAssetName`/`smartpenAssetRelPath`, `buildSmartpenIndexEntry`, `upsertSmartpenIndex` (replace-in-place, alias merge, sorting, corrupt-input normalisation) |
@@ -466,6 +474,20 @@ When making changes, also verify manually:
   lists the page with "✏️ 1 restyled" (not `+1 strokes`) and a "Restyling" total.
   Save, reopen the dialog → the page is gone from the list. Unmark and repeat.
   Marking a *freshly drawn* stroke must still read as `+1 strokes` only
+- Point editing (the stray-origin-dot fix): find a stroke with a line shooting off
+  to the page's top-left corner, select it → **📍 Edit Points** → point handles
+  appear, the offending dot amber. The panel lists it with its coordinates
+  (`0.00, 0.00`); click the row to centre the view on it, then **Delete selected**
+  (or **Delete all** for every suspect point). The line to the corner disappears
+  and the page border shrinks to the real content. Confirm the rest of the stroke
+  is intact and, if it was a sketch, still tapers. Then: the page label gains its
+  `*`; Save lists the page with "✎ 1 edited" and an amber **Editing** total plus
+  the rewrite warning; save, Clear, re-import → the point is still gone and the
+  stroke kept its transcript line. Reopen the save dialog → the page is gone from
+  the list. Also check a box-drag selects several handles, Del deletes them, Esc
+  clears the point selection and a second Esc leaves the mode, and that trying to
+  delete all but one point of a stroke is refused with a message rather than
+  leaving an invisible stroke
 - Canvas pan/zoom/navigation
 - Page positioning and scaling
 - Unsaved-changes indicator + window-close prompt
@@ -488,7 +510,7 @@ npm run preview
 
 ### Primary Documentation
 - [README.md](README.md) — User-facing documentation
-- [docs/LOCAL-STORAGE-PIVOT-SPEC.md](docs/LOCAL-STORAGE-PIVOT-SPEC.md) — **START HERE** for v2.0 — full design of the local-folder storage layer
+- [docs/LOCAL-STORAGE-PIVOT-SPEC.md](docs/LOCAL-STORAGE-PIVOT-SPEC.md) — **START HERE** for v2.0 — full design of the local-folder storage layer. §12 *Amendments Since v2.0* records what has changed on `strokes[]` since (variable-length point tuples carrying pen force, the `sketch` flag, and the one exception to immutable geometry); this file remains authoritative for current behaviour
 - [scripts/migrate-from-logseq.cjs](scripts/migrate-from-logseq.cjs) — one-shot importer for v1 LogSeq exports → v2 PageDoc files
 - [docs/QUICK-ARCHITECTURE-REFERENCE.md](docs/QUICK-ARCHITECTURE-REFERENCE.md) — quick architecture lookups (v1 era, mostly still applies for canvas/pen/MyScript)
 - [docs/app-specification.md](docs/app-specification.md) — original technical specification (LogSeq-era; superseded by the pivot spec for storage details)
@@ -505,6 +527,85 @@ npm run preview
 - [Svelte 4 Docs](https://svelte.dev/docs/svelte/overview) — Framework reference
 
 ## Recent Changes (Git History Context)
+
+### Point editing — delete a single stray point from a stroke (August 2026)
+
+**The pen sometimes emits a dot at the Ncode origin partway through an otherwise
+sound stroke.** The renderer joins consecutive dots, so one bad sample draws two
+long lines out to the page's top-left corner and back, straight through the notes.
+The only previous remedy was deleting the whole stroke, losing real handwriting.
+The canvas now has an **Edit Points** mode: the selected strokes' individual points
+become clickable handles, and single points can be deleted while the rest of the
+stroke stays intact.
+
+Note this is a *renderer* artifact of a bad sample, not the SDK's known invalid
+pen-down dot — `processDot()` already filters `{x: -1, y: -1}` (see "NeoSmartpen
+SDK — Invalid Pen-Down Dot"). These points arrive with plausible-looking data.
+
+**In-canvas, not a modal.** A stray point is identified by *where it sits*
+relative to the surrounding writing, and the canvas already has the zoom, pan and
+box-select to do that. The numeric half of the job — a point at `0.00, 0.00` is off
+in a page corner and easy to miss at fit-to-page zoom — is covered by
+`PointEditPanel`, which lists each suspect point with its coordinates and centres
+the view on it when clicked.
+
+**Geometry became mutable, in exactly one place.** Everything else about the save
+path is unchanged and still append-only:
+- `removeStrokePoints()` in `stores/strokes.js` is the sole mutation. It stamps the
+  stroke with an in-memory `pointsEdited` marker, and `savePageToFolder()` rewrites
+  a stored stroke's `points` **only** for marked strokes. Deliberately *not* keyed
+  on "the canvas copy has fewer points than disk": append-only exists so partial
+  canvas state cannot destroy stored data, and a count comparison would hand that
+  power to any future code path that filters a dotArray for its own purposes. The
+  existing test asserting points are never rewritten still passes unchanged —
+  which is the point.
+- **Identity survives.** `startTime`/`endTime` are preserved even when the first or
+  last point goes, so the `s{startTime}` id is stable. Re-deriving it would orphan
+  the stroke from its transcript line and re-import it as a duplicate. (The stray
+  is usually the pen-down sample, so this is the common case, not an edge one.)
+- **Sketch data survives.** Each surviving point keeps its `f` (pen force), so
+  `strokeToStored()` re-emits full `[x, y, ts|null, force]` tuples and a flagged
+  stroke still tapers. The `_sw` width cache and `_nb` bounds cache are dropped so
+  both recompute for the shorter series.
+- A stroke can't be reduced below 2 points — there'd be no line to draw. Those
+  removals are refused and reported rather than leaving an invisible stroke.
+
+**Reported as its own status.** `additions`/`modifications`/`deletions` gained
+`edits`: strokes already on disk whose geometry shrank. Separate from
+`modifications` (a sketch-flag toggle) because saving an edit *overwrites captured
+data*, so it earns its own amber **Editing** total, a per-page "✎ N edited" stat and
+an explicit warning in the save dialog. Every stroke lands in exactly one bucket:
+new-and-anything is an addition, edited-and-reflagged is an edit.
+
+**The diff is self-clearing.** `onDiskStrokeIds` entries carry a point *count*
+alongside the sketch flag, so an edit is detected by comparing counts and the
+post-save index refresh ends the "edited" state on its own — no flag to reset.
+`clearPointEditMarkers()` still runs after a successful save to keep the intent
+marker honest, guarded by a cheap pre-check so it doesn't republish the strokes
+array once per saved page for the common case of no edits.
+
+**Detection is advisory.** `detectStrayPoints()` flags `origin` points (at/near
+(0,0), or non-finite) and `jump` points (far from both neighbours). The jump test
+needs an absolute floor as well as a relative one: a comma whose points are 0.2mm
+apart and whose tail travels 3mm is a 15× jump by the relative measure, and
+offering that for deletion would be worse than missing a candidate the user can
+still click by hand.
+
+**Known limitation:** a stroke already exported to the LogSeq graph keeps its
+uncorrected geometry there. `mergeGraphStrokes()` dedupes by stroke id and lets the
+existing published copy win, so a re-export is a no-op. Correcting a published
+sketch would need a deliberate overwrite path in `graph-export.js`.
+
+**New:** `src/lib/point-edit.js`, `src/stores/point-edit.js`,
+`src/components/canvas/PointEditPanel.svelte`,
+`src/lib/__tests__/point-edit.test.js`.
+**Edited:** `stores/strokes.js`, `stores/pending-changes.js`, `stores/index.js`,
+`lib/canvas-renderer.js` (point handles, `hitTestPointHandle`,
+`findPointHandlesInRect`, `centerOnPoint`, the page-label asterisk),
+`lib/storage/save-page.js`, `lib/storage/page-changes.js`,
+`components/canvas/StrokeCanvas.svelte`,
+`components/dialog/SaveConfirmDialog.svelte`, `components/header/ActionBar.svelte`,
+`save-page.test.js`, `pending-changes.test.js`, `page-changes.test.js`.
 
 ### Pending-changes `modifications` — flag-only edits are reported (August 2026)
 

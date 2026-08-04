@@ -218,3 +218,177 @@ describe('savePageToFolder — sketch flag round-trip', () => {
     expect(writtenDoc().strokes[0].sketch).toBe(true);
   });
 });
+
+describe('savePageToFolder — point edits (the one geometry rewrite)', () => {
+  const writtenDoc = () => savePage.mock.calls[0][2];
+
+  /** PageDoc holding one 3-point stroke. */
+  function docWithThreePoints(extra = {}) {
+    return {
+      version: '2.0',
+      pageInfo: PAGE_INFO,
+      metadata: { lastUpdated: 'x', totalStrokes: 1, bounds: {} },
+      transcript: { lastTranscribed: null, lines: [] },
+      strokes: [{
+        id: 's1000',
+        startTime: 1000,
+        endTime: 1100,
+        lineId: null,
+        points: [[1, 2, 1000, 300], [0, 0, 1001, 0], [3, 4, 1002, 700]],
+        ...extra,
+      }],
+    };
+  }
+
+  beforeEach(() => {
+    getPage.mockReset();
+    savePage.mockReset();
+    savePage.mockResolvedValue({ path: '/tmp/P42.json' });
+  });
+
+  it('rewrites the stored points when the canvas stroke is marked pointsEdited', async () => {
+    getPage.mockResolvedValue(docWithThreePoints());
+
+    // The stray (0, 0) point is gone from the canvas copy.
+    const result = await savePageToFolder({
+      book: 3017,
+      page: 42,
+      activeStrokes: [canvasStroke(1000, [[1, 2, 300], [3, 4, 700]], { pointsEdited: true })],
+    });
+
+    expect(result.edited).toBe(1);
+    expect(result.added).toBe(0);
+    expect(writtenDoc().strokes[0].points).toEqual([[1, 2, 1000, 300], [3, 4, 1001, 700]]);
+  });
+
+  it('refuses the rewrite without the marker, however different the points are', async () => {
+    // The whole point of gating on explicit intent: a truncated dotArray from any
+    // other code path must not be able to destroy stored geometry.
+    getPage.mockResolvedValue(docWithThreePoints());
+
+    const result = await savePageToFolder({
+      book: 3017,
+      page: 42,
+      activeStrokes: [canvasStroke(1000, [[9, 9, 111]])],
+    });
+
+    expect(result.edited).toBe(0);
+    expect(writtenDoc().strokes[0].points).toHaveLength(3);
+  });
+
+  it('keeps the stroke id, startTime and endTime after removing the first point', async () => {
+    // Identity must survive: `s{startTime}` is what dedupe, transcript links and
+    // the LogSeq asset merge all key on.
+    getPage.mockResolvedValue(docWithThreePoints());
+
+    await savePageToFolder({
+      book: 3017,
+      page: 42,
+      activeStrokes: [canvasStroke(1000, [[3, 4, 700]], { pointsEdited: true })],
+    });
+
+    const saved = writtenDoc().strokes[0];
+    expect(saved.id).toBe('s1000');
+    expect(saved.startTime).toBe(1000);
+    expect(saved.endTime).toBe(1100);
+    expect(writtenDoc().strokes).toHaveLength(1); // not re-added as a duplicate
+  });
+
+  it('keeps per-point force and the sketch flag through the rewrite', async () => {
+    // A sketch stroke must still taper after an edit, which needs the 4th tuple
+    // element on every surviving point.
+    getPage.mockResolvedValue(docWithThreePoints({ sketch: true }));
+
+    await savePageToFolder({
+      book: 3017,
+      page: 42,
+      activeStrokes: [canvasStroke(1000, [[1, 2, 300], [3, 4, 700]], { sketch: true, pointsEdited: true })],
+    });
+
+    const saved = writtenDoc().strokes[0];
+    expect(saved.sketch).toBe(true);
+    expect(saved.points.map((p) => p[3])).toEqual([300, 700]);
+  });
+
+  it('never writes the pointsEdited marker into the PageDoc', async () => {
+    getPage.mockResolvedValue(docWithThreePoints());
+
+    await savePageToFolder({
+      book: 3017,
+      page: 42,
+      activeStrokes: [canvasStroke(1000, [[1, 2, 300], [3, 4, 700]], { pointsEdited: true })],
+    });
+
+    expect(writtenDoc().strokes[0]).not.toHaveProperty('pointsEdited');
+  });
+
+  it('leaves points untouched on the OTHER strokes of an edited page', async () => {
+    getPage.mockResolvedValue({
+      version: '2.0',
+      pageInfo: PAGE_INFO,
+      metadata: { lastUpdated: 'x', totalStrokes: 2, bounds: {} },
+      transcript: { lastTranscribed: null, lines: [] },
+      strokes: [
+        { id: 's1000', startTime: 1000, endTime: 1100, lineId: null, points: [[1, 2, 1000, 300], [0, 0, 1001, 0]] },
+        { id: 's2000', startTime: 2000, endTime: 2100, lineId: null, points: [[5, 6, 2000, 400], [7, 8, 2001, 500]] },
+      ],
+    });
+
+    const result = await savePageToFolder({
+      book: 3017,
+      page: 42,
+      activeStrokes: [
+        canvasStroke(1000, [[1, 2, 300], [9, 9, 900]], { pointsEdited: true }),
+        canvasStroke(2000, [[0, 0, 0]]), // drifted, but unmarked
+      ],
+    });
+
+    expect(result.edited).toBe(1);
+    const byId = new Map(writtenDoc().strokes.map((s) => [s.id, s]));
+    expect(byId.get('s1000').points).toHaveLength(2);
+    expect(byId.get('s2000').points).toEqual([[5, 6, 2000, 400], [7, 8, 2001, 500]]);
+  });
+
+  it('recomputes page bounds from the edited geometry', async () => {
+    // The reason the whole feature exists: a stray origin point stretches the
+    // page's bounding box to the corner, and removing it must shrink it back.
+    getPage.mockResolvedValue(docWithThreePoints());
+
+    await savePageToFolder({
+      book: 3017,
+      page: 42,
+      activeStrokes: [canvasStroke(1000, [[1, 2, 300], [3, 4, 700]], { pointsEdited: true })],
+    });
+
+    expect(writtenDoc().metadata.bounds).toEqual({ minX: 1, maxX: 3, minY: 2, maxY: 4 });
+  });
+
+  it('keeps points in their original key position so the serialized line is stable', async () => {
+    getPage.mockResolvedValue(docWithThreePoints());
+
+    await savePageToFolder({
+      book: 3017,
+      page: 42,
+      activeStrokes: [canvasStroke(1000, [[1, 2, 300], [3, 4, 700]], { pointsEdited: true })],
+    });
+
+    expect(Object.keys(writtenDoc().strokes[0]))
+      .toEqual(['id', 'startTime', 'endTime', 'lineId', 'points']);
+  });
+
+  it('reports edited: 0 when the marked stroke is new rather than stored', async () => {
+    // A freshly drawn stroke that was point-edited before its first save is an
+    // addition; the append branch writes its geometry anyway.
+    getPage.mockResolvedValue(null);
+
+    const result = await savePageToFolder({
+      book: 3017,
+      page: 42,
+      activeStrokes: [canvasStroke(1000, [[1, 2, 300], [3, 4, 700]], { pointsEdited: true })],
+    });
+
+    expect(result.added).toBe(1);
+    expect(result.edited).toBe(0);
+    expect(writtenDoc().strokes[0].points).toHaveLength(2);
+  });
+});

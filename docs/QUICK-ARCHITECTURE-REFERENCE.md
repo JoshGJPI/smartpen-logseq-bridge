@@ -65,6 +65,14 @@ This document provides a quick reference for AI assistants working on the smartp
   - `renderStrokes(true)` (full reset) is the **only** path that recomputes page layout via `calculateBounds()`. It runs when strokes are added, when the canvas empties (Clear — which also zeroes `previousStrokeCount` so the next import re-lays out and re-fits), and on Reset Layout. Page-filter changes deliberately use `renderStrokes(false)` so hiding a page doesn't repack the others.
   - **Export buttons (JSON / MD / SVG)**: selection-aware — if strokes are selected, export only those; otherwise export all visible strokes. Implemented via `$hasSelection ? $selectedStrokes : visibleStrokes` before calling `buildJsonExportData` / `buildMdExportData` / `openSvgExportDialog`.
 
+### Point Editing (Edit Points mode)
+- `src/lib/point-edit.js` - Pure: stray-point detection (`origin` / `jump`, the latter needing an absolute distance floor as well as a relative one so short flick strokes aren't flagged), `removePointsFromStroke()`
+- `src/stores/point-edit.js` - Mode state, point selection (keys `"{strokeIndex}:{pointIndex}"`), delete actions. Scoped to the current **stroke** selection; a `selectedIndices` subscription prunes stale point keys and exits the mode when the selection empties
+- `src/stores/strokes.js` → `removeStrokePoints()` - **The only mutation of captured geometry in the app.** Preserves `startTime`/`endTime` (so the `s{startTime}` id is stable), each surviving point's force, and the `sketch` flag; drops the `_nb`/`_sw` caches; refuses to leave a stroke with <2 points; stamps `pointsEdited`, which is what permits the save-time rewrite
+- `src/lib/canvas-renderer.js` - `drawPointHandles()`, `hitTestPointHandle()`, `findPointHandlesInRect()`, `centerOnPoint()`, `isPageVisible()`. Handle radius/hit radius are **screen-space and zoom-independent**: at fit-to-page zoom a stroke's dots are a pixel or two apart, and a hit radius that shrank with zoom would be unclickable exactly when the stray is being hunted
+- `src/components/canvas/PointEditPanel.svelte` - Suspect-point list with coordinates; click a row to centre the view on that point
+- While the mode is on, `StrokeCanvas` gives point handles priority over pasted strokes / page corners / page headers / stroke hit-testing, box-select selects **points** instead of strokes, and Del/Esc are owned by the mode
+
 ---
 
 ## Data Flow: Save to LogSeq
@@ -319,6 +327,11 @@ Framework: **Vitest 4.1.1** with happy-dom environment.
 | `src/lib/__tests__/transcript-search.test.js` | `tokenize` (hyphen preservation, property filtering), `searchPages` (partial matching, ranking), `highlightMatches` (HTML escaping, mark injection) |
 | `src/lib/__tests__/stroke-filter.test.js` | `filterDecorativeStrokes` — underline/circle/single-stroke-box detection (perimeter-fraction + path-ratio), threshold behaviour, `detectDecorativeIndices`, regression for vertical lines and multi-stroke grouping |
 
+⚠️ **This table is v1-era and incomplete** — it lists files deleted in the v2.0 pivot
+(`logseq-api.test.js`, `transcript-updater.test.js`) and omits everything added since
+(storage, Book View, sketch strokes, point editing). See CLAUDE.md → *Automated Unit
+Tests* for the current list.
+
 ---
 
 ## Testing Checklist
@@ -330,6 +343,7 @@ When making changes to stroke/transcription logic, test:
 3. **Incremental Addition** → Save → Verify no duplicates
 4. **Undo Deletion** → Save → Verify restoration works
 5. **Y-Bounds** → Re-transcribe → Verify properties preserved
+6. **Point Edit** → Save → Clear → Re-import → Verify the point stays gone, the stroke kept its id and transcript line, and a sketch stroke still tapers
 
 ---
 

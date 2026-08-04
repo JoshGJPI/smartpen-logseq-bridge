@@ -55,6 +55,13 @@ export class CanvasRenderer {
     // visible stepping.
     this.sketchWidthQuantum = 0.25;
 
+    // Point-edit handles (drawn only in the canvas "Edit Points" mode).
+    // Sizes are in screen px and deliberately zoom-independent: a handle is a UI
+    // affordance, so it has to stay clickable at fit-to-page zoom where a
+    // stroke's dots are only a pixel or two apart.
+    this.pointHandleRadius = 3;
+    this.pointHandleHitRadius = 9;
+
     // Per-page scale factors (non-destructive display scaling)
     this.pageScales = {}; // Map of pageKey -> scale factor
     this.tempPageScales = {}; // Temporary scales during drag preview
@@ -1030,10 +1037,170 @@ export class CanvasRenderer {
         }
       }
     }
-    
+
     return -1;
   }
-  
+
+  /* ---------------------------------------------------------------
+   *  Point editing
+   *
+   *  In "Edit Points" mode the individual captured dots of the selected strokes
+   *  are drawn as handles so a single bad sample (typically one at the Ncode
+   *  origin, which draws a line out to the page corner) can be picked off
+   *  without discarding the stroke.
+   *
+   *  Handle geometry is screen-space and zoom-independent, unlike stroke
+   *  hit-testing above: at fit-to-page zoom a stroke's dots are a pixel or two
+   *  apart, and a hit radius that shrank with zoom would be unclickable exactly
+   *  when the user is looking for the stray.
+   * --------------------------------------------------------------- */
+
+  /**
+   * Is this stroke's page currently shown? The stroke selection survives a change
+   * of page filter, so without this a selected stroke on a now-hidden page would
+   * contribute handles floating over an unrelated page — and be clickable there.
+   * @param {Object|null} pageInfo
+   * @returns {boolean}
+   */
+  isPageVisible(pageInfo) {
+    if (!this.visiblePageKeys) return true;
+    if (!pageInfo) return true;
+    const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${pageInfo.book}/P${pageInfo.page}`;
+    return this.visiblePageKeys.has(pageKey);
+  }
+
+  /**
+   * Draw point handles for the strokes open for point editing.
+   *
+   * Ordinary points are hollow; detected strays are filled amber; points picked
+   * for deletion are filled red and drawn last so they sit on top of their
+   * neighbours in a dense cluster.
+   *
+   * @param {Array<{strokeIndex:number, stroke:Object}>} entries
+   * @param {Set<string>} [selectedKeys] - "strokeIndex:pointIndex"
+   * @param {Set<string>} [strayKeys]
+   * @returns {number} handles actually drawn (off-screen ones are skipped)
+   */
+  drawPointHandles(entries, selectedKeys = new Set(), strayKeys = new Set()) {
+    if (!entries || entries.length === 0) return 0;
+
+    const ctx = this.ctx;
+    const margin = this.pointHandleRadius + 2;
+    const plain = [];
+    const stray = [];
+    const chosen = [];
+
+    for (const { strokeIndex, stroke } of entries) {
+      const dots = stroke.dotArray || stroke.dots || [];
+      const pageInfo = stroke.pageInfo;
+      if (!this.isPageVisible(pageInfo)) continue;
+      for (let i = 0; i < dots.length; i++) {
+        const s = this.ncodeToScreen(dots[i], pageInfo);
+        if (s.x < -margin || s.x > this.viewWidth + margin) continue;
+        if (s.y < -margin || s.y > this.viewHeight + margin) continue;
+
+        const key = `${strokeIndex}:${i}`;
+        if (selectedKeys.has(key)) chosen.push(s);
+        else if (strayKeys.has(key)) stray.push(s);
+        else plain.push(s);
+      }
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.setLineDash([]);
+
+    const paint = (points, fill, ring, radius) => {
+      if (points.length === 0) return;
+      ctx.fillStyle = fill;
+      ctx.strokeStyle = ring;
+      ctx.lineWidth = 1.25;
+      for (const p of points) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+    };
+
+    paint(plain, 'rgba(255, 255, 255, 0.9)', '#2563eb', this.pointHandleRadius);
+    paint(stray, '#f59e0b', '#7c2d12', this.pointHandleRadius + 1.5);
+    paint(chosen, '#e94560', '#ffffff', this.pointHandleRadius + 2);
+
+    return plain.length + stray.length + chosen.length;
+  }
+
+  /**
+   * Find the point handle nearest a screen position, within the hit radius.
+   * @param {number} x
+   * @param {number} y
+   * @param {Array<{strokeIndex:number, stroke:Object}>} entries
+   * @returns {{strokeIndex:number, pointIndex:number, distance:number}|null}
+   */
+  hitTestPointHandle(x, y, entries) {
+    if (!entries || entries.length === 0) return null;
+
+    // Nearest wins rather than first: in a dense cluster several handles overlap
+    // the cursor, and picking the closest is what the user means.
+    let best = null;
+    const limit = this.pointHandleHitRadius;
+
+    for (const { strokeIndex, stroke } of entries) {
+      const dots = stroke.dotArray || stroke.dots || [];
+      const pageInfo = stroke.pageInfo;
+      if (!this.isPageVisible(pageInfo)) continue;
+      for (let i = 0; i < dots.length; i++) {
+        const s = this.ncodeToScreen(dots[i], pageInfo);
+        const dx = s.x - x;
+        const dy = s.y - y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance <= limit && (!best || distance < best.distance)) {
+          best = { strokeIndex, pointIndex: i, distance };
+        }
+      }
+    }
+
+    return best;
+  }
+
+  /**
+   * All point handles inside a screen rectangle (box-select in point-edit mode).
+   * @param {Array<{strokeIndex:number, stroke:Object}>} entries
+   * @param {{left:number, top:number, right:number, bottom:number}} rect
+   * @returns {Array<{strokeIndex:number, pointIndex:number}>}
+   */
+  findPointHandlesInRect(entries, rect) {
+    const found = [];
+    if (!entries || entries.length === 0) return found;
+
+    for (const { strokeIndex, stroke } of entries) {
+      const dots = stroke.dotArray || stroke.dots || [];
+      const pageInfo = stroke.pageInfo;
+      if (!this.isPageVisible(pageInfo)) continue;
+      for (let i = 0; i < dots.length; i++) {
+        const s = this.ncodeToScreen(dots[i], pageInfo);
+        if (s.x >= rect.left && s.x <= rect.right && s.y >= rect.top && s.y <= rect.bottom) {
+          found.push({ strokeIndex, pointIndex: i });
+        }
+      }
+    }
+
+    return found;
+  }
+
+  /**
+   * Pan so an Ncode point sits at the centre of the viewport, leaving zoom alone.
+   * Used by the point-edit panel to jump to a listed stray point.
+   * Does NOT redraw — the caller triggers the render.
+   * @param {{x:number, y:number}} dot
+   * @param {Object|null} pageInfo
+   */
+  centerOnPoint(dot, pageInfo = null) {
+    if (!dot || !Number.isFinite(dot.x) || !Number.isFinite(dot.y)) return;
+    const s = this.ncodeToScreen(dot, pageInfo);
+    this.panX += this.viewWidth / 2 - s.x;
+    this.panY += this.viewHeight / 2 - s.y;
+  }
+
   /**
    * Set which page keys should be visible (for filtering borders)
    * @param {Set|null} pageKeys - Set of visible page keys, or null for all
@@ -1160,10 +1327,12 @@ export class CanvasRenderer {
         // Check if this page has pending changes (unsaved strokes)
         const hasUnsavedChanges = this.pendingChanges && this.pendingChanges.has(`B${book}/P${page}`);
         const pageChanges = hasUnsavedChanges ? this.pendingChanges.get(`B${book}/P${page}`) : null;
-        // Unsaved strokes, or a stored stroke whose sketch flag was toggled —
-        // both are lost unless the page is saved, so both earn the asterisks.
+        // Unsaved strokes, a stored stroke whose sketch flag was toggled, or one
+        // whose points were edited — all three are lost unless the page is
+        // saved, so all three earn the asterisks.
         const hasUnsavedStrokeWork = !!pageChanges && (
           (pageChanges.additions && pageChanges.additions.length > 0) ||
+          (pageChanges.edits && pageChanges.edits.length > 0) ||
           (pageChanges.modifications && pageChanges.modifications.length > 0)
         );
 

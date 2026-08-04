@@ -31,7 +31,30 @@ A desktop Electron app for capturing, transcribing, and managing handwritten not
   - Shift+drag: Remove from selection
 - **Individual Selection**: Ctrl/Shift+click to toggle individual strokes
 - **Smart Filtering**: Automatically detect and filter decorative elements (boxes, underlines, circles)
+- **Point-Level Editing**: Delete individual bad points from a stroke without losing the rest (see below)
 - **Undo System**: Revert deletions with full undo support
+
+### Point-Level Editing (v2.5)
+
+The pen occasionally records a single dot at the corner of the page. Because the
+canvas joins consecutive dots, one bad dot draws a long line straight through your
+notes — and until now the only fix was deleting the whole stroke.
+
+- **Edit Points mode**: select a stroke, click **📍 Edit Points**, and every recorded
+  point becomes a clickable handle
+- **Suspect points highlighted**: points at the page origin (or wildly out of line
+  with their neighbours) show in amber, with a side panel listing each one's
+  coordinates
+- **Click to locate**: click a listed point and the canvas centres on it — useful
+  when the stray sits in a far corner at low zoom
+- **Delete one or all**: click a handle (or drag a box over several) and press
+  **Del**, or use **Delete all** to clear every suspect point at once
+- **The rest of the stroke is untouched**: your handwriting keeps its shape, its
+  transcript line, and — for sketch strokes — its pressure-based line thickness
+- **Reported as its own save status**: edited strokes appear in the save dialog as
+  **Editing / ✎N edited**, separate from added and deleted strokes, with a warning
+  that saving rewrites the stored point data (this is the one place the app
+  overwrites captured pen data, so it says so plainly)
 
 ### Intelligent Page Management
 - **Custom Page Positioning**: Drag page labels to reposition pages anywhere on canvas
@@ -291,6 +314,37 @@ was removed in v2.0.)
 4. Click result to view full page
 5. Click **View Strokes** to load onto canvas
 
+#### Fixing Stray Points
+
+When a stroke has a line shooting off to the corner of the page, one recorded point
+is bad — usually the first one, sitting at the page origin.
+
+1. Click the stroke to select it (or box-select the area around it)
+2. Click **📍 Edit Points** in the canvas header
+3. Every point of the selected stroke(s) appears as a handle. Suspect points are
+   **amber**; the panel at the top-left lists them with their coordinates — a stray
+   reads `0.00, 0.00`
+4. Either:
+   - Click **Delete all** in the panel to remove every suspect point, or
+   - Click the handle you want (Ctrl+click to add more, or drag a box over several)
+     and press **Del**
+5. The line to the corner disappears and the page border shrinks back to your real
+   content
+6. **Save** — the dialog shows the page with **✎ N edited** and an amber **Editing**
+   total. Confirm to write it; the removed points are gone for good
+
+**Notes:**
+- Click a listed point to centre the canvas on it — handy when the stray is off in a
+  corner and you're zoomed out
+- **Esc** clears the point selection; a second **Esc** leaves the mode
+- A stroke can't be reduced below two points (there'd be no line left to draw). If
+  you try, the app says so and leaves the stroke alone — delete the whole stroke
+  instead
+- Point editing works on the strokes you have selected, so the stroke selection is
+  locked while the mode is on. Leave the mode to select something else
+- Already published a stroke to LogSeq before fixing it? The graph keeps the old
+  version — re-exporting won't overwrite it
+
 #### Text View Mode
 
 **Toggle Views:**
@@ -327,6 +381,12 @@ was removed in v2.0.)
 - **Ctrl+D** (Cmd+D): Duplicate selected strokes
 - **Delete**: Delete selected duplicated strokes
 - **Escape**: Cancel box selection, clear duplicated selection, or cancel resize
+
+**In Edit Points mode:**
+- **Click**: Select a point handle · **Ctrl+click**: add · **Shift+click**: remove
+- **Drag**: Box-select points (Ctrl+drag to add, Shift+drag to remove)
+- **Delete** / **Backspace**: Delete the selected points
+- **Escape**: Clear the point selection; press again to leave the mode
 
 **Selection Modes:**
 - **Click**: Select single stroke (replace selection)

@@ -132,4 +132,93 @@ describe('computePageChangesFolder', () => {
     const out2 = await computePageChangesFolder(1, 5, [canvasStroke(1000)], fresh);
     expect(out2.transcriptionChanged).toBe(true);
   });
+
+  describe('point edits', () => {
+    /** Canvas stroke with an explicit number of points. */
+    const withPoints = (startTime, pointCount, extra = {}) => ({
+      pageInfo: { section: 3, owner: 1012, book: 1, page: 5 },
+      startTime,
+      endTime: startTime + 100,
+      dotArray: Array.from({ length: pointCount }, (_, i) => ({ x: i, y: i, f: 400 })),
+      ...extra,
+    });
+
+    /** Stored stroke with an explicit number of points. */
+    const storedWithPoints = (id, pointCount, extra = {}) => ({
+      id,
+      startTime: Number(id.slice(1)),
+      points: Array.from({ length: pointCount }, (_, i) => [i, i, 100 + i, 400]),
+      ...extra,
+    });
+
+    it('counts a stroke with fewer points than the stored copy as an edit', async () => {
+      getPage.mockResolvedValue(pageDoc([storedWithPoints('s1000', 57)]));
+      const out = await computePageChangesFolder(1, 5, [withPoints(1000, 56)], null);
+
+      expect(out.strokeEdits).toBe(1);
+      expect(out.strokeAdditions).toBe(0);
+      expect(out.strokeModifications).toBe(0);
+    });
+
+    it('counts nothing once the point counts agree', async () => {
+      getPage.mockResolvedValue(pageDoc([storedWithPoints('s1000', 56)]));
+      const out = await computePageChangesFolder(1, 5, [withPoints(1000, 56)], null);
+      expect(out.strokeEdits).toBe(0);
+    });
+
+    it('does not change the stroke total — an edit moves no stroke count', async () => {
+      getPage.mockResolvedValue(pageDoc([storedWithPoints('s1000', 57)]));
+      const out = await computePageChangesFolder(1, 5, [withPoints(1000, 56)], null);
+      expect(out.strokeTotal).toBe(1);
+    });
+
+    it('counts a stroke that is both edited and re-flagged once, as an edit', async () => {
+      getPage.mockResolvedValue(pageDoc([storedWithPoints('s1000', 57)]));
+      const out = await computePageChangesFolder(
+        1, 5, [withPoints(1000, 56, { sketch: true })], null
+      );
+      expect(out.strokeEdits).toBe(1);
+      expect(out.strokeModifications).toBe(0);
+    });
+
+    it('counts a new stroke as an addition, not an edit', async () => {
+      getPage.mockResolvedValue(pageDoc([storedWithPoints('s1000', 57)]));
+      const out = await computePageChangesFolder(
+        1, 5, [withPoints(2000, 12, { pointsEdited: true })], null
+      );
+      expect(out.strokeAdditions).toBe(1);
+      expect(out.strokeEdits).toBe(0);
+    });
+
+    it('reports an edit count of zero on the error fallback', async () => {
+      getPage.mockRejectedValue(new Error('disk gone'));
+      const out = await computePageChangesFolder(1, 5, [withPoints(1000, 56)], null);
+      expect(out.strokeEdits).toBe(0);
+    });
+
+    it('separates edits from additions, restyles and deletions on one page', async () => {
+      getPage.mockResolvedValue(pageDoc([
+        storedWithPoints('s1000', 20),
+        storedWithPoints('s2000', 20),
+        storedWithPoints('s4000', 20),
+      ]));
+
+      const out = await computePageChangesFolder(
+        1, 5,
+        [
+          withPoints(1000, 19),                   // edited
+          withPoints(2000, 20, { sketch: true }), // restyled
+          withPoints(3000, 20),                   // added
+        ],
+        null,
+        new Set(['s4000'])                        // deleted
+      );
+
+      expect(out.strokeEdits).toBe(1);
+      expect(out.strokeModifications).toBe(1);
+      expect(out.strokeAdditions).toBe(1);
+      expect(out.strokeDeletions).toBe(1);
+      expect(out.strokeTotal).toBe(3); // 3 stored - 1 deleted + 1 added
+    });
+  });
 });

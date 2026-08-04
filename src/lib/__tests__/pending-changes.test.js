@@ -17,13 +17,23 @@ function stroke(book, page, startTime, extra = {}) {
 const idOf = (startTime) => `s${startTime}`;
 
 // Per-page on-disk state. Each stroke entry is either a bare id (stored with the
-// sketch flag off) or an [id, { sketch }] pair.
+// sketch flag off and an unknown point count) or an [id, { sketch, points }] pair.
 const onDisk = (entries) => new Map(entries.map(([pageKey, strokeEntries]) => [
   pageKey,
   new Map(strokeEntries.map(e => (
-    Array.isArray(e) ? [e[0], { sketch: !!e[1].sketch }] : [e, { sketch: false }]
+    Array.isArray(e)
+      ? [e[0], { sketch: !!e[1].sketch, points: e[1].points }]
+      : [e, { sketch: false }]
   )))
 ]));
+
+/** Canvas stroke with a given number of points, for the geometry diff. */
+const strokeWithPoints = (book, page, startTime, pointCount, extra = {}) => ({
+  pageInfo: { book, page },
+  startTime,
+  dotArray: Array.from({ length: pointCount }, (_, i) => ({ x: i, y: i, f: 300 })),
+  ...extra
+});
 
 describe('computePendingChangesMap', () => {
   it('returns an empty map when there are no canvas strokes', () => {
@@ -157,6 +167,98 @@ describe('computePendingChangesMap', () => {
       const m = computePendingChangesMap(strokes, new Set(), ids, new Set(['B7/P12']));
       expect(m.has('B7/P12')).toBe(true);
       expect(m.get('B7/P12').isSaved).toBe(true);
+    });
+  });
+
+  describe('point edits (geometry)', () => {
+    it('reports a stroke with fewer points than the stored copy as an edit', () => {
+      // The point editor deleted a stray dot: same id, same flag, shorter series.
+      const strokes = [strokeWithPoints(1, 5, 1000, 56)];
+      const ids = onDisk([['B1/P5', [[idOf(1000), { points: 57 }]]]]);
+      const m = computePendingChangesMap(strokes, new Set(), ids, new Set());
+
+      expect(m.get('B1/P5').edits).toEqual([0]);
+      expect(m.get('B1/P5').additions).toEqual([]);
+      expect(m.get('B1/P5').modifications).toEqual([]);
+      expect(m.get('B1/P5').deletions).toEqual([]);
+    });
+
+    it('reports nothing once the counts agree again (the post-save state)', () => {
+      // Self-clearing: the save refreshes the on-disk index with the new count.
+      const strokes = [strokeWithPoints(1, 5, 1000, 56)];
+      const ids = onDisk([['B1/P5', [[idOf(1000), { points: 56 }]]]]);
+      expect(computePendingChangesMap(strokes, new Set(), ids, new Set()).has('B1/P5')).toBe(false);
+    });
+
+    it('stays silent when the stored point count is unknown', () => {
+      // Never guess: a state entry built from a shape without points must not
+      // make every stroke on the page look edited.
+      const strokes = [strokeWithPoints(1, 5, 1000, 56)];
+      const ids = onDisk([['B1/P5', [idOf(1000)]]]); // no points recorded
+      expect(computePendingChangesMap(strokes, new Set(), ids, new Set()).has('B1/P5')).toBe(false);
+    });
+
+    it('counts a stroke that is both edited and re-flagged once, as an edit', () => {
+      const strokes = [strokeWithPoints(1, 5, 1000, 56, { sketch: true })];
+      const ids = onDisk([['B1/P5', [[idOf(1000), { sketch: false, points: 57 }]]]]);
+      const m = computePendingChangesMap(strokes, new Set(), ids, new Set());
+
+      expect(m.get('B1/P5').edits).toEqual([0]);
+      expect(m.get('B1/P5').modifications).toEqual([]);
+    });
+
+    it('counts a brand-new stroke as an addition even if its points were edited', () => {
+      // Saving writes the whole stroke, points included — one change, not two.
+      const strokes = [strokeWithPoints(1, 5, 3000, 56, { pointsEdited: true })];
+      const ids = onDisk([['B1/P5', [[idOf(1000), { points: 57 }]]]]);
+      const m = computePendingChangesMap(strokes, new Set(), ids, new Set());
+
+      expect(m.get('B1/P5').additions).toEqual([0]);
+      expect(m.get('B1/P5').edits).toEqual([]);
+    });
+
+    it('reports no edits for a page with nothing on disk', () => {
+      const strokes = [strokeWithPoints(1, 5, 1000, 56)];
+      const m = computePendingChangesMap(strokes, new Set(), new Map(), new Set());
+      expect(m.get('B1/P5').edits).toEqual([]);
+      expect(m.get('B1/P5').additions).toEqual([0]);
+    });
+
+    it('excludes a stroke marked for deletion from the geometry diff', () => {
+      const strokes = [strokeWithPoints(1, 5, 1000, 56)];
+      const ids = onDisk([['B1/P5', [[idOf(1000), { points: 57 }]]]]);
+      const m = computePendingChangesMap(strokes, new Set([0]), ids, new Set());
+
+      expect(m.get('B1/P5').deletions).toEqual([0]);
+      expect(m.get('B1/P5').edits).toEqual([]);
+    });
+
+    it('puts a page whose only change is a point edit into the changes map', () => {
+      const strokes = [strokeWithPoints(7, 12, 1000, 20)];
+      const ids = onDisk([['B7/P12', [[idOf(1000), { points: 21 }]]]]);
+      const m = computePendingChangesMap(strokes, new Set(), ids, new Set(['B7/P12']));
+
+      expect(m.has('B7/P12')).toBe(true);
+      expect(m.get('B7/P12').edits).toEqual([0]);
+    });
+
+    it('classifies additions, edits and modifications side by side on one page', () => {
+      const strokes = [
+        strokeWithPoints(1, 5, 1000, 19),                   // 20 on disk → edit
+        strokeWithPoints(1, 5, 2000, 20, { sketch: true }), // same count, flagged → modification
+        strokeWithPoints(1, 5, 3000, 20),                   // not on disk → addition
+        strokeWithPoints(1, 5, 4000, 20)                    // unchanged → neither
+      ];
+      const ids = onDisk([['B1/P5', [
+        [idOf(1000), { points: 20 }],
+        [idOf(2000), { points: 20 }],
+        [idOf(4000), { points: 20 }]
+      ]]]);
+      const m = computePendingChangesMap(strokes, new Set(), ids, new Set());
+
+      expect(m.get('B1/P5').edits).toEqual([0]);
+      expect(m.get('B1/P5').modifications).toEqual([1]);
+      expect(m.get('B1/P5').additions).toEqual([2]);
     });
   });
 });

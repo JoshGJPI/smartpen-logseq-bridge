@@ -127,17 +127,25 @@ export const canUndo = derived(
  *  evicted when those pages leave the canvas, so the whole library never stays
  *  resident just to power the dirty indicator.
  *
- *  Each entry carries the mutable per-stroke annotations a save can write back
- *  to an already-stored stroke — currently just the sketch flag — so a
- *  flag-only edit is diffable. That is deliberately a flag-sized record and NOT
- *  the stroke: `points` is what makes the corpus expensive to keep resident, and
- *  geometry is immutable under the append-only rule, so there is nothing to diff
- *  there. Keep any future field here similarly small.
+ *  Each entry carries the mutable per-stroke state a save can write back to an
+ *  already-stored stroke: the sketch flag, and how many points the stored stroke
+ *  has. That is deliberately a scalar-sized record and NOT the stroke — `points`
+ *  itself is what makes the corpus expensive to keep resident. Keep any future
+ *  field here similarly small.
+ *
+ *  Why a point COUNT rather than nothing at all: geometry used to be immutable
+ *  under the append-only rule, so there was nothing to diff. Point editing (see
+ *  `removeStrokePoints` in stores/strokes.js) makes it mutable in exactly one
+ *  way — points are deleted, never added or moved — so a count is sufficient to
+ *  detect the edit, and comparing counts makes the diff self-clearing: the
+ *  post-save `noteOnDiskStrokeIds()` refresh brings the stored count in line and
+ *  the page stops reporting an edit without anyone having to reset a flag.
  * ----------------------------------------------------------------- */
 
 /**
  * @typedef {Object} OnDiskStrokeState
  * @property {boolean} sketch - the sketch flag as it exists on disk
+ * @property {number|null} points - stored point count, or null if unknown
  */
 
 // pageKey "B{book}/P{page}" (integer page — matches canvas grouping)
@@ -147,13 +155,23 @@ export const onDiskStrokeIds = writable(new Map());
 // Pages with an in-flight lazy fetch, so the same page is never read twice.
 const fetchingPages = new Set();
 
+/**
+ * Point count of a stored- or canvas-format stroke, or null when neither shape
+ * is present (in which case the geometry diff stays silent rather than guessing).
+ */
+function pointCountOf(stroke) {
+  if (Array.isArray(stroke.points)) return stroke.points.length;
+  if (Array.isArray(stroke.dotArray)) return stroke.dotArray.length;
+  return null;
+}
+
 function strokeStateMap(strokeArray) {
   const states = new Map();
   for (const s of strokeArray || []) {
     const id = s.id || (s.startTime != null ? `s${s.startTime}` : null);
     // `sketch` is absent rather than false when off, both on disk and on the
     // canvas, so normalise here — the diff compares booleans.
-    if (id) states.set(id, { sketch: !!s.sketch });
+    if (id) states.set(id, { sketch: !!s.sketch, points: pointCountOf(s) });
   }
   return states;
 }
@@ -240,21 +258,29 @@ canvasPageKeys.subscribe(($keys) => {
  * Pure core of the pending-changes diff. Classifies each page's active canvas
  * strokes as:
  *   - additions     — id not in the page's on-disk state map
- *   - modifications — id IS on disk, but a mutable annotation differs from the
- *                     stored value (currently the sketch flag). Flag-only edits
- *                     are genuine unsaved changes: `savePageToFolder()` syncs
- *                     them onto strokes already stored.
+ *   - edits         — id IS on disk, but the stroke's GEOMETRY differs: it has
+ *                     fewer points than the stored copy because the user deleted
+ *                     points (see `removeStrokePoints`). Its own category rather
+ *                     than a modification because saving it rewrites captured
+ *                     data, which every other save path is forbidden to do — it
+ *                     earns a distinct warning.
+ *   - modifications — id IS on disk, geometry unchanged, but a mutable annotation
+ *                     differs from the stored value (currently the sketch flag).
+ *                     `savePageToFolder()` syncs those onto strokes already
+ *                     stored, so they are genuine unsaved changes.
  *   - deletions     — indices explicitly marked for deletion
  *
- * A stroke is never counted twice: a new stroke that is also flagged is an
- * addition only, since saving it writes the flag along with the stroke.
+ * A stroke is never counted twice. A new stroke that is also flagged or edited is
+ * an addition only, since saving it writes the whole stroke anyway; a stroke that
+ * is both edited and re-flagged counts as an edit, the stronger claim, and one
+ * save carries both.
  * Extracted for unit testing.
  *
  * @param {Array} strokesArr            canvas strokes (with pageInfo + startTime)
  * @param {Set<number>} deletedSet      stroke indices marked for deletion
  * @param {Map<string,Map<string,OnDiskStrokeState>>} onDiskIds  pageKey → on-disk stroke state
  * @param {Set<string>} savedPages      pageKeys saved this session
- * @returns {Map<string,{book:number,page:number,additions:number[],modifications:number[],deletions:number[],isSaved:boolean}>}
+ * @returns {Map<string,{book:number,page:number,additions:number[],edits:number[],modifications:number[],deletions:number[],isSaved:boolean}>}
  */
 export function computePendingChangesMap(strokesArr, deletedSet, onDiskIds, savedPages) {
   const changes = new Map();
@@ -295,30 +321,42 @@ export function computePendingChangesMap(strokesArr, deletedSet, onDiskIds, save
     const onDisk = onDiskIds.get(pageKey);
 
     let additionIndices = [];
+    const editIndices = [];
     const modificationIndices = [];
     if (onDisk && onDisk.size > 0) {
       // Page exists on disk — an active stroke is an addition iff its id isn't
-      // there, otherwise a modification iff a stored annotation has changed.
+      // there; otherwise an edit iff its geometry shrank, else a modification iff
+      // a stored annotation has changed.
       activeIndices.forEach((canvasIndex, i) => {
         const stroke = activeStrokes[i];
         const stored = onDisk.get(generateStrokeId(stroke));
         if (!stored) {
           additionIndices.push(canvasIndex);
+          return;
+        }
+        // Only a known, differing count counts: an unknown stored count (null)
+        // must not read as an edit, or every stroke on a page whose state came
+        // from a shape without points would light up.
+        const canvasPoints = Array.isArray(stroke.dotArray) ? stroke.dotArray.length : null;
+        if (stored.points != null && canvasPoints != null && canvasPoints !== stored.points) {
+          editIndices.push(canvasIndex);
         } else if (!!stroke.sketch !== !!stored.sketch) {
           modificationIndices.push(canvasIndex);
         }
       });
     } else {
       // Nothing known on disk for this page → every active stroke is new. No
-      // modifications: there is no stored value for a flag to differ from.
+      // edits or modifications: there is no stored value to differ from.
       additionIndices = [...activeIndices];
     }
 
-    if (additionIndices.length > 0 || modificationIndices.length > 0 || deletedIndicesForPage.length > 0) {
+    if (additionIndices.length > 0 || editIndices.length > 0 ||
+        modificationIndices.length > 0 || deletedIndicesForPage.length > 0) {
       changes.set(pageKey, {
         book,
         page,
         additions: additionIndices,
+        edits: editIndices,
         modifications: modificationIndices,
         deletions: deletedIndicesForPage,
         isSaved: savedPages.has(pageKey)
@@ -331,7 +369,7 @@ export function computePendingChangesMap(strokesArr, deletedSet, onDiskIds, save
 
 /**
  * Compute pending changes per page.
- * Returns a Map of pageKey -> { additions, modifications, deletions, book, page, isSaved }.
+ * Returns a Map of pageKey -> { additions, edits, modifications, deletions, book, page, isSaved }.
  */
 export const pendingChanges = derived(
   [strokes, deletedIndices, storageStatus, onDiskStrokeIds],
@@ -347,6 +385,7 @@ export const hasPendingChanges = derived(
   $changes => {
     for (const [_, pageChanges] of $changes) {
       if (pageChanges.additions.length > 0 ||
+          pageChanges.edits.length > 0 ||
           pageChanges.modifications.length > 0 ||
           pageChanges.deletions.length > 0) {
         return true;
@@ -415,16 +454,19 @@ export function getPendingChangesSummary() {
   const $pendingChanges = get(pendingChanges);
   
   let totalAdditions = 0;
+  let totalEdits = 0;
   let totalModifications = 0;
   let totalDeletions = 0;
   let pagesWithChanges = 0;
 
   for (const [_, pageChanges] of $pendingChanges) {
     if (pageChanges.additions.length > 0 ||
+        pageChanges.edits.length > 0 ||
         pageChanges.modifications.length > 0 ||
         pageChanges.deletions.length > 0) {
       pagesWithChanges++;
       totalAdditions += pageChanges.additions.length;
+      totalEdits += pageChanges.edits.length;
       totalModifications += pageChanges.modifications.length;
       totalDeletions += pageChanges.deletions.length;
     }
@@ -432,6 +474,7 @@ export function getPendingChangesSummary() {
 
   return {
     totalAdditions,
+    totalEdits,
     totalModifications,
     totalDeletions,
     pagesWithChanges,
