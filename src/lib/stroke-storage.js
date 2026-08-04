@@ -20,27 +20,37 @@ export function generateStrokeId(stroke) {
 
 /**
  * Convert raw pen strokes to simplified storage format
- * Removes artistic metadata (pressure, tilt, color) to reduce storage by ~60%
- * Now includes blockUuid for incremental transcription tracking
- * 
- * @param {Array} strokes - Raw strokes from pen (with optional blockUuid)
- * @returns {Array} Simplified strokes with essential data + blockUuid
+ *
+ * Drops tilt and colour, and keeps blockUuid for incremental transcription
+ * tracking. Pen force IS kept, as a 4th point element — sketch strokes render
+ * with a pressure-varying thickness, so discarding it (as this used to, for the
+ * ~60% size saving) made that impossible to reconstruct after the fact. See the
+ * StoredStroke typedef in storage/page-doc.js for the tuple layout.
+ *
+ * @param {Array} strokes - Raw strokes from pen (with optional blockUuid/sketch)
+ * @returns {Array} Simplified strokes with essential data + blockUuid + pressure
  */
 export function convertToStorageFormat(strokes) {
   const withBlockUuid = strokes.filter(s => s.blockUuid).length;
   console.log(`[convertToStorageFormat] Converting ${strokes.length} strokes (${withBlockUuid} have blockUuid)`);
 
-  return strokes.map(stroke => ({
-    id: generateStrokeId(stroke),
-    startTime: stroke.startTime,
-    endTime: stroke.endTime,
-    blockUuid: stroke.blockUuid || null,  // NEW: Persist block reference
-    points: stroke.dotArray.map(dot => [
-      dot.x,
-      dot.y,
-      dot.timestamp
-    ])
-  }));
+  return strokes.map(stroke => {
+    const stored = {
+      id: generateStrokeId(stroke),
+      startTime: stroke.startTime,
+      endTime: stroke.endTime,
+      blockUuid: stroke.blockUuid || null,  // Persist block reference
+    };
+    if (stroke.sketch) stored.sketch = true;
+    stored.points = stroke.dotArray.map(dot => {
+      const f = (dot.f === null || dot.f === undefined || typeof dot.f === 'boolean')
+        ? NaN
+        : Number(dot.f);
+      if (!Number.isFinite(f)) return [dot.x, dot.y, dot.timestamp];
+      return [dot.x, dot.y, dot.timestamp, Math.round(f)];
+    });
+    return stored;
+  });
 }
 
 /**
@@ -256,9 +266,9 @@ export function getPageProperties(pageInfo) {
 
 /**
  * Convert stored strokes back to in-memory format
- * Restores blockUuid from storage for session continuity
- * 
- * @param {Array} storedStrokes - Simplified strokes from LogSeq
+ * Restores blockUuid and the sketch flag from storage for session continuity
+ *
+ * @param {Array} storedStrokes - Simplified strokes from storage
  * @param {Object} pageInfo - Page info to attach
  * @returns {Array} Full stroke objects for strokes store
  */
@@ -268,10 +278,13 @@ export function convertFromStorageFormat(storedStrokes, pageInfo) {
     startTime: stored.startTime,
     endTime: stored.endTime,
     blockUuid: stored.blockUuid || null,  // Restore block reference
-    dotArray: stored.points.map(([x, y, timestamp]) => ({
+    sketch: !!stored.sketch,
+    dotArray: stored.points.map(([x, y, timestamp, f]) => ({
       x,
       y,
-      f: 512,  // Default pressure (not stored)
+      // Captured force when present; otherwise the historical constant, which
+      // reads as "no real pressure data" downstream (see sketch-width.js).
+      f: typeof f === 'number' ? f : 512,
       timestamp
     }))
   }));

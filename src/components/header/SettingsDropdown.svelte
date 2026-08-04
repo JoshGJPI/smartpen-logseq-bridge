@@ -13,6 +13,7 @@
   import BookAliasManager from '../settings/BookAliasManager.svelte';
   import DataFolderSettings from '../settings/DataFolderSettings.svelte';
   import GraphFolderSettings from '../settings/GraphFolderSettings.svelte';
+  import SketchStyleSettings from '../settings/SketchStyleSettings.svelte';
   import PenMemoryDialog from '../dialog/PenMemoryDialog.svelte';
   import { penConnected } from '$stores/pen.js';
 
@@ -169,6 +170,12 @@
       <section class="settings-section">
         <h4>Publish to LogSeq Graph</h4>
         <GraphFolderSettings />
+      </section>
+
+      <!-- Sketch stroke rendering (pressure → thickness) -->
+      <section class="settings-section">
+        <h4>Sketch Style</h4>
+        <SketchStyleSettings />
       </section>
 
       <!-- Book Aliases -->

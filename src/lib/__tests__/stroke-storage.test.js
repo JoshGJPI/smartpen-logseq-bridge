@@ -107,11 +107,44 @@ describe('convertToStorageFormat', () => {
     expect(result[0].points[0][1]).toBe(20);  // y
   });
 
-  it('strips pressure (f) from points — only x, y, timestamp stored', () => {
+  it('stores pressure (f) as the 4th point element', () => {
+    // Pressure used to be discarded here. Sketch strokes render with a
+    // thickness that varies along the line, so the per-point force has to
+    // survive the round-trip or the look is unrecoverable after capture.
     const stroke = makeStroke(1000, [[10, 20]]);
     const [stored] = convertToStorageFormat([stroke]);
-    // Each point must be a 3-element array [x, y, t] — pressure is not stored
+    expect(stored.points[0]).toHaveLength(4);
+    expect(stored.points[0][3]).toBe(512);
+  });
+
+  it('rounds pressure to an integer to keep the extra column cheap', () => {
+    const stroke = makeStroke(1000, [[10, 20]]);
+    stroke.dotArray[0].f = 417.62;
+    const [stored] = convertToStorageFormat([stroke]);
+    expect(stored.points[0][3]).toBe(418);
+  });
+
+  it('falls back to a 3-element tuple when a dot has no usable force', () => {
+    const stroke = makeStroke(1000, [[10, 20], [11, 21], [12, 22]]);
+    delete stroke.dotArray[0].f;
+    stroke.dotArray[1].f = null;
+    const [stored] = convertToStorageFormat([stroke]);
+    // Absent force must not become 0 — that would render as a hairline.
     expect(stored.points[0]).toHaveLength(3);
+    expect(stored.points[1]).toHaveLength(3);
+    expect(stored.points[2]).toHaveLength(4);
+  });
+
+  it('omits the sketch key entirely for ordinary handwriting strokes', () => {
+    const [stored] = convertToStorageFormat([makeStroke(1000, [[10, 20]])]);
+    expect(stored).not.toHaveProperty('sketch');
+  });
+
+  it('marks sketch strokes with sketch: true', () => {
+    const stroke = makeStroke(1000, [[10, 20]]);
+    stroke.sketch = true;
+    const [stored] = convertToStorageFormat([stroke]);
+    expect(stored.sketch).toBe(true);
   });
 
   it('preserves blockUuid when present', () => {
@@ -172,12 +205,40 @@ describe('convertFromStorageFormat', () => {
     expect(restored.dotArray[1].y).toBe(11);
   });
 
-  it('assigns default pressure of 512 to restored dots', () => {
+  it('falls back to pressure 512 for legacy 3-element tuples', () => {
+    // Pages written before pressure was persisted. One constant force across the
+    // stroke is how downstream code recognises "no real pressure data" and
+    // renders a flat width instead of a fake taper.
     const stored = makeSimplified('s1000', 1000);
     const [restored] = convertFromStorageFormat([stored], PAGE_INFO);
     restored.dotArray.forEach(dot => {
       expect(dot.f).toBe(512);
     });
+  });
+
+  it('restores captured pressure from 4-element tuples', () => {
+    const stored = {
+      id: 's1000', startTime: 1000, endTime: 2000, blockUuid: null,
+      points: [[5, 10, 1000, 220], [6, 11, 1001, 740]]
+    };
+    const [restored] = convertFromStorageFormat([stored], PAGE_INFO);
+    expect(restored.dotArray.map(d => d.f)).toEqual([220, 740]);
+  });
+
+  it('restores a zero force as zero rather than the legacy fallback', () => {
+    const stored = {
+      id: 's1000', startTime: 1000, endTime: 2000, blockUuid: null,
+      points: [[5, 10, 1000, 0]]
+    };
+    const [restored] = convertFromStorageFormat([stored], PAGE_INFO);
+    expect(restored.dotArray[0].f).toBe(0);
+  });
+
+  it('restores the sketch flag, defaulting to false when absent', () => {
+    const plain = makeSimplified('s1000', 1000);
+    expect(convertFromStorageFormat([plain], PAGE_INFO)[0].sketch).toBe(false);
+    const marked = { ...makeSimplified('s2000', 2000), sketch: true };
+    expect(convertFromStorageFormat([marked], PAGE_INFO)[0].sketch).toBe(true);
   });
 
   it('restores blockUuid from stored value', () => {
@@ -214,6 +275,19 @@ describe('convertFromStorageFormat', () => {
     // Second stroke
     expect(restored[1].startTime).toBe(6000);
     expect(restored[1].blockUuid).toBeNull();
+  });
+
+  it('round-trips varying pressure and the sketch flag without loss', () => {
+    const stroke = makeStroke(7000, [[1, 1], [2, 2], [3, 3]]);
+    stroke.sketch = true;
+    stroke.dotArray[0].f = 120;
+    stroke.dotArray[1].f = 640;
+    stroke.dotArray[2].f = 300;
+
+    const [restored] = convertFromStorageFormat(convertToStorageFormat([stroke]), PAGE_INFO);
+
+    expect(restored.sketch).toBe(true);
+    expect(restored.dotArray.map(d => d.f)).toEqual([120, 640, 300]);
   });
 
   it('handles empty stored array', () => {

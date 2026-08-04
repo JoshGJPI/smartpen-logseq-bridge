@@ -18,8 +18,25 @@ export {
   clearStrokes,
   removeStrokesByIndices,
   clearStrokeBlockUuids,
-  getActiveStrokesForPageFromStore
+  getActiveStrokesForPageFromStore,
+  // Sketch strokes (pressure-varying thickness)
+  sketchStrokeCount,
+  setStrokesSketch,
+  markStrokesAsSketch,
+  unmarkStrokesAsSketch
 } from './strokes.js';
+
+// Sketch render profile (pressure → thickness)
+export {
+  sketchProfile,
+  sketchPresetName,
+  sketchPresets,
+  sketchProfileSummary,
+  applySketchPreset,
+  updateSketchProfile,
+  resetSketchProfile,
+  getSketchProfile
+} from './sketch.js';
 
 // Selection
 export {

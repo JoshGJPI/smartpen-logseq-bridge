@@ -19,6 +19,7 @@
   import { formatBookName, filterTranscriptionProperties } from '$utils/formatting.js';
   import { openSearchTranscriptsDialog, openSvgExportDialog } from '$stores';
   import { hasSelection } from '$stores/selection.js';
+  import { sketchProfile, sketchProfileSummary, sketchStrokeCount, markStrokesAsSketch, unmarkStrokesAsSketch } from '$stores';
   import { dataFolderReady, graphFolderReady } from '$stores/settings.js';
   import { buildJsonExportData, buildMdExportData } from '$lib/stroke-storage.js';
   import { exportSelectionToGraph } from '$lib/storage/graph-export.js';
@@ -363,6 +364,49 @@
   // Update renderer with page scales when they change
   $: if (renderer && $pageScales) {
     renderer.setPageScales($pageScales);
+    renderStrokes(false);
+  }
+
+  // Push the sketch thickness profile into the renderer and repaint. Cached
+  // per-stroke width arrays are tagged with the profile key, so they invalidate
+  // themselves — dragging a slider restyles every sketch on the canvas live.
+  $: if (renderer && $sketchProfile) {
+    renderer.setSketchProfile($sketchProfile);
+    renderStrokes(false);
+  }
+
+  // How many of the selected strokes are already flagged. Drives whether the
+  // header offers Mark, Unmark, or both for a mixed selection. Computed from
+  // $strokes directly so it recomputes when the flags change, not just when the
+  // selection does.
+  $: selectedSketchCount = $hasSelection
+    ? Array.from($selectedIndices).reduce((n, i) => n + ($strokes[i]?.sketch ? 1 : 0), 0)
+    : 0;
+  $: selectedPlainCount = $selectionCount - selectedSketchCount;
+
+  /**
+   * Flag or unflag the current selection as sketch strokes.
+   * @param {boolean} sketch
+   */
+  function applySketchFlag(sketch) {
+    const indices = $selectedIndices;
+    if (!indices || indices.size === 0) return;
+
+    const changed = sketch ? markStrokesAsSketch(indices) : unmarkStrokesAsSketch(indices);
+    if (changed === 0) {
+      log(`No change — ${$selectionCount} stroke${$selectionCount !== 1 ? 's' : ''} already ${sketch ? 'marked' : 'unmarked'}`, 'info');
+      return;
+    }
+
+    const noun = `stroke${changed !== 1 ? 's' : ''}`;
+    log(
+      sketch
+        ? `Marked ${changed} ${noun} as sketch (${$sketchProfileSummary})`
+        : `Unmarked ${changed} ${noun} — back to uniform width`,
+      'success'
+    );
+    // The flag changes how these strokes draw, and $strokes updating does not by
+    // itself schedule a repaint from any of the reactive blocks above.
     renderStrokes(false);
   }
   
@@ -1607,14 +1651,34 @@
         >
           Select All
         </button>
-        <button 
-          class="header-btn decorative-btn" 
+        <button
+          class="header-btn decorative-btn"
           on:click={handleDeselectDecorative}
           disabled={isDetecting}
           title="Deselect boxes, underlines, and circles"
         >
           {isDetecting ? 'Detecting...' : '🎨 Deselect Decorative'}
         </button>
+        {#if $hasSelection}
+          {#if selectedPlainCount > 0}
+            <button
+              class="header-btn sketch-btn"
+              on:click={() => applySketchFlag(true)}
+              title={`Render ${selectedPlainCount} selected stroke${selectedPlainCount !== 1 ? 's' : ''} with pressure-varying thickness (${$sketchProfileSummary})`}
+            >
+              ✏️ Mark as Sketch ({selectedPlainCount})
+            </button>
+          {/if}
+          {#if selectedSketchCount > 0}
+            <button
+              class="header-btn sketch-btn unmark"
+              on:click={() => applySketchFlag(false)}
+              title={`Return ${selectedSketchCount} selected sketch stroke${selectedSketchCount !== 1 ? 's' : ''} to a uniform width`}
+            >
+              ✒️ Unmark Sketch ({selectedSketchCount})
+            </button>
+          {/if}
+        {/if}
         {#if $useCustomPositions}
           <button 
             class="header-btn layout-btn" 
@@ -1678,6 +1742,9 @@
           <span class="pasted-indicator">{$pastedSelection.size} of {$pastedCount} pasted selected</span> • 
         {:else if $pastedCount > 0}
           <span class="pasted-indicator">{$pastedCount} pasted</span> • 
+        {/if}
+        {#if $sketchStrokeCount > 0}
+          <span class="sketch-indicator">✏️ {$sketchStrokeCount} sketch</span> •
         {/if}
         {#if $selectionCount > 0}
           <span class="selection-indicator">{$selectionCount} of {$strokeCount} selected</span>
@@ -1883,6 +1950,31 @@
     border-color: var(--accent);
   }
   
+  /* Sketch marking. Distinguished from the neutral header actions because it
+     changes how strokes render and is a saved, page-level annotation. */
+  .sketch-btn {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  .sketch-btn:hover:not(:disabled) {
+    background: #7c5cff;
+    color: white;
+    border-color: #7c5cff;
+  }
+
+  .sketch-btn.unmark:hover:not(:disabled) {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border-color: #7c5cff;
+  }
+
+  .sketch-indicator {
+    color: #7c5cff;
+    font-weight: 600;
+  }
+
   .layout-btn {
     background: var(--bg-tertiary);
     color: var(--text-primary);

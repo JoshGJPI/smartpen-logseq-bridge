@@ -46,6 +46,12 @@ export const canvasPageKeys = derived(pages, $pages => {
 // Current page info (for tracking which page is being written to)
 export const currentPageInfo = writable(null);
 
+// How many loaded strokes are flagged as sketches. Drives the "Unmark" button's
+// enabled state and the header count.
+export const sketchStrokeCount = derived(strokes, $strokes =>
+  $strokes.reduce((n, s) => n + (s.sketch ? 1 : 0), 0)
+);
+
 /**
  * Add a new stroke to the store
  * @param {Object} stroke - Stroke object with pageInfo, dotArray, etc.
@@ -127,6 +133,63 @@ export function removeStrokesByIndices(indices) {
 }
 
 /**
+ * Flag or unflag strokes as sketches.
+ *
+ * Sketch strokes render with a thickness that follows the pen force recorded at
+ * each point (see `$lib/sketch-width.js`); everything else renders as a uniform
+ * line. The flag is an annotation on top of captured geometry, so it is set from
+ * the current selection long after the strokes were drawn.
+ *
+ * Marks the session dirty: the flag lives in the PageDoc, so it is lost unless
+ * the page is saved. Note that `pendingChanges` only counts stroke additions and
+ * deletions, so a flag change shows up as the header's unsaved dot and not in the
+ * save dialog's per-page diff.
+ *
+ * @param {number[]|Set<number>} indices - stroke indices in the strokes store
+ * @param {boolean} [sketch] - true to mark, false to unmark
+ * @returns {number} how many strokes actually changed
+ */
+export function setStrokesSketch(indices, sketch = true) {
+  const target = indices instanceof Set ? indices : new Set(indices || []);
+  if (target.size === 0) return 0;
+
+  let changed = 0;
+  strokes.update(all =>
+    all.map((stroke, index) => {
+      if (!target.has(index)) return stroke;
+      if (!!stroke.sketch === !!sketch) return stroke;
+      changed++;
+      const next = { ...stroke, sketch: !!sketch };
+      // Drop the renderer's cached width array — it was computed for the other
+      // mode and is keyed only by the sketch profile, not by this flag.
+      delete next._sw;
+      return next;
+    })
+  );
+
+  if (changed > 0) markUnsavedChanges();
+  return changed;
+}
+
+/**
+ * Mark strokes as sketches. @see setStrokesSketch
+ * @param {number[]|Set<number>} indices
+ * @returns {number} how many changed
+ */
+export function markStrokesAsSketch(indices) {
+  return setStrokesSketch(indices, true);
+}
+
+/**
+ * Unmark strokes, returning them to uniform-width handwriting rendering.
+ * @param {number[]|Set<number>} indices
+ * @returns {number} how many changed
+ */
+export function unmarkStrokesAsSketch(indices) {
+  return setStrokesSketch(indices, false);
+}
+
+/**
  * Load strokes from storage format into the store
  * Used when loading a saved page - restores lineId associations
  * @param {Array} storedStrokes - Strokes from storage (with blockUuid)
@@ -140,16 +203,19 @@ export function loadStrokesFromStorage(storedStrokes, pageInfo) {
     registerBookId(pageInfo.book);
   }
   
-  // Convert from storage format (restores blockUuid)
+  // Convert from storage format (restores blockUuid, sketch flag, pressure)
   const fullStrokes = storedStrokes.map(stored => ({
     pageInfo: pageInfo,
     startTime: stored.startTime,
     endTime: stored.endTime,
     blockUuid: stored.blockUuid || null,
-    dotArray: stored.points.map(([x, y, timestamp]) => ({
+    sketch: !!stored.sketch,
+    dotArray: stored.points.map(([x, y, timestamp, f]) => ({
       x,
       y,
-      f: 512,
+      // Captured force when the tuple carries it; else the historical constant,
+      // which downstream reads as "no real pressure data".
+      f: typeof f === 'number' ? f : 512,
       timestamp
     }))
   }));

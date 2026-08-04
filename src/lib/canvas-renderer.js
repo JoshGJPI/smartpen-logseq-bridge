@@ -2,7 +2,33 @@
  * Canvas Renderer (Svelte-adapted)
  * Handles drawing strokes to canvas and exporting SVG
  * Zoom and pan are managed externally by Svelte stores
+ *
+ * LINE WIDTH
+ *
+ * Two rendering modes, chosen per stroke:
+ *
+ *   - Handwriting (default) — one uniform width for the whole stroke. Cheap:
+ *     one path, one stroke() call.
+ *   - Sketch (`stroke.sketch === true`) — thickness varies along the line with
+ *     the pen force recorded at each point, via `sketch-width.js`. Costs several
+ *     stroke() calls per stroke, so it is reserved for the strokes the user has
+ *     explicitly flagged.
+ *
+ * Canvas2D reads `lineWidth` once, when `stroke()` is called, and applies it to
+ * the entire path. Assigning it inside a moveTo/lineTo loop — as this file used
+ * to — silently does nothing except leave the last assignment in effect, so every
+ * stroke rendered at the width implied by its FINAL dot's pressure. Varying width
+ * therefore requires splitting the polyline into separately-stroked runs, which
+ * is what `strokeVariableWidth()` does.
  */
+
+import {
+  DEFAULT_SKETCH_PROFILE,
+  normalizeProfile,
+  profileKey,
+  strokePressures,
+  widthsForStrokeSeries
+} from './sketch-width.js';
 
 export class CanvasRenderer {
   constructor(canvas) {
@@ -11,7 +37,24 @@ export class CanvasRenderer {
     this.strokes = []; // Array of stroke paths for SVG export
     this.currentStroke = null;
     this.scale = 2.371; // Ncode to mm conversion
-    
+
+    // Uniform widths (screen px at zoom 1) for non-sketch strokes. These match
+    // the width handwriting has always effectively rendered at, now stated
+    // deliberately instead of falling out of the final dot's pressure.
+    this.handwritingWidth = 0.4;
+    this.handwritingSelectedWidth = 0.6;
+
+    // Pressure → thickness mapping for sketch strokes. Replaced from the store
+    // via setSketchProfile(); the key is the cache tag for computed widths.
+    this.sketchProfile = normalizeProfile(DEFAULT_SKETCH_PROFILE);
+    this.sketchProfileKey = profileKey(this.sketchProfile);
+
+    // Quantisation step (screen px) for sketch segment widths. Consecutive
+    // segments that round to the same width are stroked as one sub-path, which
+    // collapses a 50-dot stroke from 49 stroke() calls to a handful without any
+    // visible stepping.
+    this.sketchWidthQuantum = 0.25;
+
     // Per-page scale factors (non-destructive display scaling)
     this.pageScales = {}; // Map of pageKey -> scale factor
     this.tempPageScales = {}; // Temporary scales during drag preview
@@ -424,7 +467,12 @@ export class CanvasRenderer {
         if (this.currentStroke) {
           this.ctx.lineTo(screenDot.x, screenDot.y);
           this.ctx.strokeStyle = '#000000';
-          this.ctx.lineWidth = Math.max(0.5, (dot.f / 500) * 2 * this.zoom);
+          // Uniform, matching how this stroke will look once re-rendered from the
+          // store. Live capture used to vary width per dot here while re-render
+          // did not (see the class header), so a stroke visibly changed weight
+          // the moment anything triggered a redraw. Strokes are not flagged as
+          // sketches until after capture, so live has nothing better to go on.
+          this.ctx.lineWidth = Math.max(0.5, this.handwritingWidth * this.zoom);
           this.ctx.lineCap = 'round';
           this.ctx.lineJoin = 'round';
           this.ctx.stroke();
@@ -560,6 +608,129 @@ export class CanvasRenderer {
   }
 
   /**
+   * Replace the pressure → thickness mapping used for sketch strokes.
+   *
+   * Changing the profile invalidates every cached width array; that happens
+   * implicitly because the cache is tagged with the profile key.
+   * @param {Object} profile - partial SketchProfile; missing fields take defaults
+   */
+  setSketchProfile(profile) {
+    this.sketchProfile = normalizeProfile(profile);
+    this.sketchProfileKey = profileKey(this.sketchProfile);
+  }
+
+  /**
+   * Per-point widths (in Ncode mm) for a sketch stroke, cached on the stroke.
+   *
+   * Cached because the mapping runs a smoothing pass and a two-direction slew
+   * pass over the whole dot series — fine once, wasteful on every pan frame. The
+   * cache tag is the profile key, so dragging a thickness slider recomputes and
+   * anything else reuses. Mirrors the existing `_nb` bounds cache.
+   *
+   * @param {Object} stroke
+   * @returns {number[]}
+   */
+  sketchWidths(stroke) {
+    if (stroke._sw && stroke._sw.key === this.sketchProfileKey) return stroke._sw.widths;
+
+    // widthsForStrokeSeries owns the "no real pressure data → flatWidth" rule, so
+    // this path and the SVG paths cannot disagree about a legacy page.
+    const widths = widthsForStrokeSeries(strokePressures(stroke), this.sketchProfile);
+
+    stroke._sw = { key: this.sketchProfileKey, widths };
+    return widths;
+  }
+
+  /**
+   * Per-page display scale for a stroke's page, or 1 when it has no page.
+   * @param {Object|null} pageInfo
+   * @returns {number}
+   */
+  pageScaleFor(pageInfo) {
+    if (!pageInfo) return 1.0;
+    const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${pageInfo.book}/P${pageInfo.page}`;
+    return this.getEffectiveScale(pageKey);
+  }
+
+  /**
+   * Stroke a polyline through vertices a…b (inclusive) at a single width.
+   * @param {ArrayLike<number>} xs
+   * @param {ArrayLike<number>} ys
+   * @param {number} a - first vertex index
+   * @param {number} b - last vertex index
+   * @param {number} width - screen px
+   */
+  strokeRun(xs, ys, a, b, width) {
+    if (b <= a) return;
+    const ctx = this.ctx;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(xs[a], ys[a]);
+    for (let i = a + 1; i <= b; i++) ctx.lineTo(xs[i], ys[i]);
+    ctx.stroke();
+  }
+
+  /**
+   * Draw a polyline whose thickness follows a per-vertex width array.
+   *
+   * Each segment takes the mean of its two endpoint widths, then consecutive
+   * segments of equal quantised width are stroked together. Successive runs share
+   * their boundary vertex and `lineCap: 'round'` fills the joint, so the line
+   * reads as continuous rather than as a chain of separate dashes.
+   *
+   * @param {ArrayLike<number>} xs - screen x per vertex
+   * @param {ArrayLike<number>} ys - screen y per vertex
+   * @param {number[]} widths - width in Ncode mm per vertex
+   * @param {number} pxPerMm - mm → screen px factor (scale × pageScale × zoom)
+   * @param {number} [boost] - multiplier for selection emphasis
+   */
+  strokeVariableWidth(xs, ys, widths, pxPerMm, boost = 1) {
+    const vertexCount = widths.length;
+    const segmentCount = vertexCount - 1;
+    if (segmentCount < 1) return;
+
+    const quantum = this.sketchWidthQuantum;
+    const widthAt = (segment) => {
+      const mm = (widths[segment] + widths[segment + 1]) / 2;
+      // Floor at a visible hairline: below ~0.4px the line disappears at low zoom.
+      return Math.max(0.4, Math.round((mm * pxPerMm * boost) / quantum) * quantum);
+    };
+
+    let runStart = 0;
+    let runWidth = widthAt(0);
+
+    for (let i = 1; i < segmentCount; i++) {
+      const w = widthAt(i);
+      if (w !== runWidth) {
+        // Segments runStart…i-1 span vertices runStart…i.
+        this.strokeRun(xs, ys, runStart, i, runWidth);
+        runStart = i;
+        runWidth = w;
+      }
+    }
+    this.strokeRun(xs, ys, runStart, segmentCount, runWidth);
+  }
+
+  /**
+   * Project a dot array into screen-space coordinate arrays.
+   * @param {Array} dots
+   * @param {Object|null} pageInfo
+   * @param {boolean} [direct] - use ncodeToScreenDirect (pasted strokes, no page)
+   * @returns {{xs: Float64Array, ys: Float64Array}}
+   */
+  projectDots(dots, pageInfo, direct = false) {
+    const n = dots.length;
+    const xs = new Float64Array(n);
+    const ys = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const s = direct ? this.ncodeToScreenDirect(dots[i]) : this.ncodeToScreen(dots[i], pageInfo);
+      xs[i] = s.x;
+      ys[i] = s.y;
+    }
+    return { xs, ys };
+  }
+
+  /**
    * Draw a stroke from store data
    * @param {Object} stroke - Stroke object with dotArray and pageInfo
    * @param {boolean} highlighted - Whether to highlight this stroke
@@ -579,47 +750,49 @@ export class CanvasRenderer {
     if (this.isStrokeOffscreen(stroke, dots, pageInfo)) return;
 
     // Determine color and style based on state
-    let color, baseWidth, opacity;
-    
+    let color, uniformWidth, opacity, dashed;
+
     if (deleted) {
       // Deleted strokes: gray with reduced opacity and dashed
       color = '#888888';
-      baseWidth = 2;
+      uniformWidth = this.handwritingWidth;
       opacity = 0.4;
-      this.ctx.setLineDash([3, 3]); // Dashed to indicate deletion
+      dashed = [3, 3]; // Dashed to indicate deletion
     } else if (filtered) {
       // Filtered decorative strokes are ALWAYS dashed
       // Color depends on selection state
       color = highlighted ? '#e94560' : '#000000'; // Red if selected, black if not
-      baseWidth = highlighted ? 3 : 2;
+      uniformWidth = highlighted ? this.handwritingSelectedWidth : this.handwritingWidth;
       opacity = 1;
-      this.ctx.setLineDash([5, 5]); // Always dashed for filtered strokes
+      dashed = [5, 5]; // Always dashed for filtered strokes
     } else {
       // Normal text strokes are always solid
       color = highlighted ? '#e94560' : '#000000'; // Red if selected, black if not
-      baseWidth = highlighted ? 3 : 2;
+      uniformWidth = highlighted ? this.handwritingSelectedWidth : this.handwritingWidth;
       opacity = 1;
-      this.ctx.setLineDash([]); // Solid line
+      dashed = null; // Solid line
     }
-    
+
     this.ctx.strokeStyle = color;
     this.ctx.globalAlpha = opacity;
     this.ctx.lineCap = 'round';
     this.ctx.lineJoin = 'round';
-    
-    this.ctx.beginPath();
-    const firstDot = dots[0];
-    const firstScreen = this.ncodeToScreen(firstDot, pageInfo);
-    this.ctx.moveTo(firstScreen.x, firstScreen.y);
-    
-    for (let i = 1; i < dots.length; i++) {
-      const dot = dots[i];
-      const screenDot = this.ncodeToScreen(dot, pageInfo);
-      this.ctx.lineWidth = Math.max(0.5, ((dot.f || 500) / 500) * baseWidth * this.zoom);
-      this.ctx.lineTo(screenDot.x, screenDot.y);
+    this.ctx.setLineDash(dashed || []);
+
+    // Sketch strokes render with pressure-driven thickness — but only when solid.
+    // A dash pattern restarts at every sub-path, and the variable-width path is
+    // deliberately many sub-paths, so a dashed sketch stroke would come out as
+    // uneven stipple. Deleted and decorative strokes keep the uniform path so
+    // their dashes stay readable; the dash is the more important signal there.
+    if (stroke.sketch && !dashed) {
+      const { xs, ys } = this.projectDots(dots, pageInfo);
+      const pxPerMm = this.scale * this.pageScaleFor(pageInfo) * this.zoom;
+      this.strokeVariableWidth(xs, ys, this.sketchWidths(stroke), pxPerMm, highlighted ? 1.6 : 1);
+    } else {
+      const { xs, ys } = this.projectDots(dots, pageInfo);
+      this.strokeRun(xs, ys, 0, dots.length - 1, Math.max(0.5, uniformWidth * this.zoom));
     }
-    
-    this.ctx.stroke();
+
     this.ctx.setLineDash([]); // Reset to solid for next stroke
   }
   
@@ -634,40 +807,33 @@ export class CanvasRenderer {
     if (dots.length < 2) return;
     
     const offset = stroke._offset || { x: 0, y: 0 };
-    
+
     // Apply offset to coordinates during rendering
     const color = highlighted ? '#4ade80' : '#555555';  // Green when selected, dark gray otherwise
-    const baseWidth = highlighted ? 3 : 2;
-    
+    const uniformWidth = highlighted ? this.handwritingSelectedWidth : this.handwritingWidth;
+
     this.ctx.strokeStyle = color;
     this.ctx.lineCap = 'round';
     this.ctx.lineJoin = 'round';
     this.ctx.setLineDash([]);  // Solid line
     this.ctx.globalAlpha = 1;
-    
-    this.ctx.beginPath();
-    
-    // Transform first dot with offset
-    const firstDot = { 
-      x: dots[0].x + offset.x, 
-      y: dots[0].y + offset.y,
-      f: dots[0].f 
-    };
-    const firstScreen = this.ncodeToScreenDirect(firstDot);
-    this.ctx.moveTo(firstScreen.x, firstScreen.y);
-    
-    for (let i = 1; i < dots.length; i++) {
-      const dot = {
-        x: dots[i].x + offset.x,
-        y: dots[i].y + offset.y,
-        f: dots[i].f
-      };
-      const screenDot = this.ncodeToScreenDirect(dot);
-      this.ctx.lineWidth = Math.max(0.5, ((dot.f || 500) / 500) * baseWidth * this.zoom);
-      this.ctx.lineTo(screenDot.x, screenDot.y);
+
+    // Offset is applied in Ncode space before projection; pasted strokes are not
+    // attached to a page, so they project directly with no page offset or scale.
+    const shifted = dots.map(d => ({ x: d.x + offset.x, y: d.y + offset.y, f: d.f }));
+    const { xs, ys } = this.projectDots(shifted, null, true);
+
+    // A stroke duplicated from a sketch is still a sketch.
+    if (stroke.sketch) {
+      this.strokeVariableWidth(
+        xs, ys,
+        this.sketchWidths(stroke),
+        this.scale * this.zoom,
+        highlighted ? 1.6 : 1
+      );
+    } else {
+      this.strokeRun(xs, ys, 0, dots.length - 1, Math.max(0.5, uniformWidth * this.zoom));
     }
-    
-    this.ctx.stroke();
   }
   
   /**
@@ -995,7 +1161,7 @@ export class CanvasRenderer {
         const hasUnsavedChanges = this.pendingChanges && this.pendingChanges.has(`B${book}/P${page}`);
         const pageChanges = hasUnsavedChanges ? this.pendingChanges.get(`B${book}/P${page}`) : null;
         const hasAdditions = pageChanges && pageChanges.additions && pageChanges.additions.length > 0;
-        
+
         // Add asterisks if there are unsaved additions
         if (hasAdditions) {
           label = `* ${label} *`;
@@ -1346,33 +1512,29 @@ export class CanvasRenderer {
     // Internal strokes array is used for real-time drawing
     // Store strokes are drawn via drawStroke() from the component
     this.strokes.forEach(stroke => {
-      this.drawStrokeInternal(stroke, '#000000', Math.max(1, 2 * this.zoom));
+      this.drawStrokeInternal(stroke, '#000000');
     });
   }
   
   /**
-   * Draw internal stroke (different from store strokes)
+   * Draw internal stroke (the in-progress live-capture buffer, not store strokes)
+   * @param {Object} stroke - { dots: [{x, y, f}] }
+   * @param {string} [color]
+   * @param {number} [width] - screen px; uniform for the whole stroke
    */
-  drawStrokeInternal(stroke, color = '#000000', baseWidth = 2) {
+  drawStrokeInternal(stroke, color = '#000000', width = null) {
     if (!stroke.dots || stroke.dots.length < 2) return;
-    
+
     this.ctx.strokeStyle = color;
     this.ctx.lineCap = 'round';
     this.ctx.lineJoin = 'round';
-    
-    this.ctx.beginPath();
-    const firstDot = stroke.dots[0];
-    const firstScreen = this.ncodeToScreen(firstDot);
-    this.ctx.moveTo(firstScreen.x, firstScreen.y);
-    
-    for (let i = 1; i < stroke.dots.length; i++) {
-      const dot = stroke.dots[i];
-      const screenDot = this.ncodeToScreen(dot);
-      this.ctx.lineWidth = Math.max(0.5, (dot.f / 500) * baseWidth);
-      this.ctx.lineTo(screenDot.x, screenDot.y);
-    }
-    
-    this.ctx.stroke();
+    this.ctx.setLineDash([]);
+
+    const { xs, ys } = this.projectDots(stroke.dots, null);
+    // Uniform, for the same reason as addDot(): this is live capture, which has
+    // no sketch flag to consult yet.
+    const px = width == null ? this.handwritingWidth * this.zoom : width;
+    this.strokeRun(xs, ys, 0, stroke.dots.length - 1, Math.max(0.5, px));
   }
   
   /**
@@ -1436,11 +1598,54 @@ export class CanvasRenderer {
       const dots = stroke.dotArray || stroke.dots || [];
       if (dots.length < 2) return;
 
-      let d = dots.map((dot, i) => {
-        const x = (dot.x - minX) * this.scale + padding;
-        const y = (dot.y - minY) * this.scale + padding;
-        return i === 0 ? `M ${x.toFixed(2)} ${y.toFixed(2)}` : `L ${x.toFixed(2)} ${y.toFixed(2)}`;
-      }).join(' ');
+      const px = (dot) => ((dot.x - minX) * this.scale + padding).toFixed(2);
+      const py = (dot) => ((dot.y - minY) * this.scale + padding).toFixed(2);
+
+      if (stroke.sketch) {
+        // A single <path> carries one stroke-width, so a pressure-varying line is
+        // emitted as consecutive constant-width runs sharing their end vertices.
+        // The requested `strokeWidth` is treated as a multiplier here: the shape of
+        // the taper comes from the sketch profile, and the export dialog's slider
+        // still scales the whole drawing up or down.
+        const widthsMm = this.sketchWidths(stroke);
+        const quantum = 0.05;
+        const widthAt = (segment) => {
+          const mm = (widthsMm[segment] + widthsMm[segment + 1]) / 2;
+          const units = mm * this.scale * (strokeWidth / 0.5);
+          return Math.max(quantum, Math.round(units / quantum) * quantum);
+        };
+
+        const emit = (a, b, width) => {
+          let d = `M ${px(dots[a])} ${py(dots[a])}`;
+          for (let i = a + 1; i <= b; i++) d += ` L ${px(dots[i])} ${py(dots[i])}`;
+          paths += `  <path
+    d="${d}"
+    stroke="black"
+    stroke-width="${Math.round(width * 1000) / 1000}"
+    fill="none"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    data-stroke-index="${index}"
+    data-sketch="true"
+  />\n`;
+        };
+
+        const segmentCount = dots.length - 1;
+        let runStart = 0;
+        let runWidth = widthAt(0);
+        for (let i = 1; i < segmentCount; i++) {
+          const w = widthAt(i);
+          if (w !== runWidth) {
+            emit(runStart, i, runWidth);
+            runStart = i;
+            runWidth = w;
+          }
+        }
+        emit(runStart, segmentCount, runWidth);
+        return;
+      }
+
+      const d = dots.map((dot, i) => `${i === 0 ? 'M' : 'L'} ${px(dot)} ${py(dot)}`).join(' ');
 
       paths += `  <path
     d="${d}"

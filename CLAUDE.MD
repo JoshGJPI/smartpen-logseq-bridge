@@ -79,6 +79,10 @@ All state is managed through Svelte stores located in `src/stores/`:
   - `viewerSelection` — last-open `{book, pageId}`, persisted to localStorage so Book View reopens the same spread across toggles/reload; `setViewerSelection()`/`clearViewerSelection()`
   - `recentViews` + `recordRecentView()` — recently-opened pages for the home grid
 
+**Sketch Strokes (v2.4):**
+- `sketch.js` — the pressure → thickness render profile (`sketchProfile`, `sketchPresetName`, `sketchPresets`, `sketchProfileSummary`, `applySketchPreset()`, `updateSketchProfile()`, `resetSketchProfile()`). Persisted to localStorage: it's a *display* preference, so it restyles every sketch at once and never touches disk. Any manual edit clears the preset name (showing "Brush" as active after its numbers changed would lie).
+- `strokes.js` also owns the flag itself — `sketchStrokeCount` (derived), `setStrokesSketch()` / `markStrokesAsSketch()` / `unmarkStrokesAsSketch()`. Flagging marks the session dirty (the flag lives in the PageDoc) and drops the renderer's cached `_sw` width array.
+
 **UI State:**
 - `ui.js` - Active tab, canvas zoom, UI preferences
 - `page-order.js` - Custom page positioning/layout
@@ -103,6 +107,7 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `stroke-analyzer.js` - Shape detection and analysis
 - `stroke-filter.js` - Decorative element detection (boxes, underlines)
 - `stroke-storage.js` - Stroke ID generation, format conversion, bounds, dedupe, user JSON/MD exports
+- `sketch-width.js` - Pressure → line thickness mapping for sketch strokes (pure): profile normalisation/presets, `pressureToUnit`, `smoothSeries` (symmetric, spike attenuation), `limitSlew`, `widthsForPressures`, `widthsForStrokeSeries` (the single "no pressure data → flatWidth" rule), `profileKey` for width-cache tagging
 - `transcript-search.js` - Full-text search across transcriptions
 
 **Storage Layer (`src/lib/storage/`)** — v2.0:
@@ -118,7 +123,7 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `page-changes.js` — `computePageChangesFolder()` — preview diff for the SaveConfirmDialog
 
 **Book View Layer (`src/lib/viewer/`)** — v2.1:
-- `page-svg.js` — `computeStrokeBounds()`, `strokeToPathD()`, `generateThumbnailSVG()` — SVG render for the spread pages + home-grid thumbnails (`NCODE_SCALE = 2.371`)
+- `page-svg.js` — `computeStrokeBounds()`, `strokeToPathD()`, `generateThumbnailSVG()` — SVG render for the spread pages + home-grid thumbnails (`NCODE_SCALE = 2.371`). Also `strokePointPressures()` + `strokeToWidthRuns()` for sketch strokes: SVG applies one `stroke-width` per `<path>`, so a pressure-varying line is emitted as consecutive constant-width runs (thumbnails stay flat — too small to matter)
 - `page-cache.js` — small LRU (`getCachedPage`/`invalidatePage`/`clearPageCache`, MAX 6) over full PageDocs. Book View loads strokes lazily through this (records no longer embed them, perf #3) so turning a spread doesn't re-read disk; older docs are evicted. Keyed by `B{book}/P{pageId}` (suffix-safe)
 - `transcript-markdown.js` — `linesToLogseqMarkdown()` — tab-indented `- ` bullets with `- TODO`/`- DONE` markers; `key:: value` property lines stripped (LogSeq-pasteable copy). Also `indentMarkdownBlock()`, `textToTranscriptLines()` (flat-text fallback) and `pagesToLogseqMarkdown()` (multi-page payload: one page copies bare, several nest under `- {label}` bullets) — used by the canvas text-view copy
 - `save-transcript.js` — `saveTranscriptLines(book, pageId, lines)` — writes inline transcript edits back to the PageDoc verbatim (getPage → replace `transcript.lines` → scrub deleted `lineId`s on strokes → `savePage`); `recomputeParentIds()` keeps the hierarchy consistent after indent edits
@@ -201,10 +206,23 @@ One JSON file per pen page at `<dataRoot>/pages/B{book}/P{page}.json`. Hybrid pr
     ]
   },
   "strokes": [
-    {"id":"s1765313505107","startTime":1765313505107,"endTime":1765313505396,"lineId":"955e79bf-…","points":[[6.56,37.25,1765313505107], …]}
+    {"id":"s1765313505107","startTime":1765313505107,"endTime":1765313505396,"lineId":"955e79bf-…","points":[[6.56,37.25,1765313505107,412], …]},
+    {"id":"s1765313509880","startTime":1765313509880,"endTime":1765313510402,"lineId":null,"sketch":true,"points":[[12.10,41.03,1765313509880,655], …]}
   ]
 }
 ```
+
+**Point tuples are variable length:** `[x, y]`, `[x, y, ts]`, or
+`[x, y, ts|null, force]`. The 4th element is the raw pen force driving sketch
+rendering; it is written for every stroke (not just flagged ones) because flagging
+happens long after capture — conditional pressure would make marking a stroke later
+silently produce a flat line. When force is present but no timestamp was recorded,
+position 2 is an explicit `null` so force keeps a fixed index. Files written before
+pressure was persisted have shorter tuples and read back fine; they render at a
+constant `flatWidth`.
+
+`sketch: true` is omitted entirely when false, so handwriting pages serialize
+exactly as they did before sketch strokes existed.
 
 Letter-suffixed pages (e.g. `P151b.json`) are supported — they came from manual v1 workflows where the user created variants of the same NCode page. The integer `pageInfo.page` matches the NCode page number; the filename suffix is the user's identifier and is preserved.
 
@@ -391,7 +409,11 @@ Existing test files (all in `src/lib/__tests__/`):
 | `myscript-api.test.js` | `parseMyScriptResponse` — line parsing, Y-bounds from word bboxes, fallback interpolation, indentation, checkbox normalisation |
 | `transcript-search.test.js` | `tokenize` (hyphen preservation, property filtering), `searchPages` (partial matching, ranking), `highlightMatches` (HTML escaping) |
 | `stroke-filter.test.js` | `filterDecorativeStrokes` / `detectDecorativeIndices` — underline, circle, single-stroke box detection, threshold behaviour |
-| `page-svg.test.js` | `computeStrokeBounds`, `strokeToPathD` (scaling, normalisation, <2-point skip), `generateThumbnailSVG` (empty placeholder, dimensions) |
+| `page-svg.test.js` | `computeStrokeBounds`, `strokeToPathD` (scaling, normalisation, <2-point skip), `generateThumbnailSVG` (empty placeholder, dimensions); `strokePointPressures` (4th tuple element, NaN for legacy), `strokeToWidthRuns` (run splitting, monotonic ramp, full segment coverage, constant-pressure collapse, flatWidth fallback, scale/profile response) |
+| `sketch-width.test.js` | `normalizeProfile` (defaults, swapped/degenerate sanitising, null-vs-zero), presets, `profileKey`, `pressureToUnit` (band/clamp/NaN), `widthForPressure` (endpoints, gamma character), `smoothSeries` (symmetry, spike attenuation, edge windows), `limitSlew` (bidirectional), `widthsForPressures` (full pipeline, gap filling, all-missing → flatWidth), `strokePressures`/`hasPressureData` |
+| `sketch-store.test.js` | `stores/sketch.js` (sanitised load, persistence, corrupt JSON, presets, edit-clears-preset, reset, summary) and the `stores/strokes.js` flag helpers (mark/unmark, Set or array, no-op detection, unsaved-changes signalling, `_sw` cache invalidation, `sketchStrokeCount`) |
+| `canvas-renderer-sketch.test.js` | Renderer sketch path against a recording 2D-context stub: uniform handwriting (and that width no longer depends on the final dot), multi-width sketch runs, monotonic ramp, full segment coverage, run batching/quantisation, dashed fallback for deleted/decorative, width caching + profile invalidation, pasted-sketch taper |
+| `save-page.test.js` | `strokeToStored` (force as 4th element, integer rounding, null-timestamp placeholder, 3-element fallback for missing force, `sketch` omitted when false, key order); `savePageToFolder` sketch-flag sync onto strokes already on disk (mark, unmark removes the key, untouched when absent from canvas, points never rewritten, lineId sync preserved) |
 | `transcript-markdown.test.js` | `linesToLogseqMarkdown` — tab indentation, TODO/DONE markers, `::` property stripping, blank-line drop, `isPropertyLine`; `indentMarkdownBlock`, `textToTranscriptLines` (tab/2-space indent inference, blank drop), `pagesToLogseqMarkdown` (bare single page vs. labelled multi-page nesting, empty-page skip) |
 | `save-transcript.test.js` | `recomputeParentIds` (hierarchy by indent), `saveTranscriptLines` (verbatim write, lineId scrub on deleted lines, timestamp bump, missing-page guard; mocks `getPage`/`savePage`) |
 | `graph-index.test.js` | `smartpenAssetName`/`smartpenAssetRelPath`, `buildSmartpenIndexEntry`, `upsertSmartpenIndex` (replace-in-place, alias merge, sorting, corrupt-input normalisation) |
@@ -429,6 +451,14 @@ When making changes, also verify manually:
   selection on the same page and confirm both stroke sets are present (additive);
   re-export the same selection and confirm it adds nothing; confirm no transcript
   text in the asset
+- Sketch strokes: draw something with varying pressure → select it → **✏️ Mark as
+  Sketch** → confirm the line tapers with pressure and that a hard jab widens
+  gradually rather than bulging. Save, Clear, re-import → taper survives the
+  round-trip. **Unmark Sketch** returns it to a uniform line. Settings → **Sketch
+  Style**: presets and each slider update the live preview *and* the canvas
+  immediately; check a page saved before this feature renders at one flat width
+  rather than a hairline. Confirm the same taper appears in Book View and in an
+  SVG export, and that a duplicated (pasted) sketch stroke keeps it
 - Canvas pan/zoom/navigation
 - Page positioning and scaling
 - Unsaved-changes indicator + window-close prompt
@@ -468,6 +498,85 @@ npm run preview
 - [Svelte 4 Docs](https://svelte.dev/docs/svelte/overview) — Framework reference
 
 ## Recent Changes (Git History Context)
+
+### Sketch strokes — pressure-varying line thickness (August 2026)
+
+**Strokes can be flagged as "sketch" and render with a thickness that follows the
+pen force recorded at each point**, rather than one uniform width per stroke.
+Handwriting is unaffected and keeps the cheap single-path render.
+
+**The bug this uncovered.** `canvas-renderer.js` assigned `ctx.lineWidth` inside
+its `moveTo`/`lineTo` loop. Canvas2D reads `lineWidth` once, at `stroke()` time,
+and applies it to the whole path — so the assignment did nothing except leave the
+last value in effect, and *every stroke rendered at the width implied by its final
+dot's pressure*. The same pattern was in `drawPastedStroke` and
+`drawStrokeInternal`. `addDot()` (live capture) stroked each segment separately so
+it genuinely did vary, which is why live writing and re-render disagreed. All four
+paths now go through explicit, deterministic width handling.
+
+**Storage.** Pressure was previously discarded at the storage boundary
+(`strokeToStored` wrote `[x, y, ts]`; load injected a constant). Point tuples are
+now `[x, y, ts|null, force]` — variable length, so 2- and 3-element tuples from
+existing files still read. Force is written for **every** stroke, not just flagged
+ones: flagging happens long after capture, so conditional pressure would make
+marking a stroke later silently produce a flat line. `PAGE_DOC_VERSION` stays
+`"2.0"` — both additions are backward/forward compatible and bumping it would make
+`validatePageDoc()` reject every file on disk. Pages saved before this render at a
+constant `flatWidth`; `seriesHasVariation()` detects them (an unvarying force
+series is not real data) and `widthsForStrokeSeries()` is the single definition of
+that fallback, shared by the canvas and both SVG paths.
+
+**The mapping** (`src/lib/sketch-width.js`, pure, 51 tests) is a pipeline:
+normalise against a user-calibrated `pressureFloor`/`pressureCeil` band → smooth →
+shape by `gamma` → scale into `minWidth`…`maxWidth` → slew-limit.
+- `minWidth`/`maxWidth` are the brush-vs-pen control: a narrow band reads as a
+  technical pen, a wide one as a brush.
+- `gamma` is the response character: `<1` broadens readily (brush), `>1` stays thin
+  until pressed hard (pencil). Exposed in the UI as a Brush↔Pencil slider.
+- **Spike suppression** needed its own mechanism. Clamping `maxWidth` only caps how
+  fat a jab gets, not how abrupt it is. `smoothSeries()` is a *symmetric* moving
+  average (a trailing EMA would make the taper visibly lag the pen path) and
+  `limitSlew()` bounds the per-point rate of change, running forward then backward
+  so both flanks of a spike are bounded.
+- Calibration is user-settable because the pen's real force range is not
+  documented anywhere trustworthy — the SDK reads it as a 16-bit short and the
+  historical code divided by 500 on what looks like a guess.
+
+**Rendering.** Variable width means splitting the polyline: both Canvas2D and SVG
+apply one width per path. `strokeVariableWidth()` (canvas) and
+`strokeToWidthRuns()` (SVG) batch consecutive segments whose widths quantise to the
+same value into one run; runs share boundary vertices and round caps join them
+seamlessly. This collapses a 50-dot stroke from 49 draw calls to a handful. Widths
+are cached per stroke, tagged with `profileKey()`, so dragging a slider restyles
+the canvas live and anything else reuses. Deleted/decorative sketch strokes fall
+back to the uniform path — dash patterns restart per sub-path, so a dashed
+variable-width stroke would come out as uneven stipple, and the dash is the more
+important signal there.
+
+**Deliberately not done:** no live sketch preview. Strokes aren't flagged until
+after they're drawn, so live capture has nothing to consult; it draws at the
+uniform handwriting width and flagging changes appearance on the next render.
+
+**Known gap:** `computePendingChangesMap()` only counts stroke additions and
+deletions, so toggling the sketch flag on an already-saved stroke shows as the
+header's unsaved dot but does *not* appear in the SaveConfirmDialog's per-page
+diff. It saves correctly — `savePageToFolder()` syncs the flag both ways onto
+strokes already on disk (points stay immutable, per append-only).
+
+**Cross-repo:** exported LogSeq assets now carry pressure and the sketch flag
+(asserted in `graph-export.test.js`), but the JPI Tools plugin's SVG generator
+needs a matching change or graph renders stay flat.
+
+**New:** `src/lib/sketch-width.js`, `src/stores/sketch.js`,
+`src/components/settings/SketchStyleSettings.svelte`, and tests
+`sketch-width.test.js`, `sketch-store.test.js`, `canvas-renderer-sketch.test.js`,
+`save-page.test.js`.
+**Edited:** `canvas-renderer.js`, `storage/page-doc.js`, `storage/save-page.js`,
+`storage/load-page.js`, `stroke-storage.js`, `viewer/page-svg.js`,
+`stores/strokes.js`, `stores/index.js`, `components/canvas/StrokeCanvas.svelte`,
+`components/viewer/PageSpreadView.svelte`,
+`components/header/SettingsDropdown.svelte`, `stroke-storage.test.js`,
+`page-svg.test.js`, `graph-export.test.js`.
 
 ### Copy transcript from the canvas (July 2026)
 

@@ -39,23 +39,45 @@ function round2(n) {
 
 /**
  * Convert a pen-format stroke (with dotArray) to v2 StoredStroke shape.
- * @param {Object} stroke - { startTime, endTime, blockUuid?, dotArray: [{x,y,timestamp}] }
+ *
+ * Point tuples are variable length — `[x, y]`, `[x, y, ts]`, or
+ * `[x, y, ts|null, force]` — so that pressure can ride along without disturbing
+ * files or readers that predate it. Force is written whenever the dot has one,
+ * regardless of whether the stroke is flagged as a sketch: see the StoredStroke
+ * typedef for why that has to be unconditional.
+ *
+ * @param {Object} stroke - { startTime, endTime, blockUuid?, sketch?, dotArray: [{x,y,f?,timestamp?}] }
  * @returns {import('./page-doc.js').StoredStroke}
  */
 export function strokeToStored(stroke) {
   const points = (stroke.dotArray || []).map(d => {
     const x = round2(d.x);
     const y = round2(d.y);
-    if (typeof d.timestamp === 'number') return [x, y, d.timestamp];
-    return [x, y];
+    const hasTs = typeof d.timestamp === 'number';
+    // Pen force arrives as a 16-bit integer; keep it integral so the extra
+    // column costs ~4 characters per point rather than a full float.
+    const f = (d.f === null || d.f === undefined || typeof d.f === 'boolean')
+      ? NaN
+      : Number(d.f);
+    if (!Number.isFinite(f)) {
+      return hasTs ? [x, y, d.timestamp] : [x, y];
+    }
+    // Force must keep a fixed index, so an unrecorded timestamp becomes an
+    // explicit null placeholder rather than shifting force into slot 2.
+    return [x, y, hasTs ? d.timestamp : null, Math.round(f)];
   });
-  return {
+
+  const stored = {
     id: `s${stroke.startTime}`,
     startTime: stroke.startTime,
     endTime: stroke.endTime,
-    lineId: stroke.blockUuid || stroke.lineId || null,
-    points
+    lineId: stroke.blockUuid || stroke.lineId || null
   };
+  // Omitted when false so handwriting pages serialize exactly as they did before
+  // sketch strokes existed.
+  if (stroke.sketch) stored.sketch = true;
+  stored.points = points;
+  return stored;
 }
 
 /* -----------------------------------------------------------------
@@ -255,13 +277,26 @@ export async function savePageToFolder(input) {
     let addedCount = 0;
     const newById = new Map(newStored.map(s => [s.id, s]));
 
-    // Update lineId on existing strokes if canvas version differs
+    // Sync mutable per-stroke metadata from the canvas onto strokes already on
+    // disk. Points are never rewritten — the append-only rule makes captured
+    // geometry immutable — but lineId and the sketch flag are annotations the
+    // user changes after the fact, so a save has to carry them through.
     merged = merged.map(s => {
       const fresh = newById.get(s.id);
-      if (fresh && fresh.lineId && fresh.lineId !== s.lineId) {
-        return { ...s, lineId: fresh.lineId };
+      if (!fresh) return s;
+
+      let next = s;
+      if (fresh.lineId && fresh.lineId !== s.lineId) {
+        next = { ...next, lineId: fresh.lineId };
       }
-      return s;
+      // Two-way: marking and unmarking both have to persist, and `sketch` is
+      // absent rather than false when off, so compare as booleans.
+      if (!!fresh.sketch !== !!s.sketch) {
+        next = { ...next };
+        if (fresh.sketch) next.sketch = true;
+        else delete next.sketch;
+      }
+      return next;
     });
 
     for (const s of newStored) {
