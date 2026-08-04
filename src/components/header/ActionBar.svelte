@@ -39,7 +39,7 @@
     hasPendingChanges,
     deletedIndices
   } from '$stores';
-  import { getUntranscribedStrokes } from '$stores/strokes.js';
+  import { getUntranscribedStrokes, clearPointEditMarkers } from '$stores/strokes.js';
   import { getDeletedStrokeIdsForPage } from '$stores/pending-changes.js';
   import { writable } from 'svelte/store';
   import SaveConfirmDialog from '$components/dialog/SaveConfirmDialog.svelte';
@@ -408,8 +408,15 @@
           if (result.success) {
             recordSuccessfulSave(`B${book}/P${page}`, result);
 
+            // The edited strokes' points are now on disk, so the intent markers
+            // have done their job. Not gated on `result.edited`: a stroke that was
+            // point-edited before its first save is written by the append branch,
+            // which reports it as an addition, and its marker needs clearing too.
+            clearPointEditMarkers(book, page);
+
             const parts = [];
             if (result.added > 0) parts.push(`+${result.added} new`);
+            if (result.edited > 0) parts.push(`${result.edited} edited (points rewritten)`);
             if (result.deleted > 0) parts.push(`-${result.deleted} deleted`);
             if (result.linesAdded > 0) parts.push(`+${result.linesAdded} transcript line(s)`);
             const changes = parts.length > 0 ? parts.join(', ') + ', ' : '';

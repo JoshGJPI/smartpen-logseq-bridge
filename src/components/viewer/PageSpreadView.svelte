@@ -8,7 +8,8 @@
 -->
 <script>
   import { onMount, tick } from 'svelte';
-  import { NCODE_SCALE, computeStrokeBounds, strokeToPathD } from '$lib/viewer/page-svg.js';
+  import { NCODE_SCALE, DEFAULT_STROKE_WIDTH, computeStrokeBounds, strokeToPathD, strokeToWidthRuns } from '$lib/viewer/page-svg.js';
+  import { sketchProfile } from '$stores';
   import { getCachedPage } from '$lib/viewer/page-cache.js';
   import TranscriptPane from './TranscriptPane.svelte';
 
@@ -191,7 +192,16 @@
         <div class="pv-transform" style="transform: translate({panX}px, {panY}px) scale({zoom});">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {svgWidth.toFixed(2)} {svgHeight.toFixed(2)}" width={svgWidth.toFixed(2)} height={svgHeight.toFixed(2)}>
             {#each strokes as stroke (stroke.id)}
-              <path d={strokeToPathD(stroke, bounds)} stroke="#1a1a2e" stroke-width="0.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+              {#if stroke.sketch}
+                <!-- One <path> per constant-width run: SVG applies a single
+                     stroke-width per path, so a pressure-varying line has to be
+                     split. Runs share their boundary vertices and round caps. -->
+                {#each strokeToWidthRuns(stroke, bounds, $sketchProfile) as run, i (i)}
+                  <path d={run.d} stroke="#1a1a2e" stroke-width={run.width} fill="none" stroke-linecap="round" stroke-linejoin="round" />
+                {/each}
+              {:else}
+                <path d={strokeToPathD(stroke, bounds)} stroke="#1a1a2e" stroke-width={DEFAULT_STROKE_WIDTH} fill="none" stroke-linecap="round" stroke-linejoin="round" />
+              {/if}
             {/each}
           </svg>
         </div>

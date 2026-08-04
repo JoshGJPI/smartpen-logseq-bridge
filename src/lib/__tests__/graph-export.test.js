@@ -309,3 +309,62 @@ describe('exportPageDocToGraph', () => {
     expect(writeGraphPage.mock.calls[0][1]).toBe('151b');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Sketch strokes — pressure and the sketch flag must reach the graph
+// ---------------------------------------------------------------------------
+
+describe('sketch strokes in the published asset', () => {
+  it('keeps per-point pressure through the transcript strip', () => {
+    // stripTranscriptRefs rewrites lineId; it must not rebuild points.
+    const out = stripTranscriptRefs([stored('s1', 1, [[1, 2, 100, 640]], 'line-1')]);
+    expect(out[0].lineId).toBeNull();
+    expect(out[0].points[0]).toEqual([1, 2, 100, 640]);
+  });
+
+  it('keeps the sketch flag through the transcript strip', () => {
+    const out = stripTranscriptRefs([{ ...stored('s1', 1), sketch: true, lineId: 'x' }]);
+    expect(out[0].sketch).toBe(true);
+  });
+
+  it('keeps the sketch flag through an additive merge', () => {
+    const { strokes } = mergeGraphStrokes(
+      [{ ...stored('s1', 1), sketch: true }],
+      [{ ...stored('s2', 2), sketch: true }]
+    );
+    expect(strokes.map((s) => s.sketch)).toEqual([true, true]);
+  });
+
+  it('publishes pressure and the sketch flag in the built doc', () => {
+    // The graph copy exists to hold sketches, so this is the payload that matters.
+    const { doc } = buildGraphPageDoc({
+      existingDoc: null,
+      incoming: [{ ...stored('s1', 1, [[1, 2, 100, 300], [3, 4, 101, 800]]), sketch: true }],
+      book: 3017,
+      page: 42
+    });
+    expect(doc.strokes[0].sketch).toBe(true);
+    expect(doc.strokes[0].points).toEqual([[1, 2, 100, 300], [3, 4, 101, 800]]);
+    // …and still no transcript.
+    expect(doc.transcript.lines).toEqual([]);
+  });
+
+  it('carries pressure and the flag from a canvas selection to the write', async () => {
+    await exportSelectionToGraph([
+      {
+        pageInfo: { section: 3, owner: 1012, book: 3017, page: 42 },
+        startTime: 1000,
+        endTime: 1100,
+        sketch: true,
+        dotArray: [
+          { x: 1, y: 2, f: 300, timestamp: 100 },
+          { x: 3, y: 4, f: 820, timestamp: 101 }
+        ]
+      }
+    ]);
+
+    const written = writeGraphPage.mock.calls[0][2];
+    expect(written.strokes[0].sketch).toBe(true);
+    expect(written.strokes[0].points).toEqual([[1, 2, 100, 300], [3, 4, 101, 820]]);
+  });
+});

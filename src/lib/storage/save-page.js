@@ -9,8 +9,13 @@
  *     - Start from the existing PageDoc on disk as the base.
  *     - Remove strokes whose id is in deletedStrokeIds.
  *     - Append new strokes from the canvas (deduplicated by id).
- *     - Update lineId on existing strokes if the in-memory version differs.
+ *     - Update lineId and the sketch flag on existing strokes if the in-memory
+ *       version differs.
  *     - Never infer deletions from count differences.
+ *     - ONE exception to immutable geometry: rewrite a stored stroke's `points`
+ *       when the canvas copy carries the `pointsEdited` marker, which only
+ *       `removeStrokePoints()` in stores/strokes.js sets. See mergeEditedPoints
+ *       below for why the marker rather than a count comparison.
  *
  *   Transcript (incremental append):
  *     - If pageTranscription is provided, treat its `lines` as NEW lines (the
@@ -39,23 +44,45 @@ function round2(n) {
 
 /**
  * Convert a pen-format stroke (with dotArray) to v2 StoredStroke shape.
- * @param {Object} stroke - { startTime, endTime, blockUuid?, dotArray: [{x,y,timestamp}] }
+ *
+ * Point tuples are variable length — `[x, y]`, `[x, y, ts]`, or
+ * `[x, y, ts|null, force]` — so that pressure can ride along without disturbing
+ * files or readers that predate it. Force is written whenever the dot has one,
+ * regardless of whether the stroke is flagged as a sketch: see the StoredStroke
+ * typedef for why that has to be unconditional.
+ *
+ * @param {Object} stroke - { startTime, endTime, blockUuid?, sketch?, dotArray: [{x,y,f?,timestamp?}] }
  * @returns {import('./page-doc.js').StoredStroke}
  */
 export function strokeToStored(stroke) {
   const points = (stroke.dotArray || []).map(d => {
     const x = round2(d.x);
     const y = round2(d.y);
-    if (typeof d.timestamp === 'number') return [x, y, d.timestamp];
-    return [x, y];
+    const hasTs = typeof d.timestamp === 'number';
+    // Pen force arrives as a 16-bit integer; keep it integral so the extra
+    // column costs ~4 characters per point rather than a full float.
+    const f = (d.f === null || d.f === undefined || typeof d.f === 'boolean')
+      ? NaN
+      : Number(d.f);
+    if (!Number.isFinite(f)) {
+      return hasTs ? [x, y, d.timestamp] : [x, y];
+    }
+    // Force must keep a fixed index, so an unrecorded timestamp becomes an
+    // explicit null placeholder rather than shifting force into slot 2.
+    return [x, y, hasTs ? d.timestamp : null, Math.round(f)];
   });
-  return {
+
+  const stored = {
     id: `s${stroke.startTime}`,
     startTime: stroke.startTime,
     endTime: stroke.endTime,
-    lineId: stroke.blockUuid || stroke.lineId || null,
-    points
+    lineId: stroke.blockUuid || stroke.lineId || null
   };
+  // Omitted when false so handwriting pages serialize exactly as they did before
+  // sketch strokes existed.
+  if (stroke.sketch) stored.sketch = true;
+  stored.points = points;
+  return stored;
 }
 
 /* -----------------------------------------------------------------
@@ -206,6 +233,7 @@ function mergeTranscript(existingLines, myscriptLines, storedStrokes) {
  * @typedef {Object} SavePageOutput
  * @property {boolean} success
  * @property {number} added
+ * @property {number} edited   - stored strokes whose points were rewritten
  * @property {number} deleted
  * @property {number} total
  * @property {number} lineCount
@@ -253,15 +281,50 @@ export async function savePageToFolder(input) {
 
     const existingIds = new Set(merged.map(s => s.id));
     let addedCount = 0;
+    let editedCount = 0;
     const newById = new Map(newStored.map(s => [s.id, s]));
 
-    // Update lineId on existing strokes if canvas version differs
+    // Ids whose captured geometry the user edited (points deleted). Derived from
+    // the canvas strokes we were handed rather than passed in separately, so the
+    // intent travels with the stroke it belongs to and can't be mismatched.
+    //
+    // Deliberately keyed on the explicit `pointsEdited` marker and NOT on "the
+    // canvas copy has fewer points than the stored one". Append-only exists to
+    // make partial canvas state incapable of destroying stored data; a count
+    // comparison would hand that power to any future code path that filters a
+    // dotArray for its own purposes. The marker is set in exactly one place.
+    const editedIds = new Set(
+      activeStrokes.filter(s => s && s.pointsEdited).map(s => `s${s.startTime}`)
+    );
+
+    // Sync mutable per-stroke state from the canvas onto strokes already on disk:
+    // lineId and the sketch flag are annotations the user changes after the fact,
+    // and points are rewritten only for explicitly edited strokes.
     merged = merged.map(s => {
       const fresh = newById.get(s.id);
-      if (fresh && fresh.lineId && fresh.lineId !== s.lineId) {
-        return { ...s, lineId: fresh.lineId };
+      if (!fresh) return s;
+
+      let next = s;
+      if (fresh.lineId && fresh.lineId !== s.lineId) {
+        next = { ...next, lineId: fresh.lineId };
       }
-      return s;
+      // Two-way: marking and unmarking both have to persist, and `sketch` is
+      // absent rather than false when off, so compare as booleans.
+      if (!!fresh.sketch !== !!s.sketch) {
+        next = { ...next };
+        if (fresh.sketch) next.sketch = true;
+        else delete next.sketch;
+      }
+      // Geometry rewrite. `fresh.points` came through strokeToStored, so the
+      // surviving points keep their `[x, y, ts|null, force]` shape — a sketch
+      // stroke stays a pressure-varying sketch across the edit. Assigning into
+      // the existing key keeps `points` in its original position, so the
+      // serialized line's key order is unchanged.
+      if (editedIds.has(s.id) && Array.isArray(fresh.points)) {
+        next = { ...next, points: fresh.points };
+        editedCount++;
+      }
+      return next;
     });
 
     for (const s of newStored) {
@@ -331,6 +394,7 @@ export async function savePageToFolder(input) {
     return {
       success: true,
       added: addedCount,
+      edited: editedCount,
       deleted: deletedCount,
       total: merged.length,
       lineCount: doc.transcript.lines.length,
@@ -342,7 +406,7 @@ export async function savePageToFolder(input) {
     return {
       success: false,
       error: err.message || String(err),
-      added: 0, deleted: 0, total: 0, lineCount: 0
+      added: 0, edited: 0, deleted: 0, total: 0, lineCount: 0
     };
   }
 }

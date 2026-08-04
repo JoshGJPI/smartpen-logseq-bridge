@@ -8,6 +8,14 @@
  * See docs/LOCAL-STORAGE-PIVOT-SPEC.md for the full design.
  */
 
+/**
+ * Deliberately still "2.0" after the pressure/sketch additions.
+ *
+ * Both additions are backward- and forward-compatible: a longer point tuple is
+ * ignored by readers that destructure `[x, y, ts]`, and an absent `sketch` key
+ * reads as false. `validatePageDoc()` rejects any version it does not recognise,
+ * so bumping this would invalidate every file already on disk for no benefit.
+ */
 export const PAGE_DOC_VERSION = '2.0';
 
 /**
@@ -54,7 +62,24 @@ export const PAGE_DOC_VERSION = '2.0';
  * @property {number} startTime
  * @property {number} [endTime]
  * @property {string|null} lineId                 - Transcript line this stroke belongs to
- * @property {Array<[number, number, number?]>} points  - [x, y, timestamp?]
+ * @property {boolean} [sketch]                   - Marked as a sketch stroke: renders with
+ *                                                  pressure-varying thickness rather than a
+ *                                                  uniform line. Omitted entirely when false,
+ *                                                  so handwriting pages are unchanged on disk.
+ * @property {Array<[number, number, (number|null)?, number?]>} points
+ *   - [x, y, timestamp?, force?]
+ *
+ *   The 4th element is the raw pen force at that point, which drives sketch
+ *   rendering. It is written for every stroke, not just sketch-flagged ones:
+ *   flagging a stroke as a sketch happens long after capture, and if pressure
+ *   were conditional on the flag then marking a stroke later would silently
+ *   produce a flat line with no way to recover the data.
+ *
+ *   Tuples are variable length for backward compatibility. Pages written before
+ *   pressure was persisted have 2- or 3-element tuples and read back with no
+ *   force; they render at a constant width (see `sketch-width.js` flatWidth).
+ *   When force is present but timestamp was not recorded, position 2 is `null`
+ *   so force keeps its fixed index.
  */
 
 /**

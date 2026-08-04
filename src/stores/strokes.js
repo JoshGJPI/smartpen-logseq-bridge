@@ -2,9 +2,10 @@
  * Strokes Store - Manages stroke data from the pen
  * Svelte 4 writable and derived stores
  */
-import { writable, derived } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 import { registerBookId, registerBookIds } from './book-aliases.js';
 import { markUnsavedChanges } from './storage.js';
+import { removePointsFromStroke } from '../lib/point-edit.js';
 
 // Raw stroke data
 export const strokes = writable([]);
@@ -45,6 +46,12 @@ export const canvasPageKeys = derived(pages, $pages => {
 
 // Current page info (for tracking which page is being written to)
 export const currentPageInfo = writable(null);
+
+// How many loaded strokes are flagged as sketches. Drives the "Unmark" button's
+// enabled state and the header count.
+export const sketchStrokeCount = derived(strokes, $strokes =>
+  $strokes.reduce((n, s) => n + (s.sketch ? 1 : 0), 0)
+);
 
 /**
  * Add a new stroke to the store
@@ -127,6 +134,167 @@ export function removeStrokesByIndices(indices) {
 }
 
 /**
+ * Flag or unflag strokes as sketches.
+ *
+ * Sketch strokes render with a thickness that follows the pen force recorded at
+ * each point (see `$lib/sketch-width.js`); everything else renders as a uniform
+ * line. The flag is an annotation on top of captured geometry, so it is set from
+ * the current selection long after the strokes were drawn.
+ *
+ * Marks the session dirty: the flag lives in the PageDoc, so it is lost unless
+ * the page is saved. Toggling it on a stroke already stored on disk is reported
+ * by `pendingChanges` as a *modification* (see `computePendingChangesMap`), so it
+ * surfaces in the canvas page label and the save dialog as well as the header's
+ * unsaved dot.
+ *
+ * @param {number[]|Set<number>} indices - stroke indices in the strokes store
+ * @param {boolean} [sketch] - true to mark, false to unmark
+ * @returns {number} how many strokes actually changed
+ */
+export function setStrokesSketch(indices, sketch = true) {
+  const target = indices instanceof Set ? indices : new Set(indices || []);
+  if (target.size === 0) return 0;
+
+  let changed = 0;
+  strokes.update(all =>
+    all.map((stroke, index) => {
+      if (!target.has(index)) return stroke;
+      if (!!stroke.sketch === !!sketch) return stroke;
+      changed++;
+      const next = { ...stroke, sketch: !!sketch };
+      // Drop the renderer's cached width array — it was computed for the other
+      // mode and is keyed only by the sketch profile, not by this flag.
+      delete next._sw;
+      return next;
+    })
+  );
+
+  if (changed > 0) markUnsavedChanges();
+  return changed;
+}
+
+/**
+ * Mark strokes as sketches. @see setStrokesSketch
+ * @param {number[]|Set<number>} indices
+ * @returns {number} how many changed
+ */
+export function markStrokesAsSketch(indices) {
+  return setStrokesSketch(indices, true);
+}
+
+/**
+ * Unmark strokes, returning them to uniform-width handwriting rendering.
+ * @param {number[]|Set<number>} indices
+ * @returns {number} how many changed
+ */
+export function unmarkStrokesAsSketch(indices) {
+  return setStrokesSketch(indices, false);
+}
+
+/**
+ * Delete individual captured points from strokes.
+ *
+ * The pen sometimes emits a dot at the Ncode origin partway through an otherwise
+ * sound stroke, which draws a line out to the page corner and back. This removes
+ * those points while leaving the rest of the stroke intact.
+ *
+ * THIS IS THE ONLY THING IN THE APP THAT MUTATES CAPTURED GEOMETRY. Every other
+ * write is append-only, and `savePageToFolder()` refuses to rewrite a stored
+ * stroke's `points` unless the stroke carries the `pointsEdited` marker set here
+ * — so a truncated dotArray arriving from any other code path can never
+ * overwrite what's on disk.
+ *
+ * Preserved deliberately:
+ *   - `startTime` / `endTime`, and therefore the stroke's `s{startTime}` id, even
+ *     when the first or last point goes. The id is what stroke dedupe, transcript
+ *     `lineId` links and the LogSeq asset merge all key on; re-deriving it would
+ *     orphan the stroke from its transcript line and re-import it as a duplicate.
+ *   - each surviving dot's `f` (pen force) and the `sketch` flag, so a sketch
+ *     stroke keeps its pressure-varying thickness across the edit. The cached
+ *     width array is dropped (in `removePointsFromStroke`) so it recomputes for
+ *     the shorter point series.
+ *
+ * @param {Map<number, Set<number>|number[]>} edits - strokeIndex → point indices
+ * @returns {{editedIds: string[], removedPoints: number, editedStrokes: number,
+ *            refused: Array<{strokeIndex:number, remaining:number}>}}
+ *   `refused` lists strokes where the removal would have left fewer than two
+ *   points (nothing to draw). Those are left untouched — the caller should offer
+ *   whole-stroke deletion instead of silently leaving an invisible stroke.
+ */
+export function removeStrokePoints(edits) {
+  if (!edits || edits.size === 0) {
+    return { editedIds: [], removedPoints: 0, editedStrokes: 0, refused: [] };
+  }
+
+  const editedIds = [];
+  const refused = [];
+  let removedPoints = 0;
+
+  strokes.update(all =>
+    all.map((stroke, index) => {
+      const drop = edits.get(index);
+      if (!drop) return stroke;
+
+      const result = removePointsFromStroke(stroke, drop);
+      if (result.removed === 0) return stroke;
+      if (!result.stroke) {
+        refused.push({ strokeIndex: index, remaining: result.remaining });
+        return stroke;
+      }
+
+      removedPoints += result.removed;
+      editedIds.push(`s${stroke.startTime}`);
+      // In-memory only: `strokeToStored()` builds stored strokes from a fixed key
+      // list, so this marker cannot leak into the PageDoc.
+      return { ...result.stroke, pointsEdited: true };
+    })
+  );
+
+  if (removedPoints > 0) markUnsavedChanges();
+  return { editedIds, removedPoints, editedStrokes: editedIds.length, refused };
+}
+
+/**
+ * Drop the `pointsEdited` intent markers for a page after its save succeeded.
+ *
+ * The dirty-state diff doesn't depend on this — it compares the canvas point
+ * count against the stored one, which the post-save index refresh brings back
+ * into line by itself. This just keeps the store honest: the marker means "these
+ * points still need writing", and once they're written it would be a lie, leaving
+ * a later unrelated save of the same page to rewrite geometry it has no reason to
+ * touch.
+ *
+ * @param {number} book
+ * @param {number} page
+ * @returns {number} how many strokes were cleared
+ */
+export function clearPointEditMarkers(book, page) {
+  let cleared = 0;
+
+  // Cheap pre-check so this can be called after every page save without cost.
+  // Writing the store unconditionally would republish the whole strokes array —
+  // and with it a pendingChanges recompute and a canvas repaint — once per saved
+  // page, for the overwhelmingly common case of no point edits at all.
+  const onPage = (s) => s.pointsEdited && s.pageInfo &&
+    s.pageInfo.book === book && s.pageInfo.page === page;
+  if (!get(strokes).some(onPage)) return 0;
+
+  strokes.update(all =>
+    all.map(stroke => {
+      if (!stroke.pointsEdited) return stroke;
+      const pi = stroke.pageInfo;
+      if (!pi || pi.book !== book || pi.page !== page) return stroke;
+      cleared++;
+      const next = { ...stroke };
+      delete next.pointsEdited;
+      return next;
+    })
+  );
+
+  return cleared;
+}
+
+/**
  * Load strokes from storage format into the store
  * Used when loading a saved page - restores lineId associations
  * @param {Array} storedStrokes - Strokes from storage (with blockUuid)
@@ -140,16 +308,19 @@ export function loadStrokesFromStorage(storedStrokes, pageInfo) {
     registerBookId(pageInfo.book);
   }
   
-  // Convert from storage format (restores blockUuid)
+  // Convert from storage format (restores blockUuid, sketch flag, pressure)
   const fullStrokes = storedStrokes.map(stored => ({
     pageInfo: pageInfo,
     startTime: stored.startTime,
     endTime: stored.endTime,
     blockUuid: stored.blockUuid || null,
-    dotArray: stored.points.map(([x, y, timestamp]) => ({
+    sketch: !!stored.sketch,
+    dotArray: stored.points.map(([x, y, timestamp, f]) => ({
       x,
       y,
-      f: 512,
+      // Captured force when the tuple carries it; else the historical constant,
+      // which downstream reads as "no real pressure data".
+      f: typeof f === 'number' ? f : 512,
       timestamp
     }))
   }));

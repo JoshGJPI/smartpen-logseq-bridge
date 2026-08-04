@@ -18,8 +18,50 @@ export {
   clearStrokes,
   removeStrokesByIndices,
   clearStrokeBlockUuids,
-  getActiveStrokesForPageFromStore
+  getActiveStrokesForPageFromStore,
+  // Sketch strokes (pressure-varying thickness)
+  sketchStrokeCount,
+  setStrokesSketch,
+  markStrokesAsSketch,
+  unmarkStrokesAsSketch,
+  // Point editing (the one path that mutates captured geometry)
+  removeStrokePoints,
+  clearPointEditMarkers
 } from './strokes.js';
+
+// Point Edit mode (canvas point handles)
+export {
+  pointEditMode,
+  pointEditStrokes,
+  pointEditPointCount,
+  selectedPoints,
+  selectedPointCount,
+  hasSelectedPoints,
+  strayPoints,
+  strayPointKeys,
+  MAX_POINT_EDIT_STROKES,
+  enterPointEditMode,
+  exitPointEditMode,
+  togglePointEditMode,
+  selectPoint,
+  selectPoints,
+  clearPointSelection,
+  selectStrayPoints,
+  deleteSelectedPoints,
+  deleteStrayPoints
+} from './point-edit.js';
+
+// Sketch render profile (pressure → thickness)
+export {
+  sketchProfile,
+  sketchPresetName,
+  sketchPresets,
+  sketchProfileSummary,
+  applySketchPreset,
+  updateSketchProfile,
+  resetSketchProfile,
+  getSketchProfile
+} from './sketch.js';
 
 // Selection
 export {

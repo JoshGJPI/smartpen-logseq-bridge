@@ -21,6 +21,13 @@ import { registerBookIds } from '$stores/book-aliases.js';
 import { getPage } from './local-store.js';
 
 /**
+ * Force value injected for pages saved before per-point pressure was persisted.
+ * Matches the historical constant so nothing that reads `dot.f` changes behaviour
+ * for those pages.
+ */
+const LEGACY_FLAT_PRESSURE = 100;
+
+/**
  * @param {Object} stroke - either canvas-format (with dotArray) or storage-format (with points)
  * @returns {string}
  */
@@ -59,15 +66,21 @@ function transformStoredToCanvasFormat(doc, onProgress = null) {
       // PageDoc carries lineId; in-memory canvas keeps it as blockUuid for
       // compatibility with existing transcript matching code.
       blockUuid: s.lineId || null,
+      sketch: !!s.sketch,
       dotArray: points.map((p, i) => {
-        const [x, y, ts] = p;
+        const [x, y, ts, f] = p;
         let dotType;
         if (i === 0) dotType = 0;                // Pen Down
         else if (i === points.length - 1) dotType = 2; // Pen Up
         else dotType = 1;                        // Pen Move
         return {
           x, y,
-          f: 100,                                // Default pressure (light)
+          // Real captured force when the file has it (4-element tuples), else
+          // LEGACY_FLAT_PRESSURE. The fallback is a constant on purpose: a page
+          // written before pressure was persisted has no force data to recover,
+          // and an unvarying series is how `hasPressureData()` recognises that
+          // and falls back to a flat rendered width.
+          f: typeof f === 'number' ? f : LEGACY_FLAT_PRESSURE,
           dotType,
           timestamp: typeof ts === 'number' ? ts : undefined,
           pageInfo: sharedPageInfo

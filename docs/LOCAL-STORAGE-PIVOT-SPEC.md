@@ -107,8 +107,11 @@ The existing `jpi/`, `raw/`, `processed/`, `reference/` subfolders are recognize
 ```
 
 Notes:
+- ⚠️ **`strokes[]` has grown since this was written** — point tuples are variable
+  length and may carry pen force, and a stroke may carry `sketch`. See
+  [§12 Amendments Since v2.0](#12-amendments-since-v20).
 - **One file per page.** Strokes and transcript are co-located. Atomic write (write `P42.json.tmp`, then rename) eliminates partial-write risk.
-- **Pretty-printed.** Two-space indent. Diff-friendly; ~30% larger than minified but trivial in practice (~400 strokes typical, biggest current page ~600 KB pretty).
+- **Pretty-printed.** Two-space indent — for the document shell only; each stroke is inlined onto one line by the hybrid serializer (see [§11](#11-hybrid-serializer-detail)). Diff-friendly; ~30% larger than minified but trivial in practice (~400 strokes typical, biggest current page ~600 KB pretty).
 - `lineId` replaces the v1 `blockUuid` on strokes. It still uniquely identifies the transcript line a stroke belongs to, but it's now just an opaque string owned by the app — no LogSeq semantics.
 - `transcript.lines` is a flat array. Hierarchy is expressed via `parentId` + `indentLevel`. This is simpler to mutate than a block tree.
 - **Existing UUIDs are carried forward** during migration — strokes that have a `blockUuid` today keep that same ID as their `lineId`, so re-transcription is not required.
@@ -319,8 +322,61 @@ Measured: largest B3017 page went 2479 KB (full pretty) → 986 KB (hybrid).
 
 ---
 
-## 12. Reference
+## 12. Amendments Since v2.0
+
+The schema above is still accurate for what it describes, but two additions have
+landed on `strokes[]` since, and one rule has gained an exception. **CLAUDE.md is
+authoritative for current behaviour**; this section exists so the schema example in
+§3 isn't read as complete.
+
+### Point tuples are variable length (v2.4, sketch strokes)
+
+`points` entries are `[x, y]`, `[x, y, ts]`, or `[x, y, ts|null, force]`. The 4th
+element is the raw pen force at that point, which drives sketch-stroke line
+thickness; it is written for **every** stroke, not just flagged ones, because
+flagging happens long after capture. When force is present but no timestamp was
+recorded, position 2 is an explicit `null` so force keeps a fixed index. Files
+written before this have shorter tuples and read back fine.
+
+Strokes may also carry `"sketch": true`, omitted entirely when false so handwriting
+pages serialize exactly as they did before. `version` stays `"2.0"` — both additions
+are backward- and forward-compatible, and bumping it would make `validatePageDoc()`
+reject every file already on disk.
+
+### Geometry is immutable — with one exception (v2.5, point editing)
+
+The append-only rule (start from the PageDoc on disk; append new strokes; remove
+only explicitly deleted ones; never infer a deletion from a count difference) is
+unchanged, and `points` on a stored stroke is still never rewritten by any save
+path — **except** for a stroke the user has explicitly edited in the canvas's
+**Edit Points** mode, which deletes individual bad points from a stroke (typically a
+dot the pen recorded at the Ncode origin, which the renderer draws as a line to the
+page corner).
+
+That rewrite is gated on an in-memory `pointsEdited` marker set only by
+`removeStrokePoints()` in `stores/strokes.js`, deliberately **not** on "the canvas
+copy has fewer points than the stored one". Append-only exists so partial canvas
+state cannot destroy stored data; a count comparison would extend that power to any
+future code path that filters a dotArray for its own purposes. The marker never
+reaches disk — `strokeToStored()` builds stored strokes from a fixed key list.
+
+Invariants the rewrite preserves:
+- **`startTime` / `endTime`, and therefore the stroke's `s{startTime}` id**, even
+  when the first or last point is the one removed. The id is what stroke dedupe,
+  `lineId` transcript links and the LogSeq asset merge all key on.
+- **Each surviving point's `force`**, so the tuple shape above is maintained and a
+  sketch stroke still renders with pressure-varying thickness.
+- **`sketch`**, `lineId`, and the transcript itself.
+- `metadata.bounds` and `totalStrokes` are recomputed as usual (removing an origin
+  point is what finally shrinks a page's bounds back to its real content).
+
+A stroke cannot be reduced below 2 points; such a removal is refused rather than
+leaving a stroke with nothing to draw.
+
+---
+
+## 13. Reference
 
 - v1 architecture: [docs/QUICK-ARCHITECTURE-REFERENCE.md](QUICK-ARCHITECTURE-REFERENCE.md) (canvas/pen still apply; storage details are v1)
 - v1 storage spec: [docs/TRANSCRIPT-STORAGE-SPEC.md](TRANSCRIPT-STORAGE-SPEC.md) (historical)
-- CLAUDE.md — updated for v2.0 (start there for AI-assisted work)
+- CLAUDE.md — updated for v2.0 and maintained since (start there for AI-assisted work)

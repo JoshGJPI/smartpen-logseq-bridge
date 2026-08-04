@@ -19,12 +19,29 @@
   import { formatBookName, filterTranscriptionProperties } from '$utils/formatting.js';
   import { openSearchTranscriptsDialog, openSvgExportDialog } from '$stores';
   import { hasSelection } from '$stores/selection.js';
+  import { sketchProfile, sketchProfileSummary, sketchStrokeCount, markStrokesAsSketch, unmarkStrokesAsSketch } from '$stores';
   import { dataFolderReady, graphFolderReady } from '$stores/settings.js';
   import { buildJsonExportData, buildMdExportData } from '$lib/stroke-storage.js';
   import { exportSelectionToGraph } from '$lib/storage/graph-export.js';
   import { pagesToLogseqMarkdown, textToTranscriptLines } from '$lib/viewer/transcript-markdown.js';
   import { getCachedPage } from '$lib/viewer/page-cache.js';
+  import {
+    pointEditMode,
+    pointEditStrokes,
+    selectedPoints,
+    selectedPointCount,
+    strayPointKeys,
+    strayPoints,
+    selectPoint,
+    selectPoints,
+    clearPointSelection,
+    deleteSelectedPoints,
+    togglePointEditMode,
+    exitPointEditMode,
+    MAX_POINT_EDIT_STROKES
+  } from '$stores/point-edit.js';
   import CanvasControls from './CanvasControls.svelte';
+  import PointEditPanel from './PointEditPanel.svelte';
   import PageSelector from './PageSelector.svelte';
   import FilteredStrokesPanel from '../strokes/FilteredStrokesPanel.svelte';
   import SearchTranscriptsDialog from '../dialog/SearchTranscriptsDialog.svelte';
@@ -164,6 +181,26 @@
     
     // Keyboard shortcuts
     const handleKeyDown = (e) => {
+      // Point-edit mode owns Escape and Delete while it is active: it is a modal
+      // sub-state of the canvas, and its point selection is the thing on screen
+      // the user is aiming those keys at.
+      if ($pointEditMode) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          // Step out one level at a time: drop the point selection first, and
+          // only leave the mode on a second press.
+          if ($selectedPointCount > 0) clearPointSelection();
+          else exitPointEditMode();
+          renderStrokes(false);
+          return;
+        }
+        if ((e.key === 'Delete' || e.key === 'Backspace') && $selectedPointCount > 0) {
+          e.preventDefault();
+          handleDeletePoints();
+          return;
+        }
+      }
+
       // Escape - cancel box selection, resize, or clear pasted selection
       if (e.key === 'Escape') {
         if (isBoxSelecting || boxSelectPending) {
@@ -365,7 +402,132 @@
     renderer.setPageScales($pageScales);
     renderStrokes(false);
   }
+
+  // Push the sketch thickness profile into the renderer and repaint. Cached
+  // per-stroke width arrays are tagged with the profile key, so they invalidate
+  // themselves — dragging a slider restyles every sketch on the canvas live.
+  $: if (renderer && $sketchProfile) {
+    renderer.setSketchProfile($sketchProfile);
+    renderStrokes(false);
+  }
+
+  // How many of the selected strokes are already flagged. Drives whether the
+  // header offers Mark, Unmark, or both for a mixed selection. Computed from
+  // $strokes directly so it recomputes when the flags change, not just when the
+  // selection does.
+  $: selectedSketchCount = $hasSelection
+    ? Array.from($selectedIndices).reduce((n, i) => n + ($strokes[i]?.sketch ? 1 : 0), 0)
+    : 0;
+  $: selectedPlainCount = $selectionCount - selectedSketchCount;
+
+  /**
+   * Flag or unflag the current selection as sketch strokes.
+   * @param {boolean} sketch
+   */
+  function applySketchFlag(sketch) {
+    const indices = $selectedIndices;
+    if (!indices || indices.size === 0) return;
+
+    const changed = sketch ? markStrokesAsSketch(indices) : unmarkStrokesAsSketch(indices);
+    if (changed === 0) {
+      log(`No change — ${$selectionCount} stroke${$selectionCount !== 1 ? 's' : ''} already ${sketch ? 'marked' : 'unmarked'}`, 'info');
+      return;
+    }
+
+    const noun = `stroke${changed !== 1 ? 's' : ''}`;
+    log(
+      sketch
+        ? `Marked ${changed} ${noun} as sketch (${$sketchProfileSummary})`
+        : `Unmarked ${changed} ${noun} — back to uniform width`,
+      'success'
+    );
+    // The flag changes how these strokes draw, and $strokes updating does not by
+    // itself schedule a repaint from any of the reactive blocks above.
+    renderStrokes(false);
+  }
   
+  /* ---------------------------------------------------------------
+   *  Point editing
+   *
+   *  A mode over the existing stroke selection: the selected strokes' individual
+   *  captured points become clickable handles so a single bad sample (typically
+   *  one at the Ncode origin, drawing a line out to the page corner) can be
+   *  removed without discarding the stroke.
+   * --------------------------------------------------------------- */
+
+  function handleTogglePointEdit() {
+    const result = togglePointEditMode();
+
+    if (!result.ok) {
+      if (result.reason === 'no-selection') {
+        log('Select the stroke(s) you want to edit first', 'warning');
+      } else if (result.reason === 'too-many') {
+        log(
+          `${result.count} strokes selected — point editing is limited to ${MAX_POINT_EDIT_STROKES}. ` +
+          `Select a smaller area (every point of every selected stroke gets a handle).`,
+          'warning'
+        );
+      }
+      return;
+    }
+
+    if (result.entered) {
+      const strays = $strayPoints.length;
+      const note = strays > 0
+        ? `${strays} suspect point${strays !== 1 ? 's' : ''} highlighted in amber`
+        : 'no suspect points detected';
+      log(`Point editing ${result.count} stroke${result.count !== 1 ? 's' : ''} — ${note}`, 'info');
+    } else {
+      log('Left point-edit mode', 'info');
+    }
+
+    // Handles appear/disappear; nothing else schedules this repaint.
+    renderStrokes(false);
+  }
+
+  /** Delete the selected points (Del key, and the panel's button routes here). */
+  function handleDeletePoints() {
+    const result = deleteSelectedPoints();
+
+    if (result.removedPoints > 0) {
+      const pts = `${result.removedPoints} point${result.removedPoints !== 1 ? 's' : ''}`;
+      log(`Deleted ${pts} from ${result.editedStrokes} stroke(s) — save to write it to disk`, 'success');
+    }
+    if (result.refused.length > 0) {
+      log(
+        `${result.refused.length} stroke(s) left untouched — fewer than 2 points would remain, ` +
+        `leaving no line to draw. Delete the whole stroke instead.`,
+        'warning'
+      );
+    }
+
+    // Geometry changed, so page bounds and layout may have too — a stray point at
+    // the origin stretches its page's bounding box all the way to the corner, and
+    // removing it should snap the page back to the real content.
+    renderStrokes(true);
+  }
+
+  /** Panel asked to jump to a point: centre it without changing zoom. */
+  function handleFocusPoint(event) {
+    const { strokeIndex, dot } = event.detail || {};
+    if (!renderer || !dot) return;
+    const stroke = $strokes[strokeIndex];
+    renderer.centerOnPoint(dot, stroke?.pageInfo || null);
+    renderStrokes(false);
+  }
+
+  // Repaint when the point selection or the detected strays change (the panel can
+  // change both without touching the canvas).
+  $: if (renderer && $pointEditMode && ($selectedPoints || $strayPointKeys)) {
+    renderStrokes(false);
+  }
+
+  // Text view has no handles to click, and leaving the mode on would strand the
+  // panel over a page of transcript text.
+  $: if (showTextView && $pointEditMode) {
+    exitPointEditMode();
+  }
+
   // rAF-coalesced render scheduling.
   // The frequent call sites below (selection/zoom/pan/pendingChanges reactive
   // blocks, and every mousemove during a drag/pan) used to each trigger a full
@@ -452,6 +614,13 @@
         const isSelected = $pastedSelection.has(index);
         renderer.drawPastedStroke(stroke, isSelected);
       });
+
+      // Point-edit handles last of all, so they sit above the strokes they belong
+      // to — including the stray line running off to the page corner, which would
+      // otherwise cross over the very handle the user is trying to click.
+      if ($pointEditMode && $pointEditStrokes.length > 0) {
+        renderer.drawPointHandles($pointEditStrokes, $selectedPoints, $strayPointKeys);
+      }
     }
   }
   
@@ -471,9 +640,30 @@
       canvasElement.style.cursor = 'grabbing';
       return;
     }
-    
+
+    // Point-edit mode: a click on a handle takes priority over every other
+    // target (pasted strokes, page corners, page headers, stroke selection).
+    // Those are all page- or stroke-level actions, and while the user is picking
+    // individual points they are far more likely to hit one by accident than to
+    // want it.
+    if (event.button === 0 && $pointEditMode && renderer) {
+      const hit = renderer.hitTestPointHandle(x, y, $pointEditStrokes);
+      if (hit) {
+        event.preventDefault();
+        const mode = event.shiftKey ? 'remove' : (event.ctrlKey || event.metaKey) ? 'toggle' : 'replace';
+        selectPoint(hit.strokeIndex, hit.pointIndex, mode);
+        renderStrokes(false);
+        // Suppress the click handler, which would otherwise re-run stroke
+        // hit-testing for the same press.
+        didBoxSelect = true;
+        return;
+      }
+      // Missed every handle — fall through so a drag still box-selects points and
+      // a bare click still clears the point selection (handleCanvasClick).
+    }
+
     // Left button - check for pasted stroke click first (highest priority for selection/drag)
-    if (event.button === 0 && renderer && $pastedStrokes.length > 0) {
+    if (event.button === 0 && !$pointEditMode && renderer && $pastedStrokes.length > 0) {
       const pastedIndex = renderer.hitTestPasted(x, y, $pastedStrokes);
       if (pastedIndex !== -1) {
         event.preventDefault();
@@ -508,7 +698,7 @@
     }
     
     // Left button - check for corner handle (unless Ctrl/Shift held)
-    if (event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && renderer) {
+    if (event.button === 0 && !$pointEditMode && !event.ctrlKey && !event.metaKey && !event.shiftKey && renderer) {
       const cornerHit = renderer.hitTestCorner(x, y);
       if (cornerHit) {
         event.preventDefault();
@@ -539,7 +729,7 @@
     }
     
     // Left button - check for page header click (unless Ctrl/Shift held)
-    if (event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && renderer) {
+    if (event.button === 0 && !$pointEditMode && !event.ctrlKey && !event.metaKey && !event.shiftKey && renderer) {
       const pageKey = renderer.hitTestPageHeader(x, y);
       if (pageKey) {
         event.preventDefault();
@@ -577,7 +767,10 @@
       boxCurrentY = boxStartY;
       
       // Check if clicking directly on a stroke for Ctrl/Shift
-      if (renderer && (event.ctrlKey || event.metaKey || event.shiftKey)) {
+      // (not in point-edit mode: there the modifiers apply to points, and
+      // changing the stroke selection would pull the handles out from under the
+      // user mid-edit.)
+      if (renderer && !$pointEditMode && (event.ctrlKey || event.metaKey || event.shiftKey)) {
         const visibleIndex = renderer.hitTest(boxStartX, boxStartY, visibleStrokes);
         if (visibleIndex !== -1) {
           // Map visible index to full stroke array index
@@ -735,6 +928,15 @@
       return;
     }
     
+    // Point-edit mode: the only hover affordance that matters is "there is a
+    // handle here". Page corners and headers aren't actionable in this mode, so
+    // their cursors would be lying.
+    if ($pointEditMode && !isPanning && !isBoxSelecting && !boxSelectPending && renderer) {
+      const hit = renderer.hitTestPointHandle(x, y, $pointEditStrokes);
+      canvasElement.style.cursor = hit ? 'pointer' : 'crosshair';
+      return;
+    }
+
     // Update cursor based on what's under the mouse (when not actively doing something)
     if (!isPanning && !isDraggingPage && !isResizingPage && !isBoxSelecting && !boxSelectPending && renderer) {
       // Check for corner handle hover first
@@ -845,7 +1047,27 @@
         right: Math.max(boxStartX, boxCurrentX),
         bottom: Math.max(boxStartY, boxCurrentY)
       };
-      
+
+      // In point-edit mode the box selects POINTS, not strokes — the stroke
+      // selection is the fixed scope of the edit and must not shift underfoot.
+      if ($pointEditMode) {
+        const hits = renderer.findPointHandlesInRect($pointEditStrokes, rect);
+        const mode = (event.ctrlKey || event.metaKey) ? 'add' : event.shiftKey ? 'remove' : 'replace';
+        if (hits.length > 0 || mode === 'replace') {
+          selectPoints(hits, mode);
+        }
+        didBoxSelect = true;
+        isBoxSelecting = false;
+        boxSelectPending = false;
+        boxStartX = 0;
+        boxStartY = 0;
+        boxCurrentX = 0;
+        boxCurrentY = 0;
+        canvasElement.style.cursor = 'default';
+        renderStrokes(false);
+        return;
+      }
+
       // Find regular strokes in box
       const visibleIndices = renderer.findStrokesInRect(visibleStrokes, rect);
       const fullIndices = visibleIndices.map(visIdx => visibleToFullIndexMap[visIdx]);
@@ -1040,9 +1262,21 @@
       didBoxSelect = false;
       return;
     }
-    
+
     if (!renderer) return;
-    
+
+    // Point-edit mode: handle clicks were consumed in mousedown, so reaching here
+    // means the user clicked empty space — deselect points rather than changing
+    // the stroke selection (which would swap out the strokes being edited).
+    if ($pointEditMode) {
+      if (!event.ctrlKey && !event.metaKey && !event.shiftKey && $selectedPointCount > 0) {
+        clearPointSelection();
+        renderStrokes(false);
+      }
+      return;
+    }
+
+
     const rect = canvasElement.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
@@ -1607,14 +1841,46 @@
         >
           Select All
         </button>
-        <button 
-          class="header-btn decorative-btn" 
+        <button
+          class="header-btn decorative-btn"
           on:click={handleDeselectDecorative}
           disabled={isDetecting}
           title="Deselect boxes, underlines, and circles"
         >
           {isDetecting ? 'Detecting...' : '🎨 Deselect Decorative'}
         </button>
+        {#if $hasSelection || $pointEditMode}
+          <button
+            class="header-btn point-edit-btn"
+            class:active={$pointEditMode}
+            on:click={handleTogglePointEdit}
+            title={$pointEditMode
+              ? 'Leave point-edit mode (Esc)'
+              : `Show the individual points of the ${$selectionCount} selected stroke(s) so single stray points can be deleted`}
+          >
+            {$pointEditMode ? '📍 Done Editing Points' : `📍 Edit Points (${$selectionCount})`}
+          </button>
+        {/if}
+        {#if $hasSelection}
+          {#if selectedPlainCount > 0}
+            <button
+              class="header-btn sketch-btn"
+              on:click={() => applySketchFlag(true)}
+              title={`Render ${selectedPlainCount} selected stroke${selectedPlainCount !== 1 ? 's' : ''} with pressure-varying thickness (${$sketchProfileSummary})`}
+            >
+              ✏️ Mark as Sketch ({selectedPlainCount})
+            </button>
+          {/if}
+          {#if selectedSketchCount > 0}
+            <button
+              class="header-btn sketch-btn unmark"
+              on:click={() => applySketchFlag(false)}
+              title={`Return ${selectedSketchCount} selected sketch stroke${selectedSketchCount !== 1 ? 's' : ''} to a uniform width`}
+            >
+              ✒️ Unmark Sketch ({selectedSketchCount})
+            </button>
+          {/if}
+        {/if}
         {#if $useCustomPositions}
           <button 
             class="header-btn layout-btn" 
@@ -1679,6 +1945,9 @@
         {:else if $pastedCount > 0}
           <span class="pasted-indicator">{$pastedCount} pasted</span> • 
         {/if}
+        {#if $sketchStrokeCount > 0}
+          <span class="sketch-indicator">✏️ {$sketchStrokeCount} sketch</span> •
+        {/if}
         {#if $selectionCount > 0}
           <span class="selection-indicator">{$selectionCount} of {$strokeCount} selected</span>
         {:else if visibleStrokes.length < $strokeCount}
@@ -1701,6 +1970,10 @@
       on:wheel={handleWheel}
     ></canvas>
     
+    {#if $pointEditMode}
+      <PointEditPanel on:focus={handleFocusPoint} on:edited={() => renderStrokes(true)} />
+    {/if}
+
     <!-- Per-page copy buttons (text view only). Positioned in screen coords from
          the renderer, so they follow pan/zoom/page layout. -->
     {#each textPageOverlays as overlay (overlay.key)}
@@ -1738,10 +2011,13 @@
       {#if $hasScaledPages}
         <strong>Drag corners to resize</strong> (Shift=aspect ratio) • 
       {/if}
-      {#if showTextView}
-        Showing transcribed text • 
+      {#if $pointEditMode}
+        <strong style="color: #b45309;">Editing points</strong> • Click a handle • Drag a box •
+        Del to delete • Esc to exit •
+      {:else if showTextView}
+        Showing transcribed text •
       {:else}
-        Drag to select • Ctrl+D to duplicate • Ctrl+click to add • Shift+click to remove • 
+        Drag to select • Ctrl+D to duplicate • Ctrl+click to add • Shift+click to remove •
       {/if}
       Alt+drag to pan • Ctrl+scroll to zoom
     </div>
@@ -1883,6 +2159,52 @@
     border-color: var(--accent);
   }
   
+  /* Sketch marking. Distinguished from the neutral header actions because it
+     changes how strokes render and is a saved, page-level annotation. */
+  .sketch-btn {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  .sketch-btn:hover:not(:disabled) {
+    background: #7c5cff;
+    color: white;
+    border-color: #7c5cff;
+  }
+
+  .sketch-btn.unmark:hover:not(:disabled) {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border-color: #7c5cff;
+  }
+
+  .sketch-indicator {
+    color: #7c5cff;
+    font-weight: 600;
+  }
+
+  /* Point editing. Amber like the suspect-point handles and the save dialog's
+     "Editing" total, so the whole feature reads as one thing. */
+  .point-edit-btn {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  .point-edit-btn:hover:not(:disabled) {
+    background: #f59e0b;
+    color: #1f2937;
+    border-color: #f59e0b;
+  }
+
+  .point-edit-btn.active {
+    background: #f59e0b;
+    color: #1f2937;
+    border-color: #b45309;
+    font-weight: 600;
+  }
+
   .layout-btn {
     background: var(--bg-tertiary);
     color: var(--text-primary);
