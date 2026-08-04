@@ -18,15 +18,19 @@
   let changesList = [];
   let selectedPages = new Set(); // Track which pages are selected for save
   let totalStrokeAdditions = 0;
+  let totalStrokeModifications = 0;
   let totalStrokeDeletions = 0;
   let totalNewTranscriptions = 0;
   let totalChangedTranscriptions = 0;
   let totalPages = 0;
-  
+
   // Compute derived values from selected pages only
   $: selectedStrokeAdditions = changesList
     .filter(item => selectedPages.has(item.pageKey))
     .reduce((sum, item) => sum + item.strokeAdditions, 0);
+  $: selectedStrokeModifications = changesList
+    .filter(item => selectedPages.has(item.pageKey))
+    .reduce((sum, item) => sum + item.strokeModifications, 0);
   $: selectedStrokeDeletions = changesList
     .filter(item => selectedPages.has(item.pageKey))
     .reduce((sum, item) => sum + item.strokeDeletions, 0);
@@ -49,6 +53,7 @@
     isLoading = true;
     changesList = [];
     totalStrokeAdditions = 0;
+    totalStrokeModifications = 0;
     totalStrokeDeletions = 0;
     totalNewTranscriptions = 0;
     totalChangedTranscriptions = 0;
@@ -97,6 +102,7 @@
         page: pageData.page,
         bookAlias: getBookAlias(pageData.book),
         strokeAdditions: changes.strokeAdditions,
+        strokeModifications: changes.strokeModifications,
         strokeDeletions: changes.strokeDeletions,
         strokeTotal: changes.strokeTotal,
         hasNewTranscription: changes.hasNewTranscription,
@@ -111,10 +117,11 @@
       
       // Filter to only pages with changes
       changesList = results
-        .filter(item => 
-          item.strokeAdditions > 0 || 
-          item.strokeDeletions > 0 || 
-          item.hasNewTranscription || 
+        .filter(item =>
+          item.strokeAdditions > 0 ||
+          item.strokeModifications > 0 ||
+          item.strokeDeletions > 0 ||
+          item.hasNewTranscription ||
           item.transcriptionChanged
         )
         .sort((a, b) => {
@@ -124,6 +131,7 @@
         });
       
       totalStrokeAdditions = changesList.reduce((sum, item) => sum + item.strokeAdditions, 0);
+      totalStrokeModifications = changesList.reduce((sum, item) => sum + item.strokeModifications, 0);
       totalStrokeDeletions = changesList.reduce((sum, item) => sum + item.strokeDeletions, 0);
       totalNewTranscriptions = changesList.filter(item => item.hasNewTranscription).length;
       totalChangedTranscriptions = changesList.filter(item => item.transcriptionChanged).length;
@@ -215,6 +223,10 @@
         <span class="summary-label">Adding:</span>
         <span class="summary-value">+{selectedStrokeAdditions} strokes</span>
       </div>
+      <div class="summary-item modifications" class:zero={selectedStrokeModifications === 0}>
+        <span class="summary-label">Restyling:</span>
+        <span class="summary-value">~{selectedStrokeModifications} strokes</span>
+      </div>
       <div class="summary-item deletions" class:zero={selectedStrokeDeletions === 0}>
         <span class="summary-label">Deleting:</span>
         <span class="summary-value">-{selectedStrokeDeletions} strokes</span>
@@ -246,6 +258,11 @@
           <div class="change-stats">
             {#if item.strokeAdditions > 0}
               <span class="stat additions">+{item.strokeAdditions} strokes</span>
+            {/if}
+            {#if item.strokeModifications > 0}
+              <span class="stat modifications" title="Sketch flag changed on strokes already saved">
+                ✏️ {item.strokeModifications} restyled
+              </span>
             {/if}
             {#if item.strokeDeletions > 0}
               <span class="stat deletions">-{item.strokeDeletions} strokes</span>
@@ -440,6 +457,10 @@
     color: var(--success);
   }
   
+  .summary-item.modifications .summary-value {
+    color: #06b6d4;
+  }
+
   .summary-item.deletions .summary-value {
     color: var(--error);
   }
@@ -524,6 +545,11 @@
     background: rgba(34, 197, 94, 0.1);
   }
   
+  .stat.modifications {
+    color: #06b6d4;
+    background: rgba(6, 182, 212, 0.1);
+  }
+
   .stat.deletions {
     color: var(--error);
     background: rgba(239, 68, 68, 0.1);

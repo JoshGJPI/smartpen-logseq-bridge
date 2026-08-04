@@ -141,9 +141,10 @@ export function removeStrokesByIndices(indices) {
  * the current selection long after the strokes were drawn.
  *
  * Marks the session dirty: the flag lives in the PageDoc, so it is lost unless
- * the page is saved. Note that `pendingChanges` only counts stroke additions and
- * deletions, so a flag change shows up as the header's unsaved dot and not in the
- * save dialog's per-page diff.
+ * the page is saved. Toggling it on a stroke already stored on disk is reported
+ * by `pendingChanges` as a *modification* (see `computePendingChangesMap`), so it
+ * surfaces in the canvas page label and the save dialog as well as the header's
+ * unsaved dot.
  *
  * @param {number[]|Set<number>} indices - stroke indices in the strokes store
  * @param {boolean} [sketch] - true to mark, false to unmark

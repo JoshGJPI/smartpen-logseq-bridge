@@ -91,11 +91,11 @@ All state is managed through Svelte stores located in `src/stores/`:
 
 **Advanced:**
 - `filtered-strokes.js` - Decorative element detection
-- `pending-changes.js` - Tracks local changes before save (deletions, additions per page)
+- `pending-changes.js` - Tracks local changes before save (additions, modifications, deletions per page)
   - `deletedIndices` — set of stroke indices marked for deletion
-  - `pendingChanges` — derived store computing additions/deletions per page (pure core `computePendingChangesMap()`, tested)
+  - `pendingChanges` — derived store computing additions/**modifications**/deletions per page (pure core `computePendingChangesMap()`, tested). `modifications` are strokes already on disk whose sketch flag was toggled since — a real unsaved change that moves no stroke count. A stroke that is both new and flagged counts once, as an addition
   - `getDeletedStrokeIdsForPage()` — converts indices to stroke IDs for the save call
-  - `onDiskStrokeIds` + `noteOnDiskStrokeIds()` — perf #3: since `savedPages` records no longer carry strokes, the additions diff uses a small `pageKey → Set<strokeId>` map populated ONLY for pages currently on the canvas (primed by `load-page.js` import + `save-page.js` save; lazily backfilled and evicted by a `canvasPageKeys` subscription). Never reads strokes off `savedPages`.
+  - `onDiskStrokeIds` + `noteOnDiskStrokeIds()` — perf #3: since `savedPages` records no longer carry strokes, the diff uses a small `pageKey → Map<strokeId, {sketch}>` map populated ONLY for pages currently on the canvas (primed by `load-page.js` import + `save-page.js` save; lazily backfilled and evicted by a `canvasPageKeys` subscription). Never reads strokes off `savedPages`. Entries are flag-sized records, never strokes — `points` is what makes the corpus expensive and geometry is immutable under append-only, so keep any future field here just as small
 - `settings.js` — persisted user settings (MyScript keys, `dataRoot`, `dataFolderReady`, `dataFolderStatusText`; **Export to LogSeq:** `graphRoot`, `graphFolderReady`, `graphFolderStatusText` — no publish-on-save flag, removed in v2.3)
 
 ### Key Libraries
@@ -120,7 +120,7 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `graph-export.js` — **what** to publish. Pure core (`stripTranscriptRefs`, `mergeGraphStrokes`, `resolveGraphPageInfo`, `buildGraphPageDoc`, `groupCanvasStrokesByPage`) + facades `exportSelectionToGraph(canvasStrokes)` (fans out one merge+write per page in the selection) and `exportPageDocToGraph(book, pageId, doc)` (whole-page backfill). Two invariants: **additive** (merge into what's already published, dedupe by stroke id — re-exporting is a safe no-op) and **transcript-free** (`transcript.lines` emptied, every `lineId` cleared). Tested in `graph-export.test.js`
 - `load-page.js` — `importStrokesFromFolder()`, `importStrokesForLoadedPagesFromFolder()` — converts StoredStroke → canvas dotArray format
 - `scan.js` — `scanLocalPages()` + `metaToRecord()` (pure, tested) — populates the `savedPages` store from disk. **Metadata-only (perf #3):** records carry summary fields ONLY (`strokeCount`, `lastUpdated`, `transcriptionText`, `transcribed`, `transcriptLineCount`, `pageId`/`suffix`) — never `strokes`/`pageDoc`/`strokeData`, so the corpus never stays resident; each page's strokes load lazily on view. Records load by `pageId`, so letter-suffixed variants (`P127.json` + `P127b.json`) don't collapse onto the integer page. (`main.cjs listAllPages` → `extractPageMeta` parses just the doc shell, skipping the strokes array, so the scan is fast; the tiny `transcriptionText` rides along to power search/preview without loading strokes.)
-- `page-changes.js` — `computePageChangesFolder()` — preview diff for the SaveConfirmDialog
+- `page-changes.js` — `computePageChangesFolder()` — preview diff for the SaveConfirmDialog. Reads the PageDoc off disk rather than the `onDiskStrokeIds` index, so it is a **second implementation** of the `pendingChanges` question and has to stay in step with it — it returns `strokeAdditions`/`strokeModifications`/`strokeDeletions` on the same rules
 
 **Book View Layer (`src/lib/viewer/`)** — v2.1:
 - `page-svg.js` — `computeStrokeBounds()`, `strokeToPathD()`, `generateThumbnailSVG()` — SVG render for the spread pages + home-grid thumbnails (`NCODE_SCALE = 2.371`). Also `strokePointPressures()` + `strokeToWidthRuns()` for sketch strokes: SVG applies one `stroke-width` per `<path>`, so a pressure-varying line is emitted as consecutive constant-width runs (thumbnails stay flat — too small to matter)
@@ -414,6 +414,8 @@ Existing test files (all in `src/lib/__tests__/`):
 | `sketch-store.test.js` | `stores/sketch.js` (sanitised load, persistence, corrupt JSON, presets, edit-clears-preset, reset, summary) and the `stores/strokes.js` flag helpers (mark/unmark, Set or array, no-op detection, unsaved-changes signalling, `_sw` cache invalidation, `sketchStrokeCount`) |
 | `canvas-renderer-sketch.test.js` | Renderer sketch path against a recording 2D-context stub: uniform handwriting (and that width no longer depends on the final dot), multi-width sketch runs, monotonic ramp, full segment coverage, run batching/quantisation, dashed fallback for deleted/decorative, width caching + profile invalidation, pasted-sketch taper |
 | `save-page.test.js` | `strokeToStored` (force as 4th element, integer rounding, null-timestamp placeholder, 3-element fallback for missing force, `sketch` omitted when false, key order); `savePageToFolder` sketch-flag sync onto strokes already on disk (mark, unmark removes the key, untouched when absent from canvas, points never rewritten, lineId sync preserved) |
+| `pending-changes.test.js` | `computePendingChangesMap` — additions vs. the on-disk stroke-state index, explicit deletions, page separation/`isSaved`, missing `pageInfo`; sketch-flag **modifications** (flag on, flag off, absent-vs-false, matching flag, new-and-flagged counted once as an addition, unknown page, deleted stroke excluded, mixed page, modification-only page enters the map) |
+| `page-changes.test.js` | `computePageChangesFolder` — the SaveConfirmDialog's own diff against the PageDoc on disk: additions, `strokeModifications` (both directions, absent-vs-false, new-and-flagged once), deletions + `strokeTotal` arithmetic, error fallback, transcription new/changed (mocks `getPage`) |
 | `transcript-markdown.test.js` | `linesToLogseqMarkdown` — tab indentation, TODO/DONE markers, `::` property stripping, blank-line drop, `isPropertyLine`; `indentMarkdownBlock`, `textToTranscriptLines` (tab/2-space indent inference, blank drop), `pagesToLogseqMarkdown` (bare single page vs. labelled multi-page nesting, empty-page skip) |
 | `save-transcript.test.js` | `recomputeParentIds` (hierarchy by indent), `saveTranscriptLines` (verbatim write, lineId scrub on deleted lines, timestamp bump, missing-page guard; mocks `getPage`/`savePage`) |
 | `graph-index.test.js` | `smartpenAssetName`/`smartpenAssetRelPath`, `buildSmartpenIndexEntry`, `upsertSmartpenIndex` (replace-in-place, alias merge, sorting, corrupt-input normalisation) |
@@ -459,6 +461,11 @@ When making changes, also verify manually:
   immediately; check a page saved before this feature renders at one flat width
   rather than a hairline. Confirm the same taper appears in Book View and in an
   SVG export, and that a duplicated (pasted) sketch stroke keeps it
+- Sketch flag reported as a change: save a page, then mark one of its strokes as a
+  sketch **without** drawing anything new — the page label gains its `*`, and Save
+  lists the page with "✏️ 1 restyled" (not `+1 strokes`) and a "Restyling" total.
+  Save, reopen the dialog → the page is gone from the list. Unmark and repeat.
+  Marking a *freshly drawn* stroke must still read as `+1 strokes` only
 - Canvas pan/zoom/navigation
 - Page positioning and scaling
 - Unsaved-changes indicator + window-close prompt
@@ -498,6 +505,61 @@ npm run preview
 - [Svelte 4 Docs](https://svelte.dev/docs/svelte/overview) — Framework reference
 
 ## Recent Changes (Git History Context)
+
+### Pending-changes `modifications` — flag-only edits are reported (August 2026)
+
+**The dirty-state diff grew a third category.** It classified each canvas stroke
+as an *addition* or a *deletion*, which was the whole story until sketch strokes
+introduced a per-stroke flag the user toggles **after** a stroke is already on
+disk. That edit is neither: the stroke count doesn't move, but
+`savePageToFolder()` does sync the flag onto the stored stroke, so it is genuinely
+unsaved work. It was reported nowhere except the header's amber dot — no `*` on
+the canvas page label, no row in the SaveConfirmDialog, undercounted in
+`getPendingChangesSummary()`. Data was never at risk (`setStrokesSketch()` calls
+`markUnsavedChanges()`, so the beforeunload prompt fired); it was purely a
+reporting gap.
+
+**What landed:**
+- **`onDiskStrokeIds` now carries state, not just ids** — `pageKey →
+  Map<strokeId, {sketch}>` (was `Set<strokeId>`). The perf #3 constraint is
+  unchanged and still the reason this index exists: entries are flag-sized
+  records, never strokes, so the corpus stays off the heap. `points` is what
+  makes strokes expensive and geometry is immutable under append-only, so there
+  is nothing to diff there — **keep any future field in this record similarly
+  small.** Lazy populate on canvas entry / evict on canvas exit via the
+  `canvasPageKeys` subscription is untouched. `noteOnDiskStrokeIds()` keeps its
+  signature; both callers (`load-page.js` import, `save-page.js` post-save)
+  already held the stored strokes.
+- **`computePendingChangesMap()` emits `modifications: number[]`** — stroke
+  indices whose id IS on disk but whose sketch flag differs from the stored
+  value. **Counted once:** a stroke that is both new and flagged is an addition
+  only, since saving writes the stroke and its flag together. A page unknown on
+  disk reports no modifications (nothing to differ from), and a stroke marked for
+  deletion is excluded from the flag diff. `sketch` is absent rather than `false`
+  when off, on disk and on the canvas, so the comparison is boolean-normalised at
+  both ends.
+- **Threaded through every consumer** — `hasPendingChanges`,
+  `getPendingChangesSummary()` (new `totalModifications`; a modification-only page
+  now counts toward `pagesWithChanges`), and the `*` label in
+  `drawPageBorders()`.
+- **`page-changes.js` too** — SaveConfirmDialog does **not** read
+  `pendingChanges`; it runs its own diff against the PageDoc on disk via
+  `computePageChangesFolder()`. That is a second implementation of the same
+  question and needed the same third category, so it returns
+  `strokeModifications` (and the error fallback reports `0`). The dialog shows a
+  "Restyling: ~N strokes" summary tile and a per-page "✏️ N restyled" stat, and
+  its change filter includes modification-only pages so they are selectable and
+  actually get saved. `strokeTotal` is unaffected — a flag toggle doesn't change
+  how many strokes a page holds.
+
+**Tests:** `pending-changes.test.js` extended (flag on, flag off, absent-vs-false,
+matching flag, new-and-flagged counted once, unknown page, deleted stroke,
+mixed page, modification-only page enters the map). New `page-changes.test.js`
+covers the dialog's diff path, which had no tests at all.
+
+**Edited:** `src/stores/pending-changes.js`, `src/lib/storage/page-changes.js`,
+`src/lib/canvas-renderer.js`, `src/components/dialog/SaveConfirmDialog.svelte`,
+`src/stores/strokes.js` (stale doc comment on `setStrokesSketch`).
 
 ### Sketch strokes — pressure-varying line thickness (August 2026)
 
@@ -557,11 +619,10 @@ important signal there.
 after they're drawn, so live capture has nothing to consult; it draws at the
 uniform handwriting width and flagging changes appearance on the next render.
 
-**Known gap:** `computePendingChangesMap()` only counts stroke additions and
-deletions, so toggling the sketch flag on an already-saved stroke shows as the
-header's unsaved dot but does *not* appear in the SaveConfirmDialog's per-page
-diff. It saves correctly — `savePageToFolder()` syncs the flag both ways onto
-strokes already on disk (points stay immutable, per append-only).
+**Reported as a modification** (was a known gap; closed — see "Pending-changes
+`modifications`" below). Toggling the flag on an already-saved stroke is a real
+unsaved change that is neither an addition nor a deletion, so the diff grew a
+third category rather than mislabelling it as one of the other two.
 
 **Cross-repo:** exported LogSeq assets now carry pressure and the sketch flag
 (asserted in `graph-export.test.js`), but the JPI Tools plugin's SVG generator

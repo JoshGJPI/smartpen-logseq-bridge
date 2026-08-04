@@ -3,7 +3,7 @@
  *
  * v2.0 folder-backed replacement for logseq-api.js computePageChanges().
  *
- * Returns: { strokeAdditions, strokeDeletions, strokeTotal,
+ * Returns: { strokeAdditions, strokeModifications, strokeDeletions, strokeTotal,
  *            hasNewTranscription, transcriptionChanged }
  */
 
@@ -25,20 +25,32 @@ export async function computePageChangesFolder(book, page, activeStrokes, transc
     const existing = await getPage(book, page);
 
     let strokeAdditions = 0;
+    let strokeModifications = 0;
     let strokeDeletions = 0;
     let strokeTotal = activeStrokes.length;
 
     if (!existing || !existing.strokes) {
       strokeAdditions = activeStrokes.length;
     } else {
-      const existingIds = new Set(existing.strokes.map(s => s.id).filter(Boolean));
+      const existingById = new Map(
+        existing.strokes.filter(s => s.id).map(s => [s.id, s])
+      );
       for (const s of activeStrokes) {
         const id = getStrokeId(s);
-        if (id && !existingIds.has(id)) strokeAdditions++;
+        if (!id) continue;
+        const stored = existingById.get(id);
+        if (!stored) {
+          strokeAdditions++;
+        } else if (!!s.sketch !== !!stored.sketch) {
+          // Already on disk, but the sketch flag was toggled since. The save
+          // syncs the flag onto the stored stroke, so it is a real change —
+          // it just doesn't alter the stroke count.
+          strokeModifications++;
+        }
       }
       if (deletedStrokeIds.size > 0) {
         for (const id of deletedStrokeIds) {
-          if (existingIds.has(id)) strokeDeletions++;
+          if (existingById.has(id)) strokeDeletions++;
         }
       }
       strokeTotal = existing.strokes.length - strokeDeletions + strokeAdditions;
@@ -58,11 +70,19 @@ export async function computePageChangesFolder(book, page, activeStrokes, transc
       }
     }
 
-    return { strokeAdditions, strokeDeletions, strokeTotal, hasNewTranscription, transcriptionChanged };
+    return {
+      strokeAdditions,
+      strokeModifications,
+      strokeDeletions,
+      strokeTotal,
+      hasNewTranscription,
+      transcriptionChanged
+    };
   } catch (err) {
     console.error(`Failed to compute changes for B${book}/P${page}:`, err);
     return {
       strokeAdditions: activeStrokes.length,
+      strokeModifications: 0,
       strokeDeletions: 0,
       strokeTotal: activeStrokes.length,
       hasNewTranscription: !!transcription?.text,

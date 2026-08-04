@@ -1160,10 +1160,14 @@ export class CanvasRenderer {
         // Check if this page has pending changes (unsaved strokes)
         const hasUnsavedChanges = this.pendingChanges && this.pendingChanges.has(`B${book}/P${page}`);
         const pageChanges = hasUnsavedChanges ? this.pendingChanges.get(`B${book}/P${page}`) : null;
-        const hasAdditions = pageChanges && pageChanges.additions && pageChanges.additions.length > 0;
+        // Unsaved strokes, or a stored stroke whose sketch flag was toggled —
+        // both are lost unless the page is saved, so both earn the asterisks.
+        const hasUnsavedStrokeWork = !!pageChanges && (
+          (pageChanges.additions && pageChanges.additions.length > 0) ||
+          (pageChanges.modifications && pageChanges.modifications.length > 0)
+        );
 
-        // Add asterisks if there are unsaved additions
-        if (hasAdditions) {
+        if (hasUnsavedStrokeWork) {
           label = `* ${label} *`;
         }
         
