@@ -17,8 +17,8 @@ This directory contains active implementation documentation for features current
 ## See Also
 
 - `docs/Archive/ARCHIVE-INDEX.md` - Complete archive index with all past implementations
-- Root `UUID-REFERENCE-GAP-SPEC.md` - Next feature to implement
-- Root `FUTURE_ENHANCEMENTS_ROADMAP.md` - Planned features
+- `docs/Archive/2026-01-superseded-planning-docs/` - Pre-v2.0 planning docs (LogSeq blockUuid
+  journal sync, line-merge roadmap), superseded by the v2.0 local-storage pivot
 
 ---
 

@@ -11,8 +11,6 @@ This document provides an index of archived implementation documentation organiz
 ### Root Directory
 - `README.md` - Main project documentation
 - `CLAUDE.MD` - AI assistant development guide
-- `FUTURE_ENHANCEMENTS_ROADMAP.md` - Planned features
-- `UUID-REFERENCE-GAP-SPEC.md` - ⚠️ **TO IMPLEMENT** - Stroke→Block UUID persistence fix
 
 ### Docs Directory
 - `app-specification.md` - Complete technical specification
@@ -31,6 +29,22 @@ This document provides an index of archived implementation documentation organiz
 ---
 
 ## Archive Organization
+
+### Recent Implementations (2026-08)
+
+#### **2026-01-superseded-planning-docs** ⚠️ SUPERSEDED
+Pre-v2.0 planning docs, moved out of the root now that they no longer describe live behaviour:
+
+**Files**:
+- `FUTURE_ENHANCEMENTS_ROADMAP.md` - Line-consolidation merge/unmerge roadmap (Jan 22, 2026)
+- `UUID-REFERENCE-GAP-SPEC.md` - Stroke→Block UUID persistence fix spec (Jan 23, 2026)
+
+**Summary**: Both describe the v1 LogSeq `blockUuid` journal-sync architecture, which the
+v2.0 local-storage pivot (May 2026) removed entirely. Neither was still an accurate "current
+plans" or "to implement" pointer, so they were archived rather than left at the root
+implying open work.
+
+---
 
 ### Recent Implementations (2026-03)
 
