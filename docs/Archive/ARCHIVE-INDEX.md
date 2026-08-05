@@ -1,6 +1,6 @@
 # SmartPen-LogSeq Bridge - Archive Index
 
-**Last Updated**: March 11, 2026
+**Last Updated**: August 5, 2026
 
 This document provides an index of archived implementation documentation organized by feature area and date.
 
@@ -10,21 +10,43 @@ This document provides an index of archived implementation documentation organiz
 
 ### Root Directory
 - `README.md` - Main project documentation
-- `CLAUDE.MD` - AI assistant development guide
+- `CLAUDE.MD` - AI assistant development guide — **authoritative for everything since the
+  v2.0 pivot** (architecture, stores, and the "Recent Changes" narrative; this index does
+  not duplicate that history, see the note below)
 
 ### Docs Directory
-- `app-specification.md` - Complete technical specification
+- `LOCAL-STORAGE-PIVOT-SPEC.md` - **Start here for storage.** v2.0 local-folder
+  architecture; §12 records the amendments since (sketch-stroke pressure data, point editing)
+- `QUICK-ARCHITECTURE-REFERENCE.md` - Canvas/pen quick lookups. Storage sections are
+  v1/LogSeq-era and stale (self-flagged in the doc); capture/rendering sections still apply
+- `app-specification.md` - Original technical specification (LogSeq-era; superseded by the
+  pivot spec for storage details)
 - `bridge-uuid-system.md` - Custom UUID system documentation
-- `bullet-journal-spec.md` - Bullet journal feature specification
-- `temporal-data-specification.md` - Temporal data capture spec
-- `logseq-markup-converter-spec.md` - Markup conversion spec
-- `TRANSCRIPT-STORAGE-SPEC.md` - Transcript storage system v3.0 architecture
+- `NEOSMARTPEN-SDK-USAGE.md`, `Smartpen Web SDK README.md` - Pen SDK reference
+- `TRANSCRIPT-STORAGE-SPEC.md` - ⚠️ Historical — v1 transcript architecture (LogSeq blocks
+  with properties). Current model is `transcript.lines[]` in the PageDoc; see
+  `LOCAL-STORAGE-PIVOT-SPEC.md` §5
+- `bullet-journal-spec.md` - Proposed, not implemented — hand-drawn bullet/symbol detection
+- `logseq-markup-converter-spec.md` - Proposed, not implemented — handwritten-symbol → LogSeq
+  markup conversion (distinct from the shipped `transcript-markdown.js` line-hierarchy copy)
+- `temporal-data-specification.md` - Proposed, not implemented — timing-based analysis UI.
+  Describes storage as "through LogSeq"; that's pre-pivot wording, though stroke timestamps
+  are in fact still preserved in the current point-tuple format
 
-### Implementation Logs (Active Development)
-- `docs/implementation-logs/testing-checklist.md` - Current testing procedures
+### Implementation Logs
+- `docs/implementation-logs/README.md` - Meta-doc describing the active/archive workflow
+- `docs/implementation-logs/testing-checklist.md` - ⚠️ Stale — a v1 blockUuid/LogSeq
+  manual-test procedure from Jan 2026. CLAUDE.md's own *Testing Considerations* section
+  (automated test table + manual scenarios) is the current reference; this file is a
+  candidate for archiving rather than "Active Development"
 
 ### Proposals
-- `docs/proposals/` - Future feature proposals (live transcript blocks)
+- `docs/proposals/live-transcript-blocks-*` (spec/summary/visual, v1 + v2, Jan 2025) -
+  ⚠️ Likely superseded, not just pending — proposed storing transcript lines as live LogSeq
+  blocks. The v2.0 pivot removed LogSeq as the storage backend entirely, and Book View's
+  `TranscriptPane` (v2.1, June 2026) already delivers granular per-line editing with
+  preserved checkbox state in the new PageDoc format. Worth a deliberate decision on
+  whether this proposal is still wanted or should move to Archive
 
 ---
 
@@ -46,6 +68,42 @@ implying open work.
 
 ---
 
+### Major Feature Eras (2026-05 – 2026-08) — 📌 Not Archived Here
+
+Nothing below is missing by accident. Starting with the v2.0 pivot, this project stopped
+spinning up a new dated `docs/Archive/` folder per feature and started keeping the
+authoritative history directly in **CLAUDE.md → "Recent Changes (Git History Context)"**,
+updated in place as each feature lands. That section (and `docs/LOCAL-STORAGE-PIVOT-SPEC.md`
+for storage specifically) is the real source for everything below — this is only a dated
+pointer so this index doesn't look like the trail goes cold in March 2026.
+
+- **v2.0.0 (May 2026)** — LogSeq → Local Folder pivot. Storage replaced entirely: PageDoc
+  JSON files, hybrid serializer, IPC-backed local-store, append-only save, migration script.
+  See `docs/LOCAL-STORAGE-PIVOT-SPEC.md`.
+- **v2.0.1 – v2.0.2 (May – June 2026)** — Book View toggle scaffolding, canvas-rendering and
+  close-blocking fixes, RawJSON tab removed, metadata-only page loading (lazy stroke load).
+- **v2.1.0 (June 2026)** — Book View: read/edit saved pages as spreads, transcript
+  view/edit/copy, "Load into Editor."
+- **"Publish to graph" (June 2026)** — auto-mirror every save into a LogSeq graph as plugin
+  assets. **Superseded** by v2.3.0 below.
+- **v2.2.0 (July 2026)** — Book View transcript editor: line reordering, side-by-side
+  strokes-while-editing, a merge-ordering bug fix.
+- **v2.3.0 (July 2026)** — Export to LogSeq: replaced auto-publish with a manual, selective,
+  additive stroke export (`graph-export.js`); also fixed a `selectRange()` ReferenceError
+  that broke every Shift+click range-select.
+- **Clear-canvas fixes (July 2026)** — stale "in canvas" badge; pages piling at the origin
+  after clearing and re-importing fewer strokes.
+- **Copy transcript from canvas (July 2026)** — per-page and header copy-to-LogSeq-markdown
+  buttons in the canvas text view.
+- **Sketch strokes (August 2026, v2.4)** — pressure-varying line thickness
+  (`sketch-width.js`, `stores/sketch.js`).
+- **Pending-changes `modifications` (August 2026)** — sketch-flag toggles reported as their
+  own dirty-state category, separate from additions/deletions.
+- **Point editing (August 2026, v2.5)** — Edit Points mode; the one deliberate exception to
+  immutable stored geometry, gated on an explicit `pointsEdited` marker.
+
+---
+
 ### Recent Implementations (2026-03)
 
 #### **2026-03-live-capture-canvas-fixes** ✅ COMPLETED
@@ -59,6 +117,19 @@ Live pen capture and canvas rendering bug fixes:
 ---
 
 ### Recent Implementations (2026-01/02)
+
+#### **2026-02-data-loss-fixes** ✅ RESOLVED
+Data loss fixes v3.1 — explicit append-only with tracked deletions:
+
+**Files**:
+- `DATA-LOSS-FIXES-SUMMARY.md` - Three data-loss issues and their fixes (commits `0a836ac`, `8c129a8`)
+
+**Summary**: Transitioned from v3.0's implicit deletion detection (arithmetic count diff) to
+explicit tracked deletions; fixed phantom stroke deletions, the Edit Structure UI, and
+Y-bounds preservation across LogSeq round-trips. This is the v1/LogSeq-era predecessor of
+the same "never infer deletions" principle the v2.0+ local-storage layer still follows.
+
+---
 
 #### **2026-01-electron-conversion** ✅ COMPLETED
 Electron desktop app conversion guide:
@@ -124,7 +195,7 @@ Latest features implemented in January 2026:
 - `incremental-update-implementation-summary.md` - Incremental transcription updates
 - `property-cleanup-and-stroke-fix.md` - Property cleanup + stroke→block fix attempt
 
-**Summary**: Latest transcription system improvements including custom UUIDs, property cleanup, and edit structure feature. Note: Stroke→block UUID persistence still needs UI wiring (see `UUID-REFERENCE-GAP-SPEC.md` in root).
+**Summary**: Latest transcription system improvements including custom UUIDs, property cleanup, and edit structure feature. Note: the stroke→block UUID persistence gap mentioned here was specific to the v1 LogSeq journal workflow and never got that UI wiring — moot after the v2.0 pivot removed that mechanism entirely (see `docs/Archive/2026-01-superseded-planning-docs/UUID-REFERENCE-GAP-SPEC.md`).
 
 ---
 
@@ -330,10 +401,15 @@ Look for suffixes: `-spec`, `-implementation`, `-complete`, `-fix`, `-summary`
 
 ## Notes for Developers
 
-1. **Current State**: See root `README.md` and `UUID-REFERENCE-GAP-SPEC.md`
-2. **Architecture**: See `docs/app-specification.md` and `docs/bridge-uuid-system.md`
-3. **Testing**: See `docs/implementation-logs/testing-checklist.md`
-4. **Future Plans**: See root `FUTURE_ENHANCEMENTS_ROADMAP.md`
+1. **Current State**: See root `CLAUDE.MD` — authoritative for everything since the v2.0
+   pivot (architecture, stores, and the "Recent Changes" history)
+2. **Architecture**: See `docs/LOCAL-STORAGE-PIVOT-SPEC.md` (storage, current) and
+   `docs/QUICK-ARCHITECTURE-REFERENCE.md` (canvas/pen, still applies)
+3. **Testing**: See CLAUDE.md → *Testing Considerations* (automated test table + manual
+   scenarios, kept current alongside each feature). `docs/implementation-logs/testing-checklist.md`
+   is a stale v1 procedure, not this
+4. **Future Plans**: No live roadmap document at present. `FUTURE_ENHANCEMENTS_ROADMAP.md`
+   was archived as superseded — see `docs/Archive/2026-01-superseded-planning-docs/`
 
 ---
 
@@ -359,4 +435,11 @@ This archive is organized to:
 ---
 
 *Archive Index maintained by: Claude Project System*  
-*Last major reorganization: February 6, 2026*
+*Last major reorganization: February 6, 2026*  
+*Last catch-up pass: August 5, 2026 — added the missing `2026-02-data-loss-fixes` entry,
+refreshed "Current Active Documents" to match what's actually current, added the
+`2026-05`–`2026-08` major-feature-era timeline (v2.0 pivot through point editing, none of
+which got dated Archive folders), and archived two root-level docs
+(`docs/Archive/2026-01-superseded-planning-docs/`). Everything from here forward should keep
+landing in CLAUDE.md's "Recent Changes" section as it already has been — update this index
+only when a new dated folder is actually archived.*
