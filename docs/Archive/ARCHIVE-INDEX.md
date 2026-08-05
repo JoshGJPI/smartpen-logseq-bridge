@@ -41,12 +41,8 @@ This document provides an index of archived implementation documentation organiz
   candidate for archiving rather than "Active Development"
 
 ### Proposals
-- `docs/proposals/live-transcript-blocks-*` (spec/summary/visual, v1 + v2, Jan 2025) -
-  ⚠️ Likely superseded, not just pending — proposed storing transcript lines as live LogSeq
-  blocks. The v2.0 pivot removed LogSeq as the storage backend entirely, and Book View's
-  `TranscriptPane` (v2.1, June 2026) already delivers granular per-line editing with
-  preserved checkbox state in the new PageDoc format. Worth a deliberate decision on
-  whether this proposal is still wanted or should move to Archive
+- `docs/proposals/` is currently empty. Its one occupant, `live-transcript-blocks-*`, was
+  archived to `docs/Archive/2025-01-live-transcript-blocks-proposal/` — see that entry below
 
 ---
 
@@ -360,6 +356,23 @@ Property-based transcription storage architecture:
 
 ---
 
+#### **2025-01-live-transcript-blocks-proposal** ⚠️ SUPERSEDED
+Proposal to store each transcribed line as a live LogSeq block:
+
+**Files**:
+- `live-transcript-blocks-spec.md` / `live-transcript-blocks-summary.md` / `live-transcript-blocks-visual.md` - v0.1.0 (Jan 2025)
+- `live-transcript-blocks-spec-v2.md` / `live-transcript-blocks-summary-v2.md` / `live-transcript-blocks-visual-v2.md` - v0.2.0, added checkbox preservation + simplified properties (Jan 2025)
+
+**Summary**: Proposed giving each transcribed line a LogSeq block with Y-bounds and a
+canonical-transcript property, for granular updates and native LogSeq features (checked
+tasks, tags) that survive re-transcription. Moved here (Aug 2026) rather than left in
+`docs/proposals/` as pending: the v2.0 pivot removed LogSeq as the storage backend the whole
+proposal was built on, and Book View's `TranscriptPane` (v2.1, June 2026) independently
+delivers the same goal — granular per-line editing with preserved checkbox state — against
+the current PageDoc `transcript.lines[]` model instead.
+
+---
+
 ## Legacy/Voided Documents
 
 ### Archive Root
@@ -439,7 +452,9 @@ This archive is organized to:
 *Last catch-up pass: August 5, 2026 — added the missing `2026-02-data-loss-fixes` entry,
 refreshed "Current Active Documents" to match what's actually current, added the
 `2026-05`–`2026-08` major-feature-era timeline (v2.0 pivot through point editing, none of
-which got dated Archive folders), and archived two root-level docs
-(`docs/Archive/2026-01-superseded-planning-docs/`). Everything from here forward should keep
-landing in CLAUDE.md's "Recent Changes" section as it already has been — update this index
-only when a new dated folder is actually archived.*
+which got dated Archive folders), and archived three superseded document sets: two
+root-level docs (`docs/Archive/2026-01-superseded-planning-docs/`) and the
+`live-transcript-blocks` proposal (`docs/Archive/2025-01-live-transcript-blocks-proposal/`),
+leaving `docs/proposals/` empty. Everything from here forward should keep landing in
+CLAUDE.md's "Recent Changes" section as it already has been — update this index only when a
+new dated folder is actually archived.*
