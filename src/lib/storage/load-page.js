@@ -18,6 +18,7 @@
 import { get } from 'svelte/store';
 import { strokes, log, noteOnDiskStrokeIds } from '$stores';
 import { registerBookIds } from '$stores/book-aliases.js';
+import { toBookKey, bookKeyFromPageInfo, pageInfoWithBookKey } from '$lib/volumes.js';
 import { getPage } from './local-store.js';
 
 /**
@@ -42,8 +43,15 @@ function getStrokeId(stroke) {
  * @param {Function} [onProgress] (current, total) => void
  * @returns {Array}
  */
-function transformStoredToCanvasFormat(doc, onProgress = null) {
-  const pageInfo = doc.pageInfo || {};
+function transformStoredToCanvasFormat(doc, bookKey = null, onProgress = null) {
+  const diskPageInfo = doc.pageInfo || {};
+  // In memory, pageInfo.book carries the BOOK KEY ("388", "388v2") rather than
+  // the numeric id the file stores alongside an optional `volume`. Identity comes
+  // from the directory name the caller read this doc from — `doc.pageInfo` is
+  // only the fallback, per the same rule graph-index.js documents for the page
+  // letter suffix.
+  const key = toBookKey(bookKey) || bookKeyFromPageInfo(diskPageInfo);
+  const pageInfo = key ? pageInfoWithBookKey(diskPageInfo, key) : diskPageInfo;
   // Share ONE pageInfo object across every stroke and every dot of this page.
   // pageInfo is identical for all of them, so spreading a fresh `{ ...pageInfo }`
   // per dot (as this used to) allocated one small object per dot — millions of
@@ -184,16 +192,21 @@ export async function importStrokesFromFolder(pageData, onProgress = null) {
       // removing. The doc is used locally below and then released.
     }
 
-    // Prime the on-disk stroke-id index for this page (book/page from the doc),
-    // before strokes.set below, so pendingChanges never briefly flags these
-    // freshly-loaded strokes as unsaved additions.
+    // Prime the on-disk stroke-id index for this page, before strokes.set below,
+    // so pendingChanges never briefly flags these freshly-loaded strokes as
+    // unsaved additions.
+    //
+    // The book comes from the RECORD, not `doc.pageInfo.book` — the doc stores a
+    // numeric book plus a separate `volume`, so reading it here would key the
+    // index under volume 1 and make every volume-2 stroke look like an addition.
+    const bookKey = toBookKey(pageData.book) || bookKeyFromPageInfo(doc.pageInfo);
     noteOnDiskStrokeIds(
-      doc.pageInfo?.book ?? pageData.book,
+      bookKey,
       doc.pageInfo?.page ?? pageData.page,
       doc.strokes || []
     );
 
-    const canvasStrokes = transformStoredToCanvasFormat(doc, onProgress);
+    const canvasStrokes = transformStoredToCanvasFormat(doc, bookKey, onProgress);
     if (canvasStrokes.length === 0) {
       log(`B${pageData.book}/P${pageData.page} has no strokes`, 'info');
       return { success: true, imported: 0, duplicatesSkipped: 0, total: 0 };

@@ -221,4 +221,66 @@ describe('computePageChangesFolder', () => {
       expect(out.strokeTotal).toBe(3); // 3 stored - 1 deleted + 1 added
     });
   });
+
+  describe('strokeMoves (volume reassignment)', () => {
+    it('counts a stored stroke leaving for another volume', async () => {
+      getPage.mockResolvedValue(pageDoc([storedStroke('s1000'), storedStroke('s2000')]));
+      // The moved stroke is no longer among this page's canvas strokes.
+      const out = await computePageChangesFolder(
+        '388', 5, [canvasStroke(1000)], null, new Set(), new Set(['s2000'])
+      );
+
+      expect(out.strokeMoves).toBe(1);
+      expect(out.strokeDeletions).toBe(0);   // nothing destroyed — it lives in the target
+      expect(out.strokeAdditions).toBe(0);
+      expect(out.strokeTotal).toBe(1);       // 2 stored - 1 moved
+    });
+
+    it('handles a whole-page move (every stored stroke leaves)', async () => {
+      getPage.mockResolvedValue(pageDoc([storedStroke('s1000'), storedStroke('s2000')]));
+      const out = await computePageChangesFolder(
+        '388', 5, [], null, new Set(), new Set(['s1000', 's2000'])
+      );
+
+      expect(out.strokeMoves).toBe(2);
+      expect(out.strokeTotal).toBe(0);
+    });
+
+    it('ignores ids that were never on this page', async () => {
+      getPage.mockResolvedValue(pageDoc([storedStroke('s1000')]));
+      const out = await computePageChangesFolder(
+        '388', 5, [canvasStroke(1000)], null, new Set(), new Set(['s9999'])
+      );
+      expect(out.strokeMoves).toBe(0);
+      expect(out.strokeTotal).toBe(1);
+    });
+
+    // A stroke can't be both destroyed and relocated; deletion is the stronger
+    // claim, and double-counting would make strokeTotal go negative.
+    it('counts a stroke that is both deleted and moved only as a deletion', async () => {
+      getPage.mockResolvedValue(pageDoc([storedStroke('s1000'), storedStroke('s2000')]));
+      const out = await computePageChangesFolder(
+        '388', 5, [canvasStroke(1000)], null, new Set(['s2000']), new Set(['s2000'])
+      );
+
+      expect(out.strokeDeletions).toBe(1);
+      expect(out.strokeMoves).toBe(0);
+      expect(out.strokeTotal).toBe(1);
+    });
+
+    it('reports zero moves when none were passed (default arg)', async () => {
+      getPage.mockResolvedValue(pageDoc([storedStroke('s1000')]));
+      const out = await computePageChangesFolder(1, 5, [canvasStroke(1000)], null);
+      expect(out.strokeMoves).toBe(0);
+    });
+
+    it('reports zero moves in the error fallback', async () => {
+      getPage.mockRejectedValue(new Error('disk gone'));
+      const out = await computePageChangesFolder(
+        '388', 5, [canvasStroke(1000)], null, new Set(), new Set(['s2000'])
+      );
+      expect(out.strokeMoves).toBe(0);
+      expect(out.strokeAdditions).toBe(1);
+    });
+  });
 });

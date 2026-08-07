@@ -39,8 +39,8 @@
     hasPendingChanges,
     deletedIndices
   } from '$stores';
-  import { getUntranscribedStrokes, clearPointEditMarkers } from '$stores/strokes.js';
-  import { getDeletedStrokeIdsForPage } from '$stores/pending-changes.js';
+  import { getUntranscribedStrokes, clearPointEditMarkers, clearMovedFromMarkers } from '$stores/strokes.js';
+  import { getDeletedStrokeIdsForPage, getMovedAwayStrokeIdsForPage } from '$stores/pending-changes.js';
   import { writable } from 'svelte/store';
   import SaveConfirmDialog from '$components/dialog/SaveConfirmDialog.svelte';
   
@@ -58,7 +58,7 @@
   import { connectPen, disconnectPen, fetchOfflineData, cancelOfflineTransfer } from '$lib/pen-sdk.js';
   import { transcribeStrokes } from '$lib/myscript-api.js';
   // v2.0: sole save path is the local folder
-  import { savePageToFolder } from '$lib/storage/save-page.js';
+  import { savePageToFolder, finalizePageMoves } from '$lib/storage/save-page.js';
   import { dataRoot, dataFolderReady } from '$stores/settings.js';
   import { unsavedChanges } from '$stores';
   // Removed filtered-strokes import - now handled via user-controlled deselection
@@ -371,25 +371,65 @@
         pagesToSave.get(key).strokes.push(stroke);
       });
 
+      /* Volume moves: a reassigned stroke is grouped above under its NEW page,
+       * where it saves as an addition. The page it LEFT still holds it on disk
+       * and needs a deletion — but it has no canvas strokes any more, so the
+       * loop above never produced an entry for it. Add those source pages here.
+       *
+       * Force-included regardless of the dialog's selection: saving only the
+       * target would leave the stroke in BOTH volumes, silently, which is worse
+       * than the mis-filing the user is trying to fix. */
+      const moveSources = new Map();
+      $strokes.forEach((stroke) => {
+        const from = stroke?.movedFrom;
+        if (!from || from.book === undefined || from.page === undefined) return;
+        const key = `${from.book}-${from.page}`;
+        if (!moveSources.has(key)) {
+          moveSources.set(key, { book: from.book, page: from.page, targets: new Map() });
+        }
+        // Record where the strokes went now, while the markers still exist — the
+        // post-save cleanup needs it after clearMovedFromMarkers has run.
+        const pi = stroke.pageInfo;
+        if (pi) {
+          moveSources.get(key).targets.set(`${pi.book}-${pi.page}`, { book: pi.book, page: pi.page });
+        }
+        if (!pagesToSave.has(key)) {
+          pagesToSave.set(key, { book: from.book, page: from.page, strokes: [] });
+        }
+      });
+
       if (pagesToSave.size === 0) {
         log('No selected pages have strokes to save', 'warning');
         return;
       }
 
       log(`Saving ${pagesToSave.size} selected page(s) to data folder...`, 'info');
-      
+
+      // Completed moves, for the post-save transcript carry / ghost-file cleanup.
+      const completedMoves = [];
+
       // Save each page
       for (const [key, pageData] of pagesToSave) {
         const { book, page } = pageData;
 
         const activeStrokes = getActiveStrokesForPage(book, page);
-        if (activeStrokes.length === 0) {
+        const movedAwayIds = getMovedAwayStrokeIdsForPage(book, page);
+        // A page emptied by a move has no active strokes but still owes the
+        // deletions, so "nothing to do" now means nothing to add AND nothing to
+        // remove.
+        if (activeStrokes.length === 0 && movedAwayIds.size === 0 &&
+            getDeletedStrokeIdsForPage(book, page).size === 0) {
           log(`Skipping B${book}/P${page} (no active strokes)`, 'info');
           continue;
         }
 
         try {
-          const deletedIds = getDeletedStrokeIdsForPage(book, page);
+          // "Remove this id from the stored page" is the same operation whether
+          // the stroke was deleted or moved to another volume, so they union.
+          const deletedIds = new Set([
+            ...getDeletedStrokeIdsForPage(book, page),
+            ...movedAwayIds
+          ]);
 
           // Pull the page transcription (if MyScript ran on this page in this session)
           const pageInfo = activeStrokes[0]?.pageInfo || { section: 0, owner: 0, book, page };
@@ -414,9 +454,24 @@
             // which reports it as an addition, and its marker needs clearing too.
             clearPointEditMarkers(book, page);
 
+            // Same reasoning for move markers: the source page has now lost the
+            // strokes on disk, so "still needs deleting here" would be a lie —
+            // and a later unrelated save of this page would re-delete ids that
+            // are no longer present.
+            if (movedAwayIds.size > 0) {
+              for (const target of (moveSources.get(key)?.targets.values() || [])) {
+                completedMoves.push({
+                  fromBook: book, fromPage: page,
+                  toBook: target.book, toPage: target.page
+                });
+              }
+              clearMovedFromMarkers(book, page);
+            }
+
             const parts = [];
             if (result.added > 0) parts.push(`+${result.added} new`);
             if (result.edited > 0) parts.push(`${result.edited} edited (points rewritten)`);
+            if (movedAwayIds.size > 0) parts.push(`→${movedAwayIds.size} moved to another volume`);
             if (result.deleted > 0) parts.push(`-${result.deleted} deleted`);
             if (result.linesAdded > 0) parts.push(`+${result.linesAdded} transcript line(s)`);
             const changes = parts.length > 0 ? parts.join(', ') + ', ' : '';
@@ -436,6 +491,23 @@
         }
       }
       
+      /* Finish the moves. Runs AFTER every page save so both docs on disk are
+       * final — it can't race the writes. Carries a transcript that would
+       * otherwise be stranded on a page whose strokes have all left, and removes
+       * the emptied source file so it doesn't linger as a 0-stroke ghost. */
+      if (completedMoves.length > 0) {
+        const tidy = await finalizePageMoves(completedMoves);
+        if (tidy.transcriptsMoved > 0) {
+          log(`Moved ${tidy.transcriptsMoved} transcript(s) to follow their strokes`, 'info');
+        }
+        if (tidy.pagesDeleted > 0) {
+          log(`Removed ${tidy.pagesDeleted} emptied page file(s)`, 'info');
+        }
+        for (const err of tidy.errors) {
+          log(`Move cleanup: ${err}`, 'warning');
+        }
+      }
+
       // Summary
       if (savedStrokesCount > 0) {
         const summary = savedTranscriptionCount > 0 

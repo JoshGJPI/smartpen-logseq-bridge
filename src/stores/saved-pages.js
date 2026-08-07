@@ -9,6 +9,7 @@
  * in v2.3. Nothing here is LogSeq-specific.
  */
 import { writable, derived } from 'svelte/store';
+import { compareBookKeys } from '../lib/volumes.js';
 
 // Page metadata records, one per PageDoc file found by the scanner
 export const savedPages = writable([]);
@@ -39,9 +40,11 @@ export const pagesByBook = derived(savedPages, ($pages) => {
   return grouped;
 });
 
-// Book IDs sorted
+// Book KEYS sorted — NCode book first, then volume, so "388v2" sits directly
+// under "388" rather than after "3880" (naive string sort) or vanishing into
+// NaN (the old `.map(Number).sort()`).
 export const bookIds = derived(pagesByBook, ($grouped) => {
-  return Object.keys($grouped).map(Number).sort((a, b) => a - b);
+  return Object.keys($grouped).sort(compareBookKeys);
 });
 
 /**

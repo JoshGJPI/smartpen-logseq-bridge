@@ -30,6 +30,7 @@
     setViewerMode,
   } from '$stores';
   import { scanLocalPages } from '$lib/storage/scan.js';
+  import { formatBookName } from '$utils/formatting.js';
   import { importStrokesFromFolder } from '$lib/storage/load-page.js';
   import { generateThumbnailSVG } from '$lib/viewer/page-svg.js';
   import { getCachedPage, invalidatePage, clearPageCache } from '$lib/viewer/page-cache.js';
@@ -57,8 +58,11 @@
   $: grouped = $pagesByBook;
   $: books = $bookIds;
 
+  // `book` is a book key, so volumes of one notebook are separate sections here.
+  // formatBookName falls back to the NCode book's alias plus a "· Vol N" suffix,
+  // so a new volume reads sensibly before it has been named.
   function aliasFor(book) {
-    return $bookAliases[book] || `B${book}`;
+    return formatBookName(book, $bookAliases, 'alias-only');
   }
 
   function idOf(record) {

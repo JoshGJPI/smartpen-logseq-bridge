@@ -18,6 +18,7 @@ import { get } from 'svelte/store';
 import { log, setSavedPages, setScanning } from '$stores';
 import { registerBookIds, setBookAliases } from '$stores/book-aliases.js';
 import { dataRoot, dataFolderReady } from '$stores/settings.js';
+import { toBookKey, parseBookKey } from '$lib/volumes.js';
 import { listPages, getAliases } from './local-store.js';
 
 /**
@@ -34,13 +35,19 @@ import { listPages, getAliases } from './local-store.js';
  * @param {import('./page-doc.js').PageMeta} meta
  */
 export function metaToRecord(meta) {
-  const { book, page } = meta;
+  const { page } = meta;
+  // `book` is a BOOK KEY ("388" or "388v2"), taken from the directory name by
+  // listAllPages — not a number. Volumes of one notebook are distinct books here.
+  const book = toBookKey(meta.book) ?? String(meta.book);
+  const parsedBook = parseBookKey(book);
   const pageId = meta.pageId != null ? String(meta.pageId) : String(page);
   const suffix = meta.suffix || '';
   const transcriptionText = meta.transcriptionText || null;
   return {
     pageName: `pages/B${book}/P${pageId}.json`,   // unique per page (incl. suffix)
     book,
+    ncodeBook: parsedBook ? parsedBook.ncodeBook : null,
+    volume: parsedBook ? parsedBook.volume : 1,
     page,                                          // integer NCode page number
     pageId,                                        // unique-within-book identifier
     suffix,

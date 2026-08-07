@@ -70,6 +70,10 @@ contextBridge.exposeInMainWorld('storageAPI', {
   setAlias:         (root, book, alias)      => ipcRenderer.invoke('storage:setAlias', root, book, alias),
   removeAlias:      (root, book)             => ipcRenderer.invoke('storage:removeAlias', root, book),
 
+  // Volumes — which volume new strokes route to, per NCode book
+  getVolumes:       (root)                       => ipcRenderer.invoke('storage:getVolumes', root),
+  setActiveVolume:  (root, ncodeBook, volume)    => ipcRenderer.invoke('storage:setActiveVolume', root, ncodeBook, volume),
+
   // "Export to graph" — publish curated strokes into a LogSeq graph folder
   readGraphIndex:   (graphRoot)                                    => ipcRenderer.invoke('storage:readGraphIndex', graphRoot),
   readGraphAsset:   (graphRoot, book, pageId)                      => ipcRenderer.invoke('storage:readGraphAsset', graphRoot, book, pageId),

@@ -6,6 +6,7 @@ import { writable, derived, get } from 'svelte/store';
 import { strokes } from './strokes.js';
 import { storageStatus, markUnsavedChanges } from './storage.js';
 import { generateStrokeId } from '../lib/stroke-storage.js';
+import { BOOK_KEY_FRAGMENT, toBookKey } from '../lib/volumes.js';
 
 // Set of deleted stroke indices (local only, not yet written to disk)
 export const deletedIndices = writable(new Set());
@@ -206,6 +207,8 @@ export function forgetOnDiskStrokeIds(book, page) {
   });
 }
 
+const BACKFILL_PAGE_KEY_RE = new RegExp(`^B(${BOOK_KEY_FRAGMENT})\\/P(\\d+)$`);
+
 // Integer page keys currently present on the canvas.
 const canvasPageKeys = derived(strokes, ($strokes) => {
   const keys = new Set();
@@ -240,9 +243,12 @@ canvasPageKeys.subscribe(($keys) => {
   if (typeof window === 'undefined' || !window.storageAPI) return;
   for (const key of $keys) {
     if (next.has(key) || fetchingPages.has(key)) continue;
-    const m = key.match(/^B(\d+)\/P(\d+)$/);
+    // Book KEY, not digits. With `\d+` here the backfill never fired for a
+    // volume page, so every one of its strokes reported as a new addition on
+    // every save — silently, forever.
+    const m = key.match(BACKFILL_PAGE_KEY_RE);
     if (!m) continue;
-    const book = Number(m[1]);
+    const book = m[1];
     const page = Number(m[2]);
     fetchingPages.add(key);
     // Dynamic import keeps this store free of a static dependency on the storage
@@ -359,9 +365,44 @@ export function computePendingChangesMap(strokesArr, deletedSet, onDiskIds, save
         edits: editIndices,
         modifications: modificationIndices,
         deletions: deletedIndicesForPage,
+        moves: [],
         isSaved: savedPages.has(pageKey)
       });
     }
+  });
+
+  /* ----- Moves: work owed to the page a stroke LEFT -------------------
+   * A reassigned stroke is grouped above under its NEW page, where it reads
+   * as an addition. That half is right. The other half isn't visible from
+   * the canvas at all: the SOURCE page still holds the stroke on disk, and
+   * under append-only nothing infers that from its absence. Worse, once every
+   * stroke has left, the source page has no canvas strokes and so no group —
+   * it would vanish from the save dialog entirely and quietly keep its copy.
+   *
+   * So walk `movedFrom` and attribute each stroke back to the page it owes a
+   * deletion to, creating that page's entry if the loop above didn't.
+   * ------------------------------------------------------------------- */
+  strokesArr.forEach((stroke, index) => {
+    const from = stroke?.movedFrom;
+    if (!from || from.book === undefined || from.page === undefined) return;
+    if (deletedSet.has(index)) return;   // already counted as an explicit deletion
+
+    const sourceKey = `B${from.book}/P${from.page}`;
+    let entry = changes.get(sourceKey);
+    if (!entry) {
+      entry = {
+        book: from.book,
+        page: from.page,
+        additions: [],
+        edits: [],
+        modifications: [],
+        deletions: [],
+        moves: [],
+        isSaved: savedPages.has(sourceKey)
+      };
+      changes.set(sourceKey, entry);
+    }
+    entry.moves.push(index);
   });
 
   return changes;
@@ -387,7 +428,8 @@ export const hasPendingChanges = derived(
       if (pageChanges.additions.length > 0 ||
           pageChanges.edits.length > 0 ||
           pageChanges.modifications.length > 0 ||
-          pageChanges.deletions.length > 0) {
+          pageChanges.deletions.length > 0 ||
+          (pageChanges.moves?.length || 0) > 0) {
         return true;
       }
     }
@@ -457,18 +499,22 @@ export function getPendingChangesSummary() {
   let totalEdits = 0;
   let totalModifications = 0;
   let totalDeletions = 0;
+  let totalMoves = 0;
   let pagesWithChanges = 0;
 
   for (const [_, pageChanges] of $pendingChanges) {
+    const moves = pageChanges.moves?.length || 0;
     if (pageChanges.additions.length > 0 ||
         pageChanges.edits.length > 0 ||
         pageChanges.modifications.length > 0 ||
-        pageChanges.deletions.length > 0) {
+        pageChanges.deletions.length > 0 ||
+        moves > 0) {
       pagesWithChanges++;
       totalAdditions += pageChanges.additions.length;
       totalEdits += pageChanges.edits.length;
       totalModifications += pageChanges.modifications.length;
       totalDeletions += pageChanges.deletions.length;
+      totalMoves += moves;
     }
   }
 
@@ -477,7 +523,35 @@ export function getPendingChangesSummary() {
     totalEdits,
     totalModifications,
     totalDeletions,
+    totalMoves,
     pagesWithChanges,
     changes: $pendingChanges
   };
+}
+
+/**
+ * Stroke ids this page must LOSE because the user reassigned them to another
+ * volume. Companion to `getDeletedStrokeIdsForPage` — the save path unions the
+ * two, since "remove this id from the stored page" is the same operation either
+ * way. Without it, a reassigned stroke is added to its target while the source
+ * keeps its copy, leaving it in both volumes.
+ *
+ * @param {string|number} book source book key
+ * @param {number|string} page source page
+ * @returns {Set<string>}
+ */
+export function getMovedAwayStrokeIdsForPage(book, page) {
+  const $strokes = get(strokes);
+  const $deletedIndices = get(deletedIndices);
+  const bookKey = toBookKey(book);
+  const movedIds = new Set();
+
+  $strokes.forEach((stroke, index) => {
+    const from = stroke?.movedFrom;
+    if (!from || $deletedIndices.has(index)) return;
+    if (toBookKey(from.book) !== bookKey || String(from.page) !== String(page)) return;
+    movedIds.add(generateStrokeId(stroke));
+  });
+
+  return movedIds;
 }

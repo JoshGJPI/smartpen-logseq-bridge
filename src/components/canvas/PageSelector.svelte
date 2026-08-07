@@ -4,7 +4,10 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   import { pages } from '$stores';
-  
+  import { BOOK_KEY_FRAGMENT, volumeBadge, ncodeBookOf, compareBookKeys } from '$lib/volumes.js';
+
+  const PAGE_KEY_RE = new RegExp(`S(\\d+)\\/O(\\d+)\\/B(${BOOK_KEY_FRAGMENT})\\/P(\\d+)`);
+
   const dispatch = createEventDispatcher();
   
   // Selected page keys (Set for efficient lookup)
@@ -47,16 +50,21 @@
   $: pagesByBook = (() => {
     const grouped = new Map();
     pageOptions.forEach(pageKey => {
-      // Parse page key: S{section}/O{owner}/B{book}/P{page}
-      const match = pageKey.match(/S(\d+)\/O(\d+)\/B(\d+)\/P(\d+)/);
+      // Parse page key: S{section}/O{owner}/B{bookKey}/P{page}
+      // The book portion may carry a volume suffix ("388v2"); a `\d+` here left
+      // every volume page out of the canvas filter entirely.
+      const match = pageKey.match(PAGE_KEY_RE);
       if (match) {
         const [, section, owner, book, page] = match;
         const bookKey = `B${book}`;
         if (!grouped.has(bookKey)) {
+          const badge = volumeBadge(book);
           grouped.set(bookKey, {
             section,
             owner,
             book,
+            // Volume 1 reads exactly as before; volume 2+ says so.
+            label: badge ? `B${ncodeBookOf(book)} ${badge}` : bookKey,
             pages: []
           });
         }
@@ -75,7 +83,11 @@
     
     return grouped;
   })();
-  
+
+  // NCode book, then volume — so "B388 v2" sits next to "B388", not after "B3880".
+  $: sortedBooks = Array.from(pagesByBook.entries())
+    .sort(([, a], [, b]) => compareBookKeys(a.book, b.book));
+
   // Check if all pages in a book are selected
   function isBookFullySelected(bookKey) {
     const bookData = pagesByBook.get(bookKey);
@@ -190,16 +202,16 @@
     <div class="empty-message">No pages</div>
   {:else}
     <div class="books-container">
-      {#each Array.from(pagesByBook.entries()) as [bookKey, bookData] (bookKey)}
+      {#each sortedBooks as [bookKey, bookData] (bookKey)}
         <div class="book-group">
-          <label class="book-header" title="Toggle all pages in {bookKey}">
-            <input 
+          <label class="book-header" title="Toggle all pages in {bookData.label}">
+            <input
               type="checkbox"
               checked={isBookFullySelected(bookKey)}
               indeterminate={isBookPartiallySelected(bookKey)}
               on:change={() => toggleBook(bookKey)}
             />
-            <span class="book-label" style="color: {getBookColor(bookData.book)}">{bookKey}</span>
+            <span class="book-label" style="color: {getBookColor(bookData.book)}">{bookData.label}</span>
           </label>
           
           <div class="pages-list">

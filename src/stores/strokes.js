@@ -6,6 +6,10 @@ import { writable, derived, get } from 'svelte/store';
 import { registerBookId, registerBookIds } from './book-aliases.js';
 import { markUnsavedChanges } from './storage.js';
 import { removePointsFromStroke } from '../lib/point-edit.js';
+import {
+  BOOK_KEY_FRAGMENT, toBookKey, withVolume, parseBookKey
+} from '../lib/volumes.js';
+import { applyActiveVolume } from './volumes.js';
 
 // Raw stroke data
 export const strokes = writable([]);
@@ -35,10 +39,15 @@ export const strokeCount = derived(strokes, $strokes => $strokes.length);
 // written imperatively onto the page record when strokes were imported, which
 // left the badge latched on after the canvas was cleared; derived from the
 // strokes themselves it can never disagree with what's actually loaded.
+// The book portion is a BOOK KEY ("388", "388v2"), not bare digits — a `\d+`
+// here silently dropped every volume page from the set, so "Import Strokes"
+// never greyed out and pending-changes never backfilled them.
+const PAGE_KEY_RE = new RegExp(`B(${BOOK_KEY_FRAGMENT})\\/P(\\d+)`);
+
 export const canvasPageKeys = derived(pages, $pages => {
   const keys = new Set();
   for (const key of $pages.keys()) {
-    const match = key.match(/B(\d+)\/P(\d+)/);
+    const match = key.match(PAGE_KEY_RE);
     if (match) keys.add(`B${match[1]}/P${match[2]}`);
   }
   return keys;
@@ -58,11 +67,17 @@ export const sketchStrokeCount = derived(strokes, $strokes =>
  * @param {Object} stroke - Stroke object with pageInfo, dotArray, etc.
  */
 export function addStroke(stroke) {
-  // Register the book ID if present
-  if (stroke.pageInfo?.book) {
-    registerBookId(stroke.pageInfo.book);
+  // Resolve the active volume here — the boundary between what the pen reported
+  // and what the app stores. Upstream in pen-sdk.js `pageInfo.book` is still the
+  // raw NCode id and must stay that way for transfer matching.
+  const resolved = stroke?.pageInfo
+    ? { ...stroke, pageInfo: applyActiveVolume(stroke.pageInfo) }
+    : stroke;
+
+  if (resolved.pageInfo?.book) {
+    registerBookId(resolved.pageInfo.book);
   }
-  strokes.update(s => [...s, stroke]);
+  strokes.update(s => [...s, resolved]);
   markUnsavedChanges();
 }
 
@@ -84,15 +99,27 @@ export function updateLastStroke(updater) {
  * @param {Array} offlineStrokes - Array of stroke objects
  */
 export function addOfflineStrokes(offlineStrokes) {
-  // Register all unique book IDs
-  const bookIds = [...new Set(offlineStrokes
+  // Offline strokes share one pageInfo object per book+page (pen-sdk assigns it
+  // by reference), so cache the resolution rather than re-deriving it per stroke.
+  const resolvedByPageInfo = new Map();
+  const resolved = (offlineStrokes || []).map(s => {
+    if (!s?.pageInfo) return s;
+    let pi = resolvedByPageInfo.get(s.pageInfo);
+    if (pi === undefined) {
+      pi = applyActiveVolume(s.pageInfo);
+      resolvedByPageInfo.set(s.pageInfo, pi);
+    }
+    return pi === s.pageInfo ? s : { ...s, pageInfo: pi };
+  });
+
+  const bookIds = [...new Set(resolved
     .map(s => s.pageInfo?.book)
     .filter(Boolean))];
   if (bookIds.length > 0) {
     registerBookIds(bookIds);
   }
-  strokes.update(s => [...s, ...offlineStrokes]);
-  if (offlineStrokes.length > 0) markUnsavedChanges();
+  strokes.update(s => [...s, ...resolved]);
+  if (resolved.length > 0) markUnsavedChanges();
 }
 
 /**
@@ -275,15 +302,16 @@ export function clearPointEditMarkers(book, page) {
   // Writing the store unconditionally would republish the whole strokes array —
   // and with it a pendingChanges recompute and a canvas repaint — once per saved
   // page, for the overwhelmingly common case of no point edits at all.
+  // Compare via toBookKey so a caller passing the number 388 still matches a
+  // stroke carrying the key "388" — the two spellings are one book.
+  const bookKey = toBookKey(book);
   const onPage = (s) => s.pointsEdited && s.pageInfo &&
-    s.pageInfo.book === book && s.pageInfo.page === page;
+    toBookKey(s.pageInfo.book) === bookKey && s.pageInfo.page === page;
   if (!get(strokes).some(onPage)) return 0;
 
   strokes.update(all =>
     all.map(stroke => {
-      if (!stroke.pointsEdited) return stroke;
-      const pi = stroke.pageInfo;
-      if (!pi || pi.book !== book || pi.page !== page) return stroke;
+      if (!onPage(stroke)) return stroke;
       cleared++;
       const next = { ...stroke };
       delete next.pointsEdited;
@@ -291,6 +319,116 @@ export function clearPointEditMarkers(book, page) {
     })
   );
 
+  return cleared;
+}
+
+/**
+ * Move strokes to a different volume of the same NCode book.
+ *
+ * Rewrites `pageInfo.book` to the target book key. Everything else survives:
+ * startTime/endTime (so the `s{startTime}` id stays stable — the source page's
+ * deletion finds the stroke by that id), points, force, and the sketch flag.
+ *
+ * Two things are deliberate:
+ *
+ * **`blockUuid` is cleared.** It points at a transcript line on the SOURCE page.
+ * Carrying it over would either orphan the reference or bind the stroke to an
+ * unrelated line on the target.
+ *
+ * **`movedFrom` is stamped on.** Under append-only, missing-from-canvas never
+ * means deleted-on-disk — so without this the stroke would be *added* to the
+ * target while the source keeps its copy, leaving it in both volumes. The marker
+ * is what `getMovedAwayStrokeIdsForPage()` reads to turn the copy into a move.
+ * In-memory only: `strokeToStored()` builds from a fixed key list, so it can
+ * never reach the PageDoc.
+ *
+ * @param {number[]|Set<number>} indices stroke indices in the strokes store
+ * @param {number} targetVolume
+ * @returns {{moved: number, skipped: number, targets: string[]}}
+ */
+export function reassignVolume(indices, targetVolume) {
+  const target = indices instanceof Set ? indices : new Set(indices || []);
+  if (target.size === 0) return { moved: 0, skipped: 0, targets: [] };
+
+  const volume = Number(targetVolume);
+  if (!Number.isInteger(volume) || volume < 1) {
+    return { moved: 0, skipped: target.size, targets: [] };
+  }
+
+  let moved = 0;
+  let skipped = 0;
+  const targets = new Set();
+
+  strokes.update(all =>
+    all.map((stroke, index) => {
+      if (!target.has(index)) return stroke;
+
+      const pi = stroke.pageInfo;
+      const currentKey = toBookKey(pi?.book);
+      if (!currentKey) { skipped++; return stroke; }
+
+      const nextKey = withVolume(currentKey, volume);
+      if (!nextKey) { skipped++; return stroke; }
+      if (nextKey === currentKey) return stroke;   // already there — not a move
+
+      const parsed = parseBookKey(nextKey);
+      moved++;
+      targets.add(nextKey);
+
+      const next = {
+        ...stroke,
+        pageInfo: {
+          ...pi,
+          book: nextKey,
+          ncodeBook: parsed.ncodeBook,
+          volume: parsed.volume
+        },
+        blockUuid: null
+      };
+      // Keep the FIRST origin if a stroke is moved twice before saving, so the
+      // deletion still names the page that actually holds it on disk.
+      if (!next.movedFrom) {
+        next.movedFrom = { book: currentKey, page: pi.page };
+      }
+      return next;
+    })
+  );
+
+  if (moved > 0) markUnsavedChanges();
+  return { moved, skipped, targets: [...targets] };
+}
+
+/**
+ * Drop the `movedFrom` markers for strokes whose source page has been saved.
+ *
+ * Mirrors `clearPointEditMarkers`: once the source page's save has removed the
+ * stroke from disk, the marker means "still needs deleting somewhere", which
+ * would be a lie — and would make a later unrelated save of that page delete a
+ * stroke id that is no longer there.
+ *
+ * @param {string|number} book source book key
+ * @param {number|string} page source page
+ * @returns {number} how many markers were cleared
+ */
+export function clearMovedFromMarkers(book, page) {
+  const bookKey = toBookKey(book);
+  const onPage = (s) => s.movedFrom &&
+    toBookKey(s.movedFrom.book) === bookKey && String(s.movedFrom.page) === String(page);
+
+  // Same cheap pre-check as clearPointEditMarkers: writing the store
+  // unconditionally would republish the strokes array once per saved page.
+  if (!get(strokes).some(onPage)) return 0;
+
+  let cleared = 0;
+  strokes.update(all =>
+    all.map(stroke => {
+      if (!onPage(stroke)) return stroke;
+      cleared++;
+      const next = { ...stroke };
+      delete next.movedFrom;
+      return next;
+    })
+  );
   return cleared;
 }
 

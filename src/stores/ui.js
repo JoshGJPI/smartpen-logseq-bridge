@@ -2,6 +2,7 @@
  * UI Store - UI state management
  */
 import { writable, derived } from 'svelte/store';
+import { compareBookKeys } from '../lib/volumes.js';
 
 // Active tab in data explorer
 export const activeTab = writable('strokes'); // 'strokes' | 'transcription' | 'saved-pages'
@@ -231,10 +232,11 @@ export function openSvgExportDialog(strokeList) {
     groupMap.get(key).strokes.push(stroke);
   });
 
-  const pageGroups = Array.from(groupMap.values()).sort((a, b) => {
-    if (a.book !== b.book) return a.book - b.book;
-    return a.page - b.page;
-  });
+  // Book key order (NCode book, then volume) — `a.book - b.book` is NaN for a
+  // volume key like "388v2".
+  const pageGroups = Array.from(groupMap.values()).sort(
+    (a, b) => compareBookKeys(a.book, b.book) || (a.page - b.page)
+  );
 
   svgExportDialog.set({ isOpen: true, strokes: strokeList, pageGroups });
 }

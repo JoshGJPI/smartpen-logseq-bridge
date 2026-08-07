@@ -4,9 +4,12 @@
 -->
 <script>
   import { createEventDispatcher, onMount } from 'svelte';
-  import { getActiveStrokesForPage, getDeletedStrokeIdsForPage } from '$stores/pending-changes.js';
+  import {
+    getActiveStrokesForPage, getDeletedStrokeIdsForPage, getMovedAwayStrokeIdsForPage
+  } from '$stores/pending-changes.js';
   import { getBookAlias } from '$stores/book-aliases.js';
   import { computePageChangesFolder as computePageChanges } from '$lib/storage/page-changes.js';
+  import { compareBookKeys, volumeBadge, ncodeBookOf } from '$lib/volumes.js';
   import { strokes, pageTranscriptions } from '$stores';
   
   export let visible = false;
@@ -21,6 +24,7 @@
   let totalStrokeEdits = 0;
   let totalStrokeModifications = 0;
   let totalStrokeDeletions = 0;
+  let totalStrokeMoves = 0;
   let totalNewTranscriptions = 0;
   let totalChangedTranscriptions = 0;
   let totalPages = 0;
@@ -38,6 +42,13 @@
   $: selectedStrokeDeletions = changesList
     .filter(item => selectedPages.has(item.pageKey))
     .reduce((sum, item) => sum + item.strokeDeletions, 0);
+  $: selectedStrokeMoves = changesList
+    .filter(item => selectedPages.has(item.pageKey))
+    .reduce((sum, item) => sum + (item.strokeMoves || 0), 0);
+  // A move source that isn't saved leaves the stroke in BOTH volumes, so the
+  // dialog refuses to let one be deselected rather than warning about it.
+  $: unsavedMoveSources = changesList
+    .filter(item => item.isMoveSource && !selectedPages.has(item.pageKey));
   $: selectedNewTranscriptions = changesList
     .filter(item => selectedPages.has(item.pageKey) && item.hasNewTranscription)
     .length;
@@ -77,7 +88,23 @@
         });
       }
     });
-    
+
+    // Pages a reassigned stroke LEFT. They may have no canvas strokes at all any
+    // more, so the loop above wouldn't list them — and a page that isn't listed
+    // can't be selected, so it would silently keep its copy of every stroke that
+    // moved, leaving them in two volumes at once.
+    $strokes.forEach(stroke => {
+      const from = stroke?.movedFrom;
+      if (!from || from.book === undefined || from.page === undefined) return;
+      const key = `${from.book}-${from.page}`;
+      if (!pageMap.has(key)) {
+        pageMap.set(key, { book: from.book, page: from.page, isMoveSource: true });
+      } else {
+        pageMap.get(key).isMoveSource = true;
+      }
+    });
+
+
     // Compute changes for each page
     const promises = [];
     for (const [key, pageData] of pageMap) {
@@ -94,22 +121,26 @@
       
       // Get explicit deletion IDs for accurate deletion count
       const deletedIds = getDeletedStrokeIdsForPage(pageData.book, pageData.page);
+      const movedAwayIds = getMovedAwayStrokeIdsForPage(pageData.book, pageData.page);
 
       const promise = computePageChanges(
         pageData.book,
         pageData.page,
         activeStrokes,
         transcription,
-        deletedIds
+        deletedIds,
+        movedAwayIds
       ).then(changes => ({
         pageKey: key,
         book: pageData.book,
         page: pageData.page,
         bookAlias: getBookAlias(pageData.book),
+        isMoveSource: !!pageData.isMoveSource,
         strokeAdditions: changes.strokeAdditions,
         strokeEdits: changes.strokeEdits,
         strokeModifications: changes.strokeModifications,
         strokeDeletions: changes.strokeDeletions,
+        strokeMoves: changes.strokeMoves,
         strokeTotal: changes.strokeTotal,
         hasNewTranscription: changes.hasNewTranscription,
         transcriptionChanged: changes.transcriptionChanged
@@ -128,19 +159,21 @@
           item.strokeEdits > 0 ||
           item.strokeModifications > 0 ||
           item.strokeDeletions > 0 ||
+          item.strokeMoves > 0 ||
           item.hasNewTranscription ||
           item.transcriptionChanged
         )
         .sort((a, b) => {
-          // Sort by book then page
-          if (a.book !== b.book) return a.book - b.book;
-          return a.page - b.page;
+          // Book key order (NCode book, then volume), then page. `a.book - b.book`
+          // is NaN for a volume key.
+          return compareBookKeys(a.book, b.book) || (a.page - b.page);
         });
-      
+
       totalStrokeAdditions = changesList.reduce((sum, item) => sum + item.strokeAdditions, 0);
       totalStrokeEdits = changesList.reduce((sum, item) => sum + item.strokeEdits, 0);
       totalStrokeModifications = changesList.reduce((sum, item) => sum + item.strokeModifications, 0);
       totalStrokeDeletions = changesList.reduce((sum, item) => sum + item.strokeDeletions, 0);
+      totalStrokeMoves = changesList.reduce((sum, item) => sum + item.strokeMoves, 0);
       totalNewTranscriptions = changesList.filter(item => item.hasNewTranscription).length;
       totalChangedTranscriptions = changesList.filter(item => item.transcriptionChanged).length;
       totalPages = changesList.length;
@@ -164,11 +197,22 @@
   }
   
   function formatPageName(item) {
-    const alias = item.bookAlias || `Book ${item.book}`;
+    const badge = volumeBadge(item.book);
+    const fallback = badge ? `Book ${ncodeBookOf(item.book)} ${badge}` : `Book ${item.book}`;
+    const alias = item.bookAlias || fallback;
     return `${alias} / Page ${item.page}`;
   }
-  
+
+  /**
+   * Move sources are locked selected. Saving the target without the source is
+   * what leaves a stroke in two volumes at once, and it isn't a trade-off the
+   * user has any reason to want — so the checkbox is disabled rather than the
+   * outcome being explained after the fact.
+   */
   function togglePageSelection(pageKey) {
+    const item = changesList.find(i => i.pageKey === pageKey);
+    if (item?.isMoveSource && selectedPages.has(pageKey)) return;
+
     selectedPages = new Set(selectedPages);
     if (selectedPages.has(pageKey)) {
       selectedPages.delete(pageKey);
@@ -176,13 +220,16 @@
       selectedPages.add(pageKey);
     }
   }
-  
+
   function selectAll() {
     selectedPages = new Set(changesList.map(item => item.pageKey));
   }
-  
+
   function deselectAll() {
-    selectedPages = new Set();
+    // Move sources stay in — see togglePageSelection.
+    selectedPages = new Set(
+      changesList.filter(item => item.isMoveSource).map(item => item.pageKey)
+    );
   }
 </script>
 
@@ -239,6 +286,10 @@
         <span class="summary-label">Restyling:</span>
         <span class="summary-value">~{selectedStrokeModifications} strokes</span>
       </div>
+      <div class="summary-item moves" class:zero={selectedStrokeMoves === 0}>
+        <span class="summary-label">Moving:</span>
+        <span class="summary-value">→{selectedStrokeMoves} strokes</span>
+      </div>
       <div class="summary-item deletions" class:zero={selectedStrokeDeletions === 0}>
         <span class="summary-label">Deleting:</span>
         <span class="summary-value">-{selectedStrokeDeletions} strokes</span>
@@ -258,13 +309,20 @@
       {#each changesList as item}
         <div class="change-item" class:selected={selectedPages.has(item.pageKey)}>
           <label class="checkbox-label">
-            <input 
-              type="checkbox" 
+            <input
+              type="checkbox"
               checked={selectedPages.has(item.pageKey)}
+              disabled={item.isMoveSource}
+              title={item.isMoveSource
+                ? 'Required: this page still holds the strokes you moved to another volume'
+                : ''}
               on:change={() => togglePageSelection(item.pageKey)}
             />
             <div class="page-name">
               📄 {formatPageName(item)}
+              {#if item.isMoveSource}
+                <span class="required-tag" title="Must be saved so the moved strokes don't remain here too">required</span>
+              {/if}
             </div>
           </label>
           <div class="change-stats">
@@ -279,6 +337,11 @@
             {#if item.strokeModifications > 0}
               <span class="stat modifications" title="Sketch flag changed on strokes already saved">
                 ✏️ {item.strokeModifications} restyled
+              </span>
+            {/if}
+            {#if item.strokeMoves > 0}
+              <span class="stat moves" title="Reassigned to another volume — kept there, removed from this page">
+                → {item.strokeMoves} moved
               </span>
             {/if}
             {#if item.strokeDeletions > 0}
@@ -302,6 +365,15 @@
           good. Every other save only adds or removes whole strokes; this is the one case where
           captured geometry is overwritten. Stroke IDs, transcript links and sketch pressure are
           preserved.
+        </div>
+      {/if}
+
+      {#if selectedStrokeMoves > 0}
+        <div class="warning">
+          → {selectedStrokeMoves} stroke{selectedStrokeMoves !== 1 ? 's' : ''} moved to another volume.
+          The source page{unsavedMoveSources.length === 1 ? '' : 's'} <strong>must be saved too</strong>
+          (marked <em>required</em> above) or the strokes stay in both volumes. If a page ends up with no
+          strokes left, its transcript follows them and the emptied file is removed.
         </div>
       {/if}
 
@@ -494,6 +566,10 @@
     color: #06b6d4;
   }
 
+  .summary-item.moves .summary-value {
+    color: #8b5cf6;
+  }
+
   .summary-item.deletions .summary-value {
     color: var(--error);
   }
@@ -588,9 +664,25 @@
     background: rgba(6, 182, 212, 0.1);
   }
 
+  .stat.moves {
+    color: #8b5cf6;
+    background: rgba(139, 92, 246, 0.1);
+  }
+
   .stat.deletions {
     color: var(--error);
     background: rgba(239, 68, 68, 0.1);
+  }
+
+  .required-tag {
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #8b5cf6;
+    background: rgba(139, 92, 246, 0.12);
   }
   
   .stat.transcription-new {

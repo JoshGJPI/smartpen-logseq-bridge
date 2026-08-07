@@ -11,6 +11,7 @@
   } from '$stores';
   import { testMyScriptCredentials } from '$lib/myscript-api.js';
   import BookAliasManager from '../settings/BookAliasManager.svelte';
+  import VolumeSettings from '../settings/VolumeSettings.svelte';
   import DataFolderSettings from '../settings/DataFolderSettings.svelte';
   import GraphFolderSettings from '../settings/GraphFolderSettings.svelte';
   import SketchStyleSettings from '../settings/SketchStyleSettings.svelte';
@@ -182,7 +183,12 @@
       <section class="settings-section">
         <BookAliasManager />
       </section>
-      
+
+      <!-- Notebook Volumes (physical books sharing one NCode book id) -->
+      <section class="settings-section">
+        <VolumeSettings />
+      </section>
+
       <!-- Pen Memory Management -->
       <section class="settings-section">
         <h4>Pen Memory</h4>

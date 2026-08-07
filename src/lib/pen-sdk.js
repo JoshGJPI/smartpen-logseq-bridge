@@ -22,6 +22,7 @@ import {
   resetTransferProgress
 } from '$stores/pen.js';
 import { log, openBookSelectionDialog, setBluetoothStatus } from '$stores/ui.js';
+import { applyActiveVolume } from '$stores/volumes.js';
 
 // Local state for tracking current stroke
 let currentStrokeData = null;
@@ -351,9 +352,14 @@ function processDot(dot) {
 
   // Update the current page info store and render to canvas only for valid dots
   if (!isInvalidDot) {
-    currentPageInfo.set(dot.pageInfo);
+    // Resolve the active volume here too. The renderer builds its own page-group
+    // key from the dot's pageInfo, so without this the live ink would land in
+    // page group B388/P12 while the finalized stroke (stamped in addStroke)
+    // lands in B388v2/P12 — two page borders, and ink that jumps on pen-up.
+    const resolved = applyActiveVolume(dot.pageInfo);
+    currentPageInfo.set(resolved);
     if (canvasRenderer) {
-      canvasRenderer.addDot(dot);
+      canvasRenderer.addDot(resolved === dot.pageInfo ? dot : { ...dot, pageInfo: resolved });
     }
   }
 }
@@ -1112,7 +1118,12 @@ function handleOfflineDataReceived(data) {
       // Skip canvas rendering during batch mode - will update once at the end
       // Only render in real-time mode
       if (canvasRenderer && !pendingOfflineTransfer) {
-        stroke.Dots.forEach(dot => canvasRenderer.addDot(dot));
+        // Volume-resolved, for the same reason as the live path in processDot:
+        // the renderer groups pages by the dot's own pageInfo.
+        const resolvedPageInfo = applyActiveVolume(pageInfo);
+        stroke.Dots.forEach(dot => canvasRenderer.addDot(
+          resolvedPageInfo === dot.pageInfo ? dot : { ...dot, pageInfo: resolvedPageInfo }
+        ));
       }
     } else {
       skippedCount++;

@@ -23,14 +23,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../storage/local-store.js', () => ({
   getPage: vi.fn(),
   savePage: vi.fn(),
+  deletePage: vi.fn(),
 }));
 
 vi.mock('$stores/pending-changes.js', () => ({
   noteOnDiskStrokeIds: vi.fn(),
 }));
 
-import { getPage, savePage } from '../storage/local-store.js';
-import { strokeToStored, savePageToFolder } from '../storage/save-page.js';
+import { getPage, savePage, deletePage } from '../storage/local-store.js';
+import {
+  strokeToStored, savePageToFolder, planPageMove, finalizePageMoves
+} from '../storage/save-page.js';
 
 const PAGE_INFO = { section: 3, owner: 1012, book: 3017, page: 42 };
 
@@ -390,5 +393,187 @@ describe('savePageToFolder — point edits (the one geometry rewrite)', () => {
     expect(result.added).toBe(1);
     expect(result.edited).toBe(0);
     expect(writtenDoc().strokes[0].points).toHaveLength(2);
+  });
+});
+
+/* ==================================================================
+ *  Volumes
+ * ================================================================== */
+
+describe('savePageToFolder — volume book keys', () => {
+  const writtenDoc = () => savePage.mock.calls[0][2];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    savePage.mockReset();
+    savePage.mockResolvedValue({ path: '/tmp/P42.json' });
+  });
+
+  // The whole reason existing files stay byte-identical: `volume` is omitted
+  // when 1, so validatePageDoc's `typeof book === 'number'` still holds and no
+  // pre-volume page changes shape.
+  it('writes a plain numeric book with no volume key for volume 1', async () => {
+    getPage.mockResolvedValue(null);
+    await savePageToFolder({
+      book: '3017', page: 42,
+      activeStrokes: [canvasStroke(1000, [[1, 2, 300], [3, 4, 400]])],
+    });
+
+    const pi = writtenDoc().pageInfo;
+    expect(pi.book).toBe(3017);
+    expect(typeof pi.book).toBe('number');
+    expect('volume' in pi).toBe(false);
+  });
+
+  it('splits a volume key into a numeric book plus a volume field', async () => {
+    getPage.mockResolvedValue(null);
+    await savePageToFolder({
+      book: '3017v2', page: 42,
+      activeStrokes: [canvasStroke(1000, [[1, 2, 300], [3, 4, 400]])],
+    });
+
+    const pi = writtenDoc().pageInfo;
+    expect(pi.book).toBe(3017);
+    expect(pi.volume).toBe(2);
+    expect(pi.page).toBe(42);
+  });
+
+  it('reads and writes the volume page through the book key, not the number', async () => {
+    getPage.mockResolvedValue(null);
+    await savePageToFolder({
+      book: '3017v2', page: 42,
+      activeStrokes: [canvasStroke(1000, [[1, 2, 300], [3, 4, 400]])],
+    });
+
+    expect(getPage).toHaveBeenCalledWith('3017v2', 42);
+    expect(savePage.mock.calls[0][0]).toBe('3017v2');
+  });
+
+  it('still accepts a bare numeric book from pre-volume call sites', async () => {
+    getPage.mockResolvedValue(null);
+    await savePageToFolder({
+      book: 3017, page: 42,
+      activeStrokes: [canvasStroke(1000, [[1, 2, 300], [3, 4, 400]])],
+    });
+    expect(writtenDoc().pageInfo.book).toBe(3017);
+    expect('volume' in writtenDoc().pageInfo).toBe(false);
+  });
+});
+
+describe('planPageMove', () => {
+  // Transcript lines live in doc.transcript.lines, not on strokes, so moving
+  // every stroke off a page strands the recognised text with nothing linking it.
+  it('carries the transcript when the source empties into a single target', () => {
+    expect(planPageMove({ strokeCount: 0, lineCount: 5 }, { lineCount: 0 }, 1))
+      .toEqual({ carryTranscript: true, deleteSource: true });
+  });
+
+  it('leaves the transcript when strokes remain on the source', () => {
+    expect(planPageMove({ strokeCount: 3, lineCount: 5 }, { lineCount: 0 }, 1))
+      .toEqual({ carryTranscript: false, deleteSource: false });
+  });
+
+  // Real recognised text on the target; the source's claim to it is no stronger.
+  it('never overwrites a transcript the target already has', () => {
+    expect(planPageMove({ strokeCount: 0, lineCount: 5 }, { lineCount: 2 }, 1))
+      .toEqual({ carryTranscript: false, deleteSource: false });
+  });
+
+  // Splitting a transcript across two volumes by guesswork is worse than
+  // leaving it where it is.
+  it('leaves the transcript when the strokes split across two targets', () => {
+    expect(planPageMove({ strokeCount: 0, lineCount: 5 }, { lineCount: 0 }, 2))
+      .toEqual({ carryTranscript: false, deleteSource: false });
+  });
+
+  it('deletes an emptied source that had no transcript to begin with', () => {
+    expect(planPageMove({ strokeCount: 0, lineCount: 0 }, { lineCount: 0 }, 1))
+      .toEqual({ carryTranscript: false, deleteSource: true });
+  });
+
+  it('handles missing state objects', () => {
+    expect(planPageMove(null, null, 1)).toEqual({ carryTranscript: false, deleteSource: true });
+  });
+});
+
+describe('finalizePageMoves', () => {
+  const doc = (strokes, lines) => ({
+    version: '2.0',
+    pageInfo: { section: 3, owner: 1012, book: 3017, page: 42 },
+    metadata: { lastUpdated: '2026-01-01T00:00:00.000Z' },
+    transcript: { lastTranscribed: null, lines },
+    strokes,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    savePage.mockResolvedValue({ path: '/tmp/x.json' });
+    deletePage.mockResolvedValue(true);
+  });
+
+  it('does nothing when there are no moves', async () => {
+    const out = await finalizePageMoves([]);
+    expect(out).toEqual({ transcriptsMoved: 0, pagesDeleted: 0, errors: [] });
+    expect(getPage).not.toHaveBeenCalled();
+  });
+
+  it('moves the transcript and removes the emptied source file', async () => {
+    getPage.mockImplementation(async (book) =>
+      book === '3017' ? doc([], [{ id: 'l1', text: 'notes' }]) : doc([{ id: 's1' }], [])
+    );
+
+    const out = await finalizePageMoves([
+      { fromBook: '3017', fromPage: 42, toBook: '3017v2', toPage: 42 }
+    ]);
+
+    expect(out.transcriptsMoved).toBe(1);
+    expect(out.pagesDeleted).toBe(1);
+    expect(savePage).toHaveBeenCalledWith('3017v2', 42, expect.objectContaining({
+      transcript: { lastTranscribed: null, lines: [{ id: 'l1', text: 'notes' }] }
+    }));
+    expect(deletePage).toHaveBeenCalledWith('3017', 42);
+  });
+
+  it('leaves a partially-moved source alone', async () => {
+    getPage.mockImplementation(async (book) =>
+      book === '3017' ? doc([{ id: 's1' }], [{ id: 'l1', text: 'notes' }]) : doc([], [])
+    );
+
+    const out = await finalizePageMoves([
+      { fromBook: '3017', fromPage: 42, toBook: '3017v2', toPage: 42 }
+    ]);
+
+    expect(out.transcriptsMoved).toBe(0);
+    expect(out.pagesDeleted).toBe(0);
+    expect(savePage).not.toHaveBeenCalled();
+    expect(deletePage).not.toHaveBeenCalled();
+  });
+
+  it('processes each source page once even with many moved strokes', async () => {
+    getPage.mockResolvedValue(doc([], []));
+    await finalizePageMoves([
+      { fromBook: '3017', fromPage: 42, toBook: '3017v2', toPage: 42 },
+      { fromBook: '3017', fromPage: 42, toBook: '3017v2', toPage: 42 },
+    ]);
+    expect(deletePage).toHaveBeenCalledTimes(1);
+  });
+
+  // Best-effort: the strokes are already safe on disk by this point, so a
+  // cleanup failure must not fail a save that already succeeded.
+  it('collects errors rather than throwing', async () => {
+    getPage.mockRejectedValue(new Error('disk gone'));
+    const out = await finalizePageMoves([
+      { fromBook: '3017', fromPage: 42, toBook: '3017v2', toPage: 42 }
+    ]);
+    expect(out.errors).toHaveLength(1);
+    expect(out.errors[0]).toContain('disk gone');
+  });
+
+  it('skips a source page that no longer exists', async () => {
+    getPage.mockResolvedValue(null);
+    const out = await finalizePageMoves([
+      { fromBook: '3017', fromPage: 42, toBook: '3017v2', toPage: 42 }
+    ]);
+    expect(out).toEqual({ transcriptsMoved: 0, pagesDeleted: 0, errors: [] });
   });
 });

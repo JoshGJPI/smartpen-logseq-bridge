@@ -29,6 +29,16 @@ import {
   strokePressures,
   widthsForStrokeSeries
 } from './sketch-width.js';
+import {
+  BOOK_KEY_FRAGMENT, compareBookKeys, volumeBadge, ncodeBookOf
+} from './volumes.js';
+
+// Page keys are `S#/O#/B<bookKey>/P#`, where the book portion may carry a volume
+// suffix ("388v2"). Built from BOOK_KEY_FRAGMENT rather than a hand-written
+// `\d+` — every site that hardcoded the latter either dropped volume pages or,
+// unanchored, matched their numeric prefix and returned the wrong book.
+const BOOK_IN_KEY_RE = new RegExp(`B(${BOOK_KEY_FRAGMENT})`);
+const BOOK_PAGE_IN_KEY_RE = new RegExp(`B(${BOOK_KEY_FRAGMENT})\\/P(\\d+)`);
 
 export class CanvasRenderer {
   constructor(canvas) {
@@ -347,20 +357,24 @@ export class CanvasRenderer {
       const keyA = a[0];
       const keyB = b[0];
       
-      // Extract book and page numbers from keys (format: S#/O#/B#/P#)
-      const matchA = keyA.match(/B(\d+)\/P(\d+)/);
-      const matchB = keyB.match(/B(\d+)\/P(\d+)/);
-      
+      // Extract book key and page from keys (format: S#/O#/B<key>/P#).
+      // A `\d+` book here failed to match any volume page, and the `return 0`
+      // below made it compare equal to EVERYTHING — arbitrary left-to-right
+      // layout order, with no error to show for it.
+      const matchA = keyA.match(BOOK_PAGE_IN_KEY_RE);
+      const matchB = keyB.match(BOOK_PAGE_IN_KEY_RE);
+
       if (!matchA || !matchB) return 0;
-      
-      const bookA = parseInt(matchA[1]);
+
+      const bookA = matchA[1];
       const pageA = parseInt(matchA[2]);
-      const bookB = parseInt(matchB[1]);
+      const bookB = matchB[1];
       const pageB = parseInt(matchB[2]);
-      
-      // Sort by book first, then by page
-      if (bookA !== bookB) {
-        return bookA - bookB;
+
+      // Sort by book (NCode book, then volume) first, then by page
+      const bookOrder = compareBookKeys(bookA, bookB);
+      if (bookOrder !== 0) {
+        return bookOrder;
       }
       return pageA - pageB;
     });
@@ -1288,8 +1302,10 @@ export class CanvasRenderer {
       const width = (bounds.maxX - bounds.minX) * this.scale * pageScale * this.zoom;
       const height = (bounds.maxY - bounds.minY) * this.scale * pageScale * this.zoom;
       
-      // Extract book ID from pageKey (format: S#/O#/B#/P#)
-      const bookMatch = pageKey.match(/B(\d+)/);
+      // Extract the book KEY from pageKey (format: S#/O#/B<key>/P#).
+      // Unanchored `/B(\d+)/` would partially match "B388" inside "B388v2" and
+      // return a plausible-but-wrong 388 — worse than no match at all.
+      const bookMatch = pageKey.match(BOOK_IN_KEY_RE);
       const bookId = bookMatch ? bookMatch[1] : '0';
       
       // Get color based on book ID (consistent across all pages in the book)
@@ -1317,13 +1333,18 @@ export class CanvasRenderer {
       this.ctx.font = `600 ${fontSize}px 'Segoe UI', sans-serif`;
       this.ctx.fillStyle = borderColor; // Match border color
       
-      // Extract book and page from pageKey (format: S#/O#/B#/P#)
-      const parts = pageKey.match(/B(\d+)\/P(\d+)/);
+      // Extract book key and page from pageKey (format: S#/O#/B<key>/P#)
+      const parts = pageKey.match(BOOK_PAGE_IN_KEY_RE);
       if (parts) {
         const book = parts[1];
         const page = parts[2];
-        let label = `B${book} / P${page}`;
-        
+        // Volume 2+ shows its volume, or two same-numbered pages from different
+        // physical notebooks are indistinguishable side by side. Volume 1 renders
+        // exactly as before.
+        const badge = volumeBadge(book);
+        const ncode = badge ? ncodeBookOf(book) : book;
+        let label = badge ? `B${ncode} ${badge} / P${page}` : `B${book} / P${page}`;
+
         // Check if this page has pending changes (unsaved strokes)
         const hasUnsavedChanges = this.pendingChanges && this.pendingChanges.has(`B${book}/P${page}`);
         const pageChanges = hasUnsavedChanges ? this.pendingChanges.get(`B${book}/P${page}`) : null;
@@ -1333,7 +1354,11 @@ export class CanvasRenderer {
         const hasUnsavedStrokeWork = !!pageChanges && (
           (pageChanges.additions && pageChanges.additions.length > 0) ||
           (pageChanges.edits && pageChanges.edits.length > 0) ||
-          (pageChanges.modifications && pageChanges.modifications.length > 0)
+          (pageChanges.modifications && pageChanges.modifications.length > 0) ||
+          // Strokes this page still owes a deletion for, having been reassigned
+          // to another volume. They're drawn on the target page now, so without
+          // this the source page shows no sign of the pending work.
+          (pageChanges.moves && pageChanges.moves.length > 0)
         );
 
         if (hasUnsavedStrokeWork) {
@@ -1379,7 +1404,7 @@ export class CanvasRenderer {
       const { left, top, width, height } = bounds;
       
       // Extract book ID for color matching
-      const bookMatch = pageKey.match(/B(\d+)/);
+      const bookMatch = pageKey.match(BOOK_IN_KEY_RE);
       const bookId = bookMatch ? bookMatch[1] : '0';
       const colorIndex = this.getBookColorIndex(bookId);
       const baseColor = this.pageColors[colorIndex];

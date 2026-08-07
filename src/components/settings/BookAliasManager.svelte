@@ -2,14 +2,22 @@
   import { bookAliases, knownBookIds, setBookAlias, removeBookAlias } from '$stores';
   import { dataFolderReady } from '$stores/settings.js';
   import { setAlias as folderSetAlias, removeAlias as folderRemoveAlias } from '$lib/storage/local-store.js';
+  import { compareBookKeys, volumeBadge, ncodeBookOf } from '$lib/volumes.js';
   import { log } from '$stores';
+
+  /** "388v2" → "B388 v2"; volume 1 stays "B388". */
+  function bookLabel(bookId) {
+    const badge = volumeBadge(bookId);
+    return badge ? `B${ncodeBookOf(bookId)} ${badge}` : `B${bookId}`;
+  }
 
   // Track which books are being edited
   let editingBookIds = new Set();
   let aliasInputs = {};
   
-  // Reactive: Get sorted list of known books
-  $: sortedBookIds = Array.from($knownBookIds).sort((a, b) => Number(a) - Number(b));
+  // Book KEYS, sorted by NCode book then volume. `Number(a) - Number(b)` yielded
+  // NaN for a volume key ("388v2") and left the order arbitrary.
+  $: sortedBookIds = Array.from($knownBookIds).sort(compareBookKeys);
   
   // Initialize inputs from current aliases
   $: {
@@ -43,7 +51,7 @@
 
     if ($dataFolderReady) {
       try {
-        await folderSetAlias(Number(bookId), alias);
+        await folderSetAlias(bookId, alias);
         log(`Saved alias for B${bookId}: ${alias}`, 'success');
       } catch (err) {
         log(`Failed to persist alias for B${bookId}: ${err.message}`, 'error');
@@ -65,7 +73,7 @@
 
     if ($dataFolderReady) {
       try {
-        await folderRemoveAlias(Number(bookId));
+        await folderRemoveAlias(bookId);
         log(`Removed alias for B${bookId}`, 'success');
       } catch (err) {
         log(`Failed to remove alias for B${bookId}: ${err.message}`, 'error');
@@ -103,7 +111,7 @@
         {@const isEditing = editingBookIds.has(bookId)}
         
         <div class="alias-row" class:has-alias={hasAlias}>
-          <div class="book-label">B{bookId}</div>
+          <div class="book-label">{bookLabel(bookId)}</div>
           
           {#if isEditing}
             <input

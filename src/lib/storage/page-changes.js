@@ -4,7 +4,7 @@
  * v2.0 folder-backed replacement for logseq-api.js computePageChanges().
  *
  * Returns: { strokeAdditions, strokeEdits, strokeModifications, strokeDeletions,
- *            strokeTotal, hasNewTranscription, transcriptionChanged }
+ *            strokeMoves, strokeTotal, hasNewTranscription, transcriptionChanged }
  *
  * This is a SECOND implementation of the question `pendingChanges` answers, run
  * against the PageDoc on disk rather than the in-memory on-disk state index, so
@@ -41,8 +41,12 @@ function isPointEdited(canvasStroke, stored) {
  * @param {Array} activeStrokes      - Pen-format strokes (with dotArray)
  * @param {Object|null} transcription - Fresh MyScript output for this page, or null
  * @param {Set<string>} [deletedStrokeIds]
+ * @param {Set<string>} [movedAwayStrokeIds] - ids leaving for another volume
  */
-export async function computePageChangesFolder(book, page, activeStrokes, transcription, deletedStrokeIds = new Set()) {
+export async function computePageChangesFolder(
+  book, page, activeStrokes, transcription,
+  deletedStrokeIds = new Set(), movedAwayStrokeIds = new Set()
+) {
   try {
     const existing = await getPage(book, page);
 
@@ -50,6 +54,7 @@ export async function computePageChangesFolder(book, page, activeStrokes, transc
     let strokeEdits = 0;
     let strokeModifications = 0;
     let strokeDeletions = 0;
+    let strokeMoves = 0;
     let strokeTotal = activeStrokes.length;
 
     if (!existing || !existing.strokes) {
@@ -82,7 +87,15 @@ export async function computePageChangesFolder(book, page, activeStrokes, transc
           if (existingById.has(id)) strokeDeletions++;
         }
       }
-      strokeTotal = existing.strokes.length - strokeDeletions + strokeAdditions;
+      // Strokes this page loses to another volume. Counted apart from deletions
+      // because nothing is destroyed — the stroke lives on in the target volume —
+      // but the page's own count drops just the same.
+      if (movedAwayStrokeIds.size > 0) {
+        for (const id of movedAwayStrokeIds) {
+          if (existingById.has(id) && !deletedStrokeIds.has(id)) strokeMoves++;
+        }
+      }
+      strokeTotal = existing.strokes.length - strokeDeletions - strokeMoves + strokeAdditions;
     }
 
     let hasNewTranscription = false;
@@ -104,6 +117,7 @@ export async function computePageChangesFolder(book, page, activeStrokes, transc
       strokeEdits,
       strokeModifications,
       strokeDeletions,
+      strokeMoves,
       strokeTotal,
       hasNewTranscription,
       transcriptionChanged
@@ -115,6 +129,7 @@ export async function computePageChangesFolder(book, page, activeStrokes, transc
       strokeEdits: 0,
       strokeModifications: 0,
       strokeDeletions: 0,
+      strokeMoves: 0,
       strokeTotal: activeStrokes.length,
       hasNewTranscription: !!transcription?.text,
       transcriptionChanged: false

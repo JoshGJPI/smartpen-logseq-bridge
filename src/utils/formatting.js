@@ -1,6 +1,12 @@
 /**
  * Formatting Utilities - Format book names, page identifiers, etc.
+ *
+ * `bookId` here is a **book key** — "388" for volume 1, "388v2" for volume 2 of
+ * the same physical NCode book. Volume 1 formats exactly as a bare id always did,
+ * so single-volume books read unchanged.
  */
+
+import { volumeBadge, volumeSuffix, ncodeBookOf, parseBookKey } from '../lib/volumes.js';
 
 // Book colors matching canvas renderer
 const BOOK_COLORS = [
@@ -24,11 +30,23 @@ const BOOK_COLORS = [
  */
 function getBookColorIndex(bookId) {
   let hash = 0;
-  const str = String(bookId);
+  // Hash the NCode book, not the full key, so every volume of one notebook
+  // shares a colour and reads as a sibling rather than an unrelated book.
+  const parsed = parseBookKey(bookId);
+  const str = parsed ? String(parsed.ncodeBook) : String(bookId);
   for (let i = 0; i < str.length; i++) {
     hash = str.charCodeAt(i) + ((hash << 5) - hash);
   }
   return Math.abs(hash) % BOOK_COLORS.length;
+}
+
+/**
+ * `"388v2"` → `"B388 v2"`. The id half of every label, volume included.
+ * Volume 1 → `"B388"`, unchanged.
+ */
+function bookIdLabel(bookId) {
+  const badge = volumeBadge(bookId);
+  return badge ? `B${ncodeBookOf(bookId)} ${badge}` : `B${bookId}`;
 }
 
 /**
@@ -61,20 +79,29 @@ export function getBookColor(bookId, alpha = 0.8) {
  * @returns {string} Formatted book name
  */
 export function formatBookName(bookId, aliases = {}, format = 'full') {
-  const alias = aliases[bookId];
-  
-  if (!alias) {
-    return `B${bookId}`;
+  // Aliases are keyed by book key, so each volume can carry its own name.
+  // Fall back to the NCode book's alias with a volume suffix appended, so a
+  // freshly-created volume 2 reads as "Field Notes · Vol 2" rather than "B388v2"
+  // until the user names it.
+  const alias = aliases[bookId] ?? aliases[String(bookId)];
+  const inherited = alias
+    ? null
+    : (aliases[ncodeBookOf(bookId)] ?? aliases[String(ncodeBookOf(bookId))]);
+  const name = alias || (inherited ? `${inherited}${volumeSuffix(bookId)}` : null);
+  const idLabel = bookIdLabel(bookId);
+
+  if (!name) {
+    return idLabel;
   }
-  
+
   switch (format) {
     case 'alias-only':
-      return alias;
+      return name;
     case 'id-only':
-      return `B${bookId}`;
+      return idLabel;
     case 'full':
     default:
-      return `${alias} (B${bookId})`;
+      return `${name} (${idLabel})`;
   }
 }
 
@@ -109,13 +136,12 @@ export function formatBookPage(bookId, pageNum, aliases = {}) {
  * @returns {string} Formatted book name
  */
 export function formatBookDisplay(bookId, aliases = {}, showPrefix = false) {
-  const alias = aliases[bookId];
-  
-  if (alias) {
-    return `${alias} (B${bookId})`;
-  }
-  
-  return showPrefix ? `Book ${bookId}` : `B${bookId}`;
+  const named = formatBookName(bookId, aliases, 'full');
+  const idLabel = bookIdLabel(bookId);
+
+  if (named !== idLabel) return named;
+
+  return showPrefix ? `Book ${idLabel.slice(1)}` : idLabel;
 }
 
 /**

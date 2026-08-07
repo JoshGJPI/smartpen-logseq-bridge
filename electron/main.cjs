@@ -241,20 +241,74 @@ ipcMain.handle('myscript-api-call', async (_event, { appKey, hmacKey, body }) =>
 // One JSON file per pen page at <dataRoot>/pages/B{book}/P{page}.json
 // See docs/LOCAL-STORAGE-PIVOT-SPEC.md for the full design.
 
+// ----- Book keys (volumes) -----
+// A book key is the NCode book id plus an optional volume suffix: "388", "388v2".
+// Volume 1 is spelled bare, so every pre-volume path is unchanged.
+//
+// Mirrors src/lib/volumes.js. main.cjs is CommonJS and can't import the ESM
+// module — the same reason buildTranscriptionText below mirrors scan.js. Keep
+// the two in step; volumes.js is the authority.
+const BOOK_KEY_RE = /^(\d+)(?:v(\d+))?$/;
+
+function parseBookKey(bookKey) {
+  if (bookKey == null || bookKey === '') return null;
+  const raw = String(bookKey);
+  const m = raw.match(BOOK_KEY_RE);
+  if (!m) return null;
+  const ncodeBook = Number(m[1]);
+  const volume = m[2] === undefined ? 1 : Number(m[2]);
+  if (!Number.isInteger(ncodeBook) || !Number.isInteger(volume) || volume < 1) return null;
+  // Canonical-form check — one spelling per physical notebook.
+  const canonical = volume === 1 ? String(ncodeBook) : `${ncodeBook}v${volume}`;
+  return canonical === raw ? { ncodeBook, volume } : null;
+}
+
+function compareBookKeys(a, b) {
+  const pa = parseBookKey(a);
+  const pb = parseBookKey(b);
+  if (!pa && !pb) return String(a).localeCompare(String(b));
+  if (!pa) return 1;
+  if (!pb) return -1;
+  return (pa.ncodeBook - pb.ncodeBook) || (pa.volume - pb.volume);
+}
+
+/**
+ * Validate a book key before it reaches a filesystem path.
+ *
+ * `book` used to arrive here via parseInt and was inherently path-safe. As a
+ * string it is not, so this guard is what keeps page reads and writes inside the
+ * data root. Same role requireGraphPageId plays on the graph side.
+ */
+function requireBookKey(book) {
+  if (!parseBookKey(book)) throw new Error(`Invalid book key: ${book}`);
+  return String(book);
+}
+
+/** Page ids are digits plus an optional single letter: "42", "151b". */
+function requirePageId(page) {
+  const pid = String(page);
+  if (!/^\d+[a-zA-Z]?$/.test(pid)) throw new Error(`Invalid page id: ${page}`);
+  return pid;
+}
+
 function pagesDir(root) {
   return path.join(root, 'pages');
 }
 
 function bookDir(root, book) {
-  return path.join(pagesDir(root), `B${book}`);
+  return path.join(pagesDir(root), `B${requireBookKey(book)}`);
 }
 
 function pagePath(root, book, page) {
-  return path.join(bookDir(root, book), `P${page}.json`);
+  return path.join(bookDir(root, book), `P${requirePageId(page)}.json`);
 }
 
 function aliasesPath(root) {
   return path.join(pagesDir(root), '_aliases.json');
+}
+
+function volumesPath(root) {
+  return path.join(pagesDir(root), '_volumes.json');
 }
 
 // ----- "Publish to graph" target paths (JPI Tools plugin asset storage) -----
@@ -375,9 +429,11 @@ async function listAllPages(root) {
   const pages = [];
   for (const entry of bookDirs) {
     if (!entry.isDirectory()) continue;
-    const m = entry.name.match(/^B(\d+)$/);
-    if (!m) continue;
-    const book = parseInt(m[1], 10);
+    // Book KEY, not a number: "388" or "388v2" (see parseBookKey). A bare
+    // `^B(\d+)$` here would make every volume directory invisible to the scan.
+    const m = entry.name.match(/^B(\d+(?:v\d+)?)$/);
+    if (!m || !parseBookKey(m[1])) continue;
+    const book = m[1];
     const bookPath = path.join(dir, entry.name);
 
     let pageFiles;
@@ -421,7 +477,11 @@ async function listAllPages(root) {
     }
   }
 
-  pages.sort((a, b) => (a.book - b.book) || (a.page - b.page) || a.suffix.localeCompare(b.suffix));
+  // compareBookKeys, not `a.book - b.book` — book is a key string now, and
+  // subtraction on it yields NaN (which leaves the sort order arbitrary).
+  pages.sort((a, b) =>
+    compareBookKeys(a.book, b.book) || (a.page - b.page) || a.suffix.localeCompare(b.suffix)
+  );
   return pages;
 }
 
@@ -483,6 +543,34 @@ async function readAliases(root) {
 
 async function writeAliases(root, aliases) {
   await writeFileAtomic(aliasesPath(root), JSON.stringify(aliases, null, 2));
+}
+
+/**
+ * The volume registry — `<dataRoot>/pages/_volumes.json`.
+ *
+ * Holds only what the filesystem can't express: which volume new strokes route
+ * to per NCode book. Volume *names* live in _aliases.json, keyed by book key,
+ * because that already has storage and a management UI.
+ *
+ * Absent file ⇒ every book is volume 1 ⇒ behaviour identical to pre-volume.
+ */
+async function readVolumes(root) {
+  try {
+    const raw = await fsp.readFile(volumesPath(root), 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return { version: 1, active: {} };
+    return {
+      version: parsed.version || 1,
+      active: (parsed.active && typeof parsed.active === 'object') ? parsed.active : {}
+    };
+  } catch (err) {
+    if (err.code === 'ENOENT') return { version: 1, active: {} };
+    throw err;
+  }
+}
+
+async function writeVolumes(root, registry) {
+  await writeFileAtomic(volumesPath(root), JSON.stringify(registry, null, 2));
 }
 
 /** Wraps an IPC handler so thrown errors become `{ok:false, error}` responses. */
@@ -555,6 +643,21 @@ ipcMain.handle('storage:removeAlias', ipcSafe(async (root, book) => {
   return aliases;
 }));
 
+ipcMain.handle('storage:getVolumes', ipcSafe(async (root) => readVolumes(root)));
+ipcMain.handle('storage:setActiveVolume', ipcSafe(async (root, ncodeBook, volume) => {
+  const n = Number(ncodeBook);
+  const v = Number(volume);
+  if (!Number.isInteger(n) || n < 0) throw new Error(`Invalid book: ${ncodeBook}`);
+  if (!Number.isInteger(v) || v < 1) throw new Error(`Invalid volume: ${volume}`);
+  const registry = await readVolumes(root);
+  // Volume 1 is the default, so record it by absence — keeps the file empty for
+  // every book that never needed a volume.
+  if (v === 1) delete registry.active[String(n)];
+  else registry.active[String(n)] = v;
+  await writeVolumes(root, registry);
+  return registry;
+}));
+
 // ===== "Publish to graph" — mirror saved pages into a LogSeq graph folder =====
 // Pure filesystem writes (no LogSeq runtime). The renderer (src/lib/storage/
 // publish-graph.js) does the smartpen-specific building (PageDoc serialize +
@@ -595,7 +698,18 @@ function requireGraphPageId(pageId) {
   return pid;
 }
 
+// The graph asset name and smartpen-index.json both carry a NUMERIC book, so a
+// volume key has nowhere to go there yet. Refuse it explicitly rather than
+// letting `Number("388v2")` become NaN — the JPI Tools plugin needs a matching
+// change before volume 2+ can be published. See docs/VOLUMES-SPEC.md §4.4.
 function requireGraphBook(book) {
+  const parsed = parseBookKey(book);
+  if (parsed && parsed.volume > 1) {
+    throw new Error(
+      `Volume ${parsed.volume} pages can't be exported to LogSeq yet — the JPI Tools ` +
+      `plugin only understands one volume per book. Book ${parsed.ncodeBook} volume 1 exports normally.`
+    );
+  }
   const bookNum = Number(book);
   if (!Number.isFinite(bookNum)) throw new Error(`Invalid book: ${book}`);
   return bookNum;

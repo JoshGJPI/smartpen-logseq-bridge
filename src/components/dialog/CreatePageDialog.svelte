@@ -8,6 +8,7 @@
   import { dataFolderReady } from '$stores/settings.js';
   import { savedPages } from '$stores';
   // v2.0 folder-backed save
+  import { toBookKey, compareBookKeys } from '$lib/volumes.js';
   import { getPage } from '$lib/storage/local-store.js';
   import { savePageToFolder } from '$lib/storage/save-page.js';
 
@@ -22,24 +23,26 @@
   let showBookSuggestions = false;
   let showPageSuggestions = false;
   
-  // Get unique books and pages from saved-page data
-  $: allBooks = [...new Set($savedPages.map(p => p.book))].sort((a, b) => a - b);
-  $: allPagesForBook = bookNumber 
-    ? $savedPages.filter(p => p.book === parseInt(bookNumber)).map(p => p.page).sort((a, b) => a - b)
+  // Books are BOOK KEYS ("388", "388v2"), so comparisons are string comparisons —
+  // parseInt would collapse a volume onto its NCode book and offer the wrong page
+  // list.
+  $: bookKey = toBookKey(bookNumber.trim());
+  $: allBooks = [...new Set($savedPages.map(p => p.book))].sort(compareBookKeys);
+  $: allPagesForBook = bookKey
+    ? $savedPages.filter(p => p.book === bookKey).map(p => p.page).sort((a, b) => a - b)
     : [];
-  
+
   // Update suggestions when input changes
   $: {
     if (bookNumber) {
-      const num = parseInt(bookNumber);
-      bookSuggestions = allBooks.filter(b => 
-        b.toString().startsWith(bookNumber) && b !== num
+      bookSuggestions = allBooks.filter(b =>
+        String(b).startsWith(bookNumber.trim()) && String(b) !== bookKey
       ).slice(0, 5);
     } else {
       bookSuggestions = allBooks.slice(0, 5);
     }
   }
-  
+
   $: {
     if (pageNumber && bookNumber) {
       const num = parseInt(pageNumber);
@@ -54,8 +57,8 @@
   }
   
   // Check if page exists
-  $: pageExists = bookNumber && pageNumber 
-    ? $savedPages.some(p => p.book === parseInt(bookNumber) && p.page === parseInt(pageNumber))
+  $: pageExists = bookKey && pageNumber
+    ? $savedPages.some(p => p.book === bookKey && p.page === parseInt(pageNumber))
     : false;
   
   // Determine which strokes to save: selected if any, otherwise all
@@ -85,14 +88,21 @@
   async function handleCreate(mode) {
     if (!canSave) return;
     
-    const book = parseInt(bookNumber, 10);
+    // A BOOK KEY, so a volume can be typed directly: "388" or "388v2".
+    // parseInt would quietly turn "388v2" into 388 and create the page in the
+    // wrong physical notebook.
+    const book = toBookKey(bookNumber.trim());
     const page = parseInt(pageNumber, 10);
-    
-    if (isNaN(book) || isNaN(page) || book < 0 || page < 0) {
-      error = 'Please enter valid book and page numbers';
+
+    if (!book) {
+      error = 'Book must be a number, optionally with a volume — e.g. 388 or 388v2';
       return;
     }
-    
+    if (isNaN(page) || page < 0) {
+      error = 'Please enter a valid page number';
+      return;
+    }
+
     // Proceed with save
     await performSave(book, page, mode);
   }

@@ -125,17 +125,24 @@ export async function deletePage(book, page) {
  * ============================================================ */
 
 /**
- * @returns {Promise<Record<number, string>>}
+ * Aliases are keyed by **book key** — "388" or "388v2" — so each volume can
+ * carry its own name.
+ *
+ * Keys pass through as written. This used to coerce them with `Number()`, which
+ * meant `Number("388v2")` → NaN silently dropped every volume alias on each
+ * scan; it also disagreed with main.cjs (which writes `String(book)`) and with
+ * `knownBookIds` (strings), which is why publish-graph.js had to hedge with
+ * `aliasMap[String(book)] ?? aliasMap[book]`. Strings everywhere now.
+ *
+ * @returns {Promise<Record<string, string>>}
  */
 export async function getAliases() {
   const backend = getBackend();
   const res = await backend.getAliases(requireRoot());
   const raw = unwrap(res, 'getAliases');
-  // normalize keys to numbers for consumers
   const out = {};
   for (const k of Object.keys(raw || {})) {
-    const n = Number(k);
-    if (Number.isFinite(n)) out[n] = raw[k];
+    out[String(k)] = raw[k];
   }
   return out;
 }
@@ -150,4 +157,30 @@ export async function removeAlias(book) {
   const backend = getBackend();
   const res = await backend.removeAlias(requireRoot(), book);
   return unwrap(res, 'removeAlias');
+}
+
+/* ============================================================
+ *  Volumes
+ * ============================================================ */
+
+/**
+ * The volume registry: `{ version, active: { "<ncodeBook>": <volume> } }`.
+ * An absent file reads as `{ active: {} }` — every book is volume 1.
+ * @returns {Promise<{version: number, active: Record<string, number>}>}
+ */
+export async function getVolumes() {
+  const backend = getBackend();
+  const res = await backend.getVolumes(requireRoot());
+  return unwrap(res, 'getVolumes');
+}
+
+/**
+ * Point an NCode book's capture at a volume. Volume 1 clears the entry.
+ * @param {number} ncodeBook
+ * @param {number} volume
+ */
+export async function setActiveVolume(ncodeBook, volume) {
+  const backend = getBackend();
+  const res = await backend.setActiveVolume(requireRoot(), ncodeBook, volume);
+  return unwrap(res, 'setActiveVolume');
 }

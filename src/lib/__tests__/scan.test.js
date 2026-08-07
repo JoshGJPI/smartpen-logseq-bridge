@@ -9,7 +9,8 @@ import { metaToRecord } from '$lib/storage/scan.js';
 
 function meta(overrides = {}) {
   return {
-    book: 3017,
+    // A BOOK KEY, as listAllPages reads it off the directory name.
+    book: '3017',
     page: 42,
     pageId: '42',
     suffix: '',
@@ -26,7 +27,9 @@ function meta(overrides = {}) {
 describe('metaToRecord', () => {
   it('maps the lightweight summary fields through', () => {
     const r = metaToRecord(meta());
-    expect(r.book).toBe(3017);
+    expect(r.book).toBe('3017');
+    expect(r.ncodeBook).toBe(3017);
+    expect(r.volume).toBe(1);
     expect(r.page).toBe(42);
     expect(r.pageId).toBe('42');
     expect(r.suffix).toBe('');
@@ -59,6 +62,30 @@ describe('metaToRecord', () => {
     expect(r.pageId).toBe('12');
     expect(r.suffix).toBe('');
     expect(r.pageName).toBe('pages/B5/P12.json');
+  });
+
+  // Volumes: two physical notebooks sharing one NCode book id are distinct books
+  // from here down, so nothing else in the app has to know what a volume is.
+  it('keeps a volume book key intact and splits out ncodeBook/volume', () => {
+    const r = metaToRecord(meta({ book: '3017v2', path: '/data/pages/B3017v2/P42.json' }));
+    expect(r.book).toBe('3017v2');
+    expect(r.ncodeBook).toBe(3017);
+    expect(r.volume).toBe(2);
+    expect(r.pageName).toBe('pages/B3017v2/P42.json');
+  });
+
+  it('gives volumes of one book distinct records for the same page number', () => {
+    const v1 = metaToRecord(meta({ book: '3017' }));
+    const v2 = metaToRecord(meta({ book: '3017v2' }));
+    expect(v1.book).not.toBe(v2.book);
+    expect(v1.pageName).not.toBe(v2.pageName);
+    expect(v1.page).toBe(v2.page);   // same printed page number — that's the point
+  });
+
+  it('accepts a numeric book (pre-volume call sites) as volume 1', () => {
+    const r = metaToRecord({ book: 3017, page: 42 });
+    expect(r.book).toBe('3017');
+    expect(r.volume).toBe(1);
   });
 
   it('marks pages without transcription as not transcribed', () => {

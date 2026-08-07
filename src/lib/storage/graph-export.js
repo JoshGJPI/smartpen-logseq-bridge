@@ -31,6 +31,7 @@
 import { PAGE_DOC_VERSION, computeBounds } from './page-doc.js';
 import { strokeToStored } from './save-page.js';
 import { readGraphPage, writeGraphPage } from './publish-graph.js';
+import { compareBookKeys } from '$lib/volumes.js';
 
 /* -----------------------------------------------------------------
  *  Pure core
@@ -174,7 +175,7 @@ export function groupCanvasStrokesByPage(canvasStrokes) {
   }
 
   const groups = [...byKey.values()].sort((a, b) =>
-    a.book !== b.book ? a.book - b.book : a.page - b.page
+    compareBookKeys(a.book, b.book) || (a.page - b.page)
   );
   return { groups, orphans };
 }

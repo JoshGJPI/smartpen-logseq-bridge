@@ -84,6 +84,11 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `sketch.js` — the pressure → thickness render profile (`sketchProfile`, `sketchPresetName`, `sketchPresets`, `sketchProfileSummary`, `applySketchPreset()`, `updateSketchProfile()`, `resetSketchProfile()`). Persisted to localStorage: it's a *display* preference, so it restyles every sketch at once and never touches disk. Any manual edit clears the preset name (showing "Brush" as active after its numbers changed would lie).
 - `strokes.js` also owns the flag itself — `sketchStrokeCount` (derived), `setStrokesSketch()` / `markStrokesAsSketch()` / `unmarkStrokesAsSketch()`. Flagging marks the session dirty (the flag lives in the PageDoc) and drops the renderer's cached `_sw` width array.
 
+**Volumes (v2.6):**
+- `volumes.js` — capture routing for physical notebooks that share an NCode book id. `volumeRegistry` (`{version, active: {ncodeBook: volume}}`, persisted to `<dataRoot>/pages/_volumes.json`), `activeVolumeFor()`, `applyActiveVolume()` (the single pen→app boundary; **idempotent** — a pageInfo that already carries `volume` is returned untouched, so re-adding an imported stroke can't demote it), `loadVolumes()`, `setActiveVolume()`, `volumesForBook()`
+- `strokes.js` also owns reassignment — `reassignVolume(indices, volume)` rewrites `pageInfo.book` to the target book key, clears `blockUuid` (the transcript line belongs to the *source* page) and stamps the in-memory `movedFrom` marker; `clearMovedFromMarkers(book, page)` drops it after the source page saves
+- `pending-changes.js` — `getMovedAwayStrokeIdsForPage()` and the `moves` category (see below)
+
 **Point Editing (v2.5):**
 - `point-edit.js` — the canvas "Edit Points" mode: `pointEditMode`, `selectedPoints` (keys `"{strokeIndex}:{pointIndex}"`), `pointEditStrokes` (derived from the stroke selection, capped at `MAX_POINT_EDIT_STROKES`), `strayPoints`/`strayPointKeys` (advisory detection), `selectPoint()`/`selectPoints()`, `deleteSelectedPoints()`, `deleteStrayPoints()`, `enterPointEditMode()`/`exitPointEditMode()`. A `selectedIndices` subscription prunes point keys whose stroke leaves the selection and exits the mode when the selection empties
 - `strokes.js` owns the mutation — `removeStrokePoints(Map<strokeIndex, Set<pointIndex>>)` and `clearPointEditMarkers(book, page)`. **This is the only code in the app that mutates captured geometry.** It preserves `startTime`/`endTime` (and so the `s{startTime}` id), every surviving point's force, and the sketch flag; it refuses to reduce a stroke below 2 points and reports those in `refused`; it stamps the edited stroke with the in-memory `pointsEdited` marker that gates the save-time rewrite
@@ -106,6 +111,7 @@ All state is managed through Svelte stores located in `src/stores/`:
 ### Key Libraries
 
 **Core Logic (`src/lib/`):**
+- `volumes.js` - **Book keys** (pure). `pageInfo.book` is a *string* everywhere in memory: `"388"` = volume 1, `"388v2"` = volume 2 of the same physical NCode book. `makeBookKey`/`parseBookKey` (rejects non-canonical spellings — `"388v1"`, `"0388"` — via a round-trip check, so one spelling per notebook), `compareBookKeys` (NCode book then volume; **required** — naive string sort puts `"388v2"` after `"3880"`), `bookDirName`/`parseBookDirName`, `pageInfoForDisk`/`pageInfoWithBookKey` (the disk↔memory boundary), `BOOK_KEY_FRAGMENT` (**use this to build any regex matching a page key — never hand-write `\d+` for the book**), `volumeSuffix`/`volumeBadge`
 - `pen-sdk.js` - NeoSmartpen SDK wrapper and BLE communication
 - `canvas-renderer.js` - Canvas drawing engine for stroke visualization
 - `myscript-api.js` - MyScript API client for handwriting recognition (proxied via IPC in Electron)
@@ -422,6 +428,8 @@ Existing test files (all in `src/lib/__tests__/`):
 | `canvas-renderer-sketch.test.js` | Renderer sketch path against a recording 2D-context stub: uniform handwriting (and that width no longer depends on the final dot), multi-width sketch runs, monotonic ramp, full segment coverage, run batching/quantisation, dashed fallback for deleted/decorative, width caching + profile invalidation, pasted-sketch taper |
 | `save-page.test.js` | `strokeToStored` (force as 4th element, integer rounding, null-timestamp placeholder, 3-element fallback for missing force, `sketch` omitted when false, key order); `savePageToFolder` sketch-flag sync onto strokes already on disk (mark, unmark removes the key, untouched when absent from canvas, points never rewritten *without the marker*, lineId sync preserved); **point edits** (rewrite gated on `pointsEdited`, refused without it, id/startTime/endTime survive losing the first point, force + sketch flag survive, marker never written to disk, other strokes untouched, bounds recomputed, key order stable, new-stroke case reports `edited: 0`) |
 | `point-edit.test.js` | `detectStrayPoints` (origin exact/near/leading, non-finite, interior jump, fast-movement and short-flick non-detections, absolute-floor boundary, short strokes, single reason per point); `detectStrayPointsForStrokes`; `removePointsFromStroke` (order, identity preserved both ends, force + sketch preserved, `dotType` re-tag, cache drop, no mutation, min-points refusal, no-ops, Set input); key helpers; `removeStrokePoints`/`clearPointEditMarkers` store behaviour (marker stamping, dirty signalling, partial refusal, per-page clearing); `stores/point-edit.js` mode + selection (entry refusals, derived strokes/point count/strays, key pruning when a stroke leaves the selection, exit when the selection empties, toggle, select/delete strays, selection cleared after a delete) |
+| `volumes.test.js` | `src/lib/volumes.js` — `makeBookKey`/`parseBookKey` round-trip, canonical-form rejection (`"388v1"`, `"388v0"`, `"0388"`, `"388v02"`), `compareBookKeys` ordering (`"388"` < `"388v2"` < `"3880"` — the case naive string sort gets wrong), `withVolume`, `bookDirName`/`parseBookDirName`, the disk↔memory `pageInfo` boundary (volume 1 omitted), display helpers, `BOOK_KEY_FRAGMENT` matching |
+| `volumes-store.test.js` | `stores/volumes.js` (`activeVolumeFor`, `applyActiveVolume` including its idempotency, `volumesForBook`) and reassignment in `stores/strokes.js` — identity/geometry/sketch preserved, `blockUuid` cleared, first origin kept across a double move, `getMovedAwayStrokeIdsForPage` (the copy→move fix), `clearMovedFromMarkers` no-op pre-check |
 | `pending-changes.test.js` | `computePendingChangesMap` — additions vs. the on-disk stroke-state index, explicit deletions, page separation/`isSaved`, missing `pageInfo`; sketch-flag **modifications** (flag on, flag off, absent-vs-false, matching flag, new-and-flagged counted once as an addition, unknown page, deleted stroke excluded, mixed page, modification-only page enters the map); geometry **edits** (fewer points than stored, self-clearing when counts agree, silent on unknown stored count, edited-and-reflagged counted once as an edit, new stroke stays an addition, deleted stroke excluded, edit-only page enters the map, all four categories side by side) |
 | `page-changes.test.js` | `computePageChangesFolder` — the SaveConfirmDialog's own diff against the PageDoc on disk: additions, `strokeModifications` (both directions, absent-vs-false, new-and-flagged once), `strokeEdits` (point-count difference, self-clearing, `strokeTotal` unmoved, edited-and-reflagged once, new stroke stays an addition, error fallback, all four categories side by side), deletions + `strokeTotal` arithmetic, error fallback, transcription new/changed (mocks `getPage`) |
 | `transcript-markdown.test.js` | `linesToLogseqMarkdown` — tab indentation, TODO/DONE markers, `::` property stripping, blank-line drop, `isPropertyLine`; `indentMarkdownBlock`, `textToTranscriptLines` (tab/2-space indent inference, blank drop), `pagesToLogseqMarkdown` (bare single page vs. labelled multi-page nesting, empty-page skip) |
@@ -488,6 +496,23 @@ When making changes, also verify manually:
   clears the point selection and a second Esc leaves the mode, and that trying to
   delete all but one point of a stroke is refused with a message rather than
   leaving an invisible stroke
+- Volumes — **live capture, definition and reassignment verified 2026-08-07;
+  offline import still outstanding.** Settings → **Notebook Volumes** → *Start
+  Volume 2* on the duplicated book. Write with the pen: the ink must stay in one
+  page group through pen-up (two borders, or ink that jumps on pen-up, means the
+  live-preview remap regressed), and the page saves to `pages/B388v2/`, leaving
+  `pages/B388/` untouched. Switch back to Volume 1 and confirm new strokes go
+  there. Then the move path: select strokes → **Volume ▾** → pick the other
+  volume; the save dialog lists the *source* page marked **required** with its
+  checkbox disabled, and a "Moving: →N strokes" tile. Save, Clear, re-import both
+  volumes — the stroke must appear in **exactly one**. Select every stroke on a
+  transcribed page and move it: the transcript follows and the emptied source
+  file disappears from Saved Pages. **Still to test:** offline import from pen
+  memory — a multi-book batch imports completely, strokes land in the active
+  volume, and reassignment works on *imported* strokes (the case with a copy
+  already on disk, so the `movedFrom` deletion has to fire). A batch spanning two
+  physical volumes will mis-file half of it; that's expected, and reassignment is
+  the remedy
 - Canvas pan/zoom/navigation
 - Page positioning and scaling
 - Unsaved-changes indicator + window-close prompt
@@ -527,6 +552,135 @@ npm run preview
 - [Svelte 4 Docs](https://svelte.dev/docs/svelte/overview) — Framework reference
 
 ## Recent Changes (Git History Context)
+
+### Volumes — telling apart notebooks that share an NCode book id (August 2026)
+
+**NCode identifies a paper design, not an object.** Two identical Lamy notebooks
+report the same `book` id and the same page numbers, so page 12 of the second
+merged into `pages/B388/P12.json` alongside page 12 of the first. Nothing was
+destroyed (append-only dedupes by `s{startTime}`, and timestamps never collide)
+but the two notebooks' strokes were drawn on top of each other, permanently
+interleaved, and re-transcribing produced nonsense.
+
+**A volume is a suffix on the book key.** `pages/B388/` is volume 1;
+`pages/B388v2/` is volume 2. In memory `pageInfo.book` carries the key as a
+**string**; on disk it stays a *number* with an optional `volume` field, omitted
+when 1. So `validatePageDoc`'s `typeof book === 'number'` check is unchanged,
+`PAGE_DOC_VERSION` stays `"2.0"`, and **every existing file is byte-identical.
+There is no migration** — an absent `_volumes.json` means every book is volume 1,
+which is exactly how the app behaved before.
+
+**Why the ~30 page-key sites didn't need touching.** They're template literals
+(`` `B${pageInfo.book}/P${pageInfo.page}` ``), and a template literal interpolates
+a string as happily as a number. What broke was the much smaller set that does
+*arithmetic* on `book` or regex-parses a key with `\d+`. Both fail quietly:
+- **No match** — `main.cjs`'s directory scan (volume dirs invisible),
+  `pending-changes.js`'s lazy backfill (**every volume stroke reports as a new
+  addition on every save, forever**), `canvas-renderer`'s page-layout comparator
+  (`return 0` against everything → arbitrary left-to-right order).
+- **Partial match** — unanchored `/B(\d+)/` matches `B388` *inside* `B388v2` and
+  confidently returns 388. A plausible wrong value, which is worse.
+
+`BOOK_KEY_FRAGMENT` in `volumes.js` exists so this can't come back. **Use it;
+don't hand-write `\d+` for a book.** A grep sweep after the first round of edits
+turned up five more sites than the original inventory — assume any such list is
+incomplete.
+
+**Book keys are strings *including* volume 1**, deliberately. A mixed
+number/string type would have contained the blast radius, but only by delaying
+discovery until volume 2 was actually used — i.e. on the one notebook with the
+least redundancy. All-strings makes a missed coercion fail immediately, across
+data that's easy to eyeball. (`pageId` was already a string throughout, so this
+is an established pattern here, not a new one.)
+
+**Reassignment is a move, not a copy — and that took work.** Selecting strokes
+and picking a volume rewrites `pageInfo.book`, which makes them an *addition* to
+the target. But under append-only, missing-from-canvas never means
+deleted-on-disk, so the source page keeps its copy and the stroke ends up in
+**both volumes**, silently — worse than the mis-filing being fixed. The fix is the
+in-memory `movedFrom` marker (same shape as `pointsEdited`; `strokeToStored()`
+builds from a fixed key list so it can't reach disk).
+`getMovedAwayStrokeIdsForPage()` reads it and the caller unions the result into
+`deletedStrokeIds` — the same operation, so the existing deletion machinery is
+reused rather than extended. Consequences:
+- A fourth pending-changes category, `moves`, attributed to the page a stroke
+  *left*. It has to synthesise that page's entry: after a whole-page move the
+  source has no canvas strokes, so the grouping pass produces nothing for it and
+  it would vanish from the save dialog entirely.
+- **Move sources are force-included in `SaveConfirmDialog`** (checkbox disabled,
+  `required` tag). Saving only the target is exactly the two-volumes failure.
+- `startTime`/`endTime` survive so the `s{startTime}` id is stable — the source
+  deletion matches on it. `blockUuid` is cleared; it points at a transcript line
+  on the source page.
+
+**Whole-page moves work by selecting every stroke** (Josh's call — no separate
+page-move tool). Two things strokes don't carry: the **transcript** lives in
+`doc.transcript.lines`, and the emptied **file** lingers as a 0-stroke ghost.
+`planPageMove()`/`finalizePageMoves()` handle both, running *after* every page
+save so they can't race the writes. The transcript is carried only when the
+source ends genuinely empty, exactly one target received its strokes, and the
+target has no transcript of its own — splitting one by guesswork would be worse
+than leaving it put.
+
+**Live preview needed the same remap as capture.** `canvasRenderer.addDot()`
+builds its own page-group key from the raw dot, so without it live ink lands in
+`B388/P12` while the finalized stroke lands in `B388v2/P12` — two page borders,
+ink that jumps on pen-up. Invisible in review, obvious in use. The remap stays
+*out* of the transport path (`normalizeBookId`, transfer matching, pen-memory
+keys), which must keep the raw NCode id.
+
+**`book` became a path-injection surface.** It used to reach `pagePath()` via
+`parseInt` and was inherently safe; as a string it isn't. `requireBookKey()` /
+`requirePageId()` in `main.cjs` are what keep page reads and writes inside the
+data root.
+
+**Also fixed:** `getAliases()` normalised keys with `Number()` while `main.cjs`
+wrote `String(book)` — `Number("388v2")` is `NaN`, so volume aliases would have
+been destroyed on every scan. Keys now pass through unchanged (a latent
+inconsistency already; `publish-graph.js` hedged around it).
+
+**Known limitation — permanent:** if you write in physical volume 1 while the
+active pointer says volume 2, nothing can detect it. The pen cannot tell the
+notebooks apart; that's the premise. Reassignment is the remedy, not prevention.
+
+**Verified on hardware (2026-08-07):** live capture with a volume active (ink
+stays in one page group through pen-up — the trap where the renderer builds its
+own page-group key from the raw dot), volume definition, and canvas reassignment.
+
+**⚠️ Offline import is UNVERIFIED.** Nothing is known broken; it just hasn't been
+run against the pen since volumes landed, and it's the riskiest untested path.
+The remap was deliberately kept *out* of the transport layer (`normalizeBookId`,
+transfer matching, pen-memory keys all still use the raw NCode id) because
+multi-book offline import has a history of subtle bugs — see the April 2026
+fixes. Check in order: a multi-book batch still imports completely; strokes land
+in the active volume; and reassignment works on *imported* strokes (the path
+where a copy already exists on disk, so the `movedFrom` deletion actually has to
+fire). See docs/VOLUMES-SPEC.md §11.
+
+**Not done:** volume 2+ **LogSeq export is refused** with a readable message
+(`requireGraphBook`) — `smartpen-index.json` carries a numeric book and the JPI
+Tools plugin needs a matching change. The plugin spec is deliberately deferred
+until this has been used against real notebooks. Also deferred: timestamp routing
+for offline import (a batch spanning two volumes currently needs manual
+reassignment — promote this if it proves annoying), and the per-book selector in
+`BookSelectionDialog`.
+
+**New:** `src/lib/volumes.js`, `src/stores/volumes.js`,
+`src/components/settings/VolumeSettings.svelte`, `volumes.test.js`,
+`volumes-store.test.js`.
+**Edited:** `electron/main.cjs`, `electron/preload.cjs`, `storage/local-store.js`,
+`storage/scan.js`, `storage/load-page.js`, `storage/save-page.js`,
+`storage/page-changes.js`, `storage/graph-export.js`, `stores/strokes.js`,
+`stores/pending-changes.js`, `stores/saved-pages.js`, `stores/ui.js`,
+`lib/canvas-renderer.js`, `lib/pen-sdk.js`, `utils/formatting.js`, `App.svelte`,
+`StrokeCanvas.svelte`, `PageSelector.svelte`, `ActionBar.svelte`,
+`SaveConfirmDialog.svelte`, `CreatePageDialog.svelte`, `BookViewer.svelte`,
+`BookAliasManager.svelte`, `SettingsDropdown.svelte`, `scan.test.js`,
+`pending-changes.test.js`, `page-changes.test.js`, `save-page.test.js`.
+
+**See:** [docs/VOLUMES-SPEC.md](docs/VOLUMES-SPEC.md) — full design, plus the
+rejected alternatives (arithmetic remap, decimal book ids, volume on the page
+suffix) and why each fails.
 
 ### Point editing — delete a single stray point from a stroke (August 2026)
 

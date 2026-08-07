@@ -27,6 +27,7 @@
   import { unsavedChanges, viewerMode, viewerDirty, setViewerMode, clearAllViewerDirty } from '$stores';
   import { isAvailable as folderIsAvailable } from '$lib/storage/local-store.js';
   import { scanLocalPages } from '$lib/storage/scan.js';
+  import { loadVolumes } from '$stores/volumes.js';
   import { get } from 'svelte/store';
 
   // Initialize pen SDK on mount
@@ -135,7 +136,11 @@
     // (perf #3) — fast and low-residency — so there's no downside to doing it at
     // boot; scanLocalPages() coalesces with any tab-triggered scan.
     checkDataFolder().then((ready) => {
-      if (ready) scanLocalPages();
+      if (ready) {
+        // Volume routing first: it decides which book key incoming strokes get
+        // stamped with, so it has to be loaded before the pen can deliver any.
+        loadVolumes().then(() => scanLocalPages());
+      }
     });
     // Same for the LogSeq graph publish target (non-blocking)
     checkGraphFolder();

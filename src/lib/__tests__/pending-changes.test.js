@@ -261,4 +261,109 @@ describe('computePendingChangesMap', () => {
       expect(m.get('B1/P5').additions).toEqual([2]);
     });
   });
+
+  /* ================================================================
+   *  Volumes
+   * ================================================================ */
+
+  describe('volume book keys', () => {
+    // The failure this guards: with a `\d+` book anywhere in the key path, a
+    // volume page's on-disk state never loads and every one of its strokes
+    // reports as a new addition on every save — silently, forever.
+    it('matches a volume page against its own on-disk state', () => {
+      const strokes = [stroke('388v2', 12, 1000), stroke('388v2', 12, 2000)];
+      const ids = onDisk([['B388v2/P12', [idOf(1000), idOf(2000)]]]);
+      const m = computePendingChangesMap(strokes, new Set(), ids, new Set());
+      expect(m.has('B388v2/P12')).toBe(false);   // nothing pending
+    });
+
+    it('keeps volumes of one book on separate pages despite the same page number', () => {
+      const strokes = [stroke('388', 12, 1000), stroke('388v2', 12, 2000)];
+      const ids = onDisk([['B388/P12', [idOf(1000)]]]);
+      const m = computePendingChangesMap(strokes, new Set(), ids, new Set());
+
+      // Volume 1's stroke is on disk; volume 2's is not — and volume 2 must NOT
+      // inherit volume 1's state just because the page numbers match.
+      expect(m.has('B388/P12')).toBe(false);
+      expect(m.get('B388v2/P12').additions).toEqual([1]);
+    });
+
+    it('does not confuse book 388 volume 2 with book 3880', () => {
+      const strokes = [stroke('388v2', 1, 1000)];
+      const ids = onDisk([['B3880/P1', [idOf(1000)]]]);
+      const m = computePendingChangesMap(strokes, new Set(), ids, new Set());
+      expect(m.get('B388v2/P1').additions).toEqual([0]);
+    });
+  });
+
+  describe('moves (volume reassignment)', () => {
+    const moved = (fromBook, fromPage, toBook, startTime) => ({
+      pageInfo: { book: toBook, page: fromPage },
+      movedFrom: { book: fromBook, page: fromPage },
+      startTime,
+      dotArray: []
+    });
+
+    // The core hazard: under append-only, missing-from-canvas never means
+    // deleted-on-disk, so the page a stroke LEFT has to be told explicitly or it
+    // keeps its copy and the stroke lives in two volumes at once.
+    it('attributes a moved stroke back to the page it left', () => {
+      const strokes = [moved('388', 12, '388v2', 1000)];
+      const m = computePendingChangesMap(strokes, new Set(), new Map(), new Set());
+
+      expect(m.get('B388/P12').moves).toEqual([0]);
+      expect(m.get('B388/P12').book).toBe('388');
+      expect(m.get('B388/P12').page).toBe(12);
+    });
+
+    it('also reports the stroke as an addition on its new page', () => {
+      const strokes = [moved('388', 12, '388v2', 1000)];
+      const m = computePendingChangesMap(strokes, new Set(), new Map(), new Set());
+      expect(m.get('B388v2/P12').additions).toEqual([0]);
+    });
+
+    // A whole-page move leaves the source with no canvas strokes at all, so the
+    // grouping pass produces no entry for it — the moves pass has to create one.
+    it('creates an entry for a source page that has no canvas strokes left', () => {
+      const strokes = [
+        moved('388', 12, '388v2', 1000),
+        moved('388', 12, '388v2', 2000)
+      ];
+      const m = computePendingChangesMap(strokes, new Set(), new Map(), new Set());
+
+      expect(m.has('B388/P12')).toBe(true);
+      expect(m.get('B388/P12').moves).toEqual([0, 1]);
+      expect(m.get('B388/P12').additions).toEqual([]);
+    });
+
+    it('merges moves into an existing entry when some strokes stayed behind', () => {
+      const strokes = [
+        stroke('388', 12, 1000),                  // stayed, not on disk → addition
+        moved('388', 12, '388v2', 2000)           // left
+      ];
+      const m = computePendingChangesMap(strokes, new Set(), new Map(), new Set());
+
+      expect(m.get('B388/P12').additions).toEqual([0]);
+      expect(m.get('B388/P12').moves).toEqual([1]);
+    });
+
+    it('excludes a stroke already marked for deletion', () => {
+      const strokes = [moved('388', 12, '388v2', 1000)];
+      const m = computePendingChangesMap(strokes, new Set([0]), new Map(), new Set());
+      expect(m.has('B388/P12')).toBe(false);
+    });
+
+    it('leaves moves empty for pages nobody moved anything from', () => {
+      const strokes = [stroke(1, 5, 1000)];
+      const m = computePendingChangesMap(strokes, new Set(), new Map(), new Set());
+      expect(m.get('B1/P5').moves).toEqual([]);
+    });
+
+    it('handles a move back to volume 1', () => {
+      const strokes = [moved('388v2', 12, '388', 1000)];
+      const m = computePendingChangesMap(strokes, new Set(), new Map(), new Set());
+      expect(m.get('B388v2/P12').moves).toEqual([0]);
+      expect(m.get('B388/P12').additions).toEqual([0]);
+    });
+  });
 });

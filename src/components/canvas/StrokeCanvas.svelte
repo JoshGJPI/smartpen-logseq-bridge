@@ -20,6 +20,13 @@
   import { openSearchTranscriptsDialog, openSvgExportDialog } from '$stores';
   import { hasSelection } from '$stores/selection.js';
   import { sketchProfile, sketchProfileSummary, sketchStrokeCount, markStrokesAsSketch, unmarkStrokesAsSketch } from '$stores';
+  import { reassignVolume } from '$stores/strokes.js';
+  import { knownBookIds } from '$stores/book-aliases.js';
+  import { volumesForBook } from '$stores/volumes.js';
+  import { ncodeBookOf, volumeOf, BOOK_KEY_FRAGMENT } from '$lib/volumes.js';
+
+  // S#/O#/B<bookKey>/P# — the book portion may carry a volume suffix.
+  const BOOK_PAGE_KEY_RE = new RegExp(`S\\d+\\/O\\d+\\/B(${BOOK_KEY_FRAGMENT})\\/P(\\d+)`);
   import { dataFolderReady, graphFolderReady } from '$stores/settings.js';
   import { buildJsonExportData, buildMdExportData } from '$lib/stroke-storage.js';
   import { exportSelectionToGraph } from '$lib/storage/graph-export.js';
@@ -445,7 +452,56 @@
     // itself schedule a repaint from any of the reactive blocks above.
     renderStrokes(false);
   }
-  
+
+  /* ---------------------------------------------------------------
+   *  Volumes — move the selection to another physical notebook
+   * --------------------------------------------------------------- */
+
+  // Volumes offered for the selection, which must all belong to one NCode book:
+  // "move to volume N" is meaningless across two different books.
+  $: selectionBookKeys = $hasSelection
+    ? [...new Set(Array.from($selectedIndices)
+        .map(i => $strokes[i]?.pageInfo?.book)
+        .filter(b => b !== undefined))]
+    : [];
+  $: selectionNcodeBooks = [...new Set(selectionBookKeys.map(ncodeBookOf).filter(b => b != null))];
+  $: selectionVolume = selectionBookKeys.length === 1 ? volumeOf(selectionBookKeys[0]) : null;
+  $: canReassignVolume = $hasSelection && selectionNcodeBooks.length === 1;
+  $: volumeChoices = canReassignVolume
+    ? volumesForBook(selectionNcodeBooks[0], [...$knownBookIds])
+    : [];
+  $: maxVolume = volumeChoices.length ? Math.max(...volumeChoices) : 1;
+
+  /**
+   * Reassign the selection to another volume of the same book.
+   *
+   * The strokes land in a different page group, which changes the page layout —
+   * so this needs a full-reset render to recompute page offsets, the same way
+   * importing a page does. Without it the reassigned strokes draw at the origin
+   * on top of whatever else is there.
+   */
+  function applyVolumeReassign(volume) {
+    const indices = $selectedIndices;
+    if (!indices || indices.size === 0) return;
+
+    const result = reassignVolume(indices, volume);
+    if (result.moved === 0) {
+      log(`No change — selection is already in Volume ${volume}`, 'info');
+      return;
+    }
+
+    const noun = `stroke${result.moved !== 1 ? 's' : ''}`;
+    log(`Moved ${result.moved} ${noun} to Volume ${volume}. Save to apply — the page they came from is saved too.`, 'success');
+    if (result.skipped > 0) {
+      log(`${result.skipped} stroke(s) skipped (no readable book)`, 'warning');
+    }
+
+    previousStrokeCount = 0;   // treat the new page group as a first load
+    renderStrokes(true);
+    fitContent();
+  }
+
+
   /* ---------------------------------------------------------------
    *  Point editing
    *
@@ -1532,8 +1588,10 @@
       
       // Try matching just by book/page (ignore section/owner)
       for (const selectedKey of selectedPages) {
-        const match = selectedKey.match(/S\d+\/O\d+\/B(\d+)\/P(\d+)/);
-        if (match && parseInt(match[1]) === book && parseInt(match[2]) === page) {
+        const match = selectedKey.match(BOOK_PAGE_KEY_RE);
+        // Book keys compare as strings — parseInt("388v2") is 388, which would
+        // match volume 1's page as well as volume 2's.
+        if (match && match[1] === String(book) && parseInt(match[2]) === page) {
           return true;
         }
       }
@@ -1635,8 +1693,8 @@
       // Find matching pageKey in renderer's pageOffsets (fuzzy match by book/page)
       let matchingPageKey = null;
       for (const [rendererPageKey, offset] of renderer.pageOffsets) {
-        const match = rendererPageKey.match(/S\d+\/O\d+\/B(\d+)\/P(\d+)/);
-        if (match && parseInt(match[1]) === book && parseInt(match[2]) === page) {
+        const match = rendererPageKey.match(BOOK_PAGE_KEY_RE);
+        if (match && match[1] === String(book) && parseInt(match[2]) === page) {
           matchingPageKey = rendererPageKey;
           break;
         }
@@ -1879,6 +1937,22 @@
             >
               ✒️ Unmark Sketch ({selectedSketchCount})
             </button>
+          {/if}
+          {#if canReassignVolume}
+            <!-- Select every stroke on a page and this moves the whole page. -->
+            <select
+              class="header-select volume-select"
+              value={selectionVolume ?? ''}
+              on:change={(e) => applyVolumeReassign(Number(e.currentTarget.value))}
+              title="Which physical notebook these strokes belong to. NCode can't tell two identical notebooks apart, so volumes do."
+            >
+              {#each volumeChoices as v}
+                <option value={v}>📚 Volume {v}{v === selectionVolume ? ' (current)' : ''}</option>
+              {/each}
+              {#if !volumeChoices.includes(maxVolume + 1)}
+                <option value={maxVolume + 1}>➕ New Volume {maxVolume + 1}</option>
+              {/if}
+            </select>
           {/if}
         {/if}
         {#if $useCustomPositions}
@@ -2141,7 +2215,29 @@
     border-color: var(--text-secondary);
     background: var(--bg-tertiary);
   }
-  
+
+  .header-select {
+    padding: 4px 8px;
+    font-size: 0.75rem;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .header-select:hover {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+  }
+
+  .volume-select {
+    color: #8b5cf6;
+    border-color: rgba(139, 92, 246, 0.4);
+  }
+
+
   .header-btn:disabled {
     opacity: 0.4;
     cursor: not-allowed;

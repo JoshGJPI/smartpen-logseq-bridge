@@ -30,8 +30,9 @@
  *   savePage() directly (see PageCard.svelte handleSaveEditor).
  */
 
-import { getPage, savePage } from './local-store.js';
+import { getPage, savePage, deletePage } from './local-store.js';
 import { emptyPageDoc, computeBounds, PAGE_DOC_VERSION } from './page-doc.js';
+import { pageInfoForDisk } from '$lib/volumes.js';
 import { noteOnDiskStrokeIds } from '$stores/pending-changes.js';
 
 /* -----------------------------------------------------------------
@@ -251,14 +252,11 @@ export async function savePageToFolder(input) {
   const { book, page, activeStrokes = [], deletedStrokeIds = new Set(), pageTranscription = null } = input;
 
   try {
-    const pageInfo = activeStrokes[0]?.pageInfo
-      ? {
-          section: activeStrokes[0].pageInfo.section || 0,
-          owner: activeStrokes[0].pageInfo.owner || 0,
-          book,
-          page
-        }
-      : { section: 0, owner: 0, book, page };
+    // `book` is a BOOK KEY ("388" or "388v2"). On disk it splits back into a
+    // numeric `book` plus an optional `volume` (omitted when 1), which is what
+    // keeps every pre-volume file byte-identical and validatePageDoc's
+    // `typeof book === 'number'` check satisfied.
+    const pageInfo = pageInfoForDisk(activeStrokes[0]?.pageInfo, book, page);
 
     const existing = (await getPage(book, page)) || emptyPageDoc(pageInfo);
     if (existing.pageInfo) {
@@ -409,4 +407,111 @@ export async function savePageToFolder(input) {
       added: 0, edited: 0, deleted: 0, total: 0, lineCount: 0
     };
   }
+}
+
+/* -----------------------------------------------------------------
+ *  Volume moves — tidy up after the strokes have landed
+ * ----------------------------------------------------------------- */
+
+/**
+ * Pure core of the whole-page move decision.
+ *
+ * Strokes move because `reassignVolume()` rewrote their pageInfo and the source
+ * page's save deleted them by id (see `getMovedAwayStrokeIdsForPage`). Two things
+ * that does NOT move on its own:
+ *
+ *   1. **The transcript.** Lines live in `doc.transcript.lines`, not on strokes,
+ *      so moving every stroke off a page leaves the recognised text behind, with
+ *      the strokes' lineIds already scrubbed. Nothing links them any more.
+ *   2. **The file.** A page emptied of strokes is still written, so it lingers as
+ *      a 0-stroke ghost in Saved Pages and Book View.
+ *
+ * Only carried when the source ends up genuinely empty and exactly one target
+ * received its strokes — a partial move is a partial move, and splitting a
+ * transcript by guesswork would be worse than leaving it put.
+ *
+ * @param {{strokeCount: number, lineCount: number}} source  state AFTER the save
+ * @param {{lineCount: number}} target                       state AFTER the save
+ * @param {number} targetCount how many distinct pages received this page's strokes
+ * @returns {{carryTranscript: boolean, deleteSource: boolean}}
+ */
+export function planPageMove(source, target, targetCount) {
+  const sourceEmptyOfStrokes = (source?.strokeCount || 0) === 0;
+  const sourceHasTranscript = (source?.lineCount || 0) > 0;
+  const targetHasTranscript = (target?.lineCount || 0) > 0;
+
+  // Never overwrite a transcript the target already has — that's real recognised
+  // text and the source's claim to it is no stronger.
+  const carryTranscript =
+    sourceEmptyOfStrokes && sourceHasTranscript && !targetHasTranscript && targetCount === 1;
+
+  const deleteSource = sourceEmptyOfStrokes && (carryTranscript || !sourceHasTranscript);
+
+  return { carryTranscript, deleteSource };
+}
+
+/**
+ * Run `planPageMove` against disk for each completed move.
+ *
+ * Called AFTER the per-page saves, so it never races them: by this point the
+ * source page has already lost its strokes and the target has already gained
+ * them, and both docs on disk are final.
+ *
+ * Best-effort — a failure here leaves a ghost page, not lost data, so it logs
+ * and continues rather than failing the save that already succeeded.
+ *
+ * @param {Array<{fromBook: string, fromPage: number|string, toBook: string, toPage: number|string}>} moves
+ * @returns {Promise<{transcriptsMoved: number, pagesDeleted: number, errors: string[]}>}
+ */
+export async function finalizePageMoves(moves) {
+  const out = { transcriptsMoved: 0, pagesDeleted: 0, errors: [] };
+  if (!Array.isArray(moves) || moves.length === 0) return out;
+
+  // How many distinct targets each source fed — a source split across two
+  // volumes has no single place for its transcript to follow.
+  const targetsPerSource = new Map();
+  for (const m of moves) {
+    const srcKey = `${m.fromBook}/${m.fromPage}`;
+    if (!targetsPerSource.has(srcKey)) targetsPerSource.set(srcKey, new Set());
+    targetsPerSource.get(srcKey).add(`${m.toBook}/${m.toPage}`);
+  }
+
+  const seen = new Set();
+  for (const m of moves) {
+    const srcKey = `${m.fromBook}/${m.fromPage}`;
+    if (seen.has(srcKey)) continue;
+    seen.add(srcKey);
+
+    try {
+      const sourceDoc = await getPage(m.fromBook, m.fromPage);
+      if (!sourceDoc) continue;
+
+      const sourceState = {
+        strokeCount: (sourceDoc.strokes || []).length,
+        lineCount: (sourceDoc.transcript?.lines || []).length
+      };
+      const targetDoc = await getPage(m.toBook, m.toPage);
+      const targetState = { lineCount: (targetDoc?.transcript?.lines || []).length };
+
+      const plan = planPageMove(sourceState, targetState, targetsPerSource.get(srcKey).size);
+
+      if (plan.carryTranscript && targetDoc) {
+        await savePage(m.toBook, m.toPage, {
+          ...targetDoc,
+          transcript: sourceDoc.transcript,
+          metadata: { ...(targetDoc.metadata || {}), lastUpdated: new Date().toISOString() }
+        });
+        out.transcriptsMoved++;
+      }
+
+      if (plan.deleteSource) {
+        await deletePage(m.fromBook, m.fromPage);
+        out.pagesDeleted++;
+      }
+    } catch (err) {
+      out.errors.push(`${srcKey}: ${err.message || String(err)}`);
+    }
+  }
+
+  return out;
 }

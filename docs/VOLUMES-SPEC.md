@@ -1,8 +1,10 @@
 # Volumes — disambiguating physical notebooks that share an NCode book id
 
-**Status:** Draft for review (rev 3). No code written.
+**Status:** **Implemented** (Phases 1–2). Live capture, volume definition and
+reassignment verified on hardware. **Offline import is untested** — see §11.
+Phase 3 and the JPI Tools plugin spec are deferred.
 **Date:** 2026-08-07
-**Author:** Claude (spec), Josh (requirements + design direction)
+**Author:** Claude (spec + implementation), Josh (requirements + design direction)
 
 > **Rev 3:** decisions locked — `v` delimiter, **all-string book keys** (rev 2's
 > mixed number/string is rejected, §3.3), aliases carry volume names, `locked`
@@ -560,5 +562,97 @@ argument *for* §3.3's all-string book keys — which is where it's now used.
 | 4 | Whole-page moves via multi-select stroke reassignment — plus transcript carry and source-file cleanup (§6.5) |
 | 5 | `locked` dropped |
 
-Nothing open. Ready to implement on your go-ahead — Phase 1 first, since Phase 2's
-reassignment depends on the book-key model existing.
+---
+
+## 11. What shipped, and what's still open
+
+### Delivered (Phases 1–2)
+
+**New:** `src/lib/volumes.js` (pure mapping), `src/stores/volumes.js` (registry +
+capture routing), `src/components/settings/VolumeSettings.svelte`, and tests
+`volumes.test.js` (33) + `volumes-store.test.js` (31).
+
+**Storage:** `electron/main.cjs` — book-key path helpers with `requireBookKey`
+/`requirePageId` validation (new: `book` used to arrive via `parseInt` and was
+inherently path-safe; as a string it is not), the volume-aware directory regex,
+`compareBookKeys` sorting, and the `_volumes.json` IPC pair. Plus `preload.cjs`,
+`local-store.js` (alias key-type fix + volume accessors), `scan.js`,
+`load-page.js`, `save-page.js`.
+
+**The `\d+` sweep** — every site in §4.2 plus **five the original table missed**,
+found by a second grep pass after the first round of edits:
+`canvas-renderer.js:1407` (corner handles), `stores/ui.js` (SVG-export sort),
+`graph-export.js` (page sort), and `StrokeCanvas.svelte` ×2 (text-view page
+matching, where `parseInt("388v2") === 388` would have matched volume 1's page as
+well as volume 2's). `CreatePageDialog` also compared `p.book === parseInt(...)`
+in three places. **The lesson holds: treat §4.2 as a starting point.** New sites
+should use `BOOK_KEY_FRAGMENT` rather than writing `\d+` by hand.
+
+**Reassignment (Phase 2):** `reassignVolume()` + `clearMovedFromMarkers()` in
+`stores/strokes.js`; `getMovedAwayStrokeIdsForPage()` and the `moves` category in
+`stores/pending-changes.js`; `strokeMoves` in `page-changes.js`;
+`planPageMove()` + `finalizePageMoves()` in `save-page.js`; the save loop in
+`ActionBar.svelte`; the **Volume ▾** control on the canvas; move sources
+force-included (checkbox disabled, `required` tag) in `SaveConfirmDialog`.
+
+One implementation note against §6.3: the moved-away ids are unioned into
+`deletedStrokeIds` by the **caller** rather than collected inside
+`savePageToFolder`. "Remove this id from the stored page" is the same operation
+either way, so this reuses the existing deletion machinery untouched instead of
+adding a parameter to the save path.
+
+**563 tests pass; production build clean.**
+
+### Verified against real hardware (2026-08-07, Josh)
+
+- **Live capture with a volume active** — ink stays in one page group through
+  pen-up. This was the §5.2 trap (the renderer builds its own page-group key from
+  the raw dot), and it's the one thing unit tests can't reach.
+- **Defining volumes** — Settings → Notebook Volumes, routing persists.
+- **Editing / reassigning volumes** — canvas **Volume ▾**, including the move
+  landing in the right place.
+
+### Open
+
+1. **Offline import is UNVERIFIED — test before trusting a pen sync.** Nothing
+   about it is known broken; it simply hasn't been run against the pen since
+   volumes landed, and it's the riskiest untested path in the feature. Three
+   distinct things to check, in order:
+
+   a. **A single-volume sync still works at all.** `handleOfflineDataReceived()`
+      resolves the volume once per shared `pageInfo` object and the live-render
+      branch remaps separately. Multi-book offline import has a documented
+      history of subtle bugs (the April 2026 fixes), which is exactly why the
+      remap was kept *out* of the transport path — `normalizeBookId`, transfer
+      matching and the pen-memory keys still use the raw NCode id. Confirm a
+      multi-book batch still imports completely.
+
+   b. **Strokes land in the active volume.** Import with Volume 2 active and
+      confirm the pages appear under `pages/B388v2/`, not `pages/B388/`.
+
+   c. **A batch spanning two volumes mis-files half of it — expected, §5.3.**
+      The pen cannot distinguish the notebooks, so one volume choice applies to
+      the whole batch. The remedy is canvas reassignment after the fact, not
+      prevention. Worth confirming that remedy actually works on imported (rather
+      than freshly-captured) strokes, since that's the path with a stored copy on
+      disk and therefore the one where the `movedFrom` deletion has to fire.
+
+   If (c) proves annoying in practice, that's the argument for promoting
+   timestamp routing (§5.3) out of Phase 3.
+
+2. **JPI Tools plugin spec — deliberately not written yet.** Volume 2+ export is
+   refused with a readable message from `requireGraphBook` (§4.4). Writing the
+   plugin spec now would direct a second codebase at an integration that hasn't
+   been exercised against real notebooks yet. **Write it after this has been used
+   in anger and the bugs are out**, so it describes what the bridge actually does
+   rather than what this document predicted.
+3. **Phase 3** — timestamp routing for offline import (§5.3), the per-book
+   selector in `BookSelectionDialog`, archive/collapse in Book View.
+4. **§7.11** — the pre-existing `PageCard.svelte:53` page-suffix bug, untouched.
+
+### The permanent limitation
+
+**If you write in physical Volume 1 while the active pointer says Volume 2,
+nothing can detect it.** The pen genuinely cannot tell the notebooks apart — that
+is the premise of the whole feature. §6 reassignment is the remedy, not
+prevention. This is why reassignment matters more than the routing does.
