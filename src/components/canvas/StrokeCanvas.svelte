@@ -1554,7 +1554,43 @@
   
   // Check if search is available
   $: canSearch = $dataFolderReady && $savedPages.some(p => p.transcriptionText);
-  
+
+  /* ---------------------------------------------------------------
+   *  Toolbar overflow menu
+   *
+   *  Holds the layout resets — rare, and their enablement flips as pages are
+   *  dragged or scaled, so keeping them out of the row means the row's width
+   *  never depends on how the pages happen to be arranged.
+   * --------------------------------------------------------------- */
+  let showMoreMenu = false;
+
+  function handleToolbarClickOutside(event) {
+    if (showMoreMenu && !event.target.closest('.tb-more')) {
+      showMoreMenu = false;
+    }
+  }
+
+  function resetPageLayout() {
+    showMoreMenu = false;
+    clearPagePositions(); // Clear stored positions, not just disable
+    if (renderer) {
+      renderStrokes(true);
+      setTimeout(() => fitContent(), 50);
+    }
+    log('Reset to automatic layout', 'info');
+  }
+
+  function resetPageSizes() {
+    showMoreMenu = false;
+    resetAllPageScales();
+    if (renderer) {
+      renderer.setPageScales({});
+      renderStrokes(true);
+      setTimeout(() => fitContent(), 50);
+    }
+    log('Reset all page sizes to 100%', 'info');
+  }
+
   // Toggle text view - check for data when clicked
   function handleTextViewToggle() {
     // If already showing text, just toggle back to strokes
@@ -1815,224 +1851,280 @@
   }
 </script>
 
+<svelte:window on:click={handleToolbarClickOutside} />
+
 <div class="canvas-panel panel">
   <div class="panel-header">
-    <div class="header-left">
-      <span class="header-title">Stroke Preview</span>
-    </div>
-    
-    <div class="header-actions">
-      <!-- Search Transcripts - Always visible, placed first -->
-      <button 
-        class="header-btn search-btn"
-        on:click={openSearchTranscriptsDialog}
-        disabled={!canSearch}
-        title={canSearch 
-          ? 'Search transcribed text in your saved pages'
-          : 'Save and transcribe some pages first'}
-      >
-        🔍 Search Transcripts
-      </button>
-      
-      <button
-        class="header-btn duplicate-btn"
-        on:click={handleDuplicate}
-        disabled={$selectionCount === 0}
-        title={$selectionCount > 0
-          ? 'Duplicate selected strokes (Ctrl+D)'
-          : 'Select strokes to duplicate'}
-      >
-        🔄 Duplicate
-      </button>
-      
-      {#if $pastedCount > 0}
-        <button 
-          class="header-btn group-btn" 
-          on:click={() => showCreatePageDialog = true}
-          title={$pastedSelection.size > 0 
-            ? `Save ${$pastedSelection.size} selected pasted strokes as a new page` 
-            : `Save all ${$pastedCount} pasted strokes as a new page`}
+    <span class="header-title">Stroke Preview</span>
+
+    <span class="stroke-count">
+      {#if $pastedCount > 0 && $pastedSelection.size > 0}
+        <span class="pasted-indicator">{$pastedSelection.size} of {$pastedCount} pasted selected</span> •
+      {:else if $pastedCount > 0}
+        <span class="pasted-indicator">{$pastedCount} pasted</span> •
+      {/if}
+      {#if $sketchStrokeCount > 0}
+        <span class="sketch-indicator">✏️ {$sketchStrokeCount} sketch</span> •
+      {/if}
+      {#if $selectionCount > 0}
+        <span class="selection-indicator">{$selectionCount} of {$strokeCount} selected</span>
+      {:else if visibleStrokes.length < $strokeCount}
+        {visibleStrokes.length} of {$strokeCount} strokes (filtered)
+      {:else}
+        {$strokeCount} strokes
+      {/if}
+    </span>
+  </div>
+
+  <!--
+    Canvas toolbar.
+
+    Every control is rendered at all times and toggles between enabled and
+    disabled rather than appearing and disappearing, so the row never reflows
+    while the selection changes — a button must not slide out from under the
+    pointer between deciding to click it and clicking it. Counts that track the
+    selection are left off the labels (the status line above already carries
+    them); the two counts that don't — how many of the selection are plain vs.
+    already-sketch — sit in fixed-width badges.
+
+    Grouped by what the control acts on: the selection itself, then the strokes
+    in it, then the view. Layout resets live in the ⋯ menu; their enablement
+    flips as pages are dragged or scaled, and they are rare enough that the row
+    shouldn't carry them.
+
+    The duplicated-strokes group is the one conditional block. It is a mode the
+    user enters deliberately, it doesn't react to the stroke selection, and it
+    appears as a whole group rather than as buttons interleaved with the others.
+  -->
+  <div class="canvas-toolbar" role="toolbar" aria-label="Canvas tools">
+    <!-- Only the canvas-action groups scroll when the window is too narrow; the
+         trailing tools stay put, and the ⋯ menu stays out of a clipping
+         container so it can overhang the toolbar. -->
+    <div class="tb-scroll">
+      <div class="tb-group" role="group" aria-label="Selection">
+        <button
+          class="tb-btn"
+          on:click={() => selectAll(visibleStrokes.length)}
+          disabled={visibleStrokes.length === 0}
+          title={visibleStrokes.length > 0
+            ? `Select all ${visibleStrokes.length} visible strokes`
+            : 'No strokes on the canvas'}
         >
-          📄 Save as Page{$pastedSelection.size > 0 ? ` (${$pastedSelection.size})` : '...'}
+          Select All
         </button>
-        
-        {#if $pastedSelection.size > 0}
-          <button 
-            class="header-btn delete-pasted-btn" 
+        <button
+          class="tb-btn"
+          on:click={() => clearSelection()}
+          disabled={$selectionCount === 0}
+          title={$selectionCount > 0 ? 'Clear the stroke selection' : 'Nothing selected'}
+        >
+          Deselect
+        </button>
+        <button
+          class="tb-btn tone-accent"
+          on:click={handleDeselectDecorative}
+          disabled={isDetecting || $strokeCount === 0}
+          title={$strokeCount > 0
+            ? 'Deselect boxes, underlines, and circles'
+            : 'No strokes on the canvas'}
+        >
+          {isDetecting ? '⏳ Detecting…' : '🎨 Decorative'}
+        </button>
+      </div>
+
+      <span class="tb-sep" aria-hidden="true"></span>
+
+      <div class="tb-group" role="group" aria-label="Selected strokes">
+        <button
+          class="tb-btn tone-accent"
+          on:click={handleDuplicate}
+          disabled={$selectionCount === 0}
+          title={$selectionCount > 0
+            ? `Duplicate ${$selectionCount} selected stroke(s) (Ctrl+D)`
+            : 'Select strokes to duplicate'}
+        >
+          🔄 Duplicate
+        </button>
+        <button
+          class="tb-btn tone-point"
+          class:active={$pointEditMode}
+          on:click={handleTogglePointEdit}
+          disabled={!$hasSelection && !$pointEditMode}
+          title={$pointEditMode
+            ? 'Leave point-edit mode (Esc)'
+            : $hasSelection
+              ? `Show the individual points of the ${$selectionCount} selected stroke(s) so single stray points can be deleted`
+              : 'Select the stroke(s) you want to edit first'}
+        >
+          {$pointEditMode ? '📍 Exit Points' : '📍 Edit Points'}
+        </button>
+        <button
+          class="tb-btn tone-sketch"
+          on:click={() => applySketchFlag(true)}
+          disabled={selectedPlainCount === 0}
+          title={selectedPlainCount > 0
+            ? `Render ${selectedPlainCount} selected stroke${selectedPlainCount !== 1 ? 's' : ''} with pressure-varying thickness (${$sketchProfileSummary})`
+            : 'Select strokes that are not already sketches'}
+        >
+          ✏️ Sketch <span class="tb-count">{selectedPlainCount}</span>
+        </button>
+        <button
+          class="tb-btn tone-sketch unmark"
+          on:click={() => applySketchFlag(false)}
+          disabled={selectedSketchCount === 0}
+          title={selectedSketchCount > 0
+            ? `Return ${selectedSketchCount} selected sketch stroke${selectedSketchCount !== 1 ? 's' : ''} to a uniform width`
+            : 'Select sketch strokes to return them to a uniform width'}
+        >
+          ✒️ Unmark <span class="tb-count">{selectedSketchCount}</span>
+        </button>
+        <!-- Select every stroke on a page and this moves the whole page. -->
+        <select
+          class="tb-select volume-select"
+          value={selectionVolume ?? ''}
+          on:change={(e) => applyVolumeReassign(Number(e.currentTarget.value))}
+          disabled={!canReassignVolume}
+          title={canReassignVolume
+            ? "Which physical notebook these strokes belong to. NCode can't tell two identical notebooks apart, so volumes do."
+            : 'Select strokes from a single notebook to move them between volumes'}
+        >
+          {#if canReassignVolume}
+            {#each volumeChoices as v}
+              <option value={v}>📚 Volume {v}{v === selectionVolume ? ' (current)' : ''}</option>
+            {/each}
+            {#if !volumeChoices.includes(maxVolume + 1)}
+              <option value={maxVolume + 1}>➕ New Volume {maxVolume + 1}</option>
+            {/if}
+          {:else}
+            <option value="">📚 Volume</option>
+          {/if}
+        </select>
+      </div>
+
+      {#if $pastedCount > 0}
+        <span class="tb-sep" aria-hidden="true"></span>
+
+        <div class="tb-group" role="group" aria-label="Duplicated strokes">
+          <button
+            class="tb-btn tone-success"
+            on:click={() => showCreatePageDialog = true}
+            title={$pastedSelection.size > 0
+              ? `Save ${$pastedSelection.size} selected pasted strokes as a new page`
+              : `Save all ${$pastedCount} pasted strokes as a new page`}
+          >
+            📄 Save as Page…
+          </button>
+          <button
+            class="tb-btn tone-danger"
             on:click={() => {
               const count = deleteSelectedPasted();
               log(`Deleted ${count} selected pasted stroke${count !== 1 ? 's' : ''}`, 'info');
               renderStrokes(false);
             }}
-            title="Delete selected pasted strokes (Delete key)"
+            disabled={$pastedSelection.size === 0}
+            title={$pastedSelection.size > 0
+              ? 'Delete selected pasted strokes (Delete key)'
+              : 'Select pasted strokes to delete them'}
           >
-            🗑️ Delete ({$pastedSelection.size})
+            🗑️ Delete <span class="tb-count">{$pastedSelection.size}</span>
           </button>
-        {/if}
-        
-        <button 
-          class="header-btn clear-pasted-btn" 
-          on:click={() => {
-            const count = $pastedCount;
-            clearPastedStrokes();
-            log(`Cleared ${count} pasted stroke${count !== 1 ? 's' : ''}`, 'info');
-          }}
-          title="Clear all pasted strokes"
-        >
-          🗑️ Clear All
-        </button>
+          <button
+            class="tb-btn"
+            on:click={() => {
+              const count = $pastedCount;
+              clearPastedStrokes();
+              log(`Cleared ${count} pasted stroke${count !== 1 ? 's' : ''}`, 'info');
+            }}
+            title="Discard all pasted strokes"
+          >
+            🗑️ Clear All
+          </button>
+        </div>
       {/if}
-      
-      {#if $strokeCount > 0}
-        <button 
-          class="header-btn" 
-          on:click={() => clearSelection()}
-          disabled={$selectionCount === 0}
-          title="Clear selection"
+
+      <span class="tb-sep" aria-hidden="true"></span>
+
+      <div class="tb-group" role="group" aria-label="View">
+        <button
+          class="tb-btn tone-accent"
+          on:click={handleTextViewToggle}
+          disabled={$strokeCount === 0}
+          title={$strokeCount === 0
+            ? 'No strokes on the canvas'
+            : showTextView ? 'Show stroke view' : 'Show transcribed text'}
         >
-          Clear
-        </button>
-        <button 
-          class="header-btn" 
-          on:click={() => selectAll(visibleStrokes.length)}
-          title="Select all strokes"
-        >
-          Select All
+          {showTextView ? '✏️ Strokes' : '📝 Text'}
         </button>
         <button
-          class="header-btn decorative-btn"
-          on:click={handleDeselectDecorative}
-          disabled={isDetecting}
-          title="Deselect boxes, underlines, and circles"
+          class="tb-btn"
+          on:click={copyAllVisibleTranscripts}
+          disabled={!showTextView || isCopyingTranscript || textPageOverlays.length === 0}
+          title={!showTextView
+            ? 'Switch to text view to copy transcripts'
+            : textPageOverlays.length > 1
+              ? `Copy ${textPageOverlays.length} page transcripts as LogSeq markdown`
+              : 'Copy transcript as LogSeq markdown'}
         >
-          {isDetecting ? 'Detecting...' : '🎨 Deselect Decorative'}
+          {copiedPageKey === 'all' ? '✅ Copied' : '📋 Copy'}
         </button>
-        {#if $hasSelection || $pointEditMode}
-          <button
-            class="header-btn point-edit-btn"
-            class:active={$pointEditMode}
-            on:click={handleTogglePointEdit}
-            title={$pointEditMode
-              ? 'Leave point-edit mode (Esc)'
-              : `Show the individual points of the ${$selectionCount} selected stroke(s) so single stray points can be deleted`}
-          >
-            {$pointEditMode ? '📍 Done Editing Points' : `📍 Edit Points (${$selectionCount})`}
-          </button>
-        {/if}
-        {#if $hasSelection}
-          {#if selectedPlainCount > 0}
-            <button
-              class="header-btn sketch-btn"
-              on:click={() => applySketchFlag(true)}
-              title={`Render ${selectedPlainCount} selected stroke${selectedPlainCount !== 1 ? 's' : ''} with pressure-varying thickness (${$sketchProfileSummary})`}
-            >
-              ✏️ Mark as Sketch ({selectedPlainCount})
-            </button>
-          {/if}
-          {#if selectedSketchCount > 0}
-            <button
-              class="header-btn sketch-btn unmark"
-              on:click={() => applySketchFlag(false)}
-              title={`Return ${selectedSketchCount} selected sketch stroke${selectedSketchCount !== 1 ? 's' : ''} to a uniform width`}
-            >
-              ✒️ Unmark Sketch ({selectedSketchCount})
-            </button>
-          {/if}
-          {#if canReassignVolume}
-            <!-- Select every stroke on a page and this moves the whole page. -->
-            <select
-              class="header-select volume-select"
-              value={selectionVolume ?? ''}
-              on:change={(e) => applyVolumeReassign(Number(e.currentTarget.value))}
-              title="Which physical notebook these strokes belong to. NCode can't tell two identical notebooks apart, so volumes do."
-            >
-              {#each volumeChoices as v}
-                <option value={v}>📚 Volume {v}{v === selectionVolume ? ' (current)' : ''}</option>
-              {/each}
-              {#if !volumeChoices.includes(maxVolume + 1)}
-                <option value={maxVolume + 1}>➕ New Volume {maxVolume + 1}</option>
-              {/if}
-            </select>
-          {/if}
-        {/if}
-        {#if $useCustomPositions}
-          <button 
-            class="header-btn layout-btn" 
-            on:click={() => {
-              clearPagePositions(); // Clear stored positions, not just disable
-              if (renderer) {
-                renderStrokes(true);
-                setTimeout(() => fitContent(), 50);
-              }
-              log('Reset to automatic layout', 'info');
-            }}
-            title="Reset pages to automatic horizontal layout"
-          >
-            📐 Reset Layout
-          </button>
-        {/if}
-        {#if $hasScaledPages}
-          <button 
-            class="header-btn layout-btn" 
-            on:click={() => {
-              resetAllPageScales();
-              if (renderer) {
-                renderer.setPageScales({});
-                renderStrokes(true);
-                setTimeout(() => fitContent(), 50);
-              }
-              log('Reset all page sizes to 100%', 'info');
-            }}
-            title="Reset all pages to original size (100%)"
-          >
-            📏 Reset Sizes
-          </button>
-        {/if}
-        {#if $strokeCount > 0}
-          <button
-            class="header-btn text-toggle-btn"
-            on:click={handleTextViewToggle}
-            title={showTextView ? 'Show stroke view' : 'Show text view'}
-          >
-            {showTextView ? '✏️ Show Strokes' : '📝 Show Text'}
-          </button>
-          {#if showTextView}
-            <button
-              class="header-btn copy-transcript-btn"
-              on:click={copyAllVisibleTranscripts}
-              disabled={isCopyingTranscript || textPageOverlays.length === 0}
-              title={textPageOverlays.length > 1
-                ? `Copy ${textPageOverlays.length} page transcripts as LogSeq markdown`
-                : 'Copy transcript as LogSeq markdown'}
-            >
-              {copiedPageKey === 'all' ? '✅ Copied' : '📋 Copy Transcript'}{#if textPageOverlays.length > 1 && copiedPageKey !== 'all'} ({textPageOverlays.length}){/if}
-            </button>
-          {/if}
-        {/if}
-      {/if}
+      </div>
     </div>
-    
-    <div class="header-right">
-      <span class="stroke-count">
-        {#if $pastedCount > 0 && $pastedSelection.size > 0}
-          <span class="pasted-indicator">{$pastedSelection.size} of {$pastedCount} pasted selected</span> • 
-        {:else if $pastedCount > 0}
-          <span class="pasted-indicator">{$pastedCount} pasted</span> • 
+
+    <span class="tb-sep" aria-hidden="true"></span>
+
+    <div class="tb-group" role="group" aria-label="Tools">
+      <button
+        class="tb-btn tone-accent"
+        on:click={openSearchTranscriptsDialog}
+        disabled={!canSearch}
+        title={canSearch
+          ? 'Search transcribed text in your saved pages'
+          : 'Save and transcribe some pages first'}
+      >
+        🔍 Search
+      </button>
+
+      <div class="tb-more">
+        <button
+          class="tb-btn tb-more-btn"
+          class:active={showMoreMenu}
+          on:click|stopPropagation={() => showMoreMenu = !showMoreMenu}
+          title="Layout tools"
+          aria-haspopup="true"
+          aria-expanded={showMoreMenu}
+        >
+          ⋯
+        </button>
+
+        {#if showMoreMenu}
+          <div class="tb-menu">
+            <div class="tb-menu-label">Page layout</div>
+            <button
+              class="tb-menu-item"
+              on:click={resetPageLayout}
+              disabled={!$useCustomPositions}
+              title={$useCustomPositions
+                ? 'Reset pages to automatic horizontal layout'
+                : 'Pages are already in automatic layout'}
+            >
+              📐 Reset Layout
+            </button>
+            <button
+              class="tb-menu-item"
+              on:click={resetPageSizes}
+              disabled={!$hasScaledPages}
+              title={$hasScaledPages
+                ? 'Reset all pages to original size (100%)'
+                : 'All pages are already at 100%'}
+            >
+              📏 Reset Sizes
+            </button>
+          </div>
         {/if}
-        {#if $sketchStrokeCount > 0}
-          <span class="sketch-indicator">✏️ {$sketchStrokeCount} sketch</span> •
-        {/if}
-        {#if $selectionCount > 0}
-          <span class="selection-indicator">{$selectionCount} of {$strokeCount} selected</span>
-        {:else if visibleStrokes.length < $strokeCount}
-          {visibleStrokes.length} of {$strokeCount} strokes (filtered)
-        {:else}
-          {$strokeCount} strokes
-        {/if}
-      </span>
+      </div>
     </div>
   </div>
-  
+
   <div class="canvas-container" bind:this={containerElement}>
     <canvas 
       bind:this={canvasElement}
@@ -2152,124 +2244,156 @@
     min-height: 0;
   }
 
+  /* Title + status only. The controls moved to their own full-width row below
+     so they no longer compete with the status line for horizontal space. */
   .panel-header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: baseline;
     gap: 12px;
-    padding-bottom: 10px;
-    margin-bottom: 15px;
-    border-bottom: 1px solid var(--border);
-    /* Stay a single row regardless of how many selection-dependent buttons are
-       shown — wrapping here changes the header height and shifts the canvas
-       below, which makes clicking a specific stroke difficult. */
     flex-wrap: nowrap;
+    padding-bottom: 6px;
   }
 
-  .header-left {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-shrink: 0;
-  }
-  
   .header-title {
     font-size: 1rem;
     font-weight: 600;
     color: var(--text-primary);
+    flex-shrink: 0;
   }
-  
-  .header-actions {
+
+  /* ---------------------------------------------------------------
+   *  Canvas toolbar
+   * --------------------------------------------------------------- */
+
+  .canvas-toolbar {
     display: flex;
     align-items: center;
-    gap: 6px;
-    flex: 1;
-    justify-content: center;
-    /* Absorb any overflow here (horizontal scroll) instead of forcing the
-       header to wrap onto a second row. */
+    gap: 8px;
+    padding-bottom: 8px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+    /* Never wrap: a second row would change the header height and shift the
+       canvas below it, making a specific stroke hard to click. */
+    flex-wrap: nowrap;
+    min-width: 0;
+  }
+
+  /* Takes the whole row so the trailing tools group is pushed to the right
+     edge, and absorbs any overflow as a horizontal scroll rather than letting
+     the toolbar grow a second row. */
+  .tb-scroll {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1 1 auto;
     min-width: 0;
     overflow-x: auto;
     scrollbar-width: thin;
   }
 
-  .header-right {
+  .tb-group {
     display: flex;
     align-items: center;
+    gap: 4px;
     flex-shrink: 0;
   }
-  
-  .header-btn {
+
+  .tb-sep {
+    width: 1px;
+    align-self: stretch;
+    margin: 2px 2px;
+    background: var(--border);
+    flex-shrink: 0;
+  }
+
+  .tb-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     padding: 4px 10px;
     font-size: 0.75rem;
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-secondary);
-    border-radius: 4px;
-    cursor: pointer;
-    transition: all 0.2s;
-    white-space: nowrap;
-  }
-  
-  .header-btn:hover:not(:disabled) {
-    color: var(--text-primary);
-    border-color: var(--text-secondary);
+    font-family: inherit;
     background: var(--bg-tertiary);
-  }
-
-  .header-select {
-    padding: 4px 8px;
-    font-size: 0.75rem;
-    background: transparent;
     border: 1px solid var(--border);
-    color: var(--text-secondary);
-    border-radius: 4px;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .header-select:hover {
-    color: var(--text-primary);
-    border-color: var(--text-secondary);
-  }
-
-  .volume-select {
-    color: #8b5cf6;
-    border-color: rgba(139, 92, 246, 0.4);
-  }
-
-
-  .header-btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-  
-  .decorative-btn {
-    background: var(--bg-secondary);
     color: var(--text-primary);
     font-weight: 500;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s, opacity 0.15s;
+    white-space: nowrap;
   }
-  
-  .decorative-btn:hover:not(:disabled) {
+
+  .tb-btn:hover:not(:disabled) {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+    background: var(--bg-secondary);
+  }
+
+  /* Disabled is the resting state for most of these — the toolbar shows the
+     full vocabulary of canvas actions and greys out what the current selection
+     can't do, rather than hiding it. So it has to read as "not now", not as
+     "broken": muted, but still legible enough to plan by. */
+  .tb-btn:disabled,
+  .tb-select:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    background: transparent;
+    color: var(--text-secondary);
+  }
+
+  /* Count of strokes this specific action would affect — not the same number as
+     the selection count in the status line. Fixed width so ticking 9 → 10 does
+     not shift the buttons to its right. */
+  .tb-count {
+    min-width: 2.1em;
+    padding: 0 4px;
+    text-align: center;
+    font-size: 0.68rem;
+    font-variant-numeric: tabular-nums;
+    border-radius: 999px;
+    background: rgba(127, 127, 127, 0.18);
+    color: inherit;
+  }
+
+  .tb-btn:disabled .tb-count {
+    background: rgba(127, 127, 127, 0.1);
+  }
+
+  .tone-accent:hover:not(:disabled) {
     background: var(--accent);
     color: white;
     border-color: var(--accent);
   }
-  
-  /* Sketch marking. Distinguished from the neutral header actions because it
-     changes how strokes render and is a saved, page-level annotation. */
-  .sketch-btn {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    font-weight: 500;
+
+  .tone-success {
+    background: var(--success);
+    color: var(--bg-primary);
+    font-weight: 600;
+    border-color: var(--success);
   }
 
-  .sketch-btn:hover:not(:disabled) {
+  .tone-success:hover:not(:disabled) {
+    background: #16a34a;
+    border-color: #16a34a;
+    color: var(--bg-primary);
+  }
+
+  .tone-danger:hover:not(:disabled) {
+    background: var(--error);
+    color: white;
+    border-color: var(--error);
+  }
+
+  /* Sketch marking. Distinguished from the neutral toolbar actions because it
+     changes how strokes render and is a saved, page-level annotation. */
+  .tone-sketch:hover:not(:disabled) {
     background: #7c5cff;
     color: white;
     border-color: #7c5cff;
   }
 
-  .sketch-btn.unmark:hover:not(:disabled) {
+  .tone-sketch.unmark:hover:not(:disabled) {
     background: var(--bg-secondary);
     color: var(--text-primary);
     border-color: #7c5cff;
@@ -2282,108 +2406,111 @@
 
   /* Point editing. Amber like the suspect-point handles and the save dialog's
      "Editing" total, so the whole feature reads as one thing. */
-  .point-edit-btn {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    font-weight: 500;
-  }
-
-  .point-edit-btn:hover:not(:disabled) {
+  .tone-point:hover:not(:disabled) {
     background: #f59e0b;
     color: #1f2937;
     border-color: #f59e0b;
   }
 
-  .point-edit-btn.active {
+  .tone-point.active {
     background: #f59e0b;
     color: #1f2937;
     border-color: #b45309;
     font-weight: 600;
   }
 
-  .layout-btn {
+  .tb-select {
+    padding: 4px 8px;
+    font-size: 0.75rem;
+    font-family: inherit;
     background: var(--bg-tertiary);
+    border: 1px solid var(--border);
     color: var(--text-primary);
-    font-weight: 500;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s, opacity 0.15s;
   }
-  
-  .layout-btn:hover:not(:disabled) {
-    background: var(--success);
-    color: var(--bg-primary);
-    border-color: var(--success);
+
+  .tb-select:hover:not(:disabled) {
+    border-color: var(--text-secondary);
+    background: var(--bg-secondary);
   }
-  
-  .text-toggle-btn {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    font-weight: 500;
+
+  /* Fixed width so swapping between "Volume" and "Volume 2 (current)" — and
+     between enabled and disabled — doesn't resize the toolbar. */
+  .volume-select {
+    width: 148px;
+    color: #8b5cf6;
+    border-color: rgba(139, 92, 246, 0.4);
   }
-  
-  .text-toggle-btn:hover:not(:disabled) {
-    background: var(--accent);
-    color: white;
-    border-color: var(--accent);
+
+  /* ---------------------------------------------------------------
+   *  Overflow menu
+   * --------------------------------------------------------------- */
+
+  .tb-more {
+    position: relative;
+    flex-shrink: 0;
   }
-  
-  .search-btn {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    font-weight: 500;
+
+  .tb-more-btn {
+    padding: 4px 9px;
+    font-size: 0.9rem;
+    line-height: 1;
   }
-  
-  .search-btn:hover:not(:disabled) {
-    background: var(--accent);
-    color: white;
-    border-color: var(--accent);
+
+  .tb-more-btn.active {
+    background: var(--bg-secondary);
+    border-color: var(--text-secondary);
   }
-  
-  .duplicate-btn {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    font-weight: 500;
+
+  .tb-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 30;
+    min-width: 172px;
+    padding: 4px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   }
-  
-  .duplicate-btn:hover:not(:disabled) {
-    background: var(--accent);
-    color: white;
-    border-color: var(--accent);
-  }
-  
-  .group-btn {
-    background: var(--success);
-    color: var(--bg-primary);
+
+  .tb-menu-label {
+    padding: 4px 8px 5px;
+    font-size: 0.65rem;
     font-weight: 600;
-    border-color: var(--success);
-  }
-  
-  .group-btn:hover:not(:disabled) {
-    background: #16a34a;
-    border-color: #16a34a;
-  }
-  
-  .delete-pasted-btn {
-    background: var(--error);
-    color: white;
-    font-weight: 600;
-    border-color: var(--error);
-  }
-  
-  .delete-pasted-btn:hover:not(:disabled) {
-    background: #dc2626;
-    border-color: #dc2626;
-  }
-  
-  .clear-pasted-btn {
-    background: transparent;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
     color: var(--text-secondary);
   }
-  
-  .clear-pasted-btn:hover:not(:disabled) {
-    background: var(--error);
-    color: white;
-    border-color: var(--error);
+
+  .tb-menu-item {
+    display: block;
+    width: 100%;
+    padding: 6px 8px;
+    text-align: left;
+    font-size: 0.75rem;
+    font-family: inherit;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--text-primary);
+    cursor: pointer;
+    white-space: nowrap;
   }
-  
+
+  .tb-menu-item:hover:not(:disabled) {
+    background: var(--bg-tertiary);
+  }
+
+  .tb-menu-item:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    color: var(--text-secondary);
+  }
+
   .stroke-count {
     font-size: 0.85rem;
     color: var(--text-secondary);
@@ -2468,18 +2595,6 @@
     background: #16a34a;
     border-color: #16a34a;
     color: white;
-  }
-
-  .copy-transcript-btn {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    font-weight: 500;
-  }
-
-  .copy-transcript-btn:hover:not(:disabled) {
-    background: var(--accent);
-    color: white;
-    border-color: var(--accent);
   }
 
   .canvas-hint {
