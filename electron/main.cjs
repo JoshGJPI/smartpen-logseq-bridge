@@ -6,6 +6,13 @@ const https = require('https');
 const fs = require('fs');
 const fsp = require('fs').promises;
 
+// Must be set before 'ready' so Windows links the running process to the
+// installed shortcut and shows the correct taskbar icon (rather than grouping
+// the app under a generic electron.exe entry).
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.jpi.smartpen-logseq-bridge');
+}
+
 let mainWindow;
 
 // ===== Close / quit gate state =====
@@ -28,7 +35,7 @@ function createWindow() {
     height: 1000,
     minWidth: 1200,
     minHeight: 800,
-    icon: path.join(__dirname, '../public/icon.png'),
+    icon: path.join(__dirname, '..', 'public', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
     webPreferences: {
       nodeIntegration: false,  // Security
       contextIsolation: true,  // Security
