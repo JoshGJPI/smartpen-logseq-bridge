@@ -17,7 +17,7 @@
   import { savedPages } from '$stores';
   import { bookAliases } from '$stores';
   import { formatBookName, filterTranscriptionProperties } from '$utils/formatting.js';
-  import { openSearchTranscriptsDialog, openSvgExportDialog } from '$stores';
+  import { openTranscriptSearch, openSvgExportDialog } from '$stores';
   import { hasSelection } from '$stores/selection.js';
   import { sketchProfile, sketchProfileSummary, sketchStrokeCount, markStrokesAsSketch, unmarkStrokesAsSketch } from '$stores';
   import { reassignVolume } from '$stores/strokes.js';
@@ -50,8 +50,8 @@
   import CanvasControls from './CanvasControls.svelte';
   import PointEditPanel from './PointEditPanel.svelte';
   import PageSelector from './PageSelector.svelte';
+  import SketchStylePopover from './SketchStylePopover.svelte';
   import FilteredStrokesPanel from '../strokes/FilteredStrokesPanel.svelte';
-  import SearchTranscriptsDialog from '../dialog/SearchTranscriptsDialog.svelte';
   import CreatePageDialog from '../dialog/CreatePageDialog.svelte';
   import ExportSvgDialog from '../dialog/ExportSvgDialog.svelte';
   
@@ -188,6 +188,17 @@
     
     // Keyboard shortcuts
     const handleKeyDown = (e) => {
+      // Ctrl+F — transcript search. It lives in the left panel now rather than
+      // a modal, so this routes there and focuses the input. Checked before the
+      // mode-specific handling below: search is never what those keys mean.
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        if (canSearch) {
+          e.preventDefault();
+          openTranscriptSearch();
+        }
+        return;
+      }
+
       // Point-edit mode owns Escape and Delete while it is active: it is a modal
       // sub-state of the canvas, and its point selection is the thing on screen
       // the user is aiming those keys at.
@@ -1564,10 +1575,25 @@
    * --------------------------------------------------------------- */
   let showMoreMenu = false;
 
+  /* Export menu (below-canvas bar). SVG / JSON / MD / LogSeq were four permanent
+     buttons; exports are occasional, and the width pays for the sketch controls
+     that moved down from the top bar. */
+  let showExportMenu = false;
+  let exportMenuWrapper;
+
   function handleToolbarClickOutside(event) {
     if (showMoreMenu && !event.target.closest('.tb-more')) {
       showMoreMenu = false;
     }
+    if (showExportMenu && exportMenuWrapper && !exportMenuWrapper.contains(event.target)) {
+      showExportMenu = false;
+    }
+  }
+
+  /** Run an export and close the menu — every item does both. */
+  function runExport(fn) {
+    showExportMenu = false;
+    fn();
   }
 
   function resetPageLayout() {
@@ -1857,6 +1883,29 @@
   <div class="panel-header">
     <span class="header-title">Stroke Preview</span>
 
+    <!-- Selection lives beside the count it changes, rather than in the toolbar
+         below with the actions that operate on it. -->
+    <div class="header-selection" role="group" aria-label="Selection">
+      <button
+        class="hdr-btn"
+        on:click={() => selectAll(visibleStrokes.length)}
+        disabled={visibleStrokes.length === 0}
+        title={visibleStrokes.length > 0
+          ? `Select all ${visibleStrokes.length} visible strokes`
+          : 'No strokes on the canvas'}
+      >
+        Select All
+      </button>
+      <button
+        class="hdr-btn"
+        on:click={() => clearSelection()}
+        disabled={$selectionCount === 0}
+        title={$selectionCount > 0 ? 'Clear the stroke selection' : 'Nothing selected'}
+      >
+        Deselect
+      </button>
+    </div>
+
     <span class="stroke-count">
       {#if $pastedCount > 0 && $pastedSelection.size > 0}
         <span class="pasted-indicator">{$pastedSelection.size} of {$pastedCount} pasted selected</span> •
@@ -1901,25 +1950,10 @@
          trailing tools stay put, and the ⋯ menu stays out of a clipping
          container so it can overhang the toolbar. -->
     <div class="tb-scroll">
-      <div class="tb-group" role="group" aria-label="Selection">
-        <button
-          class="tb-btn"
-          on:click={() => selectAll(visibleStrokes.length)}
-          disabled={visibleStrokes.length === 0}
-          title={visibleStrokes.length > 0
-            ? `Select all ${visibleStrokes.length} visible strokes`
-            : 'No strokes on the canvas'}
-        >
-          Select All
-        </button>
-        <button
-          class="tb-btn"
-          on:click={() => clearSelection()}
-          disabled={$selectionCount === 0}
-          title={$selectionCount > 0 ? 'Clear the stroke selection' : 'Nothing selected'}
-        >
-          Deselect
-        </button>
+      <!-- Select All / Deselect moved to the panel header, beside the count.
+           Decorative stayed: it is a bulk *deselect* by shape, closer to the
+           per-stroke actions here than to the two blunt selection buttons. -->
+      <div class="tb-group" role="group" aria-label="Selected strokes">
         <button
           class="tb-btn tone-accent"
           on:click={handleDeselectDecorative}
@@ -1930,11 +1964,6 @@
         >
           {isDetecting ? '⏳ Detecting…' : '🎨 Decorative'}
         </button>
-      </div>
-
-      <span class="tb-sep" aria-hidden="true"></span>
-
-      <div class="tb-group" role="group" aria-label="Selected strokes">
         <button
           class="tb-btn tone-accent"
           on:click={handleDuplicate}
@@ -1958,26 +1987,9 @@
         >
           {$pointEditMode ? '📍 Exit Points' : '📍 Edit Points'}
         </button>
-        <button
-          class="tb-btn tone-sketch"
-          on:click={() => applySketchFlag(true)}
-          disabled={selectedPlainCount === 0}
-          title={selectedPlainCount > 0
-            ? `Render ${selectedPlainCount} selected stroke${selectedPlainCount !== 1 ? 's' : ''} with pressure-varying thickness (${$sketchProfileSummary})`
-            : 'Select strokes that are not already sketches'}
-        >
-          ✏️ Sketch <span class="tb-count">{selectedPlainCount}</span>
-        </button>
-        <button
-          class="tb-btn tone-sketch unmark"
-          on:click={() => applySketchFlag(false)}
-          disabled={selectedSketchCount === 0}
-          title={selectedSketchCount > 0
-            ? `Return ${selectedSketchCount} selected sketch stroke${selectedSketchCount !== 1 ? 's' : ''} to a uniform width`
-            : 'Select sketch strokes to return them to a uniform width'}
-        >
-          ✒️ Unmark <span class="tb-count">{selectedSketchCount}</span>
-        </button>
+        <!-- Sketch marking lives on the bar below the canvas, beside the style
+             popover that tunes it. Volume stays here: it decides which physical
+             notebook a stroke belongs to, which is worth keeping in view. -->
         <!-- Select every stroke on a page and this moves the whole page. -->
         <select
           class="tb-select volume-select"
@@ -2073,12 +2085,14 @@
     <span class="tb-sep" aria-hidden="true"></span>
 
     <div class="tb-group" role="group" aria-label="Tools">
+      <!-- Search moved to the left panel (Transcripts → Search). This is the
+           fast path from the canvas, same as Ctrl+F. -->
       <button
         class="tb-btn tone-accent"
-        on:click={openSearchTranscriptsDialog}
+        on:click={openTranscriptSearch}
         disabled={!canSearch}
         title={canSearch
-          ? 'Search transcribed text in your saved pages'
+          ? 'Search transcribed text in your saved pages (Ctrl+F)'
           : 'Save and transcribe some pages first'}
       >
         🔍 Search
@@ -2098,16 +2112,19 @@
 
         {#if showMoreMenu}
           <div class="tb-menu">
+            <!-- These act on the pages themselves. Resetting the *view* (zoom
+                 and pan) is the Reset View button on the bar below the canvas. -->
             <div class="tb-menu-label">Page layout</div>
             <button
               class="tb-menu-item"
               on:click={resetPageLayout}
               disabled={!$useCustomPositions}
               title={$useCustomPositions
-                ? 'Reset pages to automatic horizontal layout'
-                : 'Pages are already in automatic layout'}
+                ? 'Undo dragged page positions — back to automatic horizontal layout'
+                : 'No pages have been dragged out of automatic layout'}
             >
               📐 Reset Layout
+              <span class="tb-menu-hint">page positions</span>
             </button>
             <button
               class="tb-menu-item"
@@ -2118,6 +2135,7 @@
                 : 'All pages are already at 100%'}
             >
               📏 Reset Sizes
+              <span class="tb-menu-hint">page scaling</span>
             </button>
           </div>
         {/if}
@@ -2203,31 +2221,79 @@
       on:change={handlePageSelectionChange}
     />
     
-    <div class="export-actions">
-      <button class="btn btn-secondary small" on:click={exportSvg} title={$hasSelection ? `Export ${$selectionCount} selected strokes` : 'Export visible strokes'}>
-        SVG{#if $hasSelection} ({$selectionCount}){/if}
-      </button>
-      <button class="btn btn-secondary small" on:click={exportJson}>JSON</button>
-      <button class="btn btn-secondary small" on:click={exportMd}>MD</button>
+    <!-- Sketch rendering: mark strokes, then tune how marked strokes are drawn.
+         Grouped here rather than in the top bar so the style popover opens
+         beside the controls that produce the strokes it restyles. -->
+    <div class="sketch-actions" role="group" aria-label="Sketch rendering">
       <button
-        class="btn btn-secondary small export-graph"
-        on:click={exportToGraph}
-        disabled={isExportingToGraph || !$graphFolderReady}
-        title={$graphFolderReady
-          ? ($hasSelection
-              ? `Publish ${$selectionCount} selected stroke(s) to the LogSeq graph (adds to what's already there)`
-              : 'Publish the visible strokes to the LogSeq graph (adds to what\'s already there)')
-          : 'Set a LogSeq graph folder in Settings first'}
+        class="btn btn-secondary small tone-sketch"
+        on:click={() => applySketchFlag(true)}
+        disabled={selectedPlainCount === 0}
+        title={selectedPlainCount > 0
+          ? `Render ${selectedPlainCount} selected stroke${selectedPlainCount !== 1 ? 's' : ''} with pressure-varying thickness (${$sketchProfileSummary})`
+          : 'Select strokes that are not already sketches'}
       >
-        {isExportingToGraph ? '⏳ Exporting…' : '⇪ LogSeq'}{#if $hasSelection && !isExportingToGraph} ({$selectionCount}){/if}
+        ✏️ Sketch{#if selectedPlainCount > 0} ({selectedPlainCount}){/if}
       </button>
+      <button
+        class="btn btn-secondary small tone-sketch"
+        on:click={() => applySketchFlag(false)}
+        disabled={selectedSketchCount === 0}
+        title={selectedSketchCount > 0
+          ? `Return ${selectedSketchCount} selected sketch stroke${selectedSketchCount !== 1 ? 's' : ''} to a uniform width`
+          : 'Select sketch strokes to return them to a uniform width'}
+      >
+        ✒️ Unmark{#if selectedSketchCount > 0} ({selectedSketchCount}){/if}
+      </button>
+      <SketchStylePopover />
+    </div>
+
+    <!-- Four permanent export buttons was a poor trade for the width; exports
+         are occasional. -->
+    <div class="export-actions" bind:this={exportMenuWrapper}>
+      <button
+        class="btn btn-secondary small export-menu-btn"
+        class:active={showExportMenu}
+        on:click|stopPropagation={() => showExportMenu = !showExportMenu}
+        title={$hasSelection
+          ? `Export the ${$selectionCount} selected stroke(s)`
+          : 'Export the visible strokes'}
+        aria-haspopup="true"
+        aria-expanded={showExportMenu}
+      >
+        Export{#if $hasSelection} ({$selectionCount}){/if} ▾
+      </button>
+
+      {#if showExportMenu}
+        <div class="export-menu">
+          <div class="export-menu-label">
+            {$hasSelection ? `${$selectionCount} selected stroke${$selectionCount !== 1 ? 's' : ''}` : 'Visible strokes'}
+          </div>
+          <button class="export-menu-item" on:click={() => runExport(exportSvg)}>
+            🖼️ SVG
+          </button>
+          <button class="export-menu-item" on:click={() => runExport(exportJson)}>
+            📦 JSON
+          </button>
+          <button class="export-menu-item" on:click={() => runExport(exportMd)}>
+            📝 Markdown
+          </button>
+          <button
+            class="export-menu-item"
+            on:click={() => runExport(exportToGraph)}
+            disabled={isExportingToGraph || !$graphFolderReady}
+            title={$graphFolderReady
+              ? 'Publish to the LogSeq graph (adds to what\'s already there)'
+              : 'Set a LogSeq graph folder in Settings first'}
+          >
+            {isExportingToGraph ? '⏳ Exporting…' : '⇪ LogSeq'}
+          </button>
+        </div>
+      {/if}
     </div>
   </div>
 
   <FilteredStrokesPanel />
-
-  <!-- Search Transcripts Dialog -->
-  <SearchTranscriptsDialog />
 
   <!-- Create Page Dialog -->
   <CreatePageDialog bind:isOpen={showCreatePageDialog} />
@@ -2260,6 +2326,39 @@
     font-weight: 600;
     color: var(--text-primary);
     flex-shrink: 0;
+  }
+
+  /* Selection controls, beside the title. `margin-right: auto` pushes the
+     stroke count to the far right — the header is baseline-aligned, so these
+     get their own alignment. */
+  .header-selection {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+    margin-right: auto;
+    align-self: center;
+  }
+
+  .hdr-btn {
+    padding: 4px 10px;
+    font-size: 0.72rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s;
+  }
+
+  .hdr-btn:hover:not(:disabled) {
+    background: var(--bg-tertiary);
+    border-color: var(--accent);
+  }
+
+  .hdr-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 
   /* ---------------------------------------------------------------
@@ -2393,12 +2492,6 @@
     border-color: #7c5cff;
   }
 
-  .tone-sketch.unmark:hover:not(:disabled) {
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    border-color: #7c5cff;
-  }
-
   .sketch-indicator {
     color: #7c5cff;
     font-weight: 600;
@@ -2487,7 +2580,10 @@
   }
 
   .tb-menu-item {
-    display: block;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 14px;
     width: 100%;
     padding: 6px 8px;
     text-align: left;
@@ -2499,6 +2595,13 @@
     color: var(--text-primary);
     cursor: pointer;
     white-space: nowrap;
+  }
+
+  /* Names what each reset acts on — "Reset Layout" alone read as if it might
+     cover the view too. */
+  .tb-menu-hint {
+    font-size: 0.65rem;
+    color: var(--text-secondary);
   }
 
   .tb-menu-item:hover:not(:disabled) {
@@ -2613,8 +2716,78 @@
     display: flex;
     gap: 4px;
     flex-shrink: 0;
+    position: relative;
   }
-  
+
+  .export-menu-btn.active {
+    border-color: var(--accent);
+    background: var(--bg-tertiary);
+  }
+
+  /* Opens upward — this bar sits at the bottom of the canvas panel. */
+  .export-menu {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    right: 0;
+    min-width: 190px;
+    padding: 5px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .export-menu-label {
+    padding: 4px 9px 6px;
+    font-size: 0.65rem;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 3px;
+  }
+
+  .export-menu-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 7px 9px;
+    font-size: 0.78rem;
+    background: transparent;
+    border: none;
+    border-radius: 5px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+
+  .export-menu-item:hover:not(:disabled) {
+    background: var(--bg-tertiary);
+  }
+
+  .export-menu-item:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  /* Sketch marking + the style popover, moved down from the top bar. */
+  .sketch-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+    align-items: center;
+  }
+
+  .sketch-actions .tone-sketch:not(:disabled) {
+    border-color: rgba(139, 92, 246, 0.55);
+    color: #c4b5fd;
+  }
+
+
   .canvas-controls-row {
     display: flex;
     gap: 10px;

@@ -30,13 +30,19 @@ export const bookSelectionDialog = writable({
   onCancel: () => {}
 });
 
-// Search transcripts dialog state
-export const showSearchTranscriptsDialog = writable(false);
-
 // Activity log dialog state. The log moved out of the left panel's tabs in
 // v2.7 — it is a troubleshooting tool now, not something to keep on screen —
 // and opens from Settings → Troubleshooting instead.
 export const showActivityLogDialog = writable(false);
+
+// Which half of the Transcripts panel is showing: 'review' (transcriptions
+// waiting to be checked and saved) or 'search' (full-text over saved pages).
+export const transcriptsMode = writable('review');
+
+// Bumped to ask the Transcripts panel to focus its search input. A counter
+// rather than a boolean so repeat requests fire — the panel may already be
+// open on Search when the canvas asks again.
+export const transcriptSearchFocus = writable(0);
 
 // SVG export dialog state
 export const svgExportDialog = writable({
@@ -139,17 +145,22 @@ export function closeActivityLogDialog() {
 }
 
 /**
- * Open search transcripts dialog
+ * Show the Transcripts panel's search half and focus its input.
+ * The canvas toolbar's search button and Ctrl+F both route here — search used
+ * to be a modal, and this keeps a one-key path to it from the canvas.
  */
-export function openSearchTranscriptsDialog() {
-  showSearchTranscriptsDialog.set(true);
+export function openTranscriptSearch() {
+  activeTab.set('transcription');
+  transcriptsMode.set('search');
+  transcriptSearchFocus.update(n => n + 1);
 }
 
 /**
- * Close search transcripts dialog
+ * Show the Transcripts panel's review half.
  */
-export function closeSearchTranscriptsDialog() {
-  showSearchTranscriptsDialog.set(false);
+export function openTranscriptReview() {
+  activeTab.set('transcription');
+  transcriptsMode.set('review');
 }
 
 /**

@@ -34,12 +34,15 @@
     </button>
   </div>
   
-  <button class="view-btn" on:click={() => dispatch('fit')} title="Fit content">
+  <button class="view-btn" on:click={() => dispatch('fit')} title="Zoom to fit all content">
     Fit
   </button>
-  
-  <button class="view-btn" on:click={() => dispatch('reset')} title="Reset view">
-    Reset
+
+  <!-- "Reset View" rather than "Reset": this resets zoom and pan only. The ⋯
+       menu's Reset Layout and Reset Sizes act on the pages themselves, and the
+       bare label made this one look like it already covered them. -->
+  <button class="view-btn" on:click={() => dispatch('reset')} title="Reset zoom to 100% and recentre">
+    Reset View
   </button>
 </div>
 
