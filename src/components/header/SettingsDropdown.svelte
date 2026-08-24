@@ -7,9 +7,12 @@
     myscriptHmacKey,
     hasMyScriptCredentials,
     log,
+    logMessages,
+    openActivityLogDialog,
     getMyScriptCredentials
   } from '$stores';
   import { testMyScriptCredentials } from '$lib/myscript-api.js';
+  import ActivityLogDialog from '../dialog/ActivityLogDialog.svelte';
   import BookAliasManager from '../settings/BookAliasManager.svelte';
   import VolumeSettings from '../settings/VolumeSettings.svelte';
   import DataFolderSettings from '../settings/DataFolderSettings.svelte';
@@ -65,6 +68,16 @@
   
   function handlePenMemoryClose() {
     showPenMemoryDialog = false;
+  }
+
+  /** Errors and warnings are what the log is opened for, so the button counts them. */
+  $: logProblemCount = $logMessages.filter(
+    e => e.level === 'error' || e.level === 'warning'
+  ).length;
+
+  function handleShowActivityLog() {
+    openActivityLogDialog();
+    isOpen = false;  // Close settings dropdown — the dialog is modal
   }
   
   // Close dropdown when clicking outside
@@ -210,9 +223,31 @@
           Remove books from pen memory after importing them.
         </p>
       </section>
+
+      <!-- Troubleshooting — the activity log, on demand rather than always on screen -->
+      <section class="settings-section">
+        <h4>Troubleshooting</h4>
+
+        <button class="btn btn-secondary activity-log-btn" on:click={handleShowActivityLog}>
+          <span class="button-icon">🩺</span>
+          <span class="button-text">Activity Log</span>
+          {#if logProblemCount > 0}
+            <span class="badge problems">{logProblemCount}</span>
+          {/if}
+        </button>
+
+        <p class="help-text">
+          A running record of what the app has done this session — open it when
+          something did not behave as expected.
+        </p>
+      </section>
     </div>
   {/if}
 </div>
+
+<!-- Activity Log Dialog. Mounted outside the {#if isOpen} block so it survives
+     the dropdown closing behind it, same as the pen memory dialog. -->
+<ActivityLogDialog />
 
 <!-- Pen Memory Dialog -->
 <PenMemoryDialog 
@@ -454,6 +489,33 @@
   .manage-memory-btn.disabled {
     opacity: 0.6;
     cursor: not-allowed;
+  }
+
+  /* Same shape as the pen memory button — both are "open a tool" actions. */
+  .activity-log-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .activity-log-btn .button-icon {
+    font-size: 1.1rem;
+    line-height: 1;
+  }
+
+  .activity-log-btn .button-text {
+    flex: 1;
+    text-align: left;
+  }
+
+  .activity-log-btn .badge.problems {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    background: rgba(251, 191, 36, 0.15);
+    color: var(--warning);
   }
 
   /* Scrollbar styling */

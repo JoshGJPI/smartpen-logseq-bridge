@@ -33,6 +33,11 @@ export const bookSelectionDialog = writable({
 // Search transcripts dialog state
 export const showSearchTranscriptsDialog = writable(false);
 
+// Activity log dialog state. The log moved out of the left panel's tabs in
+// v2.7 — it is a troubleshooting tool now, not something to keep on screen —
+// and opens from Settings → Troubleshooting instead.
+export const showActivityLogDialog = writable(false);
+
 // SVG export dialog state
 export const svgExportDialog = writable({
   isOpen: false,
@@ -117,6 +122,20 @@ export function toggleFilteredStrokes() {
  */
 export function clearLog() {
   logMessages.set([]);
+}
+
+/**
+ * Open the activity log dialog
+ */
+export function openActivityLogDialog() {
+  showActivityLogDialog.set(true);
+}
+
+/**
+ * Close the activity log dialog
+ */
+export function closeActivityLogDialog() {
+  showActivityLogDialog.set(false);
 }
 
 /**
