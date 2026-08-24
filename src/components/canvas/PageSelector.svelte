@@ -4,6 +4,7 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   import { pages } from '$stores';
+  import { unloadPageFromCanvas, describePageUnload } from '$stores/canvas.js';
   import { BOOK_KEY_FRAGMENT, volumeBadge, ncodeBookOf, compareBookKeys } from '$lib/volumes.js';
 
   const PAGE_KEY_RE = new RegExp(`S(\\d+)\\/O(\\d+)\\/B(${BOOK_KEY_FRAGMENT})\\/P(\\d+)`);
@@ -135,6 +136,35 @@
     dispatch('change', { selectedPages: newSelected });
   }
   
+  /**
+   * Take a page off the canvas. Confirms first when that page holds work the
+   * canvas is the only copy of — new strokes, point edits, sketch flags,
+   * pending deletions or an untranscribed-to-disk transcript.
+   */
+  function handleUnload(book, page, pageLabel, bookLabel) {
+    const state = describePageUnload(book, page);
+    const name = `${bookLabel} ${pageLabel}`;
+
+    if (state.hasUnsaved) {
+      const lost = [];
+      if (state.additions) lost.push(`${state.additions} unsaved stroke(s)`);
+      if (state.edits) lost.push(`${state.edits} point edit(s)`);
+      if (state.modifications) lost.push(`${state.modifications} sketch flag change(s)`);
+      if (state.deletions) lost.push(`${state.deletions} pending deletion(s)`);
+      if (state.transcription) lost.push('an unsaved transcription');
+
+      const ok = confirm(
+        `${name} has unsaved work:\n\n  • ${lost.join('\n  • ')}\n\n` +
+        `Removing it from the canvas discards that. Anything already saved to ` +
+        `your data folder is not affected.\n\nRemove it anyway?`
+      );
+      if (!ok) return;
+    }
+
+    const removed = unloadPageFromCanvas(book, page);
+    if (removed > 0) dispatch('unloaded', { book, page });
+  }
+
   // Select all pages
   function selectAll() {
     const newSelected = new Set(pageOptions);
@@ -216,14 +246,26 @@
           
           <div class="pages-list">
             {#each bookData.pages as pageInfo (pageInfo.key)}
-              <label class="page-checkbox" title="{pageInfo.key}">
-                <input 
-                  type="checkbox"
-                  checked={selectedPages.has(pageInfo.key)}
-                  on:change={() => togglePage(pageInfo.key)}
-                />
-                <span class="page-label">{pageInfo.label}</span>
-              </label>
+              <span class="page-chip">
+                <label class="page-checkbox" title="{pageInfo.key}">
+                  <input
+                    type="checkbox"
+                    checked={selectedPages.has(pageInfo.key)}
+                    on:change={() => togglePage(pageInfo.key)}
+                  />
+                  <span class="page-label">{pageInfo.label}</span>
+                </label>
+                <!-- The checkbox hides a page; this takes it off the canvas
+                     entirely. Saved data is untouched either way. -->
+                <button
+                  class="page-unload"
+                  on:click|stopPropagation={() => handleUnload(bookData.book, pageInfo.page, pageInfo.label, bookData.label)}
+                  title="Remove {bookData.label} {pageInfo.label} from the canvas (saved data is not deleted)"
+                  aria-label="Remove {bookData.label} {pageInfo.label} from the canvas"
+                >
+                  ✕
+                </button>
+              </span>
             {/each}
           </div>
         </div>
@@ -326,19 +368,48 @@
     gap: 2px;
   }
   
+  /* Chip = the visibility checkbox plus an unload button. The ✕ only appears
+     on hover: hiding a page is routine, taking it off the canvas is not, and a
+     permanently visible ✕ next to every page invites a misclick. */
+  .page-chip {
+    display: inline-flex;
+    align-items: center;
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+    transition: background 0.15s;
+  }
+
+  .page-chip:hover {
+    background: var(--bg-primary);
+  }
+
   .page-checkbox {
     display: flex;
     align-items: center;
     gap: 2px;
     padding: 2px 4px;
-    background: var(--bg-tertiary);
-    border-radius: 3px;
     cursor: pointer;
-    transition: background 0.15s;
   }
-  
-  .page-checkbox:hover {
-    background: var(--bg-primary);
+
+  .page-unload {
+    display: none;
+    padding: 1px 4px 2px 1px;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.62rem;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 3px;
+  }
+
+  .page-chip:hover .page-unload,
+  .page-unload:focus-visible {
+    display: inline-block;
+  }
+
+  .page-unload:hover {
+    color: var(--error);
   }
   
   .page-checkbox input[type="checkbox"] {

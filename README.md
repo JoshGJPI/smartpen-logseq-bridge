@@ -80,8 +80,7 @@ notes — and until now the only fix was deleting the whole stroke.
 - **Browse, import, re-edit**: the Saved Pages tab shows everything in your data folder, organized by book
 - **Atomic append-only save**: explicit deletions only; new strokes deduplicated by ID; transcript merged by Y-bounds overlap with checkbox preservation
 - **Unsaved-changes indicator**: amber dot on the Save button when the canvas has changes; window-close confirmation if you try to leave dirty
-- **Book aliases**: stored in `<dataRoot>/pages/_aliases.json`
-- **Book Aliases**: Custom naming for notebook identifiers
+- **Book aliases**: custom naming per notebook volume (Books tab), stored in `<dataRoot>/pages/_aliases.json`
 
 ### Publish Sketches to LogSeq (v2.3)
 - **Selective**: publish only the strokes you select — sketches go to the graph, private notes stay out
@@ -100,12 +99,13 @@ notes — and until now the only fix was deleting the whole stroke.
 
 ### Data Explorer & Search
 - **Four-Tab Interface**:
-  - **Strokes Tab**: Browse strokes by book and page with collapsible headers
-  - **Transcription Tab**: View transcribed text with hierarchy
-  - **Saved Pages Tab**: Explore saved pages with lazy import
-  - **Analysis Tab**: Raw JSON inspection and statistics
-- **Search Transcripts**: Full-text search across all transcribed pages in your data folder
-- **Activity Log**: Real-time feedback on all operations
+  - **Strokes**: Browse strokes by book and page with collapsible headers
+  - **Transcripts**: *Review* incoming transcriptions, or *Search* everything already saved
+  - **Pages**: Explore saved pages with lazy import
+  - **Books**: Name your notebooks and choose which volume new strokes are saved to
+- **Two searches**: the canvas header finds a page among those currently loaded and pans
+  to it (Ctrl+F); Transcripts → Search covers every saved page on disk (Ctrl+Shift+F)
+- **Activity Log**: Settings → Troubleshooting, filterable by level with one-click copy
 - **Storage Stats**: Track saved pages and sync status
 
 ### Professional Workflow Support
@@ -230,11 +230,11 @@ was removed in v2.0.)
 1. Select strokes to transcribe (or leave all selected for full page)
 2. Click **Transcribe** button
 3. Progress modal shows page-by-page status
-4. Results appear in **Transcription** tab
+4. Results appear in the **Transcripts** tab (Review)
 5. Hierarchy and indentation automatically detected
 
 **View Results:**
-- Switch to **Transcription** tab in left panel
+- Switch to the **Transcripts** tab in the left panel
 - Expand page cards to see transcribed text
 - View hierarchy with indentation
 - Check detected commands
@@ -308,11 +308,22 @@ was removed in v2.0.)
 - View imported strokes on canvas
 
 **Search Transcripts:**
-1. Click **🔍 Search Transcripts** in canvas header
-2. Enter search term
+1. Left panel → **Transcripts** tab → **Search** (or Ctrl+Shift+F)
+2. Enter a search term
 3. Results show matching text with context
-4. Click result to view full page
-5. Click **View Strokes** to load onto canvas
+4. **Import strokes** loads the page onto the canvas; **Open in Book View** just reads it
+
+**Find a page already on the canvas:**
+1. Type in the search box beside **Deselect** in the canvas header (or Ctrl+F)
+2. Matches on notebook name, page number, and transcript text — loaded pages only
+3. Click a result to pan to that page (a page hidden by the Filter is revealed first)
+4. In **📝 Text** view, matching words are highlighted on the page itself
+
+**Remove one page from the canvas:**
+- Hover a page in the **Filter** control at the bottom of the canvas and click **✕**
+- The checkbox hides a page; the ✕ unloads it entirely
+- Your saved file is not touched — re-import the page any time. If the page holds
+  unsaved work, you are told exactly what would be discarded first
 
 #### Fixing Stray Points
 
@@ -358,14 +369,17 @@ is bad — usually the first one, sitting at the page origin.
 - Either from MyScript or LogSeq imports
 - Warning shown if no transcriptions available
 
-#### Book Aliases
+#### Naming Notebooks (Books tab)
 
 **Custom Naming:**
-1. Click **⚙️ Settings** dropdown
-2. Go to **Book Aliases** section
-3. Enter book number and custom name
-4. Aliases appear throughout UI
-5. Example: "3017" → "Meeting Notes"
+1. Left panel → **Books** tab
+2. Click **✎** beside a volume and type a name
+3. Names appear throughout the UI. Example: "3017" → "Meeting Notes"
+
+Each **volume** of a book is named separately, so two identical notebooks sharing
+one NCode id can be called completely different things — "Site Visits" and
+"Load Calcs". A volume with no name inherits the parent book's with a volume
+suffix until you give it one, and a volume can be named before you write in it.
 
 ### Canvas Navigation
 
@@ -519,20 +533,23 @@ smartpen/B3017/P42
 App.svelte (Root)
 ├── Header
 │   ├── PenControls (Connect, Fetch, Transcribe)
-│   ├── ActionBar (Save to LogSeq, Clear)
-│   └── SettingsDropdown (MyScript, LogSeq, Book Aliases)
-├── LeftPanel
-│   ├── Data Explorer (Tabbed Interface)
-│   │   ├── StrokeList (Browse by book/page)
-│   │   ├── TranscriptionView (View transcribed text)
-│   │   ├── SavedPagesTab (Saved-page browser)
-│   │   └── RawJsonViewer (Technical inspection)
-│   └── ActivityLog (Real-time feedback)
-└── StrokeCanvas
-    ├── Canvas Renderer (Drawing engine)
-    ├── CanvasControls (Zoom, fit, reset)
-    ├── PageSelector (Multi-page filtering)
-    └── FilteredStrokesPanel (Decorative strokes)
+│   ├── ActionBar (Save, Clear, unsaved-changes dot)
+│   └── SettingsDropdown (MyScript, Data Folder, Graph Folder, Pen Memory,
+│                         Troubleshooting → Activity Log)
+├── LeftPanel (Strokes · Transcripts · Pages · Books)
+│   ├── StrokeList (Browse by book/page)
+│   ├── TranscriptsPanel (Review incoming · Search saved)
+│   ├── SavedPagesTab (Saved-page browser)
+│   └── BooksTab (Per-notebook names + volume routing)
+└── Canvas Section (Editor ⇄ Book View)
+    ├── StrokeCanvas (Editor)
+    │   ├── Canvas Renderer (Drawing engine)
+    │   ├── CanvasSearch (Find a loaded page)
+    │   ├── CanvasControls (Zoom, fit, reset view)
+    │   ├── PageSelector (Multi-page filtering + per-page unload)
+    │   ├── SketchStylePopover (Pressure → thickness)
+    │   └── FilteredStrokesPanel (Decorative strokes)
+    └── BookViewer (Read/edit saved pages as a book)
 ```
 
 ### State Management (Svelte Stores)
@@ -576,82 +593,104 @@ smartpen-logseq-bridge/
 │   ├── main-svelte.js      # Application entry point
 │   │
 │   ├── components/         # Svelte 4 components
+│   │   ├── books/          # Notebook identity
+│   │   │   └── BooksTab.svelte          # Names + volume routing per book
 │   │   ├── canvas/         # Canvas and rendering
 │   │   │   ├── StrokeCanvas.svelte
-│   │   │   ├── CanvasControls.svelte
-│   │   │   └── PageSelector.svelte
+│   │   │   ├── CanvasControls.svelte    # Zoom / Fit / Reset View
+│   │   │   ├── CanvasSearch.svelte      # Find a loaded page
+│   │   │   ├── PageSelector.svelte      # Page filter + per-page unload
+│   │   │   ├── PointEditPanel.svelte
+│   │   │   └── SketchStylePopover.svelte
 │   │   ├── dialog/         # Modal dialogs
+│   │   │   ├── ActivityLogDialog.svelte
+│   │   │   ├── BluetoothDevicePicker.svelte
+│   │   │   ├── BookSelectionDialog.svelte
 │   │   │   ├── CreatePageDialog.svelte
+│   │   │   ├── ExportSvgDialog.svelte
+│   │   │   ├── PenMemoryDialog.svelte
 │   │   │   ├── SaveConfirmDialog.svelte
-│   │   │   ├── SearchTranscriptsDialog.svelte
-│   │   │   └── BookSelectionDialog.svelte
+│   │   │   └── TranscriptionEditorModal.svelte
 │   │   ├── header/         # Top bar components
 │   │   │   ├── ActionBar.svelte
 │   │   │   └── SettingsDropdown.svelte
 │   │   ├── layout/         # App layout
 │   │   │   ├── Header.svelte
-│   │   │   ├── LeftPanel.svelte
-│   │   │   ├── Sidebar.svelte
-│   │   │   └── ActivityLog.svelte
-│   │   ├── saved-pages/    # Saved-page browser
-│   │   │   ├── SavedPagesTab.svelte
-│   │   │   ├── BookAccordion.svelte
-│   │   │   ├── PageCard.svelte
-│   │   │   └── TranscriptionPreview.svelte
+│   │   │   └── LeftPanel.svelte
 │   │   ├── pen/            # Pen controls
 │   │   │   ├── PenControls.svelte
 │   │   │   ├── PenInfo.svelte
 │   │   │   └── TransferProgress.svelte
+│   │   ├── saved-pages/    # Saved-page browser
+│   │   │   ├── SavedPagesTab.svelte
+│   │   │   ├── SavedPagesHeader.svelte
+│   │   │   ├── BookAccordion.svelte
+│   │   │   ├── PageCard.svelte
+│   │   │   └── TranscriptionPreview.svelte
 │   │   ├── settings/       # Configuration
-│   │   │   ├── MyScriptSettings.svelte
-│   │   │   ├── LogseqSettings.svelte
-│   │   │   └── BookAliasManager.svelte
+│   │   │   ├── DataFolderSettings.svelte
+│   │   │   ├── GraphFolderSettings.svelte
+│   │   │   └── SketchStyleSettings.svelte
 │   │   ├── strokes/        # Stroke browser
 │   │   │   ├── StrokeList.svelte
+│   │   │   ├── StrokeBookAccordion.svelte
 │   │   │   ├── StrokePageCard.svelte
 │   │   │   ├── StrokeItem.svelte
+│   │   │   ├── SelectionInfo.svelte
+│   │   │   ├── FilterSettings.svelte
 │   │   │   ├── FilteredStrokesPanel.svelte
-│   │   │   ├── AnalysisView.svelte
-│   │   │   └── RawJsonViewer.svelte
-│   │   └── transcription/  # Transcription display
-│   │       ├── TranscriptionView.svelte
-│   │       ├── HierarchyTree.svelte
-│   │       ├── LogseqPreview.svelte
-│   │       └── CommandList.svelte
+│   │   │   └── AnalysisView.svelte
+│   │   ├── transcription/  # Transcription review + search
+│   │   │   ├── TranscriptsPanel.svelte  # Review / Search switch
+│   │   │   ├── TranscriptionView.svelte
+│   │   │   ├── TranscriptSearch.svelte
+│   │   │   ├── SearchResultCard.svelte
+│   │   │   ├── HierarchyTree.svelte
+│   │   │   ├── LineDisplay.svelte
+│   │   │   └── CommandList.svelte
+│   │   └── viewer/         # Book View
+│   │       ├── BookViewer.svelte
+│   │       ├── PageSpreadView.svelte
+│   │       └── TranscriptPane.svelte
 │   │
 │   ├── stores/             # Svelte stores (state)
 │   │   ├── strokes.js      # Stroke data
+│   │   ├── canvas.js       # Unload a page from the canvas (index-safe)
 │   │   ├── selection.js    # Selection state
+│   │   ├── point-edit.js   # Point-handle editing mode
+│   │   ├── sketch.js       # Pressure → thickness profile
 │   │   ├── pen.js          # Pen connection
 │   │   ├── transcription.js # Transcription results
 │   │   ├── settings.js     # Persisted settings
-│   │   ├── ui.js           # UI state
-│   │   ├── storage.js      # LogSeq storage tracking
+│   │   ├── ui.js           # UI state, tabs, dialogs
+│   │   ├── viewer.js       # Book View pane state
+│   │   ├── storage.js      # Save status + unsaved-changes flag
 │   │   ├── saved-pages.js  # Saved-page scan results
-│   │   ├── bookAliases.js  # Book name mappings
+│   │   ├── book-aliases.js # Book name mappings
+│   │   ├── volumes.js      # Capture routing per physical notebook
 │   │   ├── clipboard.js    # Copy/paste
-│   │   ├── pastedStrokes.js # Duplicated strokes
-│   │   ├── pageOrder.js    # Custom page positions
-│   │   ├── pageScale.js    # Page scaling
-│   │   ├── filteredStrokes.js # Decorative filtering
-│   │   └── pendingChanges.js  # Undo system
+│   │   ├── pasted-strokes.js  # Duplicated strokes
+│   │   ├── page-order.js      # Custom page positions
+│   │   ├── page-scale.js      # Page scaling
+│   │   ├── filtered-strokes.js # Decorative filtering
+│   │   └── pending-changes.js  # Dirty-state diff + undo
 │   │
 │   ├── lib/                # Business logic
-│   │   ├── pen-sdk.js      # NeoSmartpen SDK wrapper
+│   │   ├── pen-sdk.js         # NeoSmartpen SDK wrapper
 │   │   ├── canvas-renderer.js # Canvas drawing engine
-│   │   ├── myscript-api.js # MyScript API client
-│   │   ├── logseq-api.js   # LogSeq API client
-│   │   ├── logseq-scanner.js # Database scanning
-│   │   ├── logseq-import.js  # Page import logic
+│   │   ├── myscript-api.js    # MyScript API client
+│   │   ├── volumes.js         # Book keys ("388" / "388v2")
+│   │   ├── point-edit.js      # Stray-point detection + removal
+│   │   ├── sketch-width.js    # Pressure → line thickness
 │   │   ├── stroke-analyzer.js # Shape detection
 │   │   ├── stroke-filter.js   # Decorative detection
 │   │   ├── stroke-storage.js  # Storage utilities
-│   │   └── transcript-search.js # Search engine
+│   │   ├── transcript-search.js # Search engine
+│   │   ├── storage/           # PageDoc read/write + LogSeq export
+│   │   └── viewer/            # Book View SVG, cache, markdown
 │   │
 │   └── utils/              # Helpers
-│       ├── logger.js       # Console logging
-│       ├── storage.js      # LocalStorage helpers
-│       └── formatting.js   # Text/number formatting
+│       └── formatting.js   # Book/page names, text formatting
 │
 ├── electron/               # Electron desktop app wrapper
 │

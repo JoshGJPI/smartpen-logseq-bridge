@@ -51,6 +51,7 @@
   import PointEditPanel from './PointEditPanel.svelte';
   import PageSelector from './PageSelector.svelte';
   import SketchStylePopover from './SketchStylePopover.svelte';
+  import CanvasSearch from './CanvasSearch.svelte';
   import FilteredStrokesPanel from '../strokes/FilteredStrokesPanel.svelte';
   import CreatePageDialog from '../dialog/CreatePageDialog.svelte';
   import ExportSvgDialog from '../dialog/ExportSvgDialog.svelte';
@@ -188,14 +189,13 @@
     
     // Keyboard shortcuts
     const handleKeyDown = (e) => {
-      // Ctrl+F — transcript search. It lives in the left panel now rather than
-      // a modal, so this routes there and focuses the input. Checked before the
-      // mode-specific handling below: search is never what those keys mean.
-      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-        if (canSearch) {
-          e.preventDefault();
-          openTranscriptSearch();
-        }
+      // Ctrl+F — find a page on the canvas. Shift adds "across everything
+      // saved", which is the left panel's Transcripts → Search. Checked before
+      // the mode-specific handling below: find is never what those keys mean.
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        if (e.shiftKey) openTranscriptSearch();
+        else canvasSearch?.focus();
         return;
       }
 
@@ -1563,9 +1563,6 @@
     }
   }
   
-  // Check if search is available
-  $: canSearch = $dataFolderReady && $savedPages.some(p => p.transcriptionText);
-
   /* ---------------------------------------------------------------
    *  Toolbar overflow menu
    *
@@ -1574,6 +1571,59 @@
    *  never depends on how the pages happen to be arranged.
    * --------------------------------------------------------------- */
   let showMoreMenu = false;
+
+  /* Canvas search (panel header). Finds a page among those already loaded and
+     pans to it — a navigation tool, distinct from the left panel's search over
+     everything on disk. */
+  let canvasSearch;
+
+  /* The live search term, mirrored out of CanvasSearch so text view can mark it
+     on the page. Empty unless the user is actually searching. */
+  let canvasSearchTerm = '';
+
+  // Repaint text view when the term changes, so highlights track typing.
+  $: if (showTextView && canvasSearchTerm !== undefined) {
+    renderStrokes(false);
+  }
+
+  /**
+   * A page left the canvas. Page layout is only recomputed by a full-reset
+   * render, so without this the remaining pages keep the offsets they had when
+   * the removed page was still between them — the same stale-layout trap the
+   * Clear button hit (see the July 2026 clear-canvas fixes).
+   */
+  function handlePageUnloaded() {
+    previousStrokeCount = $strokeCount;
+    if (!renderer) return;
+    renderStrokes(true);
+    setTimeout(() => fitContent(), 50);
+  }
+
+  /**
+   * Jump to a page the search found. A page can be on the canvas but hidden by
+   * the page filter, so reveal it first — otherwise the view pans to a page
+   * that isn't drawn.
+   */
+  function handleSearchGoto(event) {
+    const { pageKey, label } = event.detail;
+    if (!renderer) return;
+
+    if (!selectedPages.has(pageKey)) {
+      selectedPages = new Set([...selectedPages, pageKey]);
+    }
+
+    // The page needs a layout offset before it can be centred, and a page just
+    // revealed does not have one until the next full render.
+    renderStrokes(true);
+    requestAnimationFrame(() => {
+      if (renderer?.centerOnPage(pageKey)) {
+        renderStrokes(false);
+        log(`Jumped to ${label}`, 'info');
+      } else {
+        log(`Could not locate ${label} on the canvas`, 'warning');
+      }
+    });
+  }
 
   /* Export menu (below-canvas bar). SVG / JSON / MD / LogSeq were four permanent
      buttons; exports are occasional, and the width pays for the sketch controls
@@ -1769,8 +1819,10 @@
       
       console.log('  ✅ Rendering text for', matchingPageKey, '(', filteredText.length, 'chars )');
 
-      // Render filtered text inside the page boundaries using the correct pageKey
-      renderer.drawPageText(matchingPageKey, filteredText);
+      // Render filtered text inside the page boundaries using the correct pageKey.
+      // The canvas-search term is marked wherever it appears, so a text-view
+      // search shows *where on the page* the hit is, not just which page.
+      renderer.drawPageText(matchingPageKey, filteredText, canvasSearchTerm);
 
       // Place a copy button over this page (screen coords, so it follows pan/zoom)
       const rect = renderer.getPageBoundsScreen(matchingPageKey);
@@ -1904,6 +1956,12 @@
       >
         Deselect
       </button>
+
+      <CanvasSearch
+        bind:this={canvasSearch}
+        bind:term={canvasSearchTerm}
+        on:goto={handleSearchGoto}
+      />
     </div>
 
     <span class="stroke-count">
@@ -2085,29 +2143,19 @@
     <span class="tb-sep" aria-hidden="true"></span>
 
     <div class="tb-group" role="group" aria-label="Tools">
-      <!-- Search moved to the left panel (Transcripts → Search). This is the
-           fast path from the canvas, same as Ctrl+F. -->
-      <button
-        class="tb-btn tone-accent"
-        on:click={openTranscriptSearch}
-        disabled={!canSearch}
-        title={canSearch
-          ? 'Search transcribed text in your saved pages (Ctrl+F)'
-          : 'Save and transcribe some pages first'}
-      >
-        🔍 Search
-      </button>
-
+      <!-- Finding a page *on the canvas* is the search box in the header.
+           Searching every saved page on disk is Transcripts → Search in the
+           left panel, which Ctrl+F still reaches. -->
       <div class="tb-more">
         <button
           class="tb-btn tb-more-btn"
           class:active={showMoreMenu}
           on:click|stopPropagation={() => showMoreMenu = !showMoreMenu}
-          title="Layout tools"
+          title="Undo dragged page positions or page resizing"
           aria-haspopup="true"
           aria-expanded={showMoreMenu}
         >
-          ⋯
+          Page Resets ▾
         </button>
 
         {#if showMoreMenu}
@@ -2216,9 +2264,10 @@
       on:reset={resetView}
     />
     
-    <PageSelector 
+    <PageSelector
       {selectedPages}
       on:change={handlePageSelectionChange}
+      on:unloaded={handlePageUnloaded}
     />
     
     <!-- Sketch rendering: mark strokes, then tune how marked strokes are drawn.

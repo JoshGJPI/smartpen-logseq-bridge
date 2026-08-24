@@ -25,19 +25,24 @@ App.svelte (Root)
 ├── Header
 │   ├── PenControls (Connect, Fetch, Transcribe)
 │   ├── ActionBar (Save to Folder, Clear, unsaved-changes dot)
-│   └── SettingsDropdown (MyScript, Data Folder, Book Aliases)
-├── LeftPanel
-│   ├── Data Explorer (Tabbed Interface)
-│   │   ├── StrokeList (Browse by book/page)
-│   │   ├── TranscriptionView (View transcribed text)
-│   │   ├── Saved Pages (folder-backed page list — `components/saved-pages/`)
-│   │   └── RawJsonViewer (Technical inspection)
-│   └── ActivityLog (Real-time feedback)
+│   └── SettingsDropdown (MyScript, Data Folder, Graph Folder, Pen Memory,
+│       └── ActivityLogDialog (Troubleshooting → 🩺, filter by level + copy)
+├── LeftPanel (one row of tabs — see "Left panel tabs" below)
+│   ├── StrokeList ("Strokes" — browse by book/page)
+│   ├── TranscriptsPanel ("Transcripts")
+│   │   ├── TranscriptionView (Review — incoming MyScript results)
+│   │   └── TranscriptSearch (Search — full-text over saved pages on disk)
+│   │       └── SearchResultCard (per-result import / open in Book View)
+│   ├── SavedPagesTab ("Pages" — folder-backed page list)
+│   └── BooksTab ("Books" — per-notebook aliases + volume routing)
 └── Canvas Section (Editor ⇄ Book View toggle, in App.svelte)
     ├── StrokeCanvas (Editor — live capture/edit)
+    │   ├── panel header: Select All · Deselect · CanvasSearch · stroke count
+    │   ├── top toolbar: Decorative · Duplicate · Edit Points · Volume ▾ ·
+    │   │                Text · Copy · Page Resets ▾
+    │   ├── bottom bar: zoom · Fit · Reset View · Sketch · Unmark ·
+    │   │               SketchStylePopover · PageSelector · Export ▾
     │   ├── Canvas Renderer (Drawing engine)
-    │   ├── CanvasControls (Zoom, fit, reset)
-    │   ├── PageSelector (Multi-page filtering)
     │   ├── PointEditPanel (Edit Points mode — stray-point list + delete)
     │   └── FilteredStrokesPanel (Decorative strokes)
     └── BookViewer (Book View — read/edit saved pages as a book)
@@ -53,6 +58,21 @@ global controls (Home · Strokes/Transcript · Single/Spread) live in that same 
 and drive the bound `BookViewer` instance; each page's toolbar has a **Load into
 Editor** action that imports that page's strokes into the Editor canvas and switches
 to it.
+
+**Left panel tabs.** Tab *ids* are unchanged from the pre-v2.7 nested version
+(`'strokes'`, `'transcription'`, `'saved-pages'`, plus new `'books'`) even though
+two labels differ — `ActionBar` calls `setActiveTab('transcription')` after a
+transcription run.
+
+**Two searches, deliberately separate.** `CanvasSearch` (panel header) searches
+only pages already loaded and *pans* to one — <kbd>Ctrl+F</kbd>. `TranscriptSearch`
+(left panel) searches every saved page on disk to decide what to *load* —
+<kbd>Ctrl+Shift+F</kbd>, or `openTranscriptSearch()`.
+
+**Three resets, deliberately distinct.** `Reset View` (bottom bar) is zoom/pan.
+`Page Resets ▾` holds `Reset Layout` (dragged page positions) and `Reset Sizes`
+(page scaling). The bottom-bar button was labelled just "Reset", which read as if
+it covered all three.
 
 ### State Management (Svelte Stores)
 
@@ -94,7 +114,26 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `strokes.js` owns the mutation — `removeStrokePoints(Map<strokeIndex, Set<pointIndex>>)` and `clearPointEditMarkers(book, page)`. **This is the only code in the app that mutates captured geometry.** It preserves `startTime`/`endTime` (and so the `s{startTime}` id), every surviving point's force, and the sketch flag; it refuses to reduce a stroke below 2 points and reports those in `refused`; it stamps the edited stroke with the in-memory `pointsEdited` marker that gates the save-time rewrite
 
 **UI State:**
-- `ui.js` - Active tab, canvas zoom, UI preferences
+- `ui.js` - Active tab, canvas zoom, UI preferences. Also `showActivityLogDialog`,
+  `transcriptsMode` (`'review' | 'search'`) and `transcriptSearchFocus` (a counter,
+  not a boolean, so a repeat request re-focuses an already-open search)
+
+**Canvas session (v2.7):**
+- `canvas.js` — operations on what is *loaded* rather than what is stored.
+  `unloadPageFromCanvas(book, page)` takes one page off the canvas;
+  `describePageUnload()` reports what unsaved work that would discard (read from
+  `pendingChanges`, so the warning can't disagree with the save dialog).
+  Lives here, not in `strokes.js`, because it touches the stores that import
+  `strokes.js` — putting it there is an import cycle.
+  **Unloading is not an edit** and deliberately does not call
+  `markUnsavedChanges()`: under append-only, off the canvas never means deleted
+  on disk, so an unloaded page is untouched in its PageDoc.
+  Its real job is keeping the **index-keyed** stores honest — `strokes` is an
+  array, so removing from the middle shifts every later position:
+  `deletedIndices` is shifted (a stale mark would delete the *wrong* stroke at
+  next save), `selectedIndices` is shifted, point-edit mode exits (its keys are
+  `"strokeIndex:pointIndex"`), and `filteredStrokes` is cleared. `pagePositions`
+  / `pageScales` are page-keyed and kept, so re-importing restores placement.
 - `page-order.js` - Custom page positioning/layout
 - `page-scale.js` - Per-page scaling factors
 - `pen.js` - Pen connection state and battery info
@@ -105,6 +144,10 @@ All state is managed through Svelte stores located in `src/stores/`:
   - `deletedIndices` — set of stroke indices marked for deletion
   - `pendingChanges` — derived store computing additions/**edits**/**modifications**/deletions per page (pure core `computePendingChangesMap()`, tested). `edits` are strokes already on disk whose *geometry* shrank (points deleted); `modifications` are strokes already on disk whose *sketch flag* was toggled. Both move no stroke count. **Every stroke lands in exactly one bucket:** new-and-anything is an addition (the save writes the whole stroke), and edited-and-reflagged is an edit (the stronger claim; one save carries both)
   - `getDeletedStrokeIdsForPage()` — converts indices to stroke IDs for the save call
+  - `adjustDeletionsAfterRemoval(removedIndices)` — re-points the marks when strokes
+    leave the store (page unload). Marks on removed strokes are dropped; the undo
+    history is cleared rather than shifted. Tested — an unshifted mark silently
+    deletes a different stroke from disk, which is the worst failure this store has
   - `onDiskStrokeIds` + `noteOnDiskStrokeIds()` — perf #3: since `savedPages` records no longer carry strokes, the diff uses a small `pageKey → Map<strokeId, {sketch, points}>` map populated ONLY for pages currently on the canvas (primed by `load-page.js` import + `save-page.js` save; lazily backfilled and evicted by a `canvasPageKeys` subscription). Never reads strokes off `savedPages`. Entries are scalar-sized records, never strokes — `points` here is a *count*, not the array; keep any future field just as small. The count is what makes the edit diff **self-clearing**: the post-save refresh brings it in line and the page stops reporting an edit with no flag to reset
 - `settings.js` — persisted user settings (MyScript keys, `dataRoot`, `dataFolderReady`, `dataFolderStatusText`; **Export to LogSeq:** `graphRoot`, `graphFolderReady`, `graphFolderStatusText` — no publish-on-save flag, removed in v2.3)
 
@@ -430,7 +473,7 @@ Existing test files (all in `src/lib/__tests__/`):
 | `point-edit.test.js` | `detectStrayPoints` (origin exact/near/leading, non-finite, interior jump, fast-movement and short-flick non-detections, absolute-floor boundary, short strokes, single reason per point); `detectStrayPointsForStrokes`; `removePointsFromStroke` (order, identity preserved both ends, force + sketch preserved, `dotType` re-tag, cache drop, no mutation, min-points refusal, no-ops, Set input); key helpers; `removeStrokePoints`/`clearPointEditMarkers` store behaviour (marker stamping, dirty signalling, partial refusal, per-page clearing); `stores/point-edit.js` mode + selection (entry refusals, derived strokes/point count/strays, key pruning when a stroke leaves the selection, exit when the selection empties, toggle, select/delete strays, selection cleared after a delete) |
 | `volumes.test.js` | `src/lib/volumes.js` — `makeBookKey`/`parseBookKey` round-trip, canonical-form rejection (`"388v1"`, `"388v0"`, `"0388"`, `"388v02"`), `compareBookKeys` ordering (`"388"` < `"388v2"` < `"3880"` — the case naive string sort gets wrong), `withVolume`, `bookDirName`/`parseBookDirName`, the disk↔memory `pageInfo` boundary (volume 1 omitted), display helpers, `BOOK_KEY_FRAGMENT` matching |
 | `volumes-store.test.js` | `stores/volumes.js` (`activeVolumeFor`, `applyActiveVolume` including its idempotency, `volumesForBook`) and reassignment in `stores/strokes.js` — identity/geometry/sketch preserved, `blockUuid` cleared, first origin kept across a double move, `getMovedAwayStrokeIdsForPage` (the copy→move fix), `clearMovedFromMarkers` no-op pre-check |
-| `pending-changes.test.js` | `computePendingChangesMap` — additions vs. the on-disk stroke-state index, explicit deletions, page separation/`isSaved`, missing `pageInfo`; sketch-flag **modifications** (flag on, flag off, absent-vs-false, matching flag, new-and-flagged counted once as an addition, unknown page, deleted stroke excluded, mixed page, modification-only page enters the map); geometry **edits** (fewer points than stored, self-clearing when counts agree, silent on unknown stored count, edited-and-reflagged counted once as an edit, new stroke stays an addition, deleted stroke excluded, edit-only page enters the map, all four categories side by side) |
+| `pending-changes.test.js` | `computePendingChangesMap` — additions vs. the on-disk stroke-state index, explicit deletions, page separation/`isSaved`, missing `pageInfo`; sketch-flag **modifications** (flag on, flag off, absent-vs-false, matching flag, new-and-flagged counted once as an addition, unknown page, deleted stroke excluded, mixed page, modification-only page enters the map); geometry **edits** (fewer points than stored, self-clearing when counts agree, silent on unknown stored count, edited-and-reflagged counted once as an edit, new stroke stays an addition, deleted stroke excluded, edit-only page enters the map, all four categories side by side); `adjustDeletionsAfterRemoval` (shift, marks before the hole untouched, marks on removed strokes dropped, interleaved removals, Set input, empty/null no-op, no renumber collision, undo history cleared) |
 | `page-changes.test.js` | `computePageChangesFolder` — the SaveConfirmDialog's own diff against the PageDoc on disk: additions, `strokeModifications` (both directions, absent-vs-false, new-and-flagged once), `strokeEdits` (point-count difference, self-clearing, `strokeTotal` unmoved, edited-and-reflagged once, new stroke stays an addition, error fallback, all four categories side by side), deletions + `strokeTotal` arithmetic, error fallback, transcription new/changed (mocks `getPage`) |
 | `transcript-markdown.test.js` | `linesToLogseqMarkdown` — tab indentation, TODO/DONE markers, `::` property stripping, blank-line drop, `isPropertyLine`; `indentMarkdownBlock`, `textToTranscriptLines` (tab/2-space indent inference, blank drop), `pagesToLogseqMarkdown` (bare single page vs. labelled multi-page nesting, empty-page skip) |
 | `save-transcript.test.js` | `recomputeParentIds` (hierarchy by indent), `saveTranscriptLines` (verbatim write, lineId scrub on deleted lines, timestamp bump, missing-page guard; mocks `getPage`/`savePage`) |
@@ -515,6 +558,25 @@ When making changes, also verify manually:
   the remedy
 - Canvas pan/zoom/navigation
 - Page positioning and scaling
+- **Books tab** (v2.7): on a book with two volumes, give each an unrelated name
+  and confirm both survive a reload and appear throughout the app; confirm the
+  destination folder next to the volume picker tracks the selection; set a book
+  to a volume with no pages and confirm the row appears and can be named
+- **Canvas search** (v2.7): load several pages → type in the header search →
+  results rank name matches above text matches; picking one pans to it. Hide a
+  page with the Filter control, then find it — it must be revealed *and* centred.
+  Switch to 📝 Text and confirm matches are highlighted amber on the page itself
+  and track as you type. <kbd>Ctrl+F</kbd> focuses this; <kbd>Ctrl+Shift+F</kbd>
+  opens the left panel's disk-wide search
+- **Unload one page** (v2.7): hover a page chip in the Filter control → ✕.
+  The page leaves, the rest re-lay out without needing Reset Layout, and the file
+  is untouched on disk (re-import it to confirm). Then the case that matters:
+  mark strokes on page A for deletion, unload page B, and confirm the *same*
+  strokes on A are still the ones marked — save and check the right ones went.
+  Unload a page holding unsaved work and confirm the warning lists it
+- **Activity Log** (v2.7): Settings → 🩺 opens over the app; Esc and the backdrop
+  close it; level filters disable when a level is empty; Copy puts the filtered
+  entries on the clipboard oldest-first
 - Unsaved-changes indicator + window-close prompt
 - Browser compatibility (Electron Chromium only — pure web build is out of scope in v2.0)
 
@@ -552,6 +614,79 @@ npm run preview
 - [Svelte 4 Docs](https://svelte.dev/docs/svelte/overview) — Framework reference
 
 ## Recent Changes (Git History Context)
+
+### v2.7 — UI reorganisation: panels, not toolbars (August 2026)
+
+**Every long-lived list got a panel; the canvas toolbar and settings dropdown
+stopped being the dumping ground for them.** The toolbar carried twelve controls
+across four unrelated concerns; the dropdown had seven sections, two of which
+(`BookAliasManager`, `VolumeSettings`) were unbounded lists that grow with every
+notebook — the wrong container for a list you scroll.
+
+**Left panel flattened to one tab row.** The outer *Data Explorer / Activity Log*
+level went when the log moved to Settings → Troubleshooting, leaving nothing to
+switch between. Tabs are now Strokes · Transcripts · Pages · **Books**.
+
+**Books tab** merges aliases and volume routing into one row per NCode book —
+they answer the same question. Two things it fixed rather than moved:
+- **Volumes are named independently.** Aliases were always keyed by book *key*,
+  so `"388"` can be *Site Visits* while `"388v2"` is *Load Calcs*.
+  `formatBookName()` falls back to the parent's name + volume suffix only while a
+  volume has no name of its own.
+- **A volume can be named before it is used.** The old manager listed only
+  `knownBookIds` (books with pages on disk), so a notebook you had just made
+  active had no row. Volume rows now come from `volumesForBook()`, which includes
+  the active volume at zero pages.
+- The **destination folder** (`pages/B388v2/`) sits beside the active volume: the
+  failure volumes exist to prevent is writing into the wrong notebook.
+
+**Transcripts panel** is Review (incoming MyScript results — the old
+`TranscriptionView` unchanged) plus Search (the old modal, unwrapped). Mode lives
+in a store so the canvas can route straight to Search and so leaving the tab and
+returning keeps your half.
+
+**Canvas split by what each bar acts on.** Top = identity and selection
+(Volume ▾ stays there deliberately — it decides which physical notebook a stroke
+belongs to and is worth keeping in view). Bottom = rendering, so sketch marking
+sits beside the `SketchStylePopover` that tunes it; the popover means the live
+preview and the strokes it restyles are finally on screen together, which the
+settings dropdown could never manage. Exports folded into one `Export ▾`.
+
+**Two searches, kept separate on purpose** — see "Left panel tabs" above.
+`CanvasSearch` matches notebook name, page number and transcript text over loaded
+pages only, entirely from memory (fresh MyScript results, else the
+`transcriptionText` the metadata-only scan already carries), and **pans** to the
+result. It reveals a page hidden by the page filter first, otherwise the view
+centres on something not drawn. In text view the term is highlighted on the page
+itself via `drawPageText(pageKey, text, highlight)` — word wrapping happens
+first, so a phrase broken across a wrap boundary finds the page but marks nothing.
+
+**Unloading one page from the canvas** (hover a page chip in the filter → ✕).
+The button was the easy half; the work was index safety — see `stores/canvas.js`
+in the Stores section. `adjustDeletionsAfterRemoval()` is the load-bearing part:
+an unshifted deletion mark silently deletes a *different* stroke at next save.
+
+**Reset labelling.** "Reset" on the bottom bar read as though it covered page
+layout too. It is now **Reset View**, and `⋯` became **Page Resets ▾** with a
+hint on each item naming what it acts on.
+
+**Deleted (7):** `SearchTranscriptsDialog`, `TranscriptSearchResult`,
+`BookAliasManager`, `VolumeSettings`, `ActivityLog` (the dialog filters entries,
+so it renders them itself), and the pre-existing dead `Sidebar` +
+`MyScriptSettings` — the latter a near-duplicate of the MyScript block inlined in
+`SettingsDropdown`, so editing it appeared to do nothing.
+**Known orphan:** `PenInfo.svelte` was only imported by `Sidebar` and is now
+unreachable. Left in place pending a decision.
+
+**New:** `stores/canvas.js`, `components/books/BooksTab.svelte`,
+`components/transcription/{TranscriptsPanel,TranscriptSearch,SearchResultCard}.svelte`,
+`components/canvas/{CanvasSearch,SketchStylePopover}.svelte`,
+`components/dialog/ActivityLogDialog.svelte`.
+**Edited:** `stores/{ui,index,strokes,pending-changes}.js`,
+`lib/canvas-renderer.js` (`centerOnPage`, `drawTextHighlights`, highlight param),
+`components/layout/LeftPanel.svelte`,
+`components/canvas/{StrokeCanvas,CanvasControls,PageSelector}.svelte`,
+`components/header/SettingsDropdown.svelte`, `pending-changes.test.js`.
 
 ### Volumes — telling apart notebooks that share an NCode book id (August 2026)
 

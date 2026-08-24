@@ -197,10 +197,17 @@ export function parseBookDirName(name);       // "B388v2" → "388v2" | null
 ```
 
 **Names live in `_aliases.json`, keyed by book key** — `{"388": "Field Notes Vol
-1", "388v2": "Field Notes Vol 2"}`. Volume 2 gets its own name through the
-existing `BookAliasManager` UI with no new naming feature to build. This requires
-the §7.6 key-type fix first, and `BookAliasManager` must list book keys rather
-than numeric ids.
+1", "388v2": "Field Notes Vol 2"}`. Volume 2 gets its own name with no new naming
+feature to build; this requires the §7.6 key-type fix first, and the naming UI
+must list book keys rather than numeric ids.
+
+> **As built (v2.7):** naming moved out of the settings dropdown into the
+> **Books** tab (`components/books/BooksTab.svelte`), which replaced both
+> `BookAliasManager` and `VolumeSettings`. Volume names are fully independent —
+> `"388"` can be *Site Visits* while `"388v2"` is *Load Calcs*; the parent's name
+> is only inherited (with a volume suffix) while a volume has none of its own.
+> Volume rows come from `volumesForBook()` rather than `knownBookIds`, so the
+> active volume can be named before any page has been written to it.
 
 **No `_volumes.json` ⇒ behaviour byte-identical to today.** There is no migration.
 

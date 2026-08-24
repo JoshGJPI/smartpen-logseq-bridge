@@ -161,6 +161,52 @@ export function removeStrokesByIndices(indices) {
 }
 
 /**
+ * Which loaded strokes belong to a page.
+ *
+ * @param {string|number} book - book KEY ("388" or "388v2")
+ * @param {string|number} page - NCode page number
+ * @returns {number[]} indices into the strokes store, ascending
+ */
+export function strokeIndicesForPage(book, page) {
+  const bookKey = String(book);
+  const pageNum = Number(page);
+  const out = [];
+  get(strokes).forEach((stroke, index) => {
+    const pi = stroke?.pageInfo;
+    if (!pi) return;
+    if (String(pi.book) === bookKey && Number(pi.page) === pageNum) out.push(index);
+  });
+  return out;
+}
+
+/**
+ * Take a page off the canvas without touching what is stored for it.
+ *
+ * Distinct from deleting strokes, and deliberately does NOT call
+ * `markUnsavedChanges()`: unloading is the inverse of importing, not an edit.
+ * Under append-only, missing from the canvas never means deleted on disk, so a
+ * page removed here is untouched in its PageDoc and can simply be imported
+ * again.
+ *
+ * Callers must re-point every index-keyed store afterwards — see
+ * `unloadPageFromCanvas()` in `stores/canvas.js`, which is the entry point that
+ * does. Calling this directly leaves the selection and deletion marks pointing
+ * at the wrong strokes.
+ *
+ * @param {string|number} book - book KEY
+ * @param {string|number} page - NCode page number
+ * @returns {number[]} the indices that were removed
+ */
+export function removeStrokesForPage(book, page) {
+  const indices = strokeIndicesForPage(book, page);
+  if (indices.length === 0) return [];
+
+  const remove = new Set(indices);
+  strokes.update(s => s.filter((_, index) => !remove.has(index)));
+  return indices;
+}
+
+/**
  * Flag or unflag strokes as sketches.
  *
  * Sketch strokes render with a thickness that follows the pen force recorded at

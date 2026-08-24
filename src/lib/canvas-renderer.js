@@ -1216,6 +1216,23 @@ export class CanvasRenderer {
   }
 
   /**
+   * Bring a whole page to the middle of the view, leaving zoom alone.
+   *
+   * Works off the laid-out page rect rather than a dot, so it lands on the page
+   * the user picked even when that page has no strokes near its centre.
+   *
+   * @param {string} pageKey - Page identifier, e.g. "S3/O1012/B388/P42"
+   * @returns {boolean} false when the page has no layout offset yet
+   */
+  centerOnPage(pageKey) {
+    const rect = this.getPageBoundsScreen(pageKey);
+    if (!rect) return false;
+    this.panX += this.viewWidth / 2 - (rect.left + rect.width / 2);
+    this.panY += this.viewHeight / 2 - (rect.top + rect.height / 2);
+    return true;
+  }
+
+  /**
    * Set which page keys should be visible (for filtering borders)
    * @param {Set|null} pageKeys - Set of visible page keys, or null for all
    */
@@ -1601,8 +1618,9 @@ export class CanvasRenderer {
    * Draw transcribed text within a page's boundaries
    * @param {string} pageKey - Page identifier
    * @param {string} text - Transcribed text to render
+   * @param {string} [highlight] - term to mark wherever it appears in the text
    */
-  drawPageText(pageKey, text) {
+  drawPageText(pageKey, text, highlight = '') {
     const pageBounds = this.getPageBoundsScreen(pageKey);
     if (!pageBounds) return;
     
@@ -1674,23 +1692,68 @@ export class CanvasRenderer {
     
     // Set final text styling
     this.ctx.font = `${fontSize}px 'Courier New', monospace`;
-    this.ctx.fillStyle = '#000000';
     this.ctx.textBaseline = 'top';
-    
+
     // Draw wrapped lines
     let y = top + padding;
     const maxY = top + height - padding;
-    
+    const needle = (highlight || '').trim().toLowerCase();
+
     for (const line of wrappedLines) {
       if (y + lineHeight > maxY) {
         // Draw ellipsis if text still doesn't fit (shouldn't happen often now)
+        this.ctx.fillStyle = '#000000';
         this.ctx.fillText('...', left + padding, y);
         break;
       }
-      
+
+      // Highlight rects go down first so the glyphs sit on top of them. Word
+      // wrapping happens above, so a match spanning a wrap boundary shows on
+      // the line that holds it — searching for a phrase that breaks across
+      // lines finds the page but marks nothing, which is the honest result.
+      if (needle) {
+        this.drawTextHighlights(line, needle, left + padding, y, lineHeight);
+      }
+
+      this.ctx.fillStyle = '#000000';
       this.ctx.fillText(line, left + padding, y);
       y += lineHeight;
     }
+  }
+
+  /**
+   * Paint highlight rectangles behind every occurrence of `needle` in one
+   * already-wrapped line of page text.
+   *
+   * Assumes `ctx.font` is the font the line will be drawn with — offsets come
+   * from measuring the text before each match, so any mismatch misaligns them.
+   *
+   * @param {string} line - the rendered line
+   * @param {string} needle - lower-cased search term
+   * @param {number} x - left edge the line is drawn at
+   * @param {number} y - top edge the line is drawn at
+   * @param {number} lineHeight
+   */
+  drawTextHighlights(line, needle, x, y, lineHeight) {
+    const haystack = line.toLowerCase();
+    let from = 0;
+    let at = haystack.indexOf(needle, from);
+    if (at === -1) return;
+
+    const prev = this.ctx.fillStyle;
+    // Amber, matching the search result snippets and the stray-point handles.
+    this.ctx.fillStyle = 'rgba(251, 191, 36, 0.55)';
+
+    while (at !== -1) {
+      const before = this.ctx.measureText(line.slice(0, at)).width;
+      const matchWidth = this.ctx.measureText(line.slice(at, at + needle.length)).width;
+      this.ctx.fillRect(x + before, y - lineHeight * 0.08, matchWidth, lineHeight * 0.96);
+
+      from = at + needle.length;
+      at = haystack.indexOf(needle, from);
+    }
+
+    this.ctx.fillStyle = prev;
   }
   
   /**

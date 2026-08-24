@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { computePendingChangesMap } from '$stores/pending-changes.js';
 
 /**
@@ -365,5 +365,79 @@ describe('computePendingChangesMap', () => {
       expect(m.get('B388v2/P12').moves).toEqual([0]);
       expect(m.get('B388/P12').additions).toEqual([0]);
     });
+  });
+});
+
+/**
+ * `deletedIndices` holds positions in the strokes array. Unloading a page
+ * removes strokes from the middle of that array, so every mark after the hole
+ * shifts down. Left unadjusted a mark silently comes to refer to a *different*
+ * stroke, and the next save deletes the wrong one from disk — the single worst
+ * failure this store can produce, and invisible until the data is gone.
+ */
+describe('adjustDeletionsAfterRemoval', () => {
+  let deletedIndices;
+  let adjustDeletionsAfterRemoval;
+  let markStrokesDeleted;
+  let canUndo;
+  let get;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    const store = await import('$stores/pending-changes.js');
+    ({ deletedIndices, adjustDeletionsAfterRemoval, markStrokesDeleted, canUndo } = store);
+    ({ get } = await import('svelte/store'));
+    deletedIndices.set(new Set());
+  });
+
+  const marksAfter = (marks, removed) => {
+    deletedIndices.set(new Set(marks));
+    adjustDeletionsAfterRemoval(removed);
+    return [...get(deletedIndices)].sort((a, b) => a - b);
+  };
+
+  it('shifts a mark down by the number of removed strokes before it', () => {
+    // Remove 0 and 1; the stroke that was at 5 is now at 3.
+    expect(marksAfter([5], [0, 1])).toEqual([3]);
+  });
+
+  it('leaves marks before the removal alone', () => {
+    expect(marksAfter([1], [4, 5])).toEqual([1]);
+  });
+
+  it('drops marks on the removed strokes themselves', () => {
+    // Off the canvas is not deleted-on-disk: unloading a page must never leave
+    // a deletion queued for it.
+    expect(marksAfter([2, 3], [2, 3])).toEqual([]);
+  });
+
+  it('handles marks interleaved with removals', () => {
+    // Removing 1 and 4 from [0..6]: 0→0, 2→1, 3→2, 5→3, 6→4.
+    expect(marksAfter([0, 2, 3, 5, 6], [1, 4])).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it('accepts a Set as well as an array', () => {
+    expect(marksAfter([7], new Set([0, 1, 2]))).toEqual([4]);
+  });
+
+  it('is a no-op when nothing was removed', () => {
+    expect(marksAfter([3, 9], [])).toEqual([3, 9]);
+    expect(marksAfter([3, 9], null)).toEqual([3, 9]);
+  });
+
+  it('does not renumber into a collision', () => {
+    // Every surviving mark must stay distinct — a collision would silently
+    // reduce how many strokes get deleted.
+    const marks = [2, 3, 4, 5];
+    const out = marksAfter(marks, [0]);
+    expect(out).toEqual([1, 2, 3, 4]);
+    expect(new Set(out).size).toBe(out.length);
+  });
+
+  it('clears the undo history, which holds pre-removal indices', () => {
+    markStrokesDeleted([0, 1]);
+    expect(get(canUndo)).toBe(true);
+    adjustDeletionsAfterRemoval([5]);
+    expect(get(canUndo)).toBe(false);
   });
 });

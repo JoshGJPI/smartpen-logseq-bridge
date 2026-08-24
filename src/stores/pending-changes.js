@@ -85,6 +85,50 @@ export function clearDeletedIndices() {
 }
 
 /**
+ * Re-point the deletion marks after strokes are removed from the store.
+ *
+ * `deletedIndices` holds positions in the strokes array, so removing strokes
+ * ahead of a mark shifts it. Left unadjusted, a mark would silently come to
+ * refer to a *different* stroke and the next save would delete the wrong one
+ * from disk — the one failure mode this store exists to prevent.
+ *
+ * Marks on the removed strokes themselves are dropped: those strokes are no
+ * longer on the canvas, so there is nothing left to delete. That is correct for
+ * unloading a page — under append-only, off the canvas never means gone from
+ * disk, and a page you unload should not be deleted by the next save.
+ *
+ * The undo history is cleared rather than shifted. Its entries are index sets
+ * from before the removal, and "undo a deletion" is not a meaningful offer once
+ * the strokes it referred to may no longer be loaded.
+ *
+ * @param {number[]|Set<number>} removedIndices - indices removed from `strokes`
+ */
+export function adjustDeletionsAfterRemoval(removedIndices) {
+  const removed = removedIndices instanceof Set
+    ? removedIndices
+    : new Set(removedIndices || []);
+  if (removed.size === 0) return;
+
+  const sorted = [...removed].sort((a, b) => a - b);
+
+  deletedIndices.update(marks => {
+    const next = new Set();
+    marks.forEach(index => {
+      if (removed.has(index)) return;   // the stroke itself went
+      let shift = 0;
+      for (const r of sorted) {
+        if (r < index) shift++;
+        else break;
+      }
+      next.add(index - shift);
+    });
+    return next;
+  });
+
+  deletionHistory.set([]);
+}
+
+/**
  * Check if a stroke is marked as deleted
  * @param {number} index - Stroke index
  * @returns {boolean} True if deleted
