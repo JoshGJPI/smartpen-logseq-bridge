@@ -407,6 +407,7 @@
   bind:visible={showEditorModal}
   book={page.book}
   page={page.page}
+  pageId={pageRef}
   lines={editorLines}
   on:save={handleSaveEditor}
 />

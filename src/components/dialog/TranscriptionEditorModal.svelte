@@ -5,9 +5,17 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   import { reassignStrokes, getStrokesSnapshot, updateStrokeBlockUuids, getStrokesInYRange } from '$stores/strokes.js';
+  import TranscriptStrokePreview from './TranscriptStrokePreview.svelte';
 
   export let book;
   export let page;
+  /**
+   * Unique-within-book page id including any letter suffix (e.g. "151b").
+   * Only the stroke preview needs it — it is the read key for the PageDoc when
+   * the page isn't on the canvas. Defaults to `page` for callers that have no
+   * suffix to give.
+   */
+  export let pageId = null;
   export let lines = []; // Array of line objects (merged: existing + new MyScript)
   export let visible = false;
 
@@ -18,6 +26,41 @@
   let selectedIndices = new Set();
   let history = [];
   let historyIndex = -1;
+
+  // Which line the stroke preview is showing. Set by clicking or focusing a row;
+  // never by editing, so typing doesn't make the preview jump.
+  let focusedIndex = -1;
+  let showPreview = loadPreviewPref();
+  let previewReloadKey = 0;
+
+  $: previewPageId = pageId != null ? pageId : page;
+  $: highlightLine = focusedIndex >= 0 && focusedIndex < editedLines.length
+    ? editedLines[focusedIndex]
+    : null;
+
+  const PREVIEW_PREF_KEY = 'transcriptEditor.showStrokePreview';
+
+  function loadPreviewPref() {
+    try {
+      return localStorage.getItem(PREVIEW_PREF_KEY) !== 'false';
+    } catch {
+      return true;
+    }
+  }
+
+  function togglePreview() {
+    showPreview = !showPreview;
+    try {
+      localStorage.setItem(PREVIEW_PREF_KEY, String(showPreview));
+    } catch {
+      /* preference only — a storage failure must not break the editor */
+    }
+  }
+
+  /** Focus a row for the preview (does not change the selection). */
+  function focusLine(index) {
+    focusedIndex = index;
+  }
 
   // Snapshot of original content for existing blocks (blockUuid → text)
   // Used to detect which existing blocks were actually modified
@@ -45,6 +88,8 @@
     });
 
     selectedIndices = new Set();
+    focusedIndex = -1;
+    previewReloadKey++;
     history = [JSON.parse(JSON.stringify(editedLines))];
     historyIndex = 0;
   }
@@ -115,6 +160,7 @@
     editedLines = newLines;
     selectedIndices.clear();
     selectedIndices = selectedIndices;
+    focusedIndex = -1;   // indices shifted — a stale focus would point elsewhere
     addToHistory();
   }
 
@@ -156,6 +202,7 @@
       ...editedLines.slice(index + 1)
     ];
 
+    focusedIndex = -1;   // a line was inserted — later indices shifted
     addToHistory();
   }
 
@@ -202,6 +249,7 @@
       editedLines = JSON.parse(JSON.stringify(history[historyIndex]));
       selectedIndices.clear();
       selectedIndices = selectedIndices;
+      focusedIndex = -1;
     }
   }
 
@@ -212,6 +260,7 @@
       editedLines = JSON.parse(JSON.stringify(history[historyIndex]));
       selectedIndices.clear();
       selectedIndices = selectedIndices;
+      focusedIndex = -1;
     }
   }
 
@@ -376,23 +425,31 @@
     }
   }
 
-  // Get status label for a line
+  /**
+   * Status label for a line.
+   *
+   * A line that has no saved counterpart stays NEW however much it is edited —
+   * "modified" is only meaningful relative to a copy already on disk. Indenting
+   * a freshly recognised line used to relabel it MODIFIED, which both overstated
+   * what was happening and (before the status slot was given a fixed width)
+   * resized the badge mid-interaction.
+   */
   function getStatusLabel(line) {
-    if (line.syncStatus === 'synced' && !line.userModified) return 'synced';
+    if (line.syncStatus === 'new' || !line.blockUuid) return 'new';
     if (line.syncStatus === 'modified' || line.userModified) return 'modified';
-    if (line.syncStatus === 'new') return 'new';
-    if (line.blockUuid) return 'synced';
-    return 'new';
+    return 'synced';
   }
 
-  // Calculate statistics
+  // Calculate statistics — derived from the same labels the badges show, so the
+  // header/footer counts can't disagree with the rows.
+  $: statusLabels = editedLines.map(getStatusLabel);
   $: stats = {
     totalLines: editedLines.length,
     selected: selectedIndices.size,
     merged: editedLines.filter(l => l.mergedLineCount > 1).length,
-    modified: editedLines.filter(l => l.userModified).length,
-    synced: editedLines.filter(l => l.blockUuid && !l.userModified).length,
-    newLines: editedLines.filter(l => !l.blockUuid && l.syncStatus !== 'modified').length
+    modified: statusLabels.filter(l => l === 'modified').length,
+    synced: statusLabels.filter(l => l === 'synced').length,
+    newLines: statusLabels.filter(l => l === 'new').length
   };
 
   $: mergeSuggestions = detectMergeSuggestions();
@@ -411,6 +468,17 @@
         {#if stats.newLines > 0}<span class="stat-badge new">{stats.newLines} new</span>{/if}
         {#if stats.modified > 0}<span class="stat-badge modified">{stats.modified} modified</span>{/if}
       </div>
+      <button
+        class="preview-toggle"
+        class:active={showPreview}
+        on:click={togglePreview}
+        title={showPreview ? 'Hide the stroke preview' : 'Show the handwriting alongside the transcript'}
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 17c3-6 6-9 9-9s4 3 3 6-3 4-4 2 1-6 4-8 4-1 6 1"/>
+        </svg>
+        {showPreview ? 'Hide Strokes' : 'Show Strokes'}
+      </button>
       <button class="close-btn" on:click={handleClose} title="Close (Esc)">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -489,17 +557,21 @@
       {/if}
     </div>
 
-    <div class="modal-body">
+    <div class="modal-body" class:with-preview={showPreview}>
       <div class="lines-list">
         {#each editedLines as line, index}
           {@const status = getStatusLabel(line)}
+          <!-- svelte-ignore a11y-no-static-element-interactions -->
           <div
             class="line-item"
             class:selected={selectedIndices.has(index)}
+            class:focused={focusedIndex === index}
             class:merged={line.mergedLineCount > 1}
             class:status-synced={status === 'synced'}
             class:status-modified={status === 'modified'}
             class:status-new={status === 'new'}
+            on:mousedown={() => focusLine(index)}
+            on:focusin={() => focusLine(index)}
           >
             <div class="line-row" style="padding-left: {(line.indentLevel || 0) * 24}px">
               <!-- Selection checkbox -->
@@ -532,49 +604,55 @@
                 placeholder="Empty line..."
               />
 
-              <!-- Per-line action buttons -->
-              <div class="line-actions">
-                <button
-                  class="action-btn"
-                  on:click={() => mergeLines(index)}
-                  disabled={index >= editedLines.length - 1}
-                  title="Merge with next line"
-                >
-                  &#8595;
-                </button>
-                <button
-                  class="action-btn"
-                  on:click={() => {
-                    const text = line.text;
-                    const mid = Math.floor(text.length / 2);
-                    splitLine(index, text.slice(0, mid), text.slice(mid));
-                  }}
-                  title="Split line"
-                >
-                  &#8596;
-                </button>
-                <button
-                  class="action-btn"
-                  on:click={() => { selectedIndices = new Set([index]); outdentLines(); }}
-                  disabled={(line.indentLevel || 0) <= 0}
-                  title="Outdent"
-                >
-                  &#8592;
-                </button>
-                <button
-                  class="action-btn"
-                  on:click={() => { selectedIndices = new Set([index]); indentLines(); }}
-                  disabled={(line.indentLevel || 0) >= 5}
-                  title="Indent"
-                >
-                  &#8594;
-                </button>
-              </div>
+              <!-- Trailing cluster: actions then status. The status slot is a
+                   fixed width so a line changing from NEW to MODIFIED can't
+                   shift the buttons out from under the cursor mid-click. -->
+              <div class="line-trailing">
+                <div class="line-actions">
+                  <button
+                    class="action-btn"
+                    on:click={() => mergeLines(index)}
+                    disabled={index >= editedLines.length - 1}
+                    title="Merge with next line"
+                  >
+                    &#8595;
+                  </button>
+                  <button
+                    class="action-btn"
+                    on:click={() => {
+                      const text = line.text;
+                      const mid = Math.floor(text.length / 2);
+                      splitLine(index, text.slice(0, mid), text.slice(mid));
+                    }}
+                    title="Split line"
+                  >
+                    &#8596;
+                  </button>
+                  <button
+                    class="action-btn"
+                    on:click={() => { selectedIndices = new Set([index]); outdentLines(); }}
+                    disabled={(line.indentLevel || 0) <= 0}
+                    title="Outdent"
+                  >
+                    &#8592;
+                  </button>
+                  <button
+                    class="action-btn"
+                    on:click={() => { selectedIndices = new Set([index]); indentLines(); }}
+                    disabled={(line.indentLevel || 0) >= 5}
+                    title="Indent"
+                  >
+                    &#8594;
+                  </button>
+                </div>
 
-              <!-- Status badge -->
-              <span class="status-badge {status}" title="{status === 'synced' ? 'Saved to disk' : status === 'modified' ? 'Modified locally' : 'New (will create block)'}">
-                {status}
-              </span>
+                <!-- Status badge -->
+                <span class="status-slot">
+                  <span class="status-badge {status}" title="{status === 'synced' ? 'Saved to disk' : status === 'modified' ? 'Modified locally' : 'New (will create block)'}">
+                    {status}
+                  </span>
+                </span>
+              </div>
             </div>
 
             {#if line.mergedLineCount > 1}
@@ -585,6 +663,15 @@
           </div>
         {/each}
       </div>
+
+      {#if showPreview}
+        <TranscriptStrokePreview
+          {book}
+          pageId={previewPageId}
+          {highlightLine}
+          reloadKey={previewReloadKey}
+        />
+      {/if}
     </div>
 
     <div class="modal-footer">
@@ -623,9 +710,9 @@
   .modal-container {
     background: var(--bg-primary);
     border-radius: 12px;
-    width: 90vw;
-    max-width: 900px;
-    height: 85vh;
+    width: 92vw;
+    max-width: 1440px;
+    height: 88vh;
     display: flex;
     flex-direction: column;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
@@ -667,6 +754,33 @@
   .stat-badge.synced { background: rgba(107, 114, 128, 0.2); color: #9ca3af; }
   .stat-badge.new { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
   .stat-badge.modified { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+
+  .preview-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .preview-toggle:hover {
+    color: var(--text-primary);
+    border-color: var(--accent);
+  }
+
+  .preview-toggle.active {
+    color: var(--text-primary);
+    border-color: var(--accent);
+    background: rgba(59, 130, 246, 0.12);
+  }
 
   .close-btn {
     background: none;
@@ -738,16 +852,23 @@
     border-color: #f59e0b;
   }
 
-  /* Body — single column */
+  /* Body — transcript column, optionally beside the stroke preview */
   .modal-body {
     flex: 1;
     overflow: hidden;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
+    min-height: 0;
+  }
+
+  .modal-body.with-preview :global(.preview) {
+    flex: 0 0 42%;
+    max-width: 620px;
   }
 
   .lines-list {
-    flex: 1;
+    flex: 1 1 auto;
+    min-width: 0;
     overflow-y: auto;
     padding: 12px 16px;
   }
@@ -765,6 +886,17 @@
 
   .line-item.selected {
     background: rgba(59, 130, 246, 0.08);
+  }
+
+  /* The row the stroke preview is showing. Distinct from selection, which
+     drives the bulk indent/merge actions. */
+  .line-item.focused {
+    background: rgba(245, 158, 11, 0.10);
+    box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.35);
+  }
+
+  .line-item.focused.selected {
+    background: rgba(245, 158, 11, 0.14);
   }
 
   .line-item.merged {
@@ -854,6 +986,15 @@
     font-style: italic;
   }
 
+  /* Trailing cluster — actions sit at a fixed offset from the row's right edge
+     because the status slot below never changes width. */
+  .line-trailing {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
   /* Per-line action buttons — compact icon row */
   .line-actions {
     display: flex;
@@ -895,8 +1036,21 @@
     cursor: not-allowed;
   }
 
-  /* Status badges */
+  /* Status badges. The slot is fixed-width and the badge fills it, so a line
+     going from NEW to MODIFIED (e.g. after an indent) re-labels in place instead
+     of pushing the action buttons sideways under the user's cursor — which made
+     indenting a line several levels a game of chase. */
+  .status-slot {
+    display: inline-flex;
+    justify-content: flex-end;
+    width: 68px;
+    flex-shrink: 0;
+  }
+
   .status-badge {
+    width: 100%;
+    box-sizing: border-box;
+    text-align: center;
     font-size: 0.6rem;
     font-weight: 600;
     text-transform: uppercase;

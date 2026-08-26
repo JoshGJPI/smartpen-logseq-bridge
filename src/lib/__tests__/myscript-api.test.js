@@ -15,7 +15,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { parseMyScriptResponse } from '../myscript-api.js';
+import {
+  parseMyScriptResponse,
+  yBoundsToNcode,
+  NCODE_TO_MM,
+  MYSCRIPT_INK_ORIGIN_MM
+} from '../myscript-api.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -312,5 +317,53 @@ describe('parseMyScriptResponse — indentation', () => {
     const result = parseMyScriptResponse(r);
     expect(result.lines[0].indentLevel).toBe(0);
     expect(result.lines[1].indentLevel).toBeGreaterThan(0);
+  });
+});
+
+
+describe('yBoundsToNcode — MyScript millimetres back to Ncode', () => {
+  const ORIGIN = 7.59; // a real page's stroke bounds minY
+
+  it('maps the topmost ink to the batch origin', () => {
+    // convertStrokesToMyScript shifts the topmost dot onto the request padding,
+    // so a line starting at the ink origin is at the top of the strokes.
+    const r = yBoundsToNcode({ minY: MYSCRIPT_INK_ORIGIN_MM, maxY: MYSCRIPT_INK_ORIGIN_MM + NCODE_TO_MM }, ORIGIN);
+    expect(r.minY).toBeCloseTo(ORIGIN, 6);
+    expect(r.maxY).toBeCloseTo(ORIGIN + 1, 6);
+  });
+
+  it('divides by the Ncode scale rather than comparing millimetres directly', () => {
+    // The bug this exists to prevent: treating 40mm as Ncode 40 put a line's
+    // highlight far below the page.
+    const r = yBoundsToNcode({ minY: 40, maxY: 47.113 }, 0);
+    expect(r.minY).toBeCloseTo((40 - MYSCRIPT_INK_ORIGIN_MM) / NCODE_TO_MM, 6);
+    expect(r.maxY - r.minY).toBeCloseTo(3, 6);
+    expect(r.minY).toBeLessThan(40);
+  });
+
+  it('is monotonic across lines down the page', () => {
+    const a = yBoundsToNcode({ minY: 1.65, maxY: 7.34 }, ORIGIN);
+    const b = yBoundsToNcode({ minY: 6.32, maxY: 13.6 }, ORIGIN);
+    expect(b.minY).toBeGreaterThan(a.minY);
+    expect(b.maxY).toBeGreaterThan(a.maxY);
+  });
+
+  it('offsets by the origin so a partial batch shifts as a whole', () => {
+    const at0 = yBoundsToNcode({ minY: 20, maxY: 25 }, 0);
+    const at50 = yBoundsToNcode({ minY: 20, maxY: 25 }, 50);
+    expect(at50.minY - at0.minY).toBeCloseTo(50, 6);
+    expect(at50.maxY - at0.maxY).toBeCloseTo(50, 6);
+  });
+
+  it('rejects the 0-0 no-word-match marker rather than placing it at the top', () => {
+    expect(yBoundsToNcode({ minY: 0, maxY: 0 }, ORIGIN)).toBeNull();
+  });
+
+  it('rejects missing or non-finite input', () => {
+    expect(yBoundsToNcode(null, ORIGIN)).toBeNull();
+    expect(yBoundsToNcode(undefined, ORIGIN)).toBeNull();
+    expect(yBoundsToNcode({ minY: NaN, maxY: 5 }, ORIGIN)).toBeNull();
+    expect(yBoundsToNcode({ minY: 1, maxY: Infinity }, ORIGIN)).toBeNull();
+    expect(yBoundsToNcode({ minY: 1, maxY: 5 }, NaN)).toBeNull();
   });
 });

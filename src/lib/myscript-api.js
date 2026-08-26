@@ -6,6 +6,56 @@
 const MYSCRIPT_API_URL = 'https://cloud.myscript.com/api/v4.0/iink/batch';
 
 /**
+ * Ncode units → millimetres. Same factor `convertStrokesToMyScript` uses to
+ * build the request and `canvas-renderer`/`page-svg` use to draw.
+ */
+export const NCODE_TO_MM = 2.371;
+
+/**
+ * Where the topmost transcribed ink lands in the millimetre space MyScript
+ * reports JIIX bounding boxes in.
+ *
+ * `convertStrokesToMyScript` shifts the batch so its topmost dot sits at the
+ * request's 10px padding, which at 96 DPI ought to be 2.646mm — but the topmost
+ * word bbox consistently comes back at 1.6458mm, so the constant is measured
+ * rather than derived. Verified over the 96 saved pages that carry a transcript:
+ * with this offset every line's Y range lands inside its page's stroke bounds on
+ * 86 of them (the other 10 have Y-bounds produced by the interpolation fallback
+ * in `parseMyScriptResponse`, which can run wild). Comparing the raw millimetre
+ * values against Ncode directly — as if they shared a coordinate space — puts 84
+ * of the 96 outside the page.
+ */
+export const MYSCRIPT_INK_ORIGIN_MM = 1.645833;
+
+/**
+ * Convert a transcript line's `yBounds` (MyScript millimetres) back into the
+ * Ncode Y space that strokes live in.
+ *
+ * `originNcodeY` is the minimum Y of the strokes that were *sent* for
+ * recognition. For a whole-page transcription that is the page's stroke bounds
+ * `minY`; a partial re-transcription (only untranscribed strokes) has its own,
+ * lower-down origin that isn't recoverable from the line data, so a caller
+ * passing the page bounds gets a result shifted by that difference. Callers
+ * should treat the result as approximate and clamp before drawing.
+ *
+ * @param {{minY:number,maxY:number}} yBounds
+ * @param {number} originNcodeY
+ * @returns {{minY:number,maxY:number}|null} null when yBounds is unusable
+ */
+export function yBoundsToNcode(yBounds, originNcodeY) {
+  if (!yBounds || !Number.isFinite(originNcodeY)) return null;
+  const { minY, maxY } = yBounds;
+  if (!Number.isFinite(minY) || !Number.isFinite(maxY)) return null;
+  // A 0-0 range is parseMyScriptResponse's "no word match" marker, not a
+  // position at the top of the page.
+  if (minY === 0 && maxY === 0) return null;
+  return {
+    minY: (minY - MYSCRIPT_INK_ORIGIN_MM) / NCODE_TO_MM + originNcodeY,
+    maxY: (maxY - MYSCRIPT_INK_ORIGIN_MM) / NCODE_TO_MM + originNcodeY
+  };
+}
+
+/**
  * Check if running in Electron with the IPC bridge available
  */
 function hasElectronBridge() {
@@ -73,7 +123,6 @@ function convertStrokesToMyScript(strokes) {
   // 1 Ncode unit × 2.371 = 1mm
   // (ncodeValue × 2.371 × DPI) / 25.4 = pixels
   const DPI = 96;
-  const NCODE_TO_MM = 2.371;
   const MM_TO_PIXELS = DPI / 25.4;
   const NCODE_TO_PIXELS = NCODE_TO_MM * MM_TO_PIXELS;
   
