@@ -79,7 +79,7 @@ The existing `jpi/`, `raw/`, `processed/`, `reference/` subfolders are recognize
         "indentLevel": 0,
         "parentId": null,
         "checked": null,                  // null | true | false (TODO/DONE)
-        "yBounds": { "minY": 1.6, "maxY": 8.6 }
+        "yBounds": { "minY": 1.6, "maxY": 8.6 }   // MyScript mm, not Ncode — see §12
       },
       {
         "id": "38de125d-7452-45c2-aa6a-b12d69faa5d8",
@@ -325,9 +325,9 @@ Measured: largest B3017 page went 2479 KB (full pretty) → 986 KB (hybrid).
 ## 12. Amendments Since v2.0
 
 The schema above is still accurate for what it describes, but two additions have
-landed on `strokes[]` since, and one rule has gained an exception. **CLAUDE.md is
-authoritative for current behaviour**; this section exists so the schema example in
-§3 isn't read as complete.
+landed on `strokes[]` since, one rule has gained an exception, and one field's
+units needed stating. **CLAUDE.md is authoritative for current behaviour**; this
+section exists so the schema example in §3 isn't read as complete.
 
 ### Point tuples are variable length (v2.4, sketch strokes)
 
@@ -372,6 +372,26 @@ Invariants the rewrite preserves:
 
 A stroke cannot be reduced below 2 points; such a removal is refused rather than
 leaving a stroke with nothing to draw.
+
+### `transcript.lines[].yBounds` are millimetres, not Ncode (Aug 2026)
+
+The two coordinate systems in a PageDoc are not the same. Stroke `points` are raw
+Ncode (~2.4mm per unit); `yBounds` are MyScript JIIX **millimetres**, stored as
+reported and measured from the top of whatever batch of strokes was sent for
+recognition — not from the top of the page.
+
+Converting between them needs that batch's origin, so `setPageTranscription`
+records it as `originNcodeY` on the in-memory result and `savePageToFolder` maps
+through `yBoundsToNcode()` before matching strokes to lines. **The origin is not
+persisted**: a saved transcript's `yBounds` can only be placed back on the page
+approximately, assuming whole-page recognition.
+
+Files written before this compared the two spaces directly, so most stored
+`strokes[].lineId` values point at the wrong line. Nothing depends on them being
+right — no save path rewrites geometry off a `lineId`, and re-transcription only
+checks whether a link exists — and they were deliberately left alone rather than
+repaired against an origin that is no longer recoverable. Re-transcribing a page
+corrects that page.
 
 ---
 

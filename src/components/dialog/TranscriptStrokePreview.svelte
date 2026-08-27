@@ -35,6 +35,13 @@
   export let pageId;
   /** The line currently being edited, or null. Drives the highlight. */
   export let highlightLine = null;
+  /**
+   * Ncode Y this modal's incoming MyScript batch was anchored at, or null when
+   * there isn't one (editing a saved transcript). Only lines carrying
+   * `fromBatch` may use it — a line loaded from disk was measured against an
+   * origin nothing records, so it falls back to the page.
+   */
+  export let batchOriginY = null;
   /** Bump to force a re-resolve (modal reopened). */
   export let reloadKey = 0;
 
@@ -62,7 +69,16 @@
   // A transcript line's yBounds are MyScript millimetres, not Ncode — the two
   // only look comparable. Everything below works in Ncode, so convert once here
   // and let both the highlight and the band read from it.
-  $: lineNcodeY = bounds ? yBoundsToNcode(highlightLine?.yBounds, bounds.minY) : null;
+  //
+  // Which origin to undo depends on the line: one from the batch being confirmed
+  // was measured from that batch's top, which sits partway down the page when
+  // only untranscribed strokes were sent. Anything else gets the page, which is
+  // right for a whole-page transcription and the best guess otherwise.
+  $: lineOrigin =
+    highlightLine?.fromBatch && Number.isFinite(batchOriginY)
+      ? batchOriginY
+      : (bounds ? bounds.minY : null);
+  $: lineNcodeY = lineOrigin === null ? null : yBoundsToNcode(highlightLine?.yBounds, lineOrigin);
 
   // Which strokes belong to the focused line. Prefer the explicit stroke→line
   // link; fall back to Y-overlap for freshly recognised lines that have no id
@@ -146,10 +162,11 @@
   }
 
   /**
-   * Band geometry in unzoomed paper pixels, clamped to the page. The conversion
-   * assumes the line was recognised from the whole page; a partial
-   * re-transcription has a lower origin, which shifts the band down. Clamping
-   * keeps a bad estimate at the page edge rather than floating outside it.
+   * Band geometry in unzoomed paper pixels, clamped to the page. Exact for a
+   * line from the batch being confirmed (its origin is known); for a line off
+   * disk the conversion still assumes whole-page recognition, so a partial
+   * re-transcription shifts the band. Clamping keeps a bad estimate at the page
+   * edge rather than floating outside it.
    */
   function bandFor(ncodeY, b, pageHeight) {
     if (!ncodeY || !b || !pageHeight) return null;

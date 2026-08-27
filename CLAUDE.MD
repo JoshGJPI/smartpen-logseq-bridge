@@ -462,14 +462,14 @@ Existing test files (all in `src/lib/__tests__/`):
 | File | What it tests |
 |------|---------------|
 | `stroke-storage.test.js` | ID generation, `convertToStorageFormat` (lineId/blockUuid), `convertFromStorageFormat` round-trip, bounds, deduplication, JSON/MD export builders, `formatTranscribedText` / `formatPageName` / `getPageProperties` |
-| `myscript-api.test.js` | `parseMyScriptResponse` — line parsing, Y-bounds from word bboxes, fallback interpolation, indentation, checkbox normalisation |
+| `myscript-api.test.js` | `parseMyScriptResponse` — line parsing, Y-bounds from word bboxes, fallback interpolation, indentation, checkbox normalisation; `yBoundsToNcode` (origin mapping, monotonicity, origin shift, 0-0 marker); `batchOriginY` (subset vs page anchor, round-trip with `yBoundsToNcode`, empty/NaN input) |
 | `transcript-search.test.js` | `tokenize` (hyphen preservation, property filtering), `searchPages` (partial matching, ranking), `highlightMatches` (HTML escaping) |
 | `stroke-filter.test.js` | `filterDecorativeStrokes` / `detectDecorativeIndices` — underline, circle, single-stroke box detection, threshold behaviour |
 | `page-svg.test.js` | `computeStrokeBounds`, `strokeToPathD` (scaling, normalisation, <2-point skip), `generateThumbnailSVG` (empty placeholder, dimensions); `strokePointPressures` (4th tuple element, NaN for legacy), `strokeToWidthRuns` (run splitting, monotonic ramp, full segment coverage, constant-pressure collapse, flatWidth fallback, scale/profile response) |
 | `sketch-width.test.js` | `normalizeProfile` (defaults, swapped/degenerate sanitising, null-vs-zero), presets, `profileKey`, `pressureToUnit` (band/clamp/NaN), `widthForPressure` (endpoints, gamma character), `smoothSeries` (symmetry, spike attenuation, edge windows), `limitSlew` (bidirectional), `widthsForPressures` (full pipeline, gap filling, all-missing → flatWidth), `strokePressures`/`hasPressureData` |
 | `sketch-store.test.js` | `stores/sketch.js` (sanitised load, persistence, corrupt JSON, presets, edit-clears-preset, reset, summary) and the `stores/strokes.js` flag helpers (mark/unmark, Set or array, no-op detection, unsaved-changes signalling, `_sw` cache invalidation, `sketchStrokeCount`) |
 | `canvas-renderer-sketch.test.js` | Renderer sketch path against a recording 2D-context stub: uniform handwriting (and that width no longer depends on the final dot), multi-width sketch runs, monotonic ramp, full segment coverage, run batching/quantisation, dashed fallback for deleted/decorative, width caching + profile invalidation, pasted-sketch taper |
-| `save-page.test.js` | `strokeToStored` (force as 4th element, integer rounding, null-timestamp placeholder, 3-element fallback for missing force, `sketch` omitted when false, key order); `savePageToFolder` sketch-flag sync onto strokes already on disk (mark, unmark removes the key, untouched when absent from canvas, points never rewritten *without the marker*, lineId sync preserved); **point edits** (rewrite gated on `pointsEdited`, refused without it, id/startTime/endTime survive losing the first point, force + sketch flag survive, marker never written to disk, other strokes untouched, bounds recomputed, key order stable, new-stroke case reports `edited: 0`) |
+| `save-page.test.js` | `transcriptionOriginY` (recorded origin preferred, id re-derivation, page fallback, id forms, missing strokes); stroke→line matching (mm→Ncode conversion, batch origin vs page bounds, most-overlapping line wins a tie, tolerance reach, unusable yBounds link nothing, existing links preserved); `strokeToStored` (force as 4th element, integer rounding, null-timestamp placeholder, 3-element fallback for missing force, `sketch` omitted when false, key order); `savePageToFolder` sketch-flag sync onto strokes already on disk (mark, unmark removes the key, untouched when absent from canvas, points never rewritten *without the marker*, lineId sync preserved); **point edits** (rewrite gated on `pointsEdited`, refused without it, id/startTime/endTime survive losing the first point, force + sketch flag survive, marker never written to disk, other strokes untouched, bounds recomputed, key order stable, new-stroke case reports `edited: 0`) |
 | `point-edit.test.js` | `detectStrayPoints` (origin exact/near/leading, non-finite, interior jump, fast-movement and short-flick non-detections, absolute-floor boundary, short strokes, single reason per point); `detectStrayPointsForStrokes`; `removePointsFromStroke` (order, identity preserved both ends, force + sketch preserved, `dotType` re-tag, cache drop, no mutation, min-points refusal, no-ops, Set input); key helpers; `removeStrokePoints`/`clearPointEditMarkers` store behaviour (marker stamping, dirty signalling, partial refusal, per-page clearing); `stores/point-edit.js` mode + selection (entry refusals, derived strokes/point count/strays, key pruning when a stroke leaves the selection, exit when the selection empties, toggle, select/delete strays, selection cleared after a delete) |
 | `volumes.test.js` | `src/lib/volumes.js` — `makeBookKey`/`parseBookKey` round-trip, canonical-form rejection (`"388v1"`, `"388v0"`, `"0388"`, `"388v02"`), `compareBookKeys` ordering (`"388"` < `"388v2"` < `"3880"` — the case naive string sort gets wrong), `withVolume`, `bookDirName`/`parseBookDirName`, the disk↔memory `pageInfo` boundary (volume 1 omitted), display helpers, `BOOK_KEY_FRAGMENT` matching |
 | `volumes-store.test.js` | `stores/volumes.js` (`activeVolumeFor`, `applyActiveVolume` including its idempotency, `volumesForBook`) and reassignment in `stores/strokes.js` — identity/geometry/sketch preserved, `blockUuid` cleared, first origin kept across a double move, `getMovedAwayStrokeIdsForPage` (the copy→move fix), `clearMovedFromMarkers` no-op pre-check |
@@ -614,6 +614,87 @@ npm run preview
 - [Svelte 4 Docs](https://svelte.dev/docs/svelte/overview) — Framework reference
 
 ## Recent Changes (Git History Context)
+
+### Stroke→line matching — two coordinate spaces, compared as one (August 2026)
+
+**`strokesIntersectingLine()` in `save-page.js` compared a transcript line's
+`yBounds` directly against stroke point Y values, which are not in the same
+space.** Stroke points are raw Ncode (~2.4mm per unit); `line.yBounds` are
+MyScript JIIX **millimetres**, measured from wherever `convertStrokesToMyScript`
+put the top of the batch it sent. Across the saved corpus the raw millimetre
+values fall outside the page's own stroke bounds on 84 of the 96 transcribed
+pages, so the `lineId` written onto each stroke recorded whichever line happened
+to collide numerically.
+
+**The fix** converts through `yBoundsToNcode()` (`myscript-api.js`, added for the
+transcript editor's stroke preview) before matching. Two things it needed:
+
+- **The origin is the batch's, not the page's.** `yBoundsToNcode` anchors on the
+  min Y of the strokes actually *sent* for recognition. The ActionBar sends
+  untranscribed strokes only, so a page being topped up has a batch that starts
+  partway down and the page's own bounds are the wrong anchor — off by the
+  distance between them. **`batchOriginY()` in `myscript-api.js` is the single
+  definition of that anchor**: `convertStrokesToMyScript` uses it to build the
+  request, and `setPageTranscription` calls it on the strokes it was handed and
+  stores the result as `originNcodeY`, so the value is measured once, where it is
+  known exactly. `transcriptionOriginY()` prefers that; it re-derives from
+  `transcribedStrokeIds` for entries predating the field, and falls back to the
+  whole page when there is neither. Measuring at recognition time rather than at
+  save time matters because the strokes can change in between — delete or
+  point-edit the topmost one and a re-derived anchor slides up the page, taking
+  every line's position with it.
+- **Ties needed a rule.** With the coordinates right, 56% of matched strokes
+  touch more than one line — ascenders, descenders, anything tall. The old code
+  let the last line considered win, which on the corpus disagrees with
+  "most-overlapping line" 64% of the time. Matching now returns the overlap and
+  the largest wins; the value goes negative for a tolerance-only match, so the
+  same comparison also means "else nearest".
+
+**Tolerance is `LINE_MATCH_TOLERANCE_NCODE = 1`**, replacing a `tol = 5`
+documented as "pen-unit" that was never in any real unit. 5 Ncode units is
+~12mm — two lines' worth on either side, on pages whose recognised lines are
+2.4–5 units tall. 1 unit matches `TranscriptStrokePreview`'s `Y_TOLERANCE`
+deliberately: the preview and the saved link answer the same question and must
+not disagree.
+
+**`mergeTranscript`'s duplicate test was left as it stands.** It compares
+yBounds to yBounds, so both sides are millimetres and its `3` really is 3mm —
+under half a line height, the right order for "the same line, recognised again".
+Its blind spot is documented rather than fixed: two batches with different
+origins put the same physical line at different millimetre values, so a re-run
+over a shifted batch can slip a duplicate past the Y test. Exact text still has
+to match, which is what keeps that rare.
+
+**Existing files are left alone — Josh's call, 2026-08-26.** 81% of the 108k
+stroke `lineId`s on disk would change under the corrected mapping, but a repair
+can only re-derive them where the batch origin is recoverable: 37 of 97 pages
+visibly show multiple batches (their line yBounds restart partway down the
+list), and pages written before the v2.2 merge-ordering fix had their lines
+re-sorted by Y, which *hides* that signal on the other 60. Nothing is at risk in
+the meantime — no save path rewrites geometry off a lineId,
+`getUntranscribedStrokes()` only checks whether a link *exists*, and LogSeq
+export clears them. **Known limitation:** on pages transcribed before this fix,
+`TranscriptStrokePreview` highlights the wrong strokes for a line, because it
+prefers the stored link over its own (now correct) Y-overlap fallback.
+Re-transcribing a page fixes that page.
+
+**The confirming modal's preview uses the real origin** (`TranscriptStrokePreview`
+gained a `batchOriginY` prop, threaded through `TranscriptionEditorModal` from the
+`pageTranscriptions` entry). It has to be chosen **per line**, not per page: the
+editor shows a mix of lines from disk and lines from the batch being confirmed,
+and only the latter were measured against it. The flag for that is `fromBatch`,
+set in `TranscriptionView.mergeExistingAndNewLines` — deliberately **not**
+`syncStatus === 'new'`, which `splitLine` also sets on the second half of a split
+whose yBounds it inherited from a disk line. `mergeLines` carries `fromBatch` only
+when every merged part had it, since a combined yBounds spanning both sources
+belongs to neither origin. A line without it still gets the whole-page guess,
+which is all that is available for a saved transcript.
+
+**Edited:** `src/lib/storage/save-page.js`, `src/lib/myscript-api.js`,
+`src/stores/transcription.js`,
+`src/components/dialog/{TranscriptStrokePreview,TranscriptionEditorModal}.svelte`,
+`src/components/transcription/TranscriptionView.svelte`,
+`src/lib/__tests__/{save-page,myscript-api}.test.js`.
 
 ### v2.7 — UI reorganisation: panels, not toolbars (August 2026)
 

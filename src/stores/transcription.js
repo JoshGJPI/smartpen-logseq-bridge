@@ -4,6 +4,7 @@
  */
 import { writable, derived } from 'svelte/store';
 import { setFilteredStrokes } from './filtered-strokes.js';
+import { batchOriginY } from '$lib/myscript-api.js';
 
 // Last transcription result (legacy - combined view)
 export const lastTranscription = writable(null);
@@ -142,6 +143,13 @@ export function setPageTranscription(pageKey, transcription, pageInfo, strokeCou
     ? transcribedStrokes.map(s => String(s.startTime))
     : null;
 
+  // Where this batch's millimetre coordinates are anchored in Ncode. Every
+  // y-value MyScript returns is measured from it, and it is knowable exactly
+  // only here, with the strokes that were sent still in hand — recovering it
+  // afterwards means guessing from whichever of them still exist.
+  const origin = transcribedStrokes ? batchOriginY(transcribedStrokes) : Infinity;
+  const originNcodeY = Number.isFinite(origin) ? origin : null;
+
   pageTranscriptions.update(pt => {
     const newMap = new Map(pt);
     newMap.set(pageKey, {
@@ -149,6 +157,7 @@ export function setPageTranscription(pageKey, transcription, pageInfo, strokeCou
       pageInfo,
       strokeCount,
       transcribedStrokeIds, // NEW: Track which strokes were actually transcribed
+      originNcodeY,         // Ncode anchor for this batch's yBounds
       timestamp: Date.now()
     });
     return newMap;

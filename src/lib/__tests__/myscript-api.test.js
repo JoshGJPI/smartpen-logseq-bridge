@@ -18,6 +18,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   parseMyScriptResponse,
   yBoundsToNcode,
+  batchOriginY,
   NCODE_TO_MM,
   MYSCRIPT_INK_ORIGIN_MM
 } from '../myscript-api.js';
@@ -320,6 +321,40 @@ describe('parseMyScriptResponse — indentation', () => {
   });
 });
 
+
+describe('batchOriginY — the anchor a batch of strokes will be measured from', () => {
+  const stroke = (...ys) => ({ dotArray: ys.map((y, i) => ({ x: i, y })) });
+
+  it('is the topmost dot of the strokes being sent', () => {
+    expect(batchOriginY([stroke(40, 43), stroke(60, 63)])).toBe(40);
+  });
+
+  it('is the SUBSET origin, not the page — the whole reason it is measured here', () => {
+    // The ActionBar sends untranscribed strokes only. Handed just the lower
+    // block, the batch starts 20 units down and every yBounds that comes back
+    // is relative to that.
+    expect(batchOriginY([stroke(60, 63)])).toBe(60);
+  });
+
+  it('round-trips through yBoundsToNcode', () => {
+    const strokes = [stroke(51.4, 55.2)];
+    const origin = batchOriginY(strokes);
+    // What MyScript reports for ink sitting at the very top of the batch.
+    const back = yBoundsToNcode({ minY: MYSCRIPT_INK_ORIGIN_MM, maxY: MYSCRIPT_INK_ORIGIN_MM + NCODE_TO_MM }, origin);
+    expect(back.minY).toBeCloseTo(51.4, 6);
+  });
+
+  it('skips strokes with no dots and reports Infinity when nothing is usable', () => {
+    expect(batchOriginY([{ dotArray: [] }, stroke(12)])).toBe(12);
+    expect(batchOriginY([])).toBe(Infinity);
+    expect(batchOriginY(null)).toBe(Infinity);
+  });
+
+  it('ignores a non-numeric y rather than poisoning the minimum', () => {
+    // NaN loses every comparison, so it can never become the minimum.
+    expect(batchOriginY([{ dotArray: [{ x: 0, y: NaN }, { x: 1, y: 30 }] }])).toBe(30);
+  });
+});
 
 describe('yBoundsToNcode — MyScript millimetres back to Ncode', () => {
   const ORIGIN = 7.59; // a real page's stroke bounds minY

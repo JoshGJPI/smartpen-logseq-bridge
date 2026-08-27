@@ -17,6 +17,11 @@
    */
   export let pageId = null;
   export let lines = []; // Array of line objects (merged: existing + new MyScript)
+  /**
+   * Ncode anchor for the incoming MyScript batch, when this modal is confirming
+   * one. Passed straight to the preview; only lines flagged `fromBatch` use it.
+   */
+  export let batchOriginY = null;
   export let visible = false;
 
   const dispatch = createEventDispatcher();
@@ -133,6 +138,9 @@
       },
       mergedLineCount: linesToMerge.reduce((sum, l) => sum + (l.mergedLineCount || 1), 0),
       indentLevel: linesToMerge[0].indentLevel || 0,
+      // Only if every part came from the batch — a merged yBounds spanning a
+      // disk line and a fresh one belongs to neither origin.
+      fromBatch: linesToMerge.every(l => l.fromBatch),
       blockUuid: linesToMerge[0].blockUuid,
       mergedBlockUuids: allBlockUuids,
       blocksToDelete: allBlockUuids.slice(1),
@@ -176,6 +184,7 @@
       yBounds: { minY: line.yBounds.minY, maxY: midY },
       mergedLineCount: 1,
       indentLevel: line.indentLevel || 0,
+      fromBatch: line.fromBatch,
       blockUuid: line.blockUuid,
       syncStatus: line.blockUuid ? 'modified' : (line.syncStatus || 'synced'),
       id: line.id,
@@ -189,6 +198,9 @@
       yBounds: { minY: midY, maxY: line.yBounds.maxY },
       mergedLineCount: 1,
       indentLevel: line.indentLevel || 0,
+      // Halves of a split inherit the parent's coordinate space. 'new' here
+      // means "no block yet", which is not the same question.
+      fromBatch: line.fromBatch,
       syncStatus: 'new',
       id: `${line.id}-split`,
       originalIndex: line.originalIndex,
@@ -669,6 +681,7 @@
           {book}
           pageId={previewPageId}
           {highlightLine}
+          {batchOriginY}
           reloadKey={previewReloadKey}
         />
       {/if}

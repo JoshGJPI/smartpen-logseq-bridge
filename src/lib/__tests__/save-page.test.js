@@ -1,9 +1,8 @@
 /**
- * Tests for storage/save-page.js — pressure and sketch-flag persistence.
+ * Tests for storage/save-page.js — pressure, sketch-flag persistence, and the
+ * transcript merge's stroke→line matching.
  *
- * The transcript-merge half of this module predates these tests; what is covered
- * here is the stroke half, and specifically the two things that had to change for
- * sketch strokes:
+ * The stroke half covers the two things that had to change for sketch strokes:
  *
  *   - strokeToStored writes per-point pen force as a 4th tuple element, with a
  *     null timestamp placeholder so force keeps a fixed index.
@@ -11,6 +10,11 @@
  *     disk. The append-only rule means points are never rewritten, but `sketch`
  *     is an annotation the user toggles long after capture, so a save has to
  *     carry it through in both directions.
+ *
+ * The transcript half covers the coordinate-space fix: a line's yBounds are
+ * MyScript millimetres measured from the batch's own origin, stroke points are
+ * raw Ncode, and until Aug 2026 the two were compared as if they were the same
+ * number.
  *
  * getPage / savePage and the pending-changes store are mocked so no Electron
  * storage backend is needed.
@@ -32,8 +36,9 @@ vi.mock('$stores/pending-changes.js', () => ({
 
 import { getPage, savePage, deletePage } from '../storage/local-store.js';
 import {
-  strokeToStored, savePageToFolder, planPageMove, finalizePageMoves
+  strokeToStored, savePageToFolder, planPageMove, finalizePageMoves, transcriptionOriginY
 } from '../storage/save-page.js';
+import { NCODE_TO_MM, MYSCRIPT_INK_ORIGIN_MM } from '../myscript-api.js';
 
 const PAGE_INFO = { section: 3, owner: 1012, book: 3017, page: 42 };
 
@@ -399,6 +404,241 @@ describe('savePageToFolder — point edits (the one geometry rewrite)', () => {
 /* ==================================================================
  *  Volumes
  * ================================================================== */
+
+/* -----------------------------------------------------------------
+ *  Transcript merge — Ncode vs MyScript millimetres
+ * ----------------------------------------------------------------- */
+
+/**
+ * The millimetre yBounds MyScript would report for ink spanning `minY`..`maxY`
+ * in Ncode, given a batch anchored at `originY`. The forward direction of
+ * yBoundsToNcode, so the tests state the fixture in the space the pen writes in
+ * and let the constants do the rest.
+ */
+function mmBounds(minY, maxY, originY) {
+  return {
+    minY: (minY - originY) * NCODE_TO_MM + MYSCRIPT_INK_ORIGIN_MM,
+    maxY: (maxY - originY) * NCODE_TO_MM + MYSCRIPT_INK_ORIGIN_MM,
+  };
+}
+
+/** A stroke drawn as a vertical tick from Ncode y=minY to y=maxY. */
+function strokeAtY(startTime, minY, maxY) {
+  return canvasStroke(startTime, [[10, minY, 400], [10.5, maxY, 400]]);
+}
+
+/** StoredStroke shape, for the functions that read off disk. */
+function storedAtY(startTime, minY, maxY) {
+  return {
+    id: `s${startTime}`,
+    startTime,
+    endTime: startTime + 100,
+    lineId: null,
+    points: [[10, minY, startTime, 400], [10.5, maxY, startTime + 1, 400]],
+  };
+}
+
+describe('transcriptionOriginY', () => {
+  const strokes = [storedAtY(1000, 40, 43), storedAtY(2000, 60, 63)];
+
+  it('prefers the origin recorded at recognition time', () => {
+    // setPageTranscription measures it with the sent strokes in hand. Trusting
+    // that over a re-measurement is what keeps the anchor stable when one of
+    // those strokes is later deleted or point-edited.
+    const t = { originNcodeY: 60, transcribedStrokeIds: ['1000'] };
+    expect(transcriptionOriginY(t, strokes)).toBe(60);
+  });
+
+  it('re-measures from the ids when no origin was recorded', () => {
+    // Entries from before the field existed, and any built by another path.
+    expect(transcriptionOriginY({ originNcodeY: null, transcribedStrokeIds: ['2000'] }, strokes)).toBe(60);
+    expect(transcriptionOriginY({ originNcodeY: Infinity, transcribedStrokeIds: ['2000'] }, strokes)).toBe(60);
+  });
+
+  it('falls back to the whole page when the transcription lists no strokes', () => {
+    expect(transcriptionOriginY(null, strokes)).toBe(40);
+    expect(transcriptionOriginY({ lines: [] }, strokes)).toBe(40);
+    expect(transcriptionOriginY({ transcribedStrokeIds: [] }, strokes)).toBe(40);
+  });
+
+  it('anchors to the strokes that were actually sent, not the page', () => {
+    // The case the page bounds get wrong: only the lower block was re-sent, so
+    // the batch starts 20 units down the page.
+    expect(transcriptionOriginY({ transcribedStrokeIds: ['2000'] }, strokes)).toBe(60);
+  });
+
+  it('accepts the bare startTime ids setPageTranscription records, and s-prefixed ones', () => {
+    expect(transcriptionOriginY({ transcribedStrokeIds: [2000] }, strokes)).toBe(60);
+    expect(transcriptionOriginY({ transcribedStrokeIds: ['s2000'] }, strokes)).toBe(60);
+  });
+
+  it('falls back to the page when none of the listed strokes survive', () => {
+    // Deleted between recognition and save — better a whole-page guess than none.
+    expect(transcriptionOriginY({ transcribedStrokeIds: ['9999'] }, strokes)).toBe(40);
+  });
+
+  it('ignores strokes with no points and reports Infinity when there are none', () => {
+    expect(transcriptionOriginY(null, [{ id: 's1', points: [] }, storedAtY(1000, 40, 43)])).toBe(40);
+    expect(transcriptionOriginY(null, [])).toBe(Infinity);
+    expect(transcriptionOriginY(null, null)).toBe(Infinity);
+  });
+});
+
+describe('savePageToFolder — stroke→line matching across coordinate spaces', () => {
+  const writtenDoc = () => savePage.mock.calls[0][2];
+  const strokeById = (id) => writtenDoc().strokes.find((s) => s.id === id);
+
+  beforeEach(() => {
+    getPage.mockReset();
+    getPage.mockResolvedValue(null);
+    savePage.mockReset();
+    savePage.mockResolvedValue({ path: '/tmp/P42.json' });
+  });
+
+  it('converts a line yBounds from millimetres before matching strokes', async () => {
+    // Two lines of writing 10 Ncode units apart, i.e. where a real page has
+    // them. Compared raw, the millimetre values (1.6-8.8 and 25.4-32.5) miss
+    // both strokes entirely and nothing gets linked.
+    const strokes = [strokeAtY(1000, 40, 43), strokeAtY(2000, 50, 53)];
+    await savePageToFolder({
+      book: 3017,
+      page: 42,
+      activeStrokes: strokes,
+      pageTranscription: {
+        lines: [
+          { text: 'top line', yBounds: mmBounds(40, 43, 40) },
+          { text: 'lower line', yBounds: mmBounds(50, 53, 40) },
+        ],
+      },
+    });
+
+    const [top, lower] = writtenDoc().transcript.lines;
+    expect(strokeById('s1000').lineId).toBe(top.id);
+    expect(strokeById('s2000').lineId).toBe(lower.id);
+  });
+
+  it('honours the recorded batch origin over the strokes still on the page', async () => {
+    // The stroke that anchored the batch has since been deleted; without the
+    // recorded value the anchor would slide up to the remaining stroke and take
+    // every line with it.
+    await savePageToFolder({
+      book: 3017,
+      page: 42,
+      activeStrokes: [strokeAtY(2000, 60, 63)],
+      pageTranscription: {
+        originNcodeY: 50,
+        transcribedStrokeIds: ['1000', '2000'],
+        lines: [{ text: 'the new block', yBounds: mmBounds(60, 63, 50) }],
+      },
+    });
+
+    const [line] = writtenDoc().transcript.lines;
+    expect(strokeById('s2000').lineId).toBe(line.id);
+  });
+
+  it('anchors the conversion to the strokes that were sent, not the page bounds', async () => {
+    // The partial re-transcription case: only the second block was untranscribed,
+    // so MyScript measured from y=60. Anchoring at the page's own minY (40)
+    // would slide the line up 20 units and link the wrong block.
+    await savePageToFolder({
+      book: 3017,
+      page: 42,
+      activeStrokes: [strokeAtY(1000, 40, 43), strokeAtY(2000, 60, 63)],
+      pageTranscription: {
+        transcribedStrokeIds: ['2000'],
+        lines: [{ text: 'the new block', yBounds: mmBounds(60, 63, 60) }],
+      },
+    });
+
+    const [line] = writtenDoc().transcript.lines;
+    expect(strokeById('s2000').lineId).toBe(line.id);
+    expect(strokeById('s1000').lineId).toBeNull();
+  });
+
+  it('gives a stroke touching two lines to the one it overlaps most', async () => {
+    // A tall stroke (a bracket, a long descender) reaching from line 1 well into
+    // line 2's band. Taking the last line to be considered would hand it to
+    // line 2 on nothing more than iteration order.
+    await savePageToFolder({
+      book: 3017,
+      page: 42,
+      activeStrokes: [strokeAtY(1000, 40, 46.5)],
+      pageTranscription: {
+        lines: [
+          { text: 'first', yBounds: mmBounds(40, 46, 40) },
+          { text: 'second', yBounds: mmBounds(46, 49, 40) },
+        ],
+      },
+    });
+
+    const [first] = writtenDoc().transcript.lines;
+    expect(strokeById('s1000').lineId).toBe(first.id);
+  });
+
+  it('reaches a little past the line box, but not to the next line', async () => {
+    // MyScript's word boxes wrap the text core; a descender or a dropped comma
+    // sits just outside it and still belongs to the line.
+    await savePageToFolder({
+      book: 3017,
+      page: 42,
+      activeStrokes: [strokeAtY(1000, 40, 43), strokeAtY(2000, 43.5, 44), strokeAtY(3000, 46, 46.5)],
+      pageTranscription: {
+        lines: [{ text: 'one line', yBounds: mmBounds(40, 43, 40) }],
+      },
+    });
+
+    const [line] = writtenDoc().transcript.lines;
+    expect(strokeById('s2000').lineId).toBe(line.id);
+    expect(strokeById('s3000').lineId).toBeNull();
+  });
+
+  it('links nothing for a line MyScript gave no usable bounds', async () => {
+    // 0/0 is parseMyScriptResponse's "no word matched" marker, not the top of
+    // the page — linking every stroke near the origin to it would be worse than
+    // leaving the line unlinked.
+    await savePageToFolder({
+      book: 3017,
+      page: 42,
+      activeStrokes: [strokeAtY(1000, 40, 43)],
+      pageTranscription: {
+        lines: [
+          { text: 'unplaced', yBounds: { minY: 0, maxY: 0 } },
+          { text: 'no bounds at all' },
+        ],
+      },
+    });
+
+    expect(strokeById('s1000').lineId).toBeNull();
+    expect(writtenDoc().transcript.lines).toHaveLength(2);
+  });
+
+  it('leaves a stroke that already belongs to a line alone', async () => {
+    getPage.mockResolvedValue({
+      version: '2.0',
+      pageInfo: PAGE_INFO,
+      metadata: { lastUpdated: 'x', totalStrokes: 1, bounds: {} },
+      transcript: {
+        lastTranscribed: 'x',
+        lines: [{ id: 'existing-line', text: 'from before', indentLevel: 0, parentId: null, checked: null, yBounds: { minY: 1, maxY: 8 } }],
+      },
+      strokes: [{ ...storedAtY(1000, 40, 43), lineId: 'existing-line' }],
+    });
+
+    await savePageToFolder({
+      book: 3017,
+      page: 42,
+      activeStrokes: [strokeAtY(2000, 60, 63)],
+      pageTranscription: {
+        transcribedStrokeIds: ['2000'],
+        // Deliberately wide enough to reach both strokes once converted.
+        lines: [{ text: 'the new block', yBounds: mmBounds(38, 65, 60) }],
+      },
+    });
+
+    expect(strokeById('s1000').lineId).toBe('existing-line');
+    expect(strokeById('s2000').lineId).toBe(writtenDoc().transcript.lines[1].id);
+  });
+});
 
 describe('savePageToFolder — volume book keys', () => {
   const writtenDoc = () => savePage.mock.calls[0][2];

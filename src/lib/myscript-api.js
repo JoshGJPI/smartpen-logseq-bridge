@@ -56,6 +56,32 @@ export function yBoundsToNcode(yBounds, originNcodeY) {
 }
 
 /**
+ * The Ncode Y a batch of strokes will be anchored at once it reaches MyScript.
+ *
+ * `convertStrokesToMyScript` shifts the batch so its topmost dot lands on the
+ * request padding, so this — the minimum dot Y of the strokes being sent — is
+ * the value `yBoundsToNcode` needs to undo it. It is exported so the caller can
+ * record it at recognition time: derived later from whatever strokes are still
+ * around, it drifts the moment one is deleted or point-edited.
+ *
+ * The same function computes it for the request below, so the two cannot
+ * disagree about where the batch starts.
+ *
+ * @param {Array} strokes - canvas-format strokes ({ dotArray: [{x, y, ...}] })
+ * @returns {number} Ncode Y, or Infinity when there are no usable dots
+ */
+export function batchOriginY(strokes) {
+  let min = Infinity;
+  for (const stroke of strokes || []) {
+    if (!stroke || !stroke.dotArray || stroke.dotArray.length === 0) continue;
+    for (const dot of stroke.dotArray) {
+      if (dot && dot.y < min) min = dot.y;
+    }
+  }
+  return min;
+}
+
+/**
  * Check if running in Electron with the IPC bridge available
  */
 function hasElectronBridge() {
@@ -105,16 +131,18 @@ function convertStrokesToMyScript(strokes) {
     throw new Error('No strokes to convert');
   }
 
-  // Calculate bounds
+  // Calculate bounds. minY is the batch origin every JIIX y-coordinate that
+  // comes back will be measured from, so it goes through the shared helper
+  // rather than being recomputed here.
+  const minY = batchOriginY(strokes);
   let minX = Infinity, maxX = -Infinity;
-  let minY = Infinity, maxY = -Infinity;
+  let maxY = -Infinity;
   
   strokes.forEach(stroke => {
     if (!stroke.dotArray || stroke.dotArray.length === 0) return;
     stroke.dotArray.forEach(dot => {
       if (dot.x < minX) minX = dot.x;
       if (dot.x > maxX) maxX = dot.x;
-      if (dot.y < minY) minY = dot.y;
       if (dot.y > maxY) maxY = dot.y;
     });
   });

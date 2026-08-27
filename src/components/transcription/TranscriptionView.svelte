@@ -97,9 +97,17 @@
     showEditorModal = true;
   }
 
-  /** Local merge — keeps the editor's existing line/new line model intact. */
+  /**
+   * Local merge — keeps the editor's existing line/new line model intact.
+   *
+   * `fromBatch` marks the lines whose yBounds came from the transcription run
+   * being confirmed, so the stroke preview knows which origin to undo. It is not
+   * the same as `syncStatus: 'new'`, which only means "has no block yet" and is
+   * also set on the second half of a split.
+   */
   function mergeExistingAndNewLines(existing, fresh) {
-    if (!existing || existing.length === 0) return (fresh || []).map(l => ({ ...l, syncStatus: 'new' }));
+    const asNew = l => ({ ...l, syncStatus: 'new', fromBatch: true });
+    if (!existing || existing.length === 0) return (fresh || []).map(asNew);
     const out = [...existing];
     for (const newLine of fresh || []) {
       const newText = (newLine.text || '').trim().toLowerCase();
@@ -109,7 +117,7 @@
         if (!eY || !nY) return false;
         return !(eY.maxY + 3 < nY.minY || nY.maxY + 3 < eY.minY);
       });
-      if (!dup) out.push({ ...newLine, syncStatus: 'new' });
+      if (!dup) out.push(asNew(newLine));
     }
     return out;
   }
@@ -332,6 +340,7 @@
   book={editingPageData.pageInfo.book}
   page={editingPageData.pageInfo.page}
   lines={editingPageData.mergedLines || editingPageData.lines}
+  batchOriginY={editingPageData.originNcodeY ?? null}
   visible={showEditorModal}
   on:save={handleEditorSave}
   on:close={handleEditorClose}

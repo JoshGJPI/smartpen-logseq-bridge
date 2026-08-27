@@ -22,7 +22,9 @@
  *       ActionBar limits MyScript input to untranscribed strokes only).
  *     - Generate fresh UUIDs for the new lines.
  *     - For each new line, match strokes via Y-bounds overlap and write the
- *       new lineId onto those strokes.
+ *       new lineId onto those strokes. The line's yBounds are MyScript
+ *       millimetres and have to be converted back to Ncode against the batch's
+ *       own origin first - see transcriptionOriginY.
  *     - Skip duplicate lines whose text+yBounds match an existing line.
  *     - Existing transcript.lines are preserved.
  *
@@ -33,6 +35,7 @@
 import { getPage, savePage, deletePage } from './local-store.js';
 import { emptyPageDoc, computeBounds, PAGE_DOC_VERSION } from './page-doc.js';
 import { pageInfoForDisk } from '$lib/volumes.js';
+import { yBoundsToNcode } from '$lib/myscript-api.js';
 import { noteOnDiskStrokeIds } from '$stores/pending-changes.js';
 
 /* -----------------------------------------------------------------
@@ -112,30 +115,110 @@ function yBoundsOverlap(a, b, tol = 0) {
 }
 
 /**
- * For each new MyScript line, find the storage-format stroke IDs whose Y range
- * touches the line's Y range. Used to attach lineId to strokes.
+ * How far outside a line's own Y range a stroke may sit and still be counted as
+ * part of it, in **Ncode units** (~2.4mm each; a recognised line is 2.4-5 units
+ * tall across the saved corpus).
  *
- * @param {Object} line - { yBounds: {minY, maxY} }
- * @param {Array} storedStrokes - StoredStroke[]
- * @param {number} tol - tolerance in pen-unit (default 5)
- * @returns {string[]} matching stroke ids
+ * MyScript's word boxes wrap the text core, so descenders, a stray i-dot and a
+ * comma dropped below the baseline land just outside. This is the same number
+ * TranscriptStrokePreview uses for its own "which strokes are this line?"
+ * highlight - the two have to agree, or the preview shows one answer while the
+ * saved lineId records another.
  */
-function strokesIntersectingLine(line, storedStrokes, tol = 5) {
-  if (!line.yBounds) return [];
-  const lineMin = line.yBounds.minY - tol;
-  const lineMax = line.yBounds.maxY + tol;
+const LINE_MATCH_TOLERANCE_NCODE = 1;
+
+/**
+ * Ncode Y that a MyScript batch's millimetre coordinates are anchored to.
+ *
+ * `convertStrokesToMyScript` shifts the batch so the topmost dot **of the
+ * strokes it was handed** sits at the request padding, so the origin is the min
+ * Y of exactly those strokes - not of the page. That distinction is the whole
+ * point here: the ActionBar sends untranscribed strokes only, so on a page being
+ * topped up the batch starts partway down and the page's own bounds would be the
+ * wrong anchor.
+ *
+ * `setPageTranscription` measures it at recognition time and records it as
+ * `originNcodeY`, which is the value to trust: it was taken from the strokes as
+ * they were sent. Older entries (and any built by another path) carry only
+ * `transcribedStrokeIds`, so those are re-measured here — bare
+ * `String(startTime)` against stored `s{startTime}`.
+ *
+ * Falls back to every stroke on the page - the whole-page assumption - when the
+ * transcription carries neither, or when none of its ids are still present
+ * (e.g. the strokes were deleted between recognition and save).
+ *
+ * @param {Object|null} pageTranscription
+ * @param {Array} storedStrokes StoredStroke[]
+ * @returns {number} Ncode Y, or Infinity when there is nothing to anchor to
+ */
+export function transcriptionOriginY(pageTranscription, storedStrokes) {
+  const recorded = pageTranscription?.originNcodeY;
+  if (Number.isFinite(recorded)) return recorded;
+
+  const raw = pageTranscription?.transcribedStrokeIds;
+  let ids = null;
+  if (Array.isArray(raw) && raw.length > 0) {
+    ids = new Set();
+    for (const id of raw) {
+      const str = String(id);
+      ids.add(str.startsWith('s') ? str : `s${str}`);
+    }
+  }
+
+  const scan = (only) => {
+    let min = Infinity;
+    for (const s of storedStrokes || []) {
+      if (!s || !Array.isArray(s.points) || s.points.length === 0) continue;
+      if (only && !only.has(s.id)) continue;
+      for (const p of s.points) {
+        if (p[1] < min) min = p[1];
+      }
+    }
+    return min;
+  };
+
+  const scoped = ids ? scan(ids) : Infinity;
+  return Number.isFinite(scoped) ? scoped : scan(null);
+}
+
+/**
+ * For each new MyScript line, find the storage-format strokes whose Y range
+ * touches the line's. Used to attach lineId to strokes.
+ *
+ * A line's `yBounds` are MyScript **millimetres** measured from the batch
+ * origin; stroke points are raw **Ncode**. They are not the same space, and
+ * comparing them directly - as this did until Aug 2026 - links strokes to
+ * whichever line happens to collide numerically. `yBoundsToNcode` is the inverse
+ * of the transform `convertStrokesToMyScript` applied on the way out.
+ *
+ * The returned `overlap` is how much of the stroke's Y range falls inside the
+ * line's, and is **negative** for a stroke matched only by the tolerance - so
+ * ordering by it means "most overlapping, else nearest", which is what settles a
+ * stroke that touches two lines.
+ *
+ * @param {Object} line - { yBounds: {minY, maxY} } in MyScript mm
+ * @param {Array} storedStrokes - StoredStroke[]
+ * @param {number} originNcodeY - see transcriptionOriginY
+ * @param {number} tol - tolerance in Ncode units
+ * @returns {Array<{id: string, overlap: number}>}
+ */
+function strokesIntersectingLine(line, storedStrokes, originNcodeY, tol = LINE_MATCH_TOLERANCE_NCODE) {
+  const range = yBoundsToNcode(line.yBounds, originNcodeY);
+  // null covers an absent or unusable yBounds and an origin we could not work
+  // out. Assigning nothing is right in both cases: a wrong link is worse than
+  // none, since it also marks the stroke as already transcribed.
+  if (!range) return [];
+
   const out = [];
   for (const s of storedStrokes) {
     if (!s.points || s.points.length === 0) continue;
-    // Compute stroke Y bounds
     let minY = Infinity, maxY = -Infinity;
     for (const p of s.points) {
       if (p[1] < minY) minY = p[1];
       if (p[1] > maxY) maxY = p[1];
     }
-    if (yBoundsOverlap({ minY, maxY }, { minY: lineMin, maxY: lineMax })) {
-      out.push(s.id);
-    }
+    const overlap = Math.min(maxY, range.maxY) - Math.max(minY, range.minY);
+    if (overlap >= -tol) out.push({ id: s.id, overlap });
   }
   return out;
 }
@@ -143,6 +226,15 @@ function strokesIntersectingLine(line, storedStrokes, tol = 5) {
 /**
  * Skip-duplicate test: does a new MyScript line match an existing line by
  * trimmed-text + Y-bounds overlap?
+ *
+ * Both operands are MyScript millimetres, so unlike the stroke match this one
+ * compares like with like and the 3 is 3mm - under half the ~7mm height of a
+ * recognised line, which is the right order for "the same line, recognised
+ * again". What it cannot see is that two batches with different origins (a
+ * partial re-transcription - see transcriptionOriginY) put the same physical
+ * line at different millimetre values, so a re-run over a shifted batch can slip
+ * a duplicate past the Y test. The text still has to match exactly, which is
+ * what keeps that from being common.
  */
 function isDuplicate(newLine, existingLines) {
   const t = (newLine.text || '').trim();
@@ -159,7 +251,7 @@ function isDuplicate(newLine, existingLines) {
  * Merge new MyScript lines into the existing transcript, preserving existing
  * lines untouched. Returns { lines, lineIdAssignments: Map<strokeId,lineId> }.
  */
-function mergeTranscript(existingLines, myscriptLines, storedStrokes) {
+function mergeTranscript(existingLines, myscriptLines, storedStrokes, originNcodeY) {
   // Existing lines keep their order untouched — the user (or an earlier
   // transcription) established it, and re-sorting the whole list scrambles it.
   const existing = [...existingLines];
@@ -171,6 +263,12 @@ function mergeTranscript(existingLines, myscriptLines, storedStrokes) {
 
   // Generate IDs upfront so parent linkage by index works
   const newIds = myscriptLines.map(() => randomUUID());
+
+  // strokeId -> the overlap that won it its current line. A stroke whose Y range
+  // touches two lines (common: ascenders, descenders, anything tall) goes to the
+  // line it shares the most with, rather than to whichever line happened to be
+  // considered last.
+  const bestOverlap = new Map();
 
   const newLines = [];
   for (let i = 0; i < myscriptLines.length; i++) {
@@ -198,10 +296,13 @@ function mergeTranscript(existingLines, myscriptLines, storedStrokes) {
     newLines.push(lineRecord);
 
     // Attach lineId to strokes whose Y range overlaps the new line
-    const matchingStrokeIds = strokesIntersectingLine(lineRecord, storedStrokes);
-    for (const sid of matchingStrokeIds) {
-      // Only assign if the stroke doesn't already belong to a line
-      lineIdAssignments.set(sid, lineRecord.id);
+    const matches = strokesIntersectingLine(lineRecord, storedStrokes, originNcodeY);
+    for (const { id, overlap } of matches) {
+      const held = bestOverlap.get(id);
+      if (held === undefined || overlap > held) {
+        bestOverlap.set(id, overlap);
+        lineIdAssignments.set(id, lineRecord.id);
+      }
     }
   }
 
@@ -343,7 +444,8 @@ export async function savePageToFolder(input) {
       const { lines, lineIdAssignments } = mergeTranscript(
         transcript.lines || [],
         pageTranscription.lines,
-        merged
+        merged,
+        transcriptionOriginY(pageTranscription, merged)
       );
       linesAdded = lines.length - before;
 
