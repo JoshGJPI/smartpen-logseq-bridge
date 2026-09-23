@@ -160,6 +160,31 @@ export async function removeAlias(book) {
 }
 
 /* ============================================================
+ *  Capture-date index
+ * ============================================================ */
+
+/**
+ * The capture-date index: `{ version, builtAt, pages: { "<book>/<pageId>": entry } }`,
+ * each entry carrying `{ book, page, pageId, suffix, strokes, firstStroke,
+ * lastStroke, days: { "YYYY-MM-DD": count } }`.
+ *
+ * Built and cached in the main process (`pages/_timeline.json`) — see
+ * `buildTimeline` in electron/main.cjs for why capture date needs its own index
+ * rather than riding on `metadata.lastUpdated`. Day keys are LOCAL calendar days.
+ *
+ * Entries are histograms, never strokes: the whole index for a ~300-page corpus
+ * is a few tens of KB, so holding it resident costs nothing.
+ *
+ * @param {{force?: boolean}} [options] force re-reads every page file
+ * @returns {Promise<{version:number, builtAt:string, pages:Record<string, Object>}>}
+ */
+export async function getTimelineIndex(options = {}) {
+  const backend = getBackend();
+  const res = await backend.getTimeline(requireRoot(), options);
+  return unwrap(res, 'getTimeline');
+}
+
+/* ============================================================
  *  Volumes
  * ============================================================ */
 

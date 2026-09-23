@@ -41,6 +41,7 @@
   } from '$stores';
   import { getUntranscribedStrokes, clearPointEditMarkers, clearMovedFromMarkers } from '$stores/strokes.js';
   import { getDeletedStrokeIdsForPage, getMovedAwayStrokeIdsForPage } from '$stores/pending-changes.js';
+  import { clearContextInk, contextInkPageKeys } from '$stores/context-ink.js';
   import { writable } from 'svelte/store';
   import SaveConfirmDialog from '$components/dialog/SaveConfirmDialog.svelte';
   
@@ -131,6 +132,10 @@
   function handleClearCanvas() {
     clearStrokes();
     clearDeletedIndices();
+    // Context ink is drawn for pages that are on the canvas; with the canvas
+    // empty it would be the only thing left, which is not a state the user can
+    // do anything with.
+    clearContextInk();
     // Nothing left on the canvas → nothing to save. Clear the indicator too, or
     // it stays latched with no way to clear it (Save is disabled at 0 strokes).
     clearUnsavedChanges();
@@ -178,6 +183,27 @@
     if (!hasStrokes) {
       log('No strokes available for transcription', 'warning');
       return;
+    }
+
+    // A date-range load puts only part of a page on the canvas, and MyScript
+    // only ever sees what is loaded. The result is a real transcript of a
+    // partial page — not wrong, but not the whole page either, and it merges
+    // into the page's stored transcript alongside whatever was recognised
+    // before. Worth saying out loud rather than discovering later.
+    if ($contextInkPageKeys.size > 0) {
+      const partial = new Set();
+      strokesToTranscribe.forEach(stroke => {
+        const pi = stroke.pageInfo || {};
+        const key = `B${pi.book}/P${pi.page}`;
+        if ($contextInkPageKeys.has(key)) partial.add(key);
+      });
+      if (partial.size > 0) {
+        log(
+          `${partial.size} page(s) are only partly loaded (date range) — `
+          + 'transcription will cover the loaded strokes only',
+          'warning'
+        );
+      }
     }
 
     setIsTranscribing(true);

@@ -13,6 +13,7 @@ import { adjustDeletionsAfterRemoval, pendingChanges } from './pending-changes.j
 import { pointEditMode, exitPointEditMode } from './point-edit.js';
 import { filteredStrokes } from './filtered-strokes.js';
 import { pageTranscriptions, clearPageTranscription } from './transcription.js';
+import { removeContextInkForPage } from './context-ink.js';
 import { log } from './ui.js';
 
 /**
@@ -94,6 +95,11 @@ export function unloadPageFromCanvas(book, page, options = {}) {
   adjustDeletionsAfterRemoval(removed);
 
   if (get(filteredStrokes).length > 0) filteredStrokes.set([]);
+
+  // Context ink belongs to the page it came from, not to the canvas. Leaving it
+  // behind would draw a page made entirely of ghosts — ink you can see, can't
+  // touch, and didn't ask for.
+  removeContextInkForPage(bookKey, pageNum);
 
   // A pending transcription for a page that is no longer loaded has no strokes
   // to attach to; leaving it would list a phantom page in Transcripts → Review.

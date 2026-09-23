@@ -29,6 +29,35 @@ export {
   clearPointEditMarkers
 } from './strokes.js';
 
+// Context Ink (the halftoned remainder of a partially-loaded page)
+export {
+  contextInk,
+  contextInkCount,
+  hasContextInk,
+  contextInkPageKeys,
+  addContextInk,
+  pruneContextInk,
+  removeContextInkForPage,
+  clearContextInk
+} from './context-ink.js';
+
+// Timeline (capture-date index + the selected range)
+export {
+  timelineIndex,
+  timelineLoading,
+  timelineError,
+  timelineRange,
+  timelineDays,
+  timelineRangeExtent,
+  timelineSummary,
+  timelineRangeDays,
+  canvasPageOrder,
+  loadTimeline,
+  setTimelineRange,
+  shiftTimelineRange,
+  setCanvasPageOrder
+} from './timeline.js';
+
 // Point Edit mode (canvas point handles)
 export {
   pointEditMode,

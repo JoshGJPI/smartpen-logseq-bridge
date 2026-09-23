@@ -66,6 +66,8 @@ contextBridge.exposeInMainWorld('storageAPI', {
   getPage:          (root, book, page)       => ipcRenderer.invoke('storage:getPage', root, book, page),
   savePage:         (root, book, page, doc)  => ipcRenderer.invoke('storage:savePage', root, book, page, doc),
   deletePage:       (root, book, page)       => ipcRenderer.invoke('storage:deletePage', root, book, page),
+  // Capture-date index — per page, a {day: strokeCount} histogram (see main.cjs)
+  getTimeline:      (root, options)          => ipcRenderer.invoke('storage:getTimeline', root, options),
   getAliases:       (root)                   => ipcRenderer.invoke('storage:getAliases', root),
   setAlias:         (root, book, alias)      => ipcRenderer.invoke('storage:setAlias', root, book, alias),
   removeAlias:      (root, book)             => ipcRenderer.invoke('storage:removeAlias', root, book),

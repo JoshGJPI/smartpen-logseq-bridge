@@ -34,7 +34,9 @@ App.svelte (Root)
 │   │   └── TranscriptSearch (Search — full-text over saved pages on disk)
 │   │       └── SearchResultCard (per-result import / open in Book View)
 │   ├── SavedPagesTab ("Pages" — folder-backed page list)
-│   └── BooksTab ("Books" — per-notebook aliases + volume routing)
+│   ├── BooksTab ("Books" — per-notebook aliases + volume routing)
+│   └── DatesTab ("Dates" — load the canvas by capture date)
+│       └── ActivityGrid (weekday heat grid, drag to select a range)
 └── Canvas Section (Editor ⇄ Book View toggle, in App.svelte)
     ├── StrokeCanvas (Editor — live capture/edit)
     │   ├── panel header: Select All · Deselect · CanvasSearch · stroke count
@@ -60,9 +62,9 @@ Editor** action that imports that page's strokes into the Editor canvas and swit
 to it.
 
 **Left panel tabs.** Tab *ids* are unchanged from the pre-v2.7 nested version
-(`'strokes'`, `'transcription'`, `'saved-pages'`, plus new `'books'`) even though
-two labels differ — `ActionBar` calls `setActiveTab('transcription')` after a
-transcription run.
+(`'strokes'`, `'transcription'`, `'saved-pages'`, plus `'books'` and `'dates'`)
+even though two labels differ — `ActionBar` calls `setActiveTab('transcription')`
+after a transcription run.
 
 **Two searches, deliberately separate.** `CanvasSearch` (panel header) searches
 only pages already loaded and *pans* to one — <kbd>Ctrl+F</kbd>. `TranscriptSearch`
@@ -108,6 +110,25 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `volumes.js` — capture routing for physical notebooks that share an NCode book id. `volumeRegistry` (`{version, active: {ncodeBook: volume}}`, persisted to `<dataRoot>/pages/_volumes.json`), `activeVolumeFor()`, `applyActiveVolume()` (the single pen→app boundary; **idempotent** — a pageInfo that already carries `volume` is returned untouched, so re-adding an imported stroke can't demote it), `loadVolumes()`, `setActiveVolume()`, `volumesForBook()`
 - `strokes.js` also owns reassignment — `reassignVolume(indices, volume)` rewrites `pageInfo.book` to the target book key, clears `blockUuid` (the transcript line belongs to the *source* page) and stamps the in-memory `movedFrom` marker; `clearMovedFromMarkers(book, page)` drops it after the source page saves
 - `pending-changes.js` — `getMovedAwayStrokeIdsForPage()` and the `moves` category (see below)
+
+**Dates / capture-date loading (v2.8):**
+- `timeline.js` — the capture-date index and the selected span. `timelineIndex`
+  (raw index), `timelineRange` (`{from, to}` local day keys), `timelineDays`
+  (derived, every day with ink), `timelineSummary` (what loading the range would
+  bring in), `timelineRangeDays` (the day list with its page chips),
+  `timelineRangeExtent`, `loadTimeline()`, `setTimelineRange()`, plus
+  `canvasPageOrder` (`'book' | 'date'`) and `setCanvasPageOrder()`.
+  The index is histograms, not strokes (~60KB for a 290-page corpus), so unlike
+  the page scan there is no reason to keep it off the heap.
+- `context-ink.js` — `contextInk`: strokes the canvas DRAWS but does not own.
+  A date load puts only in-range strokes in `strokes`; the rest of each touched
+  page lands here and renders halftoned. Kept out of `strokes` deliberately, so
+  the index-keyed stores (`selectedIndices`, `deletedIndices`, point-edit keys)
+  cannot be thrown off by it and it can never be selected, saved, exported or
+  transcribed. It IS counted in the renderer's page-bounds pass, so a partially
+  loaded page keeps its real size. `addContextInk()` (merges by id, drops
+  anything already live), `pruneContextInk()`, `removeContextInkForPage()`,
+  `clearContextInk()`
 
 **Point Editing (v2.5):**
 - `point-edit.js` — the canvas "Edit Points" mode: `pointEditMode`, `selectedPoints` (keys `"{strokeIndex}:{pointIndex}"`), `pointEditStrokes` (derived from the stroke selection, capped at `MAX_POINT_EDIT_STROKES`), `strayPoints`/`strayPointKeys` (advisory detection), `selectPoint()`/`selectPoints()`, `deleteSelectedPoints()`, `deleteStrayPoints()`, `enterPointEditMode()`/`exitPointEditMode()`. A `selectedIndices` subscription prunes point keys whose stroke leaves the selection and exits the mode when the selection empties
@@ -163,6 +184,16 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `stroke-storage.js` - Stroke ID generation, format conversion, bounds, dedupe, user JSON/MD exports
 - `point-edit.js` - Point-level stroke editing (pure): `detectStrayPoints()` (`origin` — at/near Ncode (0,0) or non-finite; `jump` — far from both neighbours, relative to the stroke's median spacing **and** past `MIN_JUMP_DISTANCE`, an absolute floor that keeps short flick strokes out of the results), `detectStrayPointsForStrokes()`, `removePointsFromStroke()` (identity- and force-preserving, re-tags `dotType`, drops the `_nb`/`_sw` caches, refuses to go below `MIN_STROKE_POINTS`), `pointKey`/`parsePointKey`/`groupPointKeys`, `formatPointCoords`
 - `sketch-width.js` - Pressure → line thickness mapping for sketch strokes (pure): profile normalisation/presets, `pressureToUnit`, `smoothSeries` (symmetric, spike attenuation), `limitSlew`, `widthsForPressures`, `widthsForStrokeSeries` (the single "no pressure data → flatWidth" rule), `profileKey` for width-cache tagging
+- `timeline.js` - **Capture dates** (pure). Interprets the index built in
+  `main.cjs`. Two units that are NOT interchangeable: a **day key**
+  (`"YYYY-MM-DD"`, a LOCAL calendar day — string comparison is the range test)
+  and a **timestamp** (epoch ms, what `startTime` is). `rangeBoundsMs()` is the
+  only converter and returns a **half-open** `[startMs, endMs)`; the loader
+  filters strokes on those numbers rather than deriving a day key per stroke.
+  Also `dayKey`/`dayStart`/`addDays`/`eachDay`/`inRange`, `dayTotals`,
+  `timelineExtent`, `pagesInRange` (splits each page into in-range vs context
+  strokes; `firstDay` is the earliest day *inside* the range), `rangeSummary`,
+  `pagesOnDay`
 - `transcript-search.js` - Full-text search across transcriptions
 
 **Storage Layer (`src/lib/storage/`)** — v2.0:
@@ -173,7 +204,8 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `graph-index.js` — pure helpers for **Export to LogSeq**: `smartpenAssetName()`/`smartpenAssetRelPath()` (the `smartpen-B{book}-P{pageId}.json` asset convention), `buildSmartpenIndexEntry()`, `upsertSmartpenIndex()`, `emptySmartpenIndex()`. Mirrors the JPI Tools plugin's `tools/migrate-smartpen-assets.mjs` index logic (plugin spec §4.6/§6.1). Identity (`book`+`pageId`) comes from the bridge filename, never `doc.pageInfo`
 - `publish-graph.js` — graph **transport only**: `readGraphPage(book, pageId)` (the published asset, or null) and `writeGraphPage(book, pageId, doc)` (asset via `serializePageDoc` + `smartpen-index.json` upsert, both atomic via IPC). **Throws on failure** — export is a deliberate user action, so errors surface. No LogSeq runtime dependency (pure filesystem). Does *not* decide what to publish
 - `graph-export.js` — **what** to publish. Pure core (`stripTranscriptRefs`, `mergeGraphStrokes`, `resolveGraphPageInfo`, `buildGraphPageDoc`, `groupCanvasStrokesByPage`) + facades `exportSelectionToGraph(canvasStrokes)` (fans out one merge+write per page in the selection) and `exportPageDocToGraph(book, pageId, doc)` (whole-page backfill). Two invariants: **additive** (merge into what's already published, dedupe by stroke id — re-exporting is a safe no-op) and **transcript-free** (`transcript.lines` emptied, every `lineId` cleared). Tested in `graph-export.test.js`
-- `load-page.js` — `importStrokesFromFolder()`, `importStrokesForLoadedPagesFromFolder()` — converts StoredStroke → canvas dotArray format
+- `load-page.js` — `importStrokesFromFolder()`, `importStrokesForLoadedPagesFromFolder()` — converts StoredStroke → canvas dotArray format. `canvasPageInfoFor()` + `storedStrokesToCanvas()` are split out so a caller can convert a **subset** of a page against one shared `pageInfo` (what a date-range load needs); `mergeCanvasStrokes()` is the dedupe-by-id merge
+- `load-range.js` — `importDateRangeFromFolder()` — stroke-level date filtering. Splits each touched page into in-range strokes (→ `strokes`) and the rest (→ `contextInk`). Primes `noteOnDiskStrokeIds` from the page's **full** stored list, so a partial load reports nothing pending. Merges into the canvas rather than replacing it
 - `scan.js` — `scanLocalPages()` + `metaToRecord()` (pure, tested) — populates the `savedPages` store from disk. **Metadata-only (perf #3):** records carry summary fields ONLY (`strokeCount`, `lastUpdated`, `transcriptionText`, `transcribed`, `transcriptLineCount`, `pageId`/`suffix`) — never `strokes`/`pageDoc`/`strokeData`, so the corpus never stays resident; each page's strokes load lazily on view. Records load by `pageId`, so letter-suffixed variants (`P127.json` + `P127b.json`) don't collapse onto the integer page. (`main.cjs listAllPages` → `extractPageMeta` parses just the doc shell, skipping the strokes array, so the scan is fast; the tiny `transcriptionText` rides along to power search/preview without loading strokes.)
 - `page-changes.js` — `computePageChangesFolder()` — preview diff for the SaveConfirmDialog. Reads the PageDoc off disk rather than the `onDiskStrokeIds` index, so it is a **second implementation** of the `pendingChanges` question and has to stay in step with it — it returns `strokeAdditions`/`strokeModifications`/`strokeDeletions` on the same rules
 
@@ -471,6 +503,7 @@ Existing test files (all in `src/lib/__tests__/`):
 | `canvas-renderer-sketch.test.js` | Renderer sketch path against a recording 2D-context stub: uniform handwriting (and that width no longer depends on the final dot), multi-width sketch runs, monotonic ramp, full segment coverage, run batching/quantisation, dashed fallback for deleted/decorative, width caching + profile invalidation, pasted-sketch taper |
 | `save-page.test.js` | `transcriptionOriginY` (recorded origin preferred, id re-derivation, page fallback, id forms, missing strokes); stroke→line matching (mm→Ncode conversion, batch origin vs page bounds, most-overlapping line wins a tie, tolerance reach, unusable yBounds link nothing, existing links preserved); `strokeToStored` (force as 4th element, integer rounding, null-timestamp placeholder, 3-element fallback for missing force, `sketch` omitted when false, key order); `savePageToFolder` sketch-flag sync onto strokes already on disk (mark, unmark removes the key, untouched when absent from canvas, points never rewritten *without the marker*, lineId sync preserved); **point edits** (rewrite gated on `pointsEdited`, refused without it, id/startTime/endTime survive losing the first point, force + sketch flag survive, marker never written to disk, other strokes untouched, bounds recomputed, key order stable, new-stroke case reports `edited: 0`) |
 | `point-edit.test.js` | `detectStrayPoints` (origin exact/near/leading, non-finite, interior jump, fast-movement and short-flick non-detections, absolute-floor boundary, short strokes, single reason per point); `detectStrayPointsForStrokes`; `removePointsFromStroke` (order, identity preserved both ends, force + sketch preserved, `dotType` re-tag, cache drop, no mutation, min-points refusal, no-ops, Set input); key helpers; `removeStrokePoints`/`clearPointEditMarkers` store behaviour (marker stamping, dirty signalling, partial refusal, per-page clearing); `stores/point-edit.js` mode + selection (entry refusals, derived strokes/point count/strays, key pruning when a stroke leaves the selection, exit when the selection empties, toggle, select/delete strays, selection cleared after a delete) |
+| `timeline.test.js` | `src/lib/timeline.js` — `dayKey` (local not UTC, so a late-evening stroke stays on its own day), `dayStart`/`addDays` across month and year boundaries, `rangeBoundsMs` (half-open: midnight on the first day is in, midnight after the last is out; reversed range normalised; null rather than an open range on bad input), `inRange`, `eachDay` (gaps included); `pagesInRange` (in-range vs context split, `firstDay` is the earliest day INSIDE the range, ordering, volume keys and letter suffixes kept distinct), `rangeSummary` (days with ink ≠ calendar days; `partialPages` counts only pages that would arrive partly loaded), `pagesOnDay`, `dayTotals`, `timelineExtent` |
 | `volumes.test.js` | `src/lib/volumes.js` — `makeBookKey`/`parseBookKey` round-trip, canonical-form rejection (`"388v1"`, `"388v0"`, `"0388"`, `"388v02"`), `compareBookKeys` ordering (`"388"` < `"388v2"` < `"3880"` — the case naive string sort gets wrong), `withVolume`, `bookDirName`/`parseBookDirName`, the disk↔memory `pageInfo` boundary (volume 1 omitted), display helpers, `BOOK_KEY_FRAGMENT` matching |
 | `volumes-store.test.js` | `stores/volumes.js` (`activeVolumeFor`, `applyActiveVolume` including its idempotency, `volumesForBook`) and reassignment in `stores/strokes.js` — identity/geometry/sketch preserved, `blockUuid` cleared, first origin kept across a double move, `getMovedAwayStrokeIdsForPage` (the copy→move fix), `clearMovedFromMarkers` no-op pre-check |
 | `pending-changes.test.js` | `computePendingChangesMap` — additions vs. the on-disk stroke-state index, explicit deletions, page separation/`isSaved`, missing `pageInfo`; sketch-flag **modifications** (flag on, flag off, absent-vs-false, matching flag, new-and-flagged counted once as an addition, unknown page, deleted stroke excluded, mixed page, modification-only page enters the map); geometry **edits** (fewer points than stored, self-clearing when counts agree, silent on unknown stored count, edited-and-reflagged counted once as an edit, new stroke stays an addition, deleted stroke excluded, edit-only page enters the map, all four categories side by side); `adjustDeletionsAfterRemoval` (shift, marks before the hole untouched, marks on removed strokes dropped, interleaved removals, Set input, empty/null no-op, no renumber collision, undo history cleared) |
@@ -556,6 +589,20 @@ When making changes, also verify manually:
   already on disk, so the `movedFrom` deletion has to fire). A batch spanning two
   physical volumes will mis-file half of it; that's expected, and reassignment is
   the remedy
+- **Dates tab** (v2.8): open Dates → the activity grid fills and the range
+  defaults to the most recent capture day. Drag across cells and confirm the
+  tallies and day list track the selection. Pick a range that includes a page
+  written across two days (the amber note names how many such pages there are)
+  → **Load onto canvas**: only that range's ink draws in black, the rest of each
+  page draws grey, and the canvas lays pages out one row per day with the date
+  in each page label. Confirm the grey ink cannot be selected (Select All,
+  box-select), is not counted by the stroke count, and that Save reports nothing
+  pending for a page you haven't edited. Untick **Order canvas by date** and
+  confirm the layout returns to book order. Unload one of those pages from the
+  page filter → its grey ink goes with it. Clear → all grey ink goes. Then save
+  a page, return to Dates, and confirm the new day is in the grid without a
+  restart. Finally transcribe while a partial page is loaded and confirm the
+  warning about covering the loaded strokes only
 - Canvas pan/zoom/navigation
 - Page positioning and scaling
 - **Books tab** (v2.7): on a book with two volumes, give each an unrelated name
@@ -614,6 +661,82 @@ npm run preview
 - [Svelte 4 Docs](https://svelte.dev/docs/svelte/overview) — Framework reference
 
 ## Recent Changes (Git History Context)
+
+### v2.8 — load the canvas by capture date (September 2026)
+
+**A `Dates` tab that loads a span of days' ink onto the canvas, ordered by day.**
+The organising unit everywhere else is the notebook; this cuts across it.
+
+**Capture date needed an index of its own.** Every stroke carries `startTime`,
+but nothing at page level records when ink was made. `metadata.lastUpdated` is a
+file-write time: across the reference corpus it differs from the page's last
+stroke by more than a day on **173 of 289 pages**, worst case 163 days, so it
+cannot stand in. The only real source is the strokes, i.e. 162MB of files.
+
+`buildTimeline()` in `electron/main.cjs` caches the answer at
+`<dataRoot>/pages/_timeline.json`: one `{day: strokeCount}` histogram per page,
+plus mtime+size so a refresh re-reads only what changed. Measured on the real
+corpus — **cold 917ms, warm 35ms, 60.5KB on disk**, 307,500 strokes across 179
+days. Counts are read by regex off the raw text rather than `JSON.parse`, the
+same reason `extractPageMeta` slices the strokes array off. `walkPageFiles()` was
+extracted so `listAllPages` and the timeline agree on which files are pages.
+
+**Day keys are LOCAL calendar days**, in main (`dayKeyLocal`), in the renderer
+(`timeline.js dayKey`) and in `canvas-renderer.captureDayKey` — all three have to
+agree or a canvas row would break on a different boundary than the panel
+selected. The user picks "17 Aug" meaning the evening they were writing; UTC
+would move that to the 18th.
+
+**Filtering is at stroke level, because date does not line up with pages.**
+154 of 289 pages hold ink from more than one day, and **74% of day/page pairs sit
+on such a page** — so a page-level date filter would drag in mostly-unrelated
+writing. `importDateRangeFromFolder()` splits each touched page on `startTime`.
+
+**The rest of the page comes along as context ink** (`stores/context-ink.js`),
+drawn halftoned by `drawContextStroke()`. Without it a day's writing floats with
+no page around it and is much harder to read. It is deliberately NOT in the
+`strokes` store: the index-keyed stores (`selectedIndices`, `deletedIndices`,
+point-edit keys) hold positions into `strokes` alone, and it must never be
+selectable, savable, exportable or transcribable. It IS passed to
+`calculateBounds()` as a second argument so it counts toward a page's **bounds**
+(the tile keeps its real size) but never toward its **capture date**, which is
+what orders pages — context ink is out of range by definition, so letting it set
+a page's date would file the page under writing the user did not ask to see.
+
+**A partial page is safe to save from**, and that is a property of append-only
+rather than anything new: saves are keyed by `s{startTime}`, deletions are
+explicit, and the one geometry rewrite is gated on `pointsEdited`. The loader
+still primes `noteOnDiskStrokeIds` from the page's **full** stored stroke list,
+so the strokes left behind are not reported as pending anything. **Transcription
+is the exception** — MyScript only sees what is loaded, so `ActionBar` warns when
+a page being transcribed carries context ink.
+
+**Page order became pluggable.** `setPageOrder('date')` sorts pages by the
+earliest `startTime` among their *loaded* strokes, and rows break on a change of
+day as well as at `pageColumns`, so a range reads as one row per day. The page
+label gains the date in that mode — rows group the pages but don't name the day.
+
+**Loading merges, never replaces** — the same rule as "Import Strokes", so a
+date load cannot discard unsaved work. Above 12,000 strokes the button asks a
+second time (median day ~1,500, median week ~7,900, a busy month ~50,000).
+
+**Phase 1 scope — one tile per page.** A page spanning two selected days appears
+once, filed under its first day in range. Splitting it into a tile per day needs
+a display-only page key threaded through the renderer without touching
+`pageInfo`, which save routing, the page filter and stored page positions all
+key on; deferred until this has been used.
+
+**New:** `src/lib/timeline.js`, `src/lib/storage/load-range.js`,
+`src/stores/timeline.js`, `src/stores/context-ink.js`,
+`src/components/dates/{DatesTab,ActivityGrid}.svelte`,
+`src/lib/__tests__/timeline.test.js`.
+**Edited:** `electron/main.cjs` (`walkPageFiles`, `buildTimeline`,
+`extractCaptureDays`, `storage:getTimeline`), `electron/preload.cjs`,
+`storage/local-store.js` (`getTimelineIndex`), `storage/load-page.js`
+(`canvasPageInfoFor`/`storedStrokesToCanvas`/`mergeCanvasStrokes` split out),
+`lib/canvas-renderer.js`, `stores/{index,canvas}.js`,
+`components/canvas/StrokeCanvas.svelte`, `components/layout/LeftPanel.svelte`,
+`components/header/ActionBar.svelte`.
 
 ### Stroke→line matching — two coordinate spaces, compared as one (August 2026)
 

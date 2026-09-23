@@ -15,6 +15,7 @@
   import SavedPagesTab from '../saved-pages/SavedPagesTab.svelte';
   import TranscriptsPanel from '../transcription/TranscriptsPanel.svelte';
   import BooksTab from '../books/BooksTab.svelte';
+  import DatesTab from '../dates/DatesTab.svelte';
 
   import { activeTab, setActiveTab, pageTranscriptionCount } from '$stores';
 
@@ -22,7 +23,10 @@
     { id: 'strokes', label: 'Strokes' },
     { id: 'transcription', label: 'Transcripts' },
     { id: 'saved-pages', label: 'Pages' },
-    { id: 'books', label: 'Books' }
+    { id: 'books', label: 'Books' },
+    // Loads the canvas by capture date instead of by notebook. Last because it
+    // cuts across the other four rather than sitting alongside them.
+    { id: 'dates', label: 'Dates' }
   ];
 </script>
 
@@ -55,6 +59,8 @@
       <SavedPagesTab />
     {:else if $activeTab === 'books'}
       <BooksTab />
+    {:else if $activeTab === 'dates'}
+      <DatesTab />
     {/if}
   </div>
 </aside>

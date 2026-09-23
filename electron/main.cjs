@@ -422,8 +422,17 @@ function extractPageMeta(raw) {
   };
 }
 
-/** Walk pages/B*\/P*.json and return lightweight PageMeta entries. */
-async function listAllPages(root) {
+/**
+ * Walk pages/B*\/P*.json and return one entry per page FILE, without reading any
+ * of them.
+ *
+ * Shared by listAllPages (which then reads each file for metadata) and
+ * buildTimeline (which stats first and re-reads only what changed), so the two
+ * can never disagree about which files are pages.
+ *
+ * @returns {Promise<Array<{book:string, page:number, pageId:string, suffix:string, path:string}>>}
+ */
+async function walkPageFiles(root) {
   const dir = pagesDir(root);
   let bookDirs;
   try {
@@ -433,7 +442,7 @@ async function listAllPages(root) {
     throw err;
   }
 
-  const pages = [];
+  const files = [];
   for (const entry of bookDirs) {
     if (!entry.isDirectory()) continue;
     // Book KEY, not a number: "388" or "388v2" (see parseBookKey). A bare
@@ -457,39 +466,194 @@ async function listAllPages(root) {
       if (!pm) continue;
       const page = parseInt(pm[1], 10);
       const suffix = pm[2] || '';
-      const pageId = `${page}${suffix}`;
-      const filePath = path.join(bookPath, pf.name);
-
-      try {
-        const raw = await fsp.readFile(filePath, 'utf8');
-        const meta = extractPageMeta(raw);
-        pages.push({
-          book,
-          page,
-          pageId,           // includes suffix if any (used as primary identifier)
-          suffix,
-          strokeCount: meta.strokeCount,
-          lastUpdated: meta.lastUpdated,
-          hasTranscription: meta.hasTranscription,
-          transcriptLineCount: meta.transcriptLineCount,
-          // Transcript text is tiny next to strokes; carrying it here keeps the
-          // Data Explorer preview + full-text search working without the renderer
-          // ever holding stroke arrays resident.
-          transcriptionText: meta.transcriptionText,
-          path: filePath
-        });
-      } catch (err) {
-        console.warn(`[storage] skipping unreadable ${filePath}:`, err.message);
-      }
+      files.push({
+        book,
+        page,
+        pageId: `${page}${suffix}`,  // includes suffix if any (primary identifier)
+        suffix,
+        path: path.join(bookPath, pf.name)
+      });
     }
   }
 
   // compareBookKeys, not `a.book - b.book` — book is a key string now, and
   // subtraction on it yields NaN (which leaves the sort order arbitrary).
-  pages.sort((a, b) =>
+  files.sort((a, b) =>
     compareBookKeys(a.book, b.book) || (a.page - b.page) || a.suffix.localeCompare(b.suffix)
   );
+  return files;
+}
+
+/** Walk pages/B*\/P*.json and return lightweight PageMeta entries. */
+async function listAllPages(root) {
+  const files = await walkPageFiles(root);
+  const pages = [];
+
+  for (const f of files) {
+    try {
+      const raw = await fsp.readFile(f.path, 'utf8');
+      const meta = extractPageMeta(raw);
+      pages.push({
+        book: f.book,
+        page: f.page,
+        pageId: f.pageId,
+        suffix: f.suffix,
+        strokeCount: meta.strokeCount,
+        lastUpdated: meta.lastUpdated,
+        hasTranscription: meta.hasTranscription,
+        transcriptLineCount: meta.transcriptLineCount,
+        // Transcript text is tiny next to strokes; carrying it here keeps the
+        // Data Explorer preview + full-text search working without the renderer
+        // ever holding stroke arrays resident.
+        transcriptionText: meta.transcriptionText,
+        path: f.path
+      });
+    } catch (err) {
+      console.warn(`[storage] skipping unreadable ${f.path}:`, err.message);
+    }
+  }
+
   return pages;
+}
+
+// ===== Capture-date index (`pages/_timeline.json`) =====
+//
+// Nothing else on disk records WHEN ink was made. metadata.lastUpdated is a
+// file-write time: across the reference corpus it differs from the page's last
+// stroke by more than a day on 173 of 289 pages (worst case 163 days), so it
+// cannot stand in for capture date. The only real source is `startTime` on each
+// stored stroke, which means opening files — 162MB of them.
+//
+// So the answer is cached: one entry per page holding a {day: strokeCount}
+// histogram, refreshed per file by mtime+size. A cold build over that corpus
+// takes ~1.6s; afterwards a refresh is one stat per page and reads nothing.
+
+const TIMELINE_VERSION = 1;
+
+function timelinePath(root) {
+  return path.join(pagesDir(root), '_timeline.json');
+}
+
+/**
+ * Local-calendar day key ("YYYY-MM-DD") for a capture timestamp.
+ *
+ * Deliberately LOCAL rather than UTC: the user picks "17 Aug" meaning the day
+ * they were writing, and an evening session would land on the next UTC day.
+ * Main and renderer share a clock, so the renderer's day maths agrees.
+ */
+function dayKeyLocal(ms) {
+  const d = new Date(ms);
+  return d.getFullYear()
+    + '-' + String(d.getMonth() + 1).padStart(2, '0')
+    + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+/**
+ * Per-day stroke counts for one PageDoc, read straight off the raw text.
+ *
+ * Regex rather than JSON.parse for the same reason extractPageMeta slices the
+ * strokes array off: parsing every dot of a large page to read one integer per
+ * stroke is what made the whole-library pass take seconds. `startTime` appears
+ * only on stored strokes — the document shell has no such key.
+ */
+function extractCaptureDays(raw) {
+  const days = {};
+  let firstStroke = null, lastStroke = null, strokes = 0;
+  const re = /"startTime":(\d+)/g;
+  let m;
+  while ((m = re.exec(raw)) !== null) {
+    const t = Number(m[1]);
+    if (!Number.isFinite(t) || t <= 0) continue;
+    strokes++;
+    if (firstStroke === null || t < firstStroke) firstStroke = t;
+    if (lastStroke === null || t > lastStroke) lastStroke = t;
+    const k = dayKeyLocal(t);
+    days[k] = (days[k] || 0) + 1;
+  }
+  return { days, strokes, firstStroke, lastStroke };
+}
+
+async function readTimeline(root) {
+  try {
+    const raw = await fsp.readFile(timelinePath(root), 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    console.warn('[storage] unreadable timeline index, rebuilding:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Build (or incrementally refresh) the capture-date index.
+ *
+ * A cached entry is trusted when the file's mtime AND size both match, so an
+ * in-place edit that happens to preserve the size still has to change mtime to
+ * slip through — and every write goes through writeFileAtomic's rename, which
+ * does. `force` re-reads everything regardless.
+ *
+ * Failure to persist is not fatal: the index is a cache, and returning a
+ * correct in-memory answer beats failing the call.
+ */
+async function buildTimeline(root, { force = false } = {}) {
+  const prev = force ? null : await readTimeline(root);
+  const prevPages = (prev && prev.version === TIMELINE_VERSION && prev.pages) ? prev.pages : {};
+
+  const files = await walkPageFiles(root);
+  const pages = {};
+  let rescanned = 0;
+
+  for (const f of files) {
+    const key = `${f.book}/${f.pageId}`;
+    let st;
+    try {
+      st = await fsp.stat(f.path);
+    } catch {
+      continue;
+    }
+
+    const cached = prevPages[key];
+    if (cached && cached.days && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
+      pages[key] = cached;
+      continue;
+    }
+
+    try {
+      const raw = await fsp.readFile(f.path, 'utf8');
+      const info = extractCaptureDays(raw);
+      pages[key] = {
+        book: f.book,
+        page: f.page,
+        pageId: f.pageId,
+        suffix: f.suffix,
+        mtimeMs: st.mtimeMs,
+        size: st.size,
+        ...info
+      };
+      rescanned++;
+    } catch (err) {
+      console.warn(`[storage] timeline: skipping unreadable ${f.path}:`, err.message);
+    }
+  }
+
+  const index = {
+    version: TIMELINE_VERSION,
+    builtAt: new Date().toISOString(),
+    pages
+  };
+
+  const dropped = Object.keys(prevPages).length !== Object.keys(pages).length;
+  if (rescanned > 0 || dropped || !prev) {
+    try {
+      await writeFileAtomic(timelinePath(root), JSON.stringify(index));
+    } catch (err) {
+      console.warn('[storage] could not persist timeline index:', err.message);
+    }
+  }
+
+  return index;
 }
 
 async function readPageDoc(root, book, page) {
@@ -636,6 +800,9 @@ ipcMain.handle('storage:savePage',    ipcSafe(async (root, book, page, doc) => {
   };
 }));
 ipcMain.handle('storage:deletePage',  ipcSafe(async (root, book, page)  => { await deletePageDoc(root, book, page); return true; }));
+// Capture-date index. Always runs the incremental refresh (one stat per page,
+// reads only what changed) so a save made moments ago is already reflected.
+ipcMain.handle('storage:getTimeline', ipcSafe(async (root, options)       => buildTimeline(root, options || {})));
 ipcMain.handle('storage:getAliases',  ipcSafe(async (root)              => readAliases(root)));
 ipcMain.handle('storage:setAlias',    ipcSafe(async (root, book, alias) => {
   const aliases = await readAliases(root);

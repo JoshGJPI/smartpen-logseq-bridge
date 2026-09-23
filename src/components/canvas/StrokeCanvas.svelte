@@ -24,6 +24,8 @@
   import { knownBookIds } from '$stores/book-aliases.js';
   import { volumesForBook } from '$stores/volumes.js';
   import { ncodeBookOf, volumeOf, BOOK_KEY_FRAGMENT } from '$lib/volumes.js';
+  import { contextInk } from '$stores/context-ink.js';
+  import { canvasPageOrder } from '$stores/timeline.js';
 
   // S#/O#/B<bookKey>/P# — the book portion may carry a volume suffix.
   const BOOK_PAGE_KEY_RE = new RegExp(`S\\d+\\/O\\d+\\/B(${BOOK_KEY_FRAGMENT})\\/P(\\d+)`);
@@ -100,7 +102,37 @@
       }
     });
   }
-  
+
+  // Context ink for the pages currently shown. Filtered by the SAME page
+  // selection as real strokes — otherwise hiding a page with the filter would
+  // leave its grey ghost behind. No index map: context ink is never selected,
+  // deleted or saved, so nothing needs a position into it.
+  $: visibleContextInk = $contextInk.length === 0 ? [] : $contextInk.filter(stroke => {
+    const pageInfo = stroke.pageInfo || {};
+    const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${pageInfo.book || 0}/P${pageInfo.page || 0}`;
+    return selectedPages.has(pageKey);
+  });
+
+  // Page order is layout, so a change has to re-run the bounds pass.
+  $: if (renderer && $canvasPageOrder) {
+    renderer.setPageOrder($canvasPageOrder);
+    renderStrokes(true);
+  }
+
+  // Context ink arrives and leaves in whole pages (a range load, a page unload,
+  // Clear), and it feeds the bounds pass, so a change in how much there is needs
+  // a full reset. Compared as counts rather than by identity because
+  // `visibleContextInk` is a fresh array on every page-filter change, which
+  // already has its own render path.
+  let lastContextInkSignature = '0:0';
+  $: if (renderer) {
+    const contextSignature = `${$contextInk.length}:${visibleContextInk.length}`;
+    if (contextSignature !== lastContextInkSignature) {
+      lastContextInkSignature = contextSignature;
+      renderStrokes(true);
+    }
+  }
+
   // Track previous stroke count for auto-fit
   let previousStrokeCount = 0;
   // Whether the strokes store had anything in it on the last render pass — used
@@ -640,7 +672,11 @@
       const allStrokes = $showFilteredStrokes && $filteredStrokes.length > 0
         ? [...visibleStrokes, ...$filteredStrokes.map(fs => fs.stroke)]
         : visibleStrokes;
-      renderer.calculateBounds(allStrokes);
+      // Context ink goes in as a second argument, not merged into the first:
+      // it counts toward a page's BOUNDS (so a partially-loaded page keeps its
+      // real size) but must not count toward its capture date, which is what
+      // orders pages in date mode.
+      renderer.calculateBounds(allStrokes, visibleContextInk);
       
       // Set visible page keys for border rendering
       renderer.setVisiblePageKeys(selectedPages);
@@ -661,6 +697,12 @@
       renderTranscribedText();
     } else {
       // Stroke view mode - render strokes
+      // Context ink first, so live ink always sits on top of it — the point of
+      // the halftone is that the loaded strokes read as the foreground.
+      visibleContextInk.forEach(stroke => {
+        renderer.drawContextStroke(stroke);
+      });
+
       // Draw normal text strokes
       visibleStrokes.forEach((stroke, index) => {
         const fullIndex = visibleToFullIndexMap[index];

@@ -95,6 +95,18 @@ export class CanvasRenderer {
     this.pageOffsets = new Map(); // Map of "B{book}/P{page}" -> {offsetX, offsetY, bounds}
     this.pageSpacing = 20; // mm between pages (horizontal and vertical)
     this.pageColumns = 5; // pages per row before wrapping
+
+    // Page layout order: 'book' (book key, then page) or 'date' (earliest
+    // capture time of the strokes loaded for the page). See setPageOrder().
+    this.pageOrderMode = 'book';
+    // pageKey -> earliest loaded stroke's startTime, filled by calculateBounds.
+    this.pageFirstCapture = new Map();
+
+    // Context ink (stores/context-ink.js): the rest of a partially-loaded page,
+    // drawn so the loaded strokes can be read in place. Halftone by COLOUR, at
+    // the same width as live ink — thinning it as well would read as faint
+    // handwriting rather than as background.
+    this.contextInkColor = '#c3c7d4';
     
     this.viewWidth = 0;
     this.viewHeight = 0;
@@ -310,11 +322,32 @@ export class CanvasRenderer {
   }
   
   /**
-   * Calculate bounds and page offsets from an array of strokes
-   * Groups strokes by page and positions them horizontally
-   * @param {Array} strokes - Array of stroke objects
+   * How pages are ordered on the canvas.
+   *
+   *   'book' — book key, then page number. The notebook's own order, and the
+   *            default.
+   *   'date' — earliest capture time of the strokes loaded for each page, then
+   *            book and page. Rows break on a change of day, so a date-range
+   *            load reads as one row per day.
+   *
+   * Set from the Dates panel; a date-range load switches to 'date' because the
+   * pages it brings in have no meaningful book order between them.
    */
-  calculateBounds(strokes) {
+  setPageOrder(mode) {
+    this.pageOrderMode = mode === 'date' ? 'date' : 'book';
+  }
+
+  /**
+   * Calculate bounds and page offsets from an array of strokes
+   * Groups strokes by page and positions them into a grid
+   *
+   * @param {Array} strokes - Array of stroke objects
+   * @param {Array} [contextStrokes] - Context ink (see stores/context-ink.js).
+   *   Counted for page BOUNDS so a partially-loaded page keeps its real size and
+   *   does not resize as the date range changes — but never for page ORDER,
+   *   which follows the strokes the user actually loaded.
+   */
+  calculateBounds(strokes, contextStrokes = null) {
     // Reset
     this.bounds = {
       minX: Infinity,
@@ -323,14 +356,14 @@ export class CanvasRenderer {
       maxY: -Infinity
     };
     this.pageOffsets.clear();
-    
+
     if (strokes.length === 0) return;
-    
+
     // Group strokes by page (using full key to match pages store)
     const pageGroups = new Map();
     strokes.forEach(stroke => {
       const pageInfo = stroke.pageInfo;
-      
+
       // Handle strokes without pageInfo or with incomplete pageInfo
       if (!pageInfo || pageInfo.book === undefined || pageInfo.page === undefined) {
         console.warn('Stroke missing valid pageInfo:', stroke);
@@ -342,7 +375,7 @@ export class CanvasRenderer {
         pageGroups.get(fallbackKey).push(stroke);
         return;
       }
-      
+
       // Use full key format to match pages store: S{section}/O{owner}/B{book}/P{page}
       const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${pageInfo.book}/P${pageInfo.page}`;
       if (!pageGroups.has(pageKey)) {
@@ -350,13 +383,55 @@ export class CanvasRenderer {
       }
       pageGroups.get(pageKey).push(stroke);
     });
-    
-    // Calculate bounds for each page and assign horizontal offsets
-    // Sort pages by book then page number for consistent left-to-right layout
+
+    // Earliest capture time per page, from the LOADED strokes only. Read before
+    // context ink is folded in below: context ink is by definition outside the
+    // selected range, so letting it set a page's date would file the page under
+    // writing the user did not ask to see.
+    this.pageFirstCapture = new Map();
+    pageGroups.forEach((pageStrokes, pageKey) => {
+      let min = Infinity;
+      for (const s of pageStrokes) {
+        const t = Number(s.startTime);
+        if (Number.isFinite(t) && t > 0 && t < min) min = t;
+      }
+      if (min !== Infinity) this.pageFirstCapture.set(pageKey, min);
+    });
+
+    // Fold context ink into the bounds pass. A page with only context ink can
+    // exist transiently (its real strokes were just unloaded), so it is allowed
+    // its own group rather than being dropped — it simply has no capture date
+    // and sorts last in date mode.
+    if (contextStrokes && contextStrokes.length > 0) {
+      contextStrokes.forEach(stroke => {
+        const pageInfo = stroke.pageInfo;
+        if (!pageInfo || pageInfo.book === undefined || pageInfo.page === undefined) return;
+        const pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${pageInfo.book}/P${pageInfo.page}`;
+        if (!pageGroups.has(pageKey)) pageGroups.set(pageKey, []);
+        pageGroups.get(pageKey).push(stroke);
+      });
+    }
+
+    // Calculate bounds for each page and assign offsets
+    const byDate = this.pageOrderMode === 'date';
     const sortedPageEntries = Array.from(pageGroups.entries()).sort((a, b) => {
       const keyA = a[0];
       const keyB = b[0];
-      
+
+      if (byDate) {
+        // A page with no capture time (context ink only) sorts last rather than
+        // jumping to the front, which is what Infinity would do in reverse.
+        const tA = this.pageFirstCapture.get(keyA);
+        const tB = this.pageFirstCapture.get(keyB);
+        if (tA !== tB) {
+          if (tA === undefined) return 1;
+          if (tB === undefined) return -1;
+          return tA - tB;
+        }
+        // Same instant (or both undefined) — fall through to book/page order so
+        // the layout is still deterministic.
+      }
+
       // Extract book key and page from keys (format: S#/O#/B<key>/P#).
       // A `\d+` book here failed to match any volume page, and the `return 0`
       // below made it compare equal to EVERYTHING — arbitrary left-to-right
@@ -378,7 +453,7 @@ export class CanvasRenderer {
       }
       return pageA - pageB;
     });
-    
+
     // First pass: compute per-page bounds, width, and height
     const pageBoundsArray = sortedPageEntries.map(([pageKey, pageStrokes]) => {
       let pageMinX = Infinity, pageMinY = Infinity;
@@ -402,13 +477,32 @@ export class CanvasRenderer {
       };
     });
 
-    // Compute the max height for each row (needed to space rows apart)
+    // Assign each page a (row, col). In book order that is a plain wrap every
+    // `pageColumns`; in date order a row ALSO breaks whenever the day changes,
+    // so each row is one day's writing and the grouping is legible without
+    // drawing anything extra.
     const columns = this.pageColumns;
-    const rowCount = Math.ceil(pageBoundsArray.length / columns);
+    let row = 0, col = 0, prevDay = null;
+    pageBoundsArray.forEach(page => {
+      const captured = this.pageFirstCapture.get(page.pageKey);
+      const day = (byDate && captured !== undefined) ? this.captureDayKey(captured) : null;
+
+      if (col >= columns || (byDate && prevDay !== null && day !== prevDay && col > 0)) {
+        row++;
+        col = 0;
+      }
+      page.row = row;
+      page.col = col;
+      page.day = day;
+      col++;
+      prevDay = day;
+    });
+
+    // Compute the max height for each row (needed to space rows apart)
+    const rowCount = row + 1;
     const rowMaxHeights = new Array(rowCount).fill(0);
-    pageBoundsArray.forEach((page, index) => {
-      const row = Math.floor(index / columns);
-      rowMaxHeights[row] = Math.max(rowMaxHeights[row], page.height);
+    pageBoundsArray.forEach(page => {
+      rowMaxHeights[page.row] = Math.max(rowMaxHeights[page.row], page.height);
     });
 
     // Compute cumulative Y start position for each row
@@ -421,9 +515,9 @@ export class CanvasRenderer {
     // offsetX positions the page's left edge in world space (world_x = dot.x - bounds.minX + offsetX)
     // offsetY positions the page's top edge in world space (world_y = dot.y - bounds.minY + offsetY)
     let currentRowX = 0;
-    pageBoundsArray.forEach((page, index) => {
-      const col = index % columns;
-      const row = Math.floor(index / columns);
+    pageBoundsArray.forEach(page => {
+      const col = page.col;
+      const row = page.row;
 
       if (col === 0) currentRowX = 0;
 
@@ -816,7 +910,49 @@ export class CanvasRenderer {
 
     this.ctx.setLineDash([]); // Reset to solid for next stroke
   }
-  
+
+  /**
+   * Local calendar day key for a capture timestamp. Mirrors `dayKey` in
+   * src/lib/timeline.js and `dayKeyLocal` in electron/main.cjs — all three have
+   * to agree or a row would break on a different boundary than the one the
+   * Dates panel selected.
+   */
+  captureDayKey(ms) {
+    const d = new Date(ms);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.getFullYear()
+      + '-' + String(d.getMonth() + 1).padStart(2, '0')
+      + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  /**
+   * Draw a context-ink stroke — the part of a partially-loaded page that falls
+   * outside the selected date range.
+   *
+   * Always uniform and always solid: it is background, so a pressure taper or a
+   * dash pattern would draw attention to exactly the ink meant to recede. It is
+   * never selected, never deleted and never decorative, so it takes none of
+   * drawStroke's state.
+   *
+   * @param {Object} stroke - Canvas-format stroke (dotArray + pageInfo)
+   */
+  drawContextStroke(stroke) {
+    const dots = stroke.dotArray || stroke.dots || [];
+    if (dots.length < 2) return;
+
+    const pageInfo = stroke.pageInfo;
+    if (this.isStrokeOffscreen(stroke, dots, pageInfo)) return;
+
+    this.ctx.strokeStyle = this.contextInkColor;
+    this.ctx.globalAlpha = 1;
+    this.ctx.lineCap = 'round';
+    this.ctx.lineJoin = 'round';
+    this.ctx.setLineDash([]);
+
+    const { xs, ys } = this.projectDots(dots, pageInfo);
+    this.strokeRun(xs, ys, 0, dots.length - 1, Math.max(0.5, this.handwritingWidth * this.zoom));
+  }
+
   /**
    * Draw a pasted stroke with offset applied
    * Visual distinction: green selection color when selected
@@ -1361,6 +1497,19 @@ export class CanvasRenderer {
         const badge = volumeBadge(book);
         const ncode = badge ? ncodeBookOf(book) : book;
         let label = badge ? `B${ncode} ${badge} / P${page}` : `B${book} / P${page}`;
+
+        // In date order the notebook is no longer what places a page, so the
+        // label has to say which day put it here — rows break on a change of
+        // day, but a row on its own doesn't name the day it belongs to.
+        if (this.pageOrderMode === 'date') {
+          const captured = this.pageFirstCapture.get(pageKey);
+          if (captured !== undefined) {
+            const d = new Date(captured);
+            if (!Number.isNaN(d.getTime())) {
+              label = `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} · ${label}`;
+            }
+          }
+        }
 
         // Check if this page has pending changes (unsaved strokes)
         const hasUnsavedChanges = this.pendingChanges && this.pendingChanges.has(`B${book}/P${page}`);

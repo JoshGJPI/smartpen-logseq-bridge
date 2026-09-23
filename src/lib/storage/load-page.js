@@ -38,36 +38,59 @@ function getStrokeId(stroke) {
 }
 
 /**
- * Convert v2 StoredStroke[] → canvas format strokes.
+ * The in-memory pageInfo for a PageDoc — ONE object, shared by every stroke and
+ * every dot of that page.
+ *
+ * pageInfo is identical for all of them, so spreading a fresh `{ ...pageInfo }`
+ * per dot (as this used to) allocated one small object per dot — millions of
+ * identical 4-key objects for a large book, which dominated heap use when
+ * loading many pages. pageInfo is treated as read-only downstream (canvas
+ * render, transcript matching), so a single shared reference is safe.
+ *
+ * In memory `pageInfo.book` carries the BOOK KEY ("388", "388v2") rather than
+ * the numeric id the file stores alongside an optional `volume`. Identity comes
+ * from the directory name the caller read this doc from — `doc.pageInfo` is
+ * only the fallback, per the same rule graph-index.js documents for the page
+ * letter suffix.
+ *
  * @param {import('./page-doc.js').PageDoc} doc
+ * @param {string|number|null} bookKey
+ */
+export function canvasPageInfoFor(doc, bookKey = null) {
+  const diskPageInfo = (doc && doc.pageInfo) || {};
+  const key = toBookKey(bookKey) || bookKeyFromPageInfo(diskPageInfo);
+  const pageInfo = key ? pageInfoWithBookKey(diskPageInfo, key) : diskPageInfo;
+  return { ...pageInfo };
+}
+
+/**
+ * Convert StoredStroke[] → canvas format, against an already-resolved pageInfo.
+ *
+ * Takes the stroke array separately from the doc so a caller can convert a
+ * SUBSET of a page — which is what a date-range load does, splitting one page
+ * into the strokes it wants on the canvas and the rest, which becomes context
+ * ink. Both halves must share the one pageInfo object, hence the split.
+ *
+ * `extra` is merged onto every produced stroke. It exists for in-memory markers
+ * (`contextInk`) and, like the other markers, cannot reach disk: `strokeToStored`
+ * builds stored strokes from a fixed key list.
+ *
+ * @param {Array} storedStrokes
+ * @param {Object} sharedPageInfo from canvasPageInfoFor()
+ * @param {Object} [extra] fields merged onto each canvas stroke
  * @param {Function} [onProgress] (current, total) => void
  * @returns {Array}
  */
-function transformStoredToCanvasFormat(doc, bookKey = null, onProgress = null) {
-  const diskPageInfo = doc.pageInfo || {};
-  // In memory, pageInfo.book carries the BOOK KEY ("388", "388v2") rather than
-  // the numeric id the file stores alongside an optional `volume`. Identity comes
-  // from the directory name the caller read this doc from — `doc.pageInfo` is
-  // only the fallback, per the same rule graph-index.js documents for the page
-  // letter suffix.
-  const key = toBookKey(bookKey) || bookKeyFromPageInfo(diskPageInfo);
-  const pageInfo = key ? pageInfoWithBookKey(diskPageInfo, key) : diskPageInfo;
-  // Share ONE pageInfo object across every stroke and every dot of this page.
-  // pageInfo is identical for all of them, so spreading a fresh `{ ...pageInfo }`
-  // per dot (as this used to) allocated one small object per dot — millions of
-  // identical 4-key objects for a large book, which dominated heap use when
-  // loading many pages. pageInfo is treated as read-only downstream (canvas
-  // render, transcript matching), so a single shared reference is safe.
-  const sharedPageInfo = { ...pageInfo };
-  const storedStrokes = Array.isArray(doc.strokes) ? doc.strokes : [];
-  const total = storedStrokes.length;
+export function storedStrokesToCanvas(storedStrokes, sharedPageInfo, extra = null, onProgress = null) {
+  const list = Array.isArray(storedStrokes) ? storedStrokes : [];
+  const total = list.length;
 
-  return storedStrokes.map((s, index) => {
+  return list.map((s, index) => {
     if (onProgress && (index % 50 === 0 || index === total - 1)) {
       onProgress(index + 1, total);
     }
     const points = s.points || [];
-    return {
+    const stroke = {
       pageInfo: sharedPageInfo,
       startTime: s.startTime,
       endTime: s.endTime,
@@ -95,13 +118,24 @@ function transformStoredToCanvasFormat(doc, bookKey = null, onProgress = null) {
         };
       })
     };
+    return extra ? Object.assign(stroke, extra) : stroke;
   });
+}
+
+/**
+ * Convert a whole PageDoc's strokes → canvas format.
+ * @param {import('./page-doc.js').PageDoc} doc
+ * @param {Function} [onProgress] (current, total) => void
+ * @returns {Array}
+ */
+function transformStoredToCanvasFormat(doc, bookKey = null, onProgress = null) {
+  return storedStrokesToCanvas(doc.strokes, canvasPageInfoFor(doc, bookKey), null, onProgress);
 }
 
 /**
  * Merge new strokes into existing, deduplicated by id.
  */
-function mergeStrokes(existing, incoming) {
+export function mergeCanvasStrokes(existing, incoming) {
   const existingIds = new Set(existing.map(getStrokeId));
   const uniqueNew = [];
   let dupes = 0;
@@ -216,7 +250,7 @@ export async function importStrokesFromFolder(pageData, onProgress = null) {
     if (bookIds.length > 0) registerBookIds(bookIds);
 
     const current = get(strokes);
-    const result = mergeStrokes(current, canvasStrokes);
+    const result = mergeCanvasStrokes(current, canvasStrokes);
 
     // No sync-status stamp here — the "In canvas" badge is derived from the
     // strokes store (canvasPageKeys), so it appears now and disappears the
