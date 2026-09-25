@@ -1079,7 +1079,10 @@ For issues, questions, or feature requests:
 
 ## Version History
 
-- **2.6.0** (Current) - Browse by date: load the canvas by capture date with
+- **2.7.0** (Current) - Book View timeline: the Dates range as a scrolling feed of
+  sittings, with endless scroll and a shared book filter
+
+- **2.6.0** - Browse by date: load the canvas by capture date with
   stroke-level filtering and halftoned context ink
 
 - **2.3.0** - Export to LogSeq: manual, selective, additive stroke
