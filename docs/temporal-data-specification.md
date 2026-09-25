@@ -34,10 +34,16 @@ works; the parts worth knowing before designing anything else here:
 - **Day keys are LOCAL calendar days**, in three places that must agree:
   `dayKeyLocal` (main), `dayKey` (`src/lib/timeline.js`) and
   `CanvasRenderer.captureDayKey`.
+- **Session detection (Use Case 2.1) shipped as Book View's Timeline feed.**
+  `daySessions()` in `src/lib/timeline-feed.js` chains a day's strokes, across
+  every page, for as long as each starts within 20 minutes of the previous one's
+  *end*. Page turns do not split a session — cutting on them doubled the count
+  on the corpus (738 vs 367) — and sessions never cross midnight. Median 2 a
+  day; median length 21 minutes, 95th percentile 83.
 
-Still unimplemented: session detection, writing-speed analysis, playback,
-productivity analytics, and the stroke-level temporal UI of Phase 1 (hover
-timestamps, sequence numbers).
+Still unimplemented: session statistics (Use Case 2.2), session boundaries on the
+canvas, writing-speed analysis, playback, productivity analytics, and the
+stroke-level temporal UI of Phase 1 (hover timestamps, sequence numbers).
 
 ---
 

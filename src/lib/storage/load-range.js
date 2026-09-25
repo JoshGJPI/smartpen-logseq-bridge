@@ -33,6 +33,15 @@ import { getPage, getTimelineIndex } from './local-store.js';
 import { canvasPageInfoFor, storedStrokesToCanvas, mergeCanvasStrokes } from './load-page.js';
 
 /**
+ * Above this many strokes a load asks a second time: the canvas gets slow
+ * enough to be worth a deliberate choice. A median week in the reference corpus
+ * is ~7,900 strokes and a busy month ~50,000, so day and week loads go through
+ * untouched and a month is an explicit decision. Shared by the Dates tab and the
+ * Timeline feed's "Load range into Editor".
+ */
+export const LARGE_LOAD_STROKES = 12000;
+
+/**
  * Load every stroke captured between two local calendar days, inclusive.
  *
  * Merges into whatever is already on the canvas rather than replacing it — the
@@ -54,93 +63,140 @@ export async function importDateRangeFromFolder({ from, to, index = null, onProg
 
     const idx = index || await getTimelineIndex();
     const targets = pagesInRange(idx, from, to);
+    const span = from === to ? from : `${from} → ${to}`;
 
     if (targets.length === 0) {
       log(`No ink captured between ${from} and ${to}`, 'warning');
       return { success: true, pages: 0, imported: 0, context: 0, duplicatesSkipped: 0 };
     }
 
-    const incoming = [];
-    const context = [];
-    let pagesRead = 0;
-
-    for (let i = 0; i < targets.length; i++) {
-      const t = targets[i];
-      if (onProgress) onProgress(`Loading B${t.book}/P${t.pageId}…`, i + 1, targets.length);
-
-      const doc = await getPage(t.book, t.pageId);
-      if (!doc) {
-        // The index named a page that is no longer there — a stale cache entry,
-        // not an error worth failing the whole load over.
-        console.warn(`[load-range] B${t.book}/P${t.pageId} named by the index but not on disk`);
-        continue;
-      }
-      pagesRead++;
-
-      const stored = Array.isArray(doc.strokes) ? doc.strokes : [];
-
-      // Prime from the FULL list — this is the on-disk truth, and a partial load
-      // must not make the strokes it left behind look like anything pending.
-      // Book comes from the index entry (a book KEY), never doc.pageInfo.book,
-      // which is numeric and would file a volume page under volume 1.
-      noteOnDiskStrokeIds(t.book, doc.pageInfo?.page ?? t.page, stored);
-
-      const inRange = [];
-      const outside = [];
-      for (const s of stored) {
-        const st = Number(s.startTime);
-        if (Number.isFinite(st) && st >= bounds.startMs && st < bounds.endMs) inRange.push(s);
-        else outside.push(s);
-      }
-
-      // One shared pageInfo for BOTH halves of the page — they are the same page
-      // and the renderer groups by its contents.
-      const pageInfo = canvasPageInfoFor(doc, t.book);
-      if (inRange.length > 0) {
-        incoming.push(...storedStrokesToCanvas(inRange, pageInfo));
-      }
-      if (outside.length > 0) {
-        context.push(...storedStrokesToCanvas(outside, pageInfo, { contextInk: true }));
-      }
-    }
-
-    if (incoming.length === 0) {
-      log(`No strokes loaded for ${from} → ${to}`, 'warning');
-      return { success: true, pages: pagesRead, imported: 0, context: 0, duplicatesSkipped: 0 };
-    }
-
-    const bookIds = [...new Set(incoming.map(s => s.pageInfo?.book).filter(Boolean))];
-    if (bookIds.length > 0) registerBookIds(bookIds);
-
-    const merged = mergeCanvasStrokes(get(strokes), incoming);
-    strokes.set(merged.strokes);
-
-    // After the strokes store is updated, so a stroke that just became live is
-    // not also added as a ghost of itself.
-    const contextAdded = addContextInk(context);
-    pruneContextInk();
-
-    const span = from === to ? from : `${from} → ${to}`;
-    const tail = merged.duplicatesSkipped > 0
-      ? ` (${merged.duplicatesSkipped} already loaded)`
-      : '';
-    log(
-      `Loaded ${merged.imported} stroke(s) from ${span} across ${pagesRead} page(s)`
-      + (contextAdded > 0 ? `, plus ${contextAdded} shown as context` : '')
-      + tail,
-      'success'
-    );
-
-    return {
-      success: true,
-      pages: pagesRead,
-      imported: merged.imported,
-      context: contextAdded,
-      duplicatesSkipped: merged.duplicatesSkipped
-    };
+    return await importWindow(targets, bounds, span, onProgress);
   } catch (err) {
     console.error('Failed to load date range:', err);
     log(`Date range load failed: ${err.message}`, 'error');
     return { success: false, error: err.message };
   }
+}
+
+/**
+ * Load one sitting — a Timeline feed card's "Load into Editor".
+ *
+ * The same split as a date load, over a narrower window: the sitting's strokes
+ * arrive live and the rest of each of its pages as context ink. The window is
+ * `[startMs, endMs)` on `startTime`; a card passes its first stroke's start and
+ * one past its last stroke's start. Nothing else on those pages can fall inside
+ * it: a sitting is every stroke on the day's (filtered) pages chained by short
+ * pauses, so anything in the window is already part of it.
+ *
+ * @param {{pages: Array<{book: string, pageId: string}>, startMs: number, endMs: number}} params
+ */
+export async function importSessionFromFolder({ pages, startMs, endMs } = {}) {
+  try {
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+      throw new Error('Invalid time window');
+    }
+    const targets = (pages || []).map((p) => {
+      const id = String(p.pageId);
+      return { book: String(p.book), pageId: id, page: parseInt(id, 10) };
+    });
+    if (targets.length === 0) throw new Error('No pages to load');
+    const clock = new Date(startMs).toLocaleString(undefined, {
+      day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit'
+    });
+    return await importWindow(targets, { startMs, endMs }, `the sitting at ${clock}`, null);
+  } catch (err) {
+    console.error('Failed to load session:', err);
+    log(`Load failed: ${err.message}`, 'error');
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Shared core: split each target page on `startTime` into live strokes (inside
+ * `[startMs, endMs)`) and context ink (everything else), then merge onto the
+ * canvas.
+ *
+ * @param {Array<{book: string, pageId: string, page: number}>} targets
+ * @param {{startMs: number, endMs: number}} bounds
+ * @param {string} span  how the log names what was loaded
+ * @param {Function|null} onProgress
+ */
+async function importWindow(targets, bounds, span, onProgress) {
+  const incoming = [];
+  const context = [];
+  let pagesRead = 0;
+
+  for (let i = 0; i < targets.length; i++) {
+    const t = targets[i];
+    if (onProgress) onProgress(`Loading B${t.book}/P${t.pageId}…`, i + 1, targets.length);
+
+    const doc = await getPage(t.book, t.pageId);
+    if (!doc) {
+      // The index named a page that is no longer there — a stale cache entry,
+      // not an error worth failing the whole load over.
+      console.warn(`[load-range] B${t.book}/P${t.pageId} named by the index but not on disk`);
+      continue;
+    }
+    pagesRead++;
+
+    const stored = Array.isArray(doc.strokes) ? doc.strokes : [];
+
+    // Prime from the FULL list — this is the on-disk truth, and a partial load
+    // must not make the strokes it left behind look like anything pending.
+    // Book comes from the index entry (a book KEY), never doc.pageInfo.book,
+    // which is numeric and would file a volume page under volume 1.
+    noteOnDiskStrokeIds(t.book, doc.pageInfo?.page ?? t.page, stored);
+
+    const inRange = [];
+    const outside = [];
+    for (const s of stored) {
+      const st = Number(s.startTime);
+      if (Number.isFinite(st) && st >= bounds.startMs && st < bounds.endMs) inRange.push(s);
+      else outside.push(s);
+    }
+
+    // One shared pageInfo for BOTH halves of the page — they are the same page
+    // and the renderer groups by its contents.
+    const pageInfo = canvasPageInfoFor(doc, t.book);
+    if (inRange.length > 0) {
+      incoming.push(...storedStrokesToCanvas(inRange, pageInfo));
+    }
+    if (outside.length > 0) {
+      context.push(...storedStrokesToCanvas(outside, pageInfo, { contextInk: true }));
+    }
+  }
+
+  if (incoming.length === 0) {
+    log(`No strokes loaded for ${span}`, 'warning');
+    return { success: true, pages: pagesRead, imported: 0, context: 0, duplicatesSkipped: 0 };
+  }
+
+  const bookIds = [...new Set(incoming.map(s => s.pageInfo?.book).filter(Boolean))];
+  if (bookIds.length > 0) registerBookIds(bookIds);
+
+  const merged = mergeCanvasStrokes(get(strokes), incoming);
+  strokes.set(merged.strokes);
+
+  // After the strokes store is updated, so a stroke that just became live is
+  // not also added as a ghost of itself.
+  const contextAdded = addContextInk(context);
+  pruneContextInk();
+
+  const tail = merged.duplicatesSkipped > 0
+    ? ` (${merged.duplicatesSkipped} already loaded)`
+    : '';
+  log(
+    `Loaded ${merged.imported} stroke(s) from ${span} across ${pagesRead} page(s)`
+    + (contextAdded > 0 ? `, plus ${contextAdded} shown as context` : '')
+    + tail,
+    'success'
+  );
+
+  return {
+    success: true,
+    pages: pagesRead,
+    imported: merged.imported,
+    context: contextAdded,
+    duplicatesSkipped: merged.duplicatesSkipped
+  };
 }

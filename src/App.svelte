@@ -18,6 +18,7 @@
 
   // Book viewer
   import BookViewer from './components/viewer/BookViewer.svelte';
+  import TimelineFeed from './components/viewer/TimelineFeed.svelte';
 
   // Stores
   import { log } from '$stores';
@@ -25,6 +26,7 @@
   import { dataRoot, setDataFolderStatus, getDataRoot } from '$stores/settings.js';
   import { graphRoot, setGraphFolderStatus, getGraphRoot } from '$stores/settings.js';
   import { unsavedChanges, viewerMode, viewerDirty, setViewerMode, clearAllViewerDirty } from '$stores';
+  import { bookViewMode, setBookViewMode, feedOrder, toggleFeedOrder } from '$stores';
   import { isAvailable as folderIsAvailable } from '$lib/storage/local-store.js';
   import { scanLocalPages } from '$lib/storage/scan.js';
   import { loadVolumes } from '$stores/volumes.js';
@@ -126,6 +128,17 @@
     setViewerMode(mode);
   }
 
+  // Books ⇄ Timeline inside Book View. Leaving Books unmounts its transcript
+  // editor, so it gets the same unsaved-edits guard as leaving Book View.
+  function switchBookMode(mode) {
+    if (mode === $bookViewMode) return;
+    if (mode === 'timeline' && get(viewerDirty)) {
+      if (!window.confirm('You have unsaved transcript edits. Discard them?')) return;
+      clearAllViewerDirty();
+    }
+    setBookViewMode(mode);
+  }
+
   onMount(() => {
     initializePenSDK();
     log('Bridge initialized. Click "Connect Pen" to begin.', 'info');
@@ -211,7 +224,41 @@
           >Book View</button>
         </div>
 
-        {#if $viewerMode === 'book' && bookViewerHasSelection}
+        {#if $viewerMode === 'book'}
+          <div class="vg-segment" role="group" aria-label="Book View mode">
+            <button
+              class:active={$bookViewMode === 'books'}
+              aria-pressed={$bookViewMode === 'books'}
+              on:click={() => switchBookMode('books')}
+            >Books</button>
+            <button
+              class:active={$bookViewMode === 'timeline'}
+              aria-pressed={$bookViewMode === 'timeline'}
+              on:click={() => switchBookMode('timeline')}
+            >Timeline</button>
+          </div>
+        {/if}
+
+        {#if $viewerMode === 'book' && $bookViewMode === 'timeline'}
+          <div class="viewer-globals">
+            <button
+              class="vg-btn"
+              on:click={toggleFeedOrder}
+              title={$feedOrder === 'newest' ? 'Showing newest first — click for oldest first' : 'Showing oldest first — click for newest first'}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                {#if $feedOrder === 'newest'}
+                  <path d="M12 5v14"/><polyline points="19 12 12 19 5 12"/>
+                {:else}
+                  <path d="M12 19V5"/><polyline points="5 12 12 5 19 12"/>
+                {/if}
+              </svg>
+              {$feedOrder === 'newest' ? 'Newest first' : 'Oldest first'}
+            </button>
+          </div>
+        {/if}
+
+        {#if $viewerMode === 'book' && $bookViewMode === 'books' && bookViewerHasSelection}
           <div class="viewer-globals">
             <button class="vg-btn icon" on:click={() => bookViewer?.goHome()} title="Back to all pages">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -249,7 +296,9 @@
         {/if}
       </div>
 
-      {#if $viewerMode === 'book'}
+      {#if $viewerMode === 'book' && $bookViewMode === 'timeline'}
+        <TimelineFeed />
+      {:else if $viewerMode === 'book'}
         <BookViewer
           bind:this={bookViewer}
           bind:contentMode={bookViewerContentMode}

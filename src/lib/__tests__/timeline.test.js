@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   dayKey, dayStart, addDays, rangeBoundsMs, inRange, eachDay,
-  timelinePages, dayTotals, timelineExtent, pagesInRange, rangeSummary, pagesOnDay
+  timelinePages, dayTotals, timelineExtent, pagesInRange, rangeSummary, pagesOnDay,
+  filterIndexByBooks, indexBooks
 } from '../timeline.js';
 
 /** A timeline index entry. `days` is the histogram the main process builds. */
@@ -335,5 +336,58 @@ describe('pagesOnDay', () => {
 
   it('is empty for a day with no capture', () => {
     expect(pagesOnDay(idx, '2026-08-16')).toEqual([]);
+  });
+});
+
+describe('filterIndexByBooks', () => {
+  const idx = index(
+    page('388', '12', { '2026-09-14': 10 }),
+    page('388v2', '12', { '2026-09-14': 20 }),
+    page('390', '4', { '2026-09-15': 30 })
+  );
+
+  it('returns the same index when nothing is excluded', () => {
+    expect(filterIndexByBooks(idx, new Set())).toBe(idx);
+    expect(filterIndexByBooks(idx, null)).toBe(idx);
+  });
+
+  it('drops the excluded books from every downstream answer', () => {
+    const f = filterIndexByBooks(idx, new Set(['390']));
+    expect(Object.keys(f.pages).sort()).toEqual(['388/12', '388v2/12']);
+    expect(dayTotals(f).map(d => d.day)).toEqual(['2026-09-14']);
+    expect(idx.pages['390/4']).toBeDefined(); // the original is untouched
+  });
+
+  it('filters volumes of one notebook separately', () => {
+    const f = filterIndexByBooks(idx, new Set(['388v2']));
+    expect(Object.keys(f.pages).sort()).toEqual(['388/12', '390/4']);
+  });
+
+  it('copes with no index', () => {
+    expect(filterIndexByBooks(null, new Set(['1']))).toBeNull();
+  });
+});
+
+describe('indexBooks', () => {
+  const idx = index(
+    page('3880', '1', { '2026-09-01': 5 }),
+    page('388v2', '12', { '2026-09-14': 20, '2026-09-01': 1 }),
+    page('388', '12', { '2026-09-14': 10 }),
+    page('388', '13', { '2026-09-20': 7 })
+  );
+
+  it('lists each book once with its total and in-range strokes', () => {
+    const books = indexBooks(idx, '2026-09-10', '2026-09-15');
+    expect(books.find(b => b.book === '388')).toEqual({ book: '388', strokes: 17, inRange: 10 });
+    expect(books.find(b => b.book === '388v2')).toEqual({ book: '388v2', strokes: 21, inRange: 20 });
+    expect(books.find(b => b.book === '3880')).toEqual({ book: '3880', strokes: 5, inRange: 0 });
+  });
+
+  it('sorts by book key, so a volume follows its notebook rather than string order', () => {
+    expect(indexBooks(idx).map(b => b.book)).toEqual(['388', '388v2', '3880']);
+  });
+
+  it('counts nothing in range without a range', () => {
+    expect(indexBooks(idx).every(b => b.inRange === 0)).toBe(true);
   });
 });

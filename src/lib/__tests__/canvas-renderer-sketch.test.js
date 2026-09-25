@@ -296,3 +296,45 @@ describe('drawPastedStroke', () => {
     expect(new Set(widths).size).toBeGreaterThan(1);
   });
 });
+
+describe('fitToContent — dragged page positions', () => {
+  // Two corners of a page, so the page has real extent to fit.
+  const corners = [
+    { pageInfo: PAGE_INFO, startTime: 1, endTime: 2, dotArray: [{ x: 10, y: 20, f: 300 }, { x: 60, y: 90, f: 300 }] }
+  ];
+  const key = `S${PAGE_INFO.section || 0}/O${PAGE_INFO.owner || 0}/B${PAGE_INFO.book}/P${PAGE_INFO.page}`;
+
+  function screenBox(renderer) {
+    const a = renderer.ncodeToScreen({ x: 10, y: 20 }, PAGE_INFO);
+    const b = renderer.ncodeToScreen({ x: 60, y: 90 }, PAGE_INFO);
+    return { left: a.x, top: a.y, right: b.x, bottom: b.y };
+  }
+
+  function expectCentred(renderer) {
+    const box = screenBox(renderer);
+    expect((box.left + box.right) / 2).toBeCloseTo(renderer.viewWidth / 2, 6);
+    expect((box.top + box.bottom) / 2).toBeCloseTo(renderer.viewHeight / 2, 6);
+  }
+
+  it('centres the computed layout', () => {
+    const { renderer } = makeRenderer();
+    renderer.viewWidth = 1000;
+    renderer.viewHeight = 500;
+    renderer.calculateBounds(corners);
+    renderer.fitToContent();
+    expectCentred(renderer);
+  });
+
+  it('centres a page that was dragged away from the origin', () => {
+    // Custom positions leave bounds.minX/minY at the page's offset rather than
+    // 0; fitting as if they were 0 put the page off-screen by that offset.
+    const { renderer } = makeRenderer();
+    renderer.viewWidth = 1000;
+    renderer.viewHeight = 500;
+    renderer.calculateBounds(corners);
+    renderer.applyCustomPositions({ [key]: { x: 68.4, y: -1.1 } });
+    expect(renderer.bounds.minX).toBeCloseTo(68.4);
+    renderer.fitToContent();
+    expectCentred(renderer);
+  });
+});

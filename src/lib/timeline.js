@@ -19,6 +19,8 @@
  * Pure: no I/O, no stores. Tested in `src/lib/__tests__/timeline.test.js`.
  */
 
+import { compareBookKeys } from './volumes.js';
+
 /** "YYYY-MM-DD" for a local calendar day. Mirrors `dayKeyLocal` in main.cjs. */
 export function dayKey(ms) {
   const d = ms instanceof Date ? ms : new Date(ms);
@@ -224,4 +226,47 @@ export function pagesOnDay(index, day) {
     String(a.book).localeCompare(String(b.book), undefined, { numeric: true }) || (a.page - b.page)
   );
   return out;
+}
+
+/**
+ * The index with some books left out — the date features' book filter.
+ *
+ * Everything date-related reads through this (the activity grid, the tallies,
+ * the day list, the Timeline feed and a date load into the Editor), so they all
+ * agree about which notebooks count. Keyed by book KEY, so the volumes of one
+ * notebook are filtered separately. Returns the same object when nothing is
+ * excluded, so derived stores don't recompute for the common case.
+ *
+ * @param {Object|null} index
+ * @param {Set<string>|null} excluded  book keys to leave out
+ */
+export function filterIndexByBooks(index, excluded) {
+  if (!index || !excluded || excluded.size === 0) return index;
+  const pages = {};
+  for (const [key, p] of Object.entries(index.pages || {})) {
+    if (p && !excluded.has(String(p.book))) pages[key] = p;
+  }
+  return { ...index, pages };
+}
+
+/**
+ * Every book in the index with its stroke total and how much of that falls in
+ * `[from, to]` — the rows of the book filter. In book-key order (a notebook's
+ * volumes after it), not string order, which puts "388v2" after "3880".
+ *
+ * @returns {Array<{book: string, strokes: number, inRange: number}>}
+ */
+export function indexBooks(index, from = null, to = null) {
+  const acc = new Map();
+  for (const p of timelinePages(index)) {
+    const book = String(p.book);
+    const entry = acc.get(book) || { book, strokes: 0, inRange: 0 };
+    for (const day of Object.keys(p.days)) {
+      const n = p.days[day] || 0;
+      entry.strokes += n;
+      if (inRange(day, from, to)) entry.inRange += n;
+    }
+    acc.set(book, entry);
+  }
+  return [...acc.values()].sort((a, b) => compareBookKeys(a.book, b.book));
 }

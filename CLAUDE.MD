@@ -47,19 +47,27 @@ App.svelte (Root)
     │   ├── Canvas Renderer (Drawing engine)
     │   ├── PointEditPanel (Edit Points mode — stray-point list + delete)
     │   └── FilteredStrokesPanel (Decorative strokes)
-    └── BookViewer (Book View — read/edit saved pages as a book)
-        ├── Home grid (recent + collapsible by-book page thumbnails)
-        └── PageSpreadView ×1–2 (side-by-side spread, page-turn nav)
-            ├── SVG stroke render (per-page zoom/pan/fit)
-            └── TranscriptPane (view/inline-edit lines, copy LogSeq markdown)
+    ├── BookViewer (Book View → Books — read/edit saved pages as a book)
+    │   ├── Home grid (recent + collapsible by-book page thumbnails)
+    │   └── PageSpreadView ×1–2 (side-by-side spread, page-turn nav)
+    │       ├── SVG stroke render (per-page zoom/pan/fit)
+    │       └── TranscriptPane (view/inline-edit lines, copy LogSeq markdown)
+    └── TimelineFeed (Book View → Timeline — the Dates range as a scrolling feed;
+        │             grows the range as you scroll off its end)
+        ├── BookFilterMenu (which notebooks count — also in the Dates tab)
+        └── FeedDay ×N (one per day with ink; loads its pages when near)
+            └── FeedCard ×N (one sitting — any number of pages)
+                └── FeedPart ×N (one page's share: strips ⇄ whole page)
 ```
 
 The right-hand pane toggles between the **Editor** (`StrokeCanvas`) and **Book View**
-(`BookViewer`) via a segmented control in the top bar (`App.svelte`). Book View's
-global controls (Home · Strokes/Transcript · Single/Spread) live in that same top bar
-and drive the bound `BookViewer` instance; each page's toolbar has a **Load into
-Editor** action that imports that page's strokes into the Editor canvas and switches
-to it.
+via a segmented control in the top bar (`App.svelte`). Book View has two modes,
+**Books** (`BookViewer`) and **Timeline** (`TimelineFeed`), switched by a second
+segment beside it (`bookViewMode`). Books' global controls (Home ·
+Strokes/Transcript · Single/Spread) live in that same top bar and drive the bound
+`BookViewer` instance; each page's toolbar has a **Load into Editor** action that
+imports that page's strokes into the Editor canvas and switches to it. Timeline's
+one global control is the Newest/Oldest-first toggle (`feedOrder`).
 
 **Left panel tabs.** Tab *ids* are unchanged from the pre-v2.7 nested version
 (`'strokes'`, `'transcription'`, `'saved-pages'`, plus `'books'` and `'dates'`)
@@ -101,6 +109,13 @@ All state is managed through Svelte stores located in `src/stores/`:
   - `viewerDirty` (derived) + `markViewerDirtyPage()`/`clearViewerDirtyPage()` — per-page unsaved-transcript-edit tracking, kept **separate** from the canvas `unsavedChanges` so saving a transcript never masks unsaved stroke changes (App's `beforeunload` checks both)
   - `viewerSelection` — last-open `{book, pageId}`, persisted to localStorage so Book View reopens the same spread across toggles/reload; `setViewerSelection()`/`clearViewerSelection()`
   - `recentViews` + `recordRecentView()` — recently-opened pages for the home grid
+  - **Timeline feed (v2.9):** `bookViewMode` (`'books' | 'timeline'`) + `setBookViewMode()`,
+    `feedOrder` (`'newest' | 'oldest'`, default newest) + `setFeedOrder()`/`toggleFeedOrder()`
+    — both persisted to localStorage as per-viewer conveniences. `feedVisible` (derived:
+    Book View *and* Timeline). `feedDayInView` (scroll-spy — the day key heading the
+    feed's viewport) and `feedJumpRequest` + `requestFeedJump(day)` (a counter, like
+    `transcriptSearchFocus`, so asking for the same day twice scrolls twice) — both
+    session-only; the Dates tab reads the first and writes the second
 
 **Sketch Strokes (v2.4):**
 - `sketch.js` — the pressure → thickness render profile (`sketchProfile`, `sketchPresetName`, `sketchPresets`, `sketchProfileSummary`, `applySketchPreset()`, `updateSketchProfile()`, `resetSketchProfile()`). Persisted to localStorage: it's a *display* preference, so it restyles every sketch at once and never touches disk. Any manual edit clears the preset name (showing "Brush" as active after its numbers changed would lie).
@@ -120,6 +135,14 @@ All state is managed through Svelte stores located in `src/stores/`:
   `canvasPageOrder` (`'book' | 'date'`) and `setCanvasPageOrder()`.
   The index is histograms, not strokes (~60KB for a 290-page corpus), so unlike
   the page scan there is no reason to keep it off the heap.
+  **Book filter (v2.9):** `timelineExcludedBooks` (a `Set` of book keys, stored as
+  *exclusions* so a new notebook appears without being ticked; localStorage),
+  `setBookIncluded()`/`includeAllBooks()`/`includeOnlyBook()`, `timelineBooks`
+  (every book with its in-range strokes — the menu's rows) and
+  `timelineIndexFiltered`. **Every derived store above reads the filtered index**,
+  and so must any caller passing `index:` to a date load — that is what keeps the
+  grid, tallies, feed and Editor loads agreeing. `timelineIndex` stays raw (the
+  book list needs every book)
 - `context-ink.js` — `contextInk`: strokes the canvas DRAWS but does not own.
   A date load puts only in-range strokes in `strokes`; the rest of each touched
   page lands here and renders halftoned. Kept out of `strokes` deliberately, so
@@ -193,8 +216,24 @@ All state is managed through Svelte stores located in `src/stores/`:
   Also `dayKey`/`dayStart`/`addDays`/`eachDay`/`inRange`, `dayTotals`,
   `timelineExtent`, `pagesInRange` (splits each page into in-range vs context
   strokes; `firstDay` is the earliest day *inside* the range), `rangeSummary`,
-  `pagesOnDay`
+  `pagesOnDay`, and the book filter's `filterIndexByBooks()` (returns the same
+  object when nothing is excluded) and `indexBooks()` (book-key order)
 - `transcript-search.js` - Full-text search across transcriptions
+- `timeline-feed.js` - **Timeline feed** (pure). `feedSkeleton()` (days with ink in a
+  range, from the index alone, plus one `empty` entry per run of blank days between
+  them; newest first by default), `daySessions()` (one day's strokes across every page
+  it touched, sorted by `startTime` and chained into **sessions** — a card — for as
+  long as each stroke starts within `SESSION_GAP_MS` = 20 min of the previous one's
+  *end*. **Not** cut on a page change: a session carries `parts`, one per page in the
+  order first written on. Sessions and parts hold doc stroke **objects**, not ids),
+  `extendFeedRange()` (the range grown by the next N days with ink toward the end the
+  feed scrolls to — endless scroll), `indexPageStrokes()`
+  (per-stroke Y extent + the card frame, at least `PAGE_MIN_WIDTH`×`PAGE_MIN_HEIGHT`
+  so handwriting is one size across cards), `sessionBands()` (the strips a collapsed
+  part shows: ink clustered vertically, blank page > `BAND_MERGE_GAP` cut out),
+  `sessionBand()`, `nextFeedRange()`, `estimateDayHeight()`, `formatDuration()`.
+  Stray Ncode-origin points are ignored for extents (`ORIGIN_TOLERANCE` from
+  `point-edit.js`) — one would stretch a strip to the top of the page
 
 **Storage Layer (`src/lib/storage/`)** — v2.0:
 - `page-doc.js` — PageDoc schema types, `emptyPageDoc()`, `computeBounds()`, `validatePageDoc()`
@@ -205,12 +244,13 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `publish-graph.js` — graph **transport only**: `readGraphPage(book, pageId)` (the published asset, or null) and `writeGraphPage(book, pageId, doc)` (asset via `serializePageDoc` + `smartpen-index.json` upsert, both atomic via IPC). **Throws on failure** — export is a deliberate user action, so errors surface. No LogSeq runtime dependency (pure filesystem). Does *not* decide what to publish
 - `graph-export.js` — **what** to publish. Pure core (`stripTranscriptRefs`, `mergeGraphStrokes`, `resolveGraphPageInfo`, `buildGraphPageDoc`, `groupCanvasStrokesByPage`) + facades `exportSelectionToGraph(canvasStrokes)` (fans out one merge+write per page in the selection) and `exportPageDocToGraph(book, pageId, doc)` (whole-page backfill). Two invariants: **additive** (merge into what's already published, dedupe by stroke id — re-exporting is a safe no-op) and **transcript-free** (`transcript.lines` emptied, every `lineId` cleared). Tested in `graph-export.test.js`
 - `load-page.js` — `importStrokesFromFolder()`, `importStrokesForLoadedPagesFromFolder()` — converts StoredStroke → canvas dotArray format. `canvasPageInfoFor()` + `storedStrokesToCanvas()` are split out so a caller can convert a **subset** of a page against one shared `pageInfo` (what a date-range load needs); `mergeCanvasStrokes()` is the dedupe-by-id merge
-- `load-range.js` — `importDateRangeFromFolder()` — stroke-level date filtering. Splits each touched page into in-range strokes (→ `strokes`) and the rest (→ `contextInk`). Primes `noteOnDiskStrokeIds` from the page's **full** stored list, so a partial load reports nothing pending. Merges into the canvas rather than replacing it
+- `load-range.js` — `importDateRangeFromFolder()` — stroke-level date filtering. Splits each touched page into in-range strokes (→ `strokes`) and the rest (→ `contextInk`). Primes `noteOnDiskStrokeIds` from the page's **full** stored list, so a partial load reports nothing pending. Merges into the canvas rather than replacing it. `importSessionFromFolder({pages, startMs, endMs})` (v2.9) is the same split over a `[startMs, endMs)` window on a sitting's pages — a Timeline card's Load into Editor; both share the private `importWindow()` core. `LARGE_LOAD_STROKES` (12,000) is the second-confirmation threshold shared by the Dates tab and the feed
 - `scan.js` — `scanLocalPages()` + `metaToRecord()` (pure, tested) — populates the `savedPages` store from disk. **Metadata-only (perf #3):** records carry summary fields ONLY (`strokeCount`, `lastUpdated`, `transcriptionText`, `transcribed`, `transcriptLineCount`, `pageId`/`suffix`) — never `strokes`/`pageDoc`/`strokeData`, so the corpus never stays resident; each page's strokes load lazily on view. Records load by `pageId`, so letter-suffixed variants (`P127.json` + `P127b.json`) don't collapse onto the integer page. (`main.cjs listAllPages` → `extractPageMeta` parses just the doc shell, skipping the strokes array, so the scan is fast; the tiny `transcriptionText` rides along to power search/preview without loading strokes.)
 - `page-changes.js` — `computePageChangesFolder()` — preview diff for the SaveConfirmDialog. Reads the PageDoc off disk rather than the `onDiskStrokeIds` index, so it is a **second implementation** of the `pendingChanges` question and has to stay in step with it — it returns `strokeAdditions`/`strokeModifications`/`strokeDeletions` on the same rules
 
 **Book View Layer (`src/lib/viewer/`)** — v2.1:
 - `page-svg.js` — `computeStrokeBounds()`, `strokeToPathD()`, `generateThumbnailSVG()` — SVG render for the spread pages + home-grid thumbnails (`NCODE_SCALE = 2.371`). Also `strokePointPressures()` + `strokeToWidthRuns()` for sketch strokes: SVG applies one `stroke-width` per `<path>`, so a pressure-varying line is emitted as consecutive constant-width runs (thumbnails stay flat — too small to matter)
+- `feed-pages.js` — `createFeedPageLoader(load)` — the Timeline feed's **ref-counted** PageDoc holder: `acquire()`/`release()`/`clear()`/`size()`. Pages are shared across days (most hold ink from several), so a page is read once while any loaded day needs it and forgotten when the last lets go; a failed read is forgotten so the next acquire retries. Deliberately not `page-cache.js` — one busy day would evict the Books spread's six docs
 - `page-cache.js` — small LRU (`getCachedPage`/`invalidatePage`/`clearPageCache`, MAX 6) over full PageDocs. Book View loads strokes lazily through this (records no longer embed them, perf #3) so turning a spread doesn't re-read disk; older docs are evicted. Keyed by `B{book}/P{pageId}` (suffix-safe)
 - `transcript-markdown.js` — `linesToLogseqMarkdown()` — tab-indented `- ` bullets with `- TODO`/`- DONE` markers; `key:: value` property lines stripped (LogSeq-pasteable copy). Also `indentMarkdownBlock()`, `textToTranscriptLines()` (flat-text fallback) and `pagesToLogseqMarkdown()` (multi-page payload: one page copies bare, several nest under `- {label}` bullets) — used by the canvas text-view copy
 - `save-transcript.js` — `saveTranscriptLines(book, pageId, lines)` — writes inline transcript edits back to the PageDoc verbatim (getPage → replace `transcript.lines` → scrub deleted `lineId`s on strokes → `savePage`); `recomputeParentIds()` keeps the hierarchy consistent after indent edits
@@ -500,10 +540,11 @@ Existing test files (all in `src/lib/__tests__/`):
 | `page-svg.test.js` | `computeStrokeBounds`, `strokeToPathD` (scaling, normalisation, <2-point skip), `generateThumbnailSVG` (empty placeholder, dimensions); `strokePointPressures` (4th tuple element, NaN for legacy), `strokeToWidthRuns` (run splitting, monotonic ramp, full segment coverage, constant-pressure collapse, flatWidth fallback, scale/profile response) |
 | `sketch-width.test.js` | `normalizeProfile` (defaults, swapped/degenerate sanitising, null-vs-zero), presets, `profileKey`, `pressureToUnit` (band/clamp/NaN), `widthForPressure` (endpoints, gamma character), `smoothSeries` (symmetry, spike attenuation, edge windows), `limitSlew` (bidirectional), `widthsForPressures` (full pipeline, gap filling, all-missing → flatWidth), `strokePressures`/`hasPressureData` |
 | `sketch-store.test.js` | `stores/sketch.js` (sanitised load, persistence, corrupt JSON, presets, edit-clears-preset, reset, summary) and the `stores/strokes.js` flag helpers (mark/unmark, Set or array, no-op detection, unsaved-changes signalling, `_sw` cache invalidation, `sketchStrokeCount`) |
-| `canvas-renderer-sketch.test.js` | Renderer sketch path against a recording 2D-context stub: uniform handwriting (and that width no longer depends on the final dot), multi-width sketch runs, monotonic ramp, full segment coverage, run batching/quantisation, dashed fallback for deleted/decorative, width caching + profile invalidation, pasted-sketch taper |
+| `canvas-renderer-sketch.test.js` | Renderer sketch path against a recording 2D-context stub: uniform handwriting (and that width no longer depends on the final dot), multi-width sketch runs, monotonic ramp, full segment coverage, run batching/quantisation, dashed fallback for deleted/decorative, width caching + profile invalidation, pasted-sketch taper; `fitToContent` centring for the computed layout and for a **dragged** page (bounds not at the origin) |
 | `save-page.test.js` | `transcriptionOriginY` (recorded origin preferred, id re-derivation, page fallback, id forms, missing strokes); stroke→line matching (mm→Ncode conversion, batch origin vs page bounds, most-overlapping line wins a tie, tolerance reach, unusable yBounds link nothing, existing links preserved); `strokeToStored` (force as 4th element, integer rounding, null-timestamp placeholder, 3-element fallback for missing force, `sketch` omitted when false, key order); `savePageToFolder` sketch-flag sync onto strokes already on disk (mark, unmark removes the key, untouched when absent from canvas, points never rewritten *without the marker*, lineId sync preserved); **point edits** (rewrite gated on `pointsEdited`, refused without it, id/startTime/endTime survive losing the first point, force + sketch flag survive, marker never written to disk, other strokes untouched, bounds recomputed, key order stable, new-stroke case reports `edited: 0`) |
 | `point-edit.test.js` | `detectStrayPoints` (origin exact/near/leading, non-finite, interior jump, fast-movement and short-flick non-detections, absolute-floor boundary, short strokes, single reason per point); `detectStrayPointsForStrokes`; `removePointsFromStroke` (order, identity preserved both ends, force + sketch preserved, `dotType` re-tag, cache drop, no mutation, min-points refusal, no-ops, Set input); key helpers; `removeStrokePoints`/`clearPointEditMarkers` store behaviour (marker stamping, dirty signalling, partial refusal, per-page clearing); `stores/point-edit.js` mode + selection (entry refusals, derived strokes/point count/strays, key pruning when a stroke leaves the selection, exit when the selection empties, toggle, select/delete strays, selection cleared after a delete) |
-| `timeline.test.js` | `src/lib/timeline.js` — `dayKey` (local not UTC, so a late-evening stroke stays on its own day), `dayStart`/`addDays` across month and year boundaries, `rangeBoundsMs` (half-open: midnight on the first day is in, midnight after the last is out; reversed range normalised; null rather than an open range on bad input), `inRange`, `eachDay` (gaps included); `pagesInRange` (in-range vs context split, `firstDay` is the earliest day INSIDE the range, ordering, volume keys and letter suffixes kept distinct), `rangeSummary` (days with ink ≠ calendar days; `partialPages` counts only pages that would arrive partly loaded), `pagesOnDay`, `dayTotals`, `timelineExtent` |
+| `timeline.test.js` | `src/lib/timeline.js` — `dayKey` (local not UTC, so a late-evening stroke stays on its own day), `dayStart`/`addDays` across month and year boundaries, `rangeBoundsMs` (half-open: midnight on the first day is in, midnight after the last is out; reversed range normalised; null rather than an open range on bad input), `inRange`, `eachDay` (gaps included); `pagesInRange` (in-range vs context split, `firstDay` is the earliest day INSIDE the range, ordering, volume keys and letter suffixes kept distinct), `rangeSummary` (days with ink ≠ calendar days; `partialPages` counts only pages that would arrive partly loaded), `pagesOnDay`, `dayTotals`, `timelineExtent`; the book filter — `filterIndexByBooks` (identity when nothing excluded, downstream answers change, volumes filtered separately, original untouched) and `indexBooks` (totals vs in-range, book-key order) |
+| `timeline-feed.test.js` | `src/lib/timeline-feed.js` + `viewer/feed-pages.js` — `daySessions` (local-day filter incl. both midnights; the 5/10/12/17/26/37 vs 80-minute chaining example; one session across a page turn with a part per page; one part per page however often it's revisited; cut on a pause measured from the previous stroke's END, across pages too; exactly-the-gap stays together; custom gap; cross-page ordering; distinct ids; stroke identity not ids; id-less strokes), `extendFeedRange` (next ink days in both orders, fewer left, end of ink, empty days skipped), `indexPageStrokes` (minimum frame, wider notebooks, bogus-only strokes dropped), `sessionBand` (padding, minimum height, clamped at both page edges), `sessionBands` (blank page cut out between clusters — the two-ticks case — merge threshold, no overlapping strips), `feedSkeleton` (newest/oldest order, empty runs between days only, reversed range), `nextFeedRange`, `estimateDayHeight`, `formatDuration`; the loader's sharing, ref-count release, retry after failure, volume/suffix keying |
 | `volumes.test.js` | `src/lib/volumes.js` — `makeBookKey`/`parseBookKey` round-trip, canonical-form rejection (`"388v1"`, `"388v0"`, `"0388"`, `"388v02"`), `compareBookKeys` ordering (`"388"` < `"388v2"` < `"3880"` — the case naive string sort gets wrong), `withVolume`, `bookDirName`/`parseBookDirName`, the disk↔memory `pageInfo` boundary (volume 1 omitted), display helpers, `BOOK_KEY_FRAGMENT` matching |
 | `volumes-store.test.js` | `stores/volumes.js` (`activeVolumeFor`, `applyActiveVolume` including its idempotency, `volumesForBook`) and reassignment in `stores/strokes.js` — identity/geometry/sketch preserved, `blockUuid` cleared, first origin kept across a double move, `getMovedAwayStrokeIdsForPage` (the copy→move fix), `clearMovedFromMarkers` no-op pre-check |
 | `pending-changes.test.js` | `computePendingChangesMap` — additions vs. the on-disk stroke-state index, explicit deletions, page separation/`isSaved`, missing `pageInfo`; sketch-flag **modifications** (flag on, flag off, absent-vs-false, matching flag, new-and-flagged counted once as an addition, unknown page, deleted stroke excluded, mixed page, modification-only page enters the map); geometry **edits** (fewer points than stored, self-clearing when counts agree, silent on unknown stored count, edited-and-reflagged counted once as an edit, new stroke stays an addition, deleted stroke excluded, edit-only page enters the map, all four categories side by side); `adjustDeletionsAfterRemoval` (shift, marks before the hole untouched, marks on removed strokes dropped, interleaved removals, Set input, empty/null no-op, no renumber collision, undo history cleared) |
@@ -603,6 +644,23 @@ When making changes, also verify manually:
   a page, return to Dates, and confirm the new day is in the grid without a
   restart. Finally transcribe while a partial page is loaded and confirm the
   warning about covering the loaded strokes only
+- **Timeline feed** (v2.9): Book View → **Timeline**. The feed shows the Dates
+  range, newest day on top, a card per sitting with its start time on the rail
+  and "N min earlier" between cards. A meeting that turned a page is ONE card
+  with a strip per page. Pick 30 days in the Dates tab and scroll: the day
+  heading pins, "In view" in the Dates list and the ring in the grid follow, days
+  load ("Reading N pages…") as they approach and a fast fling past one shows its
+  dashed placeholder. Keep scrolling past the last day: the next earlier days
+  arrive without a jump and the Dates range's **From** moves back to match; at the
+  first day with ink the footer says so. A part whose ink is at the top and
+  bottom of a page (two ticks) shows two strips with a dashed cut. **Whole page**
+  expands with the band tinted; **Strip** collapses. **Load into Editor** on a
+  card brings only that sitting live (every page of it) and the rest grey, fitted
+  and centred (try a page you once dragged), with no `*` on the page label.
+  **Open page** lands in Books on that page. **Newest first ⇄ Oldest first**
+  flips days *and* cards. **Books filter** (feed header or Dates tab): **Only**
+  one book → both buttons read "1 of N books", tallies, grid, day list and feed
+  all drop the others, and a range load brings in only that book; **All** restores
 - Canvas pan/zoom/navigation
 - Page positioning and scaling
 - **Books tab** (v2.7): on a book with two volumes, give each an unrelated name
@@ -661,6 +719,63 @@ npm run preview
 - [Svelte 4 Docs](https://svelte.dev/docs/svelte/overview) — Framework reference
 
 ## Recent Changes (Git History Context)
+
+### v2.9 — Book View Timeline: the Dates range as a scrolling feed (September 2026)
+
+**Book View's second mode shows the Dates range as one scrolling column of ink, a
+card per sitting, newest first.** The v2.8 date view could only put a range on the
+canvas — right for editing, wrong for reading back through a week. Josh's calls
+(from an approved mockup): cards are strips that expand to the whole page, newest
+first, and **no transcripts on cards** — stored `lineId`s on pages transcribed
+before the August stroke→line fix mostly point at the wrong lines.
+
+**A card is a sitting, not a page.** `daySessions()` chains the day's strokes across
+all its pages while each starts within 20 min of the previous one's end. It first
+also cut on page changes; that doubled the corpus's card count (738 vs 367) purely
+from page turns mid-meeting, so a card now shows a **part** (strip) per page
+instead. With the final rule: median 2 cards a day, median sitting 21 min (95th pct
+83), 160 of 367 cards span several pages. A part's ink covers a median quarter of
+the page height — hence strips, not pages.
+
+**Strips cut out blank paper.** Ticking a TODO at the top of a page and another at the
+bottom, seconds apart, made a two-stroke card a page tall. `sessionBands()` drops
+any blank stretch over `BAND_MERGE_GAP` (≈3 lines), drawn as a dashed cut.
+
+**Browsing follows the range live; loading is explicit** — a card
+(`importSessionFromFolder`, a time window over its pages), a day, or the range. All
+three switch to the Editor.
+
+**Endless scroll grows the Dates range itself** (`extendFeedRange()`, next 3 days
+with ink), not a feed-private extension, so the grid, tallies and Load range always
+match the feed. The feed resets to the top only when its *near* end, order or book
+filter changes, and the footer has `overflow-anchor: none` so growth never jumps
+the view. It fires only on a user scroll or wheel, so opening the feed never widens
+a range you picked.
+
+**Lazy loading.** The outline comes from `_timeline.json`. A `FeedDay` within 1.5
+screens reads its pages — a whole day at once, because its cards interleave across
+pages — and beyond 4 screens releases them, keeping its measured height. Pages go
+through the ref-counted `createFeedPageLoader()`, not the Books LRU. Verified over
+30 days of the corpus.
+
+**Also fixed — Fit with dragged pages.** `fitToContent()` centred content as if world
+space began at 0, but `applyCustomPositions()` leaves bounds at the dragged offsets,
+so any page with a saved position fitted off-screen (383px on one real page).
+
+**Not done:** transcripts on cards; an adjustable pause threshold (`SESSION_GAP_MS`
+is a constant); `pageScales` in the feed (cards show paper, not canvas layout).
+
+**Testing note:** over CDP with the window covered, `visibilityState` is `hidden`,
+which pauses rAF and IntersectionObserver — the feed looks broken when it isn't.
+Launch Electron with `--disable-backgrounding-occluded-windows
+--disable-renderer-backgrounding`.
+
+**New:** `lib/timeline-feed.js`, `lib/viewer/feed-pages.js`,
+`components/viewer/{TimelineFeed,FeedDay,FeedCard,FeedPart}.svelte`,
+`components/dates/BookFilterMenu.svelte`, `timeline-feed.test.js`.
+**Edited:** `App.svelte`, `stores/{viewer,timeline,index}.js`, `lib/timeline.js`,
+`storage/load-range.js`, `components/dates/{DatesTab,ActivityGrid}.svelte`,
+`lib/canvas-renderer.js`, `canvas-renderer-sketch.test.js`, `timeline.test.js`.
 
 ### v2.8 — load the canvas by capture date (September 2026)
 

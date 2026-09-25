@@ -17,6 +17,8 @@
   export let days = [];
   export let from = null;
   export let to = null;
+  /** Day key at the top of the Timeline feed, ringed so the grid tracks it. */
+  export let inView = null;
 
   const dispatch = createEventDispatcher();
 
@@ -148,6 +150,7 @@
                     type="button"
                     class="cell level-{level(cell.day)}"
                     class:selected={selected(cell.day)}
+                    class:in-view={cell.day === inView}
                     title={title(cell.day)}
                     aria-label={title(cell.day)}
                     aria-pressed={selected(cell.day)}
@@ -239,6 +242,13 @@
 
   .cell.selected {
     box-shadow: inset 0 0 0 2px #ffffff;
+  }
+
+  /* Outside the cell rather than inset, so it reads on top of the selection's
+     inset ring instead of merging with it. */
+  .cell.in-view {
+    outline: 2px solid #ffffff;
+    outline-offset: 1px;
   }
 
   .cell:focus-visible {

@@ -233,14 +233,17 @@ export class CanvasRenderer {
     const scaleY = availHeight / contentHeight;
     this.zoom = Math.min(scaleX, scaleY, this.maxZoom);
     
-    // Center the content in the viewport
-    // The content's top-left in screen space would be at (0,0) after ncodeToScreen subtracts bounds.min
-    // We need to offset so content is centered
+    // Center the content in the viewport.
+    // World space starts at bounds.minX/minY, which is NOT always 0:
+    // calculateBounds() normalises the computed layout to the origin, but
+    // applyCustomPositions() recomputes bounds from dragged page offsets and
+    // leaves them wherever the pages sit. Centring as if content began at 0
+    // pushed a dragged page off-screen by its own offset.
     const scaledContentWidth = contentWidth * this.zoom;
     const scaledContentHeight = contentHeight * this.zoom;
-    
-    this.panX = (this.viewWidth - scaledContentWidth) / 2;
-    this.panY = (this.viewHeight - scaledContentHeight) / 2;
+
+    this.panX = (this.viewWidth - scaledContentWidth) / 2 - this.bounds.minX * this.scale * this.zoom;
+    this.panY = (this.viewHeight - scaledContentHeight) / 2 - this.bounds.minY * this.scale * this.zoom;
     
     // Don't call redraw - let the component handle it
     

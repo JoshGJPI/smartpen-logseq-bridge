@@ -107,6 +107,19 @@ notes — and until now the only fix was deleting the whole stroke.
   sits where it belongs on the page. It can't be selected, saved or transcribed
 - **Laid out by day**: pages arrange one row per day, each labelled with its date
 - **Activity grid**: a weekday heat grid of every capture day; drag across it to select
+- **Timeline feed**: Book View → **Timeline** shows the same range as one scrolling
+  column of ink, newest first — a card for each sitting, with its time and length.
+  A sitting is writing with no pause longer than 20 minutes, so a long meeting stays
+  one card even when it turns a page; each page it touched gets its own strip.
+  Strips show just the band of the page you wrote in (blank paper cut out); click
+  one to see the whole page, with everything else on it in grey
+- **Endless scroll + lazy loading**: keep scrolling and earlier days arrive on their
+  own. The feed is laid out from the capture-date index and reads each day's pages
+  only as you scroll near them, so a month of ink stays quick
+- **Book filter**: choose which notebooks count — the grid, the tallies, the feed and
+  any load into the Editor all follow the same choice
+- **From feed to Editor**: load one card, one day or the whole range into the Editor,
+  or open a card's page in Books
 
 ### Data Explorer & Search
 - **Five-Tab Interface**:
@@ -406,6 +419,19 @@ Untick **Order canvas by date** to go back to notebook order.
 
 Transcribing while a date-filtered page is loaded covers the loaded strokes only;
 the app warns when that's about to happen.
+
+**To read a range rather than edit it**, click **View as timeline** (or Book View →
+**Timeline**). The feed follows whatever range the Dates tab has selected, newest
+day first — the top-bar toggle switches to oldest first. Scroll past the end and the
+range grows to take in the next few days with ink. Each card is one sitting (no pause
+over 20 minutes), with a strip for each page it touched: **Whole page** (or a click
+on the ink) shows the page around a strip, **Open page** jumps to it in Books, and
+**Load into Editor** brings just that sitting onto the canvas with the rest of each
+page in grey. **All books ▾** (in the feed header or the Dates tab) limits
+everything to the notebooks you tick — **Only** narrows to one in a click. **Load day into Editor** and **Load
+range into Editor** do the same for bigger spans. While the feed is showing, click a
+day in the Dates list to scroll to it; the day at the top of the feed is marked
+**In view**.
 
 ### Canvas Navigation
 

@@ -55,7 +55,14 @@ export {
   loadTimeline,
   setTimelineRange,
   shiftTimelineRange,
-  setCanvasPageOrder
+  setCanvasPageOrder,
+  // Book filter (shared by the Dates tab and the Timeline feed)
+  timelineExcludedBooks,
+  timelineIndexFiltered,
+  timelineBooks,
+  setBookIncluded,
+  includeAllBooks,
+  includeOnlyBook
 } from './timeline.js';
 
 // Point Edit mode (canvas point handles)
@@ -257,7 +264,17 @@ export {
   clearAllViewerDirty,
   recordRecentView,
   setViewerSelection,
-  clearViewerSelection
+  clearViewerSelection,
+  // Timeline feed (Book View's date mode)
+  bookViewMode,
+  setBookViewMode,
+  feedOrder,
+  setFeedOrder,
+  toggleFeedOrder,
+  feedVisible,
+  feedDayInView,
+  feedJumpRequest,
+  requestFeedJump
 } from './viewer.js';
 
 // Book Aliases

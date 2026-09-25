@@ -5,27 +5,29 @@
   hold ink from more than one day, so this filters at STROKE level. What is left
   of each touched page comes along as context ink (halftoned, untouchable) so the
   day's writing can be read where it actually sits on the page.
+
+  The same range drives Book View's Timeline feed. While the feed is showing,
+  the day list jumps it to a day and marks the one at its top, and the load
+  button hands the range to the Editor.
 -->
 <script>
   import { onMount } from 'svelte';
   import ActivityGrid from './ActivityGrid.svelte';
+  import BookFilterMenu from './BookFilterMenu.svelte';
   import {
-    timelineIndex, timelineLoading, timelineError, timelineRange,
+    timelineIndex, timelineIndexFiltered, timelineLoading, timelineError, timelineRange,
     timelineDays, timelineSummary, timelineRangeDays, timelineRangeExtent,
     canvasPageOrder, loadTimeline, setTimelineRange, setCanvasPageOrder
   } from '$stores/timeline.js';
   import { dataFolderReady } from '$stores/settings.js';
   import { bookAliases } from '$stores';
   import { contextInkCount, clearContextInk } from '$stores/context-ink.js';
-  import { importDateRangeFromFolder } from '$lib/storage/load-range.js';
+  import {
+    feedVisible, feedDayInView, feedOrder, requestFeedJump, setViewerMode, setBookViewMode
+  } from '$stores/viewer.js';
+  import { importDateRangeFromFolder, LARGE_LOAD_STROKES } from '$lib/storage/load-range.js';
   import { dayStart, addDays } from '$lib/timeline.js';
   import { formatBookName } from '$utils/formatting.js';
-
-  // Above this the canvas gets slow enough to be worth a deliberate second
-  // click. A median week in the reference corpus is ~7,900 strokes and a busy
-  // month ~50,000, so this lets day and week loads through untouched and makes
-  // a month an explicit choice.
-  const LOAD_WARN_STROKES = 12000;
 
   let loading = false;
   let progress = null;
@@ -33,7 +35,13 @@
 
   $: range = $timelineRange;
   $: summary = $timelineSummary;
-  $: heavy = summary.strokes > LOAD_WARN_STROKES;
+  $: heavy = summary.strokes > LARGE_LOAD_STROKES;
+  $: inView = $feedVisible ? $feedDayInView : null;
+  // Mirror the feed's order while it is showing, so the list beside it reads
+  // the same way down.
+  $: dayList = $feedVisible && $feedOrder === 'newest'
+    ? [...$timelineRangeDays].reverse()
+    : $timelineRangeDays;
   $: canLoad = $dataFolderReady && summary.strokes > 0 && !loading;
 
   // A new range is a new decision — don't carry a previous "load anyway" over.
@@ -92,7 +100,7 @@
       const result = await importDateRangeFromFolder({
         from: range.from,
         to: range.to,
-        index: $timelineIndex,
+        index: $timelineIndexFiltered,
         onProgress: (message, current, total) => {
           progress = { message, current, total };
         }
@@ -100,11 +108,18 @@
       // Only switch the canvas to date order once something is actually on it —
       // reordering an empty canvas just changes a setting the user can't see.
       if (result.success && result.imported > 0) setCanvasPageOrder('date');
+      // From the feed, "Load into Editor" means go there too.
+      if (result.success && $feedVisible) setViewerMode('editor');
     } finally {
       loading = false;
       progress = null;
       confirmingLarge = false;
     }
+  }
+
+  function showTimeline() {
+    setBookViewMode('timeline');
+    setViewerMode('book');
   }
 
   function longDate(day) {
@@ -131,7 +146,7 @@
   {:else if $timelineLoading && !$timelineIndex}
     <p class="notice">Reading capture dates…</p>
   {:else}
-    <ActivityGrid days={$timelineDays} from={range.from} to={range.to} on:select={onGridSelect} />
+    <ActivityGrid days={$timelineDays} from={range.from} to={range.to} {inView} on:select={onGridSelect} />
 
     <div class="range">
       <div class="field">
@@ -159,6 +174,7 @@
       <span><b>{summary.days}</b> days</span>
       <span><b>{summary.pages}</b> pages</span>
       <span><b>{fmt(summary.strokes)}</b> strokes</span>
+      <span class="tally-filter"><BookFilterMenu theme="dark" align="right" /></span>
     </div>
 
     {#if summary.partialPages > 0}
@@ -166,6 +182,12 @@
         <b>{summary.partialPages}</b> of these pages also hold ink outside the range.
         Its {fmt(summary.contextStrokes)} strokes load as halftoned context —
         visible, but not selectable, savable or transcribable.
+      </p>
+    {/if}
+
+    {#if $feedVisible}
+      <p class="feed-note">
+        Book View is showing this range as a timeline. Pick a day below to jump to it.
       </p>
     {/if}
 
@@ -177,10 +199,17 @@
           Load {fmt(summary.strokes)} strokes anyway
         {:else if summary.strokes === 0}
           Nothing in range
+        {:else if $feedVisible}
+          Load into Editor
         {:else}
           Load onto canvas
         {/if}
       </button>
+      {#if !$feedVisible}
+        <button class="btn btn-secondary" on:click={showTimeline} disabled={!$dataFolderReady}>
+          View as timeline
+        </button>
+      {/if}
       <label class="order">
         <input
           type="checkbox"
@@ -214,13 +243,21 @@
       Clear to start from empty.
     </p>
 
-    <div class="daylist">
-      {#each $timelineRangeDays as day (day.day)}
-        <div class="day">
-          <div class="day-head">
-            <b>{longDate(day.day)}</b>
-            <span>{fmt(day.strokes)} strokes · {day.pages} pg</span>
-          </div>
+    <div class="daylist" class:feed={$feedVisible}>
+      {#each dayList as day (day.day)}
+        <div class="day" class:in-view={inView === day.day}>
+          {#if $feedVisible}
+            <button type="button" class="day-head jump" on:click={() => requestFeedJump(day.day)}
+              title="Scroll the timeline to this day">
+              <b>{longDate(day.day)}{#if inView === day.day}<span class="in-view-pill">In view</span>{/if}</b>
+              <span>{fmt(day.strokes)} strokes · {day.pages} pg</span>
+            </button>
+          {:else}
+            <div class="day-head">
+              <b>{longDate(day.day)}</b>
+              <span>{fmt(day.strokes)} strokes · {day.pages} pg</span>
+            </div>
+          {/if}
           <div class="chips">
             {#each day.entries as entry (entry.book + '/' + entry.pageId)}
               <span class="chip" class:partial={entry.spansOtherDays} title={entry.spansOtherDays
@@ -334,10 +371,15 @@
 
   .tally {
     display: flex;
+    align-items: center;
     gap: 14px;
     flex-wrap: wrap;
     font-size: 0.8rem;
     color: var(--text-secondary);
+  }
+
+  .tally-filter {
+    margin-left: auto;
   }
 
   .tally b {
@@ -420,6 +462,17 @@
     opacity: 0.85;
   }
 
+  .feed-note {
+    margin: 0;
+    font-size: 0.75rem;
+    line-height: 1.45;
+    color: #cdd7f2;
+    background: rgba(74, 124, 247, 0.1);
+    border: 1px solid rgba(74, 124, 247, 0.38);
+    border-radius: 6px;
+    padding: 8px 10px;
+  }
+
   .daylist {
     display: flex;
     flex-direction: column;
@@ -429,6 +482,49 @@
   .day {
     padding: 9px 0;
     border-bottom: 1px solid var(--border);
+  }
+
+  /* While the feed is showing, rows get a little inset so the in-view tint
+     has room, and each heading is a button that scrolls the feed there. */
+  .daylist.feed .day {
+    padding: 9px 8px;
+  }
+
+  .day.in-view {
+    background: rgba(255, 255, 255, 0.07);
+    border-radius: 6px;
+  }
+
+  .day-head.jump {
+    width: 100%;
+    padding: 0;
+    border: none;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .day-head.jump:hover b {
+    text-decoration: underline;
+  }
+
+  .day-head.jump:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+
+  .in-view-pill {
+    margin-left: 8px;
+    font-size: 0.62rem;
+    font-weight: 600;
+    color: var(--bg-secondary);
+    background: var(--text-primary);
+    border-radius: 8px;
+    padding: 0 7px;
+    vertical-align: 1px;
   }
 
   .day-head {
