@@ -1,9 +1,43 @@
 # Temporal Data Specification
 ## SmartPen-LogSeq Bridge - Timing Information & Use Cases
 
-**Version:** 1.0  
-**Last Updated:** January 2026  
-**Status:** Available but not currently implemented in UI
+**Version:** 1.1  
+**Last Updated:** September 2026  
+**Status:** Partly implemented — see *What shipped* below
+
+> **Two caveats when reading this.** The storage examples below are v1 (LogSeq
+> blocks); the current format is the PageDoc in
+> [LOCAL-STORAGE-PIVOT-SPEC.md](LOCAL-STORAGE-PIVOT-SPEC.md), which preserves the
+> same timestamps. And the use cases are still proposals except where marked.
+
+---
+
+## What shipped (v2.6, September 2026)
+
+Date-range loading — Phase 3's "temporal filtering (date range picker)" plus a
+form of Phase 1's timeline tab. The Dates tab loads every stroke captured in a
+span onto the canvas, ordered by day. CLAUDE.md is authoritative for how it
+works; the parts worth knowing before designing anything else here:
+
+- **Capture date needed its own index.** Nothing at page level records when ink
+  was made — `metadata.lastUpdated` is a file-write time, and across the
+  reference corpus it differs from the page's last stroke by more than a day on
+  173 of 289 pages (worst case 163 days). `buildTimeline()` in
+  `electron/main.cjs` caches a per-page `{day: strokeCount}` histogram at
+  `<dataRoot>/pages/_timeline.json`, refreshed per file by mtime+size. Cold build
+  917ms over 307,500 strokes; warm refresh 35ms. **Any further temporal feature
+  should read this index rather than re-deriving dates from stroke arrays.**
+- **Days do not line up with pages.** 154 of 289 pages hold ink from more than
+  one day, and 74% of day/page pairs sit on such a page — so filtering is at
+  stroke level, and the rest of each page renders as un-selectable "context ink".
+  Session detection (Phase 2) faces the same split and should expect it.
+- **Day keys are LOCAL calendar days**, in three places that must agree:
+  `dayKeyLocal` (main), `dayKey` (`src/lib/timeline.js`) and
+  `CanvasRenderer.captureDayKey`.
+
+Still unimplemented: session detection, writing-speed analysis, playback,
+productivity analytics, and the stroke-level temporal UI of Phase 1 (hover
+timestamps, sequence numbers).
 
 ---
 
@@ -667,8 +701,8 @@ function calculateFocusScore(session) {
 **Effort:** 12-16 hours  
 **Priority:** Medium
 
-1. Create interactive timeline chart
-2. Add temporal filtering (date range picker)
+1. ✅ Create interactive timeline chart — shipped as the Dates tab's activity grid
+2. ✅ Add temporal filtering (date range picker) — shipped v2.6
 3. Implement age-based opacity/color schemes
 4. Build page-switch timeline view
 
@@ -827,13 +861,14 @@ The SmartPen-LogSeq Bridge captures and preserves **complete temporal informatio
 - ✅ **Storage**: Full preservation in LogSeq database
 - ✅ **Retrieval**: Complete restoration when reading back
 
-This enables a rich set of **chronological analysis features** that are currently **not exposed in the UI** but are **ready to implement** using the existing data foundation.
+Date-range loading is built on that foundation (see *What shipped*). The rest of
+the chronological analysis below is still proposal, and still has the data it
+needs.
 
 **Next Steps:**
-1. Prioritize which temporal features to add first
-2. Design UI components for temporal visualization
-3. Implement session detection and basic timeline view
-4. Iterate based on user feedback
+1. Session detection — the one Phase 2 item with a concrete use case behind it
+2. Stroke-level temporal UI (hover timestamps, sequence numbers)
+3. Iterate based on how the Dates tab is actually used
 
 ---
 
@@ -842,3 +877,4 @@ This enables a rich set of **chronological analysis features** that are currentl
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | Jan 2026 | Initial specification - temporal data availability and use cases |
+| 1.1 | Sep 2026 | Date-range loading shipped (v2.6); flagged the v1 storage examples |

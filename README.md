@@ -81,6 +81,7 @@ notes — and until now the only fix was deleting the whole stroke.
 - **Atomic append-only save**: explicit deletions only; new strokes deduplicated by ID; transcript merged by Y-bounds overlap with checkbox preservation
 - **Unsaved-changes indicator**: amber dot on the Save button when the canvas has changes; window-close confirmation if you try to leave dirty
 - **Book aliases**: custom naming per notebook volume (Books tab), stored in `<dataRoot>/pages/_aliases.json`
+- **Capture-date index**: `<dataRoot>/pages/_timeline.json` — a cache of which days each page holds ink from, so the Dates tab doesn't re-read every file. Safe to delete; it rebuilds itself
 
 ### Publish Sketches to LogSeq (v2.3)
 - **Selective**: publish only the strokes you select — sketches go to the graph, private notes stay out
@@ -97,12 +98,23 @@ notes — and until now the only fix was deleting the whole stroke.
 - **Selection Indicators**: Clear visual feedback for selected elements
 - **Hover Cursors**: Contextual cursors for different interactions
 
+### Browse by Date (v2.6)
+- **Load a day, a week, or any span**: pick a range and every stroke you wrote in it
+  comes onto the canvas — across notebooks, not one book at a time
+- **Filtered by stroke, not by page**: most pages hold more than one day's writing, so
+  a page-level filter would drag in unrelated notes. Only the range's ink is loaded
+- **Context ink**: the rest of each page still draws, halftoned, so the day's writing
+  sits where it belongs on the page. It can't be selected, saved or transcribed
+- **Laid out by day**: pages arrange one row per day, each labelled with its date
+- **Activity grid**: a weekday heat grid of every capture day; drag across it to select
+
 ### Data Explorer & Search
-- **Four-Tab Interface**:
+- **Five-Tab Interface**:
   - **Strokes**: Browse strokes by book and page with collapsible headers
   - **Transcripts**: *Review* incoming transcriptions, or *Search* everything already saved
   - **Pages**: Explore saved pages with lazy import
   - **Books**: Name your notebooks and choose which volume new strokes are saved to
+  - **Dates**: Load the canvas by when you wrote, rather than by which notebook
 - **Two searches**: the canvas header finds a page among those currently loaded and pans
   to it (Ctrl+F); Transcripts → Search covers every saved page on disk (Ctrl+Shift+F)
 - **Activity Log**: Settings → Troubleshooting, filterable by level with one-click copy
@@ -380,6 +392,20 @@ Each **volume** of a book is named separately, so two identical notebooks sharin
 one NCode id can be called completely different things — "Site Visits" and
 "Load Calcs". A volume with no name inherits the parent book's with a volume
 suffix until you give it one, and a volume can be named before you write in it.
+
+#### Browsing by Date
+
+1. Left panel → **Dates** tab
+2. Drag across the activity grid, or type a range into **From** / **To**
+3. Check the tallies, then **Load onto canvas**
+
+The panel warns when the range includes pages that also hold ink from other days —
+those arrive with their remaining strokes drawn in grey. Loading **adds** to the
+canvas rather than replacing it, so use **Clear** first if you want only the range.
+Untick **Order canvas by date** to go back to notebook order.
+
+Transcribing while a date-filtered page is loaded covers the loaded strokes only;
+the app warns when that's about to happen.
 
 ### Canvas Navigation
 
@@ -932,6 +958,7 @@ This will build and serve the app exactly as it will appear on GitHub Pages.
 - [x] Undo system for deletions
 - [x] Conflict resolution (overwrite/append)
 - [x] Storage tracking and sync indicators
+- [x] Load the canvas by capture date, with stroke-level filtering (Dates tab)
 
 ### In Progress 🔄
 - [x] Electron desktop app conversion
@@ -939,7 +966,7 @@ This will build and serve the app exactly as it will appear on GitHub Pages.
 - [ ] State detection for tasks (complete/migrated/cancelled)
 
 ### Planned 📋
-- [ ] Temporal data features (session detection, writing analytics)
+- [ ] Further temporal features (session detection, writing analytics, playback)
 - [ ] Enhanced command processing (`[project:]`, `[sketch:]`)
 - [ ] Custom Ncode paper templates
 - [ ] Selection history (undo/redo for selections)
@@ -1026,7 +1053,10 @@ For issues, questions, or feature requests:
 
 ## Version History
 
-- **2.3.0** (Current) - Export to LogSeq: manual, selective, additive stroke
+- **2.6.0** (Current) - Browse by date: load the canvas by capture date with
+  stroke-level filtering and halftoned context ink
+
+- **2.3.0** - Export to LogSeq: manual, selective, additive stroke
   publishing (replaced auto-publish-on-save); transcript never exported
 
 - **2.2.0** - Book View transcript editor: re-transcribe ordering fix, line

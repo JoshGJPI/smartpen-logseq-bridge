@@ -35,7 +35,9 @@ The user picks a **data root** (default: `C:\Users\joshg\Documents\stroke-data` 
 │   │   └── ...
 │   ├── B390/
 │   │   └── P74.json
-│   └── _aliases.json            # Book ID → friendly name map
+│   ├── _aliases.json            # Book key → friendly name map
+│   ├── _volumes.json            # Active volume per NCode book (v2.6)
+│   └── _timeline.json           # Capture-date index, rebuildable cache (v2.6)
 └── exports/                     # User-modifiable: named exports, references
     ├── processed/               # Slug-keyed named selections (Gen1-1.json, etc.)
     └── reference/               # Reusable shape library (acorn.json, etc.)
@@ -43,6 +45,7 @@ The user picks a **data root** (default: `C:\Users\joshg\Documents\stroke-data` 
 
 **Rules:**
 - The app owns `pages/`. It reads and writes freely. Users shouldn't hand-edit these (but it's safe if they do — they're just JSON).
+- The two `_`-prefixed files added after v2.0 are described where they're designed, not here: `_volumes.json` in [VOLUMES-SPEC.md](VOLUMES-SPEC.md) §5, `_timeline.json` under *load the canvas by capture date* in CLAUDE.md. `_timeline.json` is a pure cache — deleting it costs one rebuild pass, nothing else.
 - The app may *write* into `exports/` (via the stroke-selection export feature), but users own that folder afterward.
 - Version control (git, etc.) is the user's concern. The app does not initialize, commit, or interact with `.git`.
 
