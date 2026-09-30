@@ -16,7 +16,7 @@
 
 Date-range loading — Phase 3's "temporal filtering (date range picker)" plus a
 form of Phase 1's timeline tab. The Dates tab loads every stroke captured in a
-span onto the canvas, ordered by day. CLAUDE.md is authoritative for how it
+span onto the canvas, ordered by day. [CHANGELOG.md](CHANGELOG.md) (v2.8 entry) and CLAUDE.md's *Capture dates* invariants are authoritative for how it
 works; the parts worth knowing before designing anything else here:
 
 - **Capture date needed its own index.** Nothing at page level records when ink

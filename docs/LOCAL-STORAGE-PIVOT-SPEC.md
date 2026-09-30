@@ -45,7 +45,7 @@ The user picks a **data root** (default: `C:\Users\joshg\Documents\stroke-data` 
 
 **Rules:**
 - The app owns `pages/`. It reads and writes freely. Users shouldn't hand-edit these (but it's safe if they do — they're just JSON).
-- The two `_`-prefixed files added after v2.0 are described where they're designed, not here: `_volumes.json` in [VOLUMES-SPEC.md](VOLUMES-SPEC.md) §5, `_timeline.json` under *load the canvas by capture date* in CLAUDE.md. `_timeline.json` is a pure cache — deleting it costs one rebuild pass, nothing else.
+- The two `_`-prefixed files added after v2.0 are described where they're designed, not here: `_volumes.json` in [VOLUMES-SPEC.md](VOLUMES-SPEC.md) §5, `_timeline.json` under *load the canvas by capture date* in [CHANGELOG.md](CHANGELOG.md). `_timeline.json` is a pure cache — deleting it costs one rebuild pass, nothing else.
 - The app may *write* into `exports/` (via the stroke-selection export feature), but users own that folder afterward.
 - Version control (git, etc.) is the user's concern. The app does not initialize, commit, or interact with `.git`.
 
@@ -329,7 +329,7 @@ Measured: largest B3017 page went 2479 KB (full pretty) → 986 KB (hybrid).
 
 The schema above is still accurate for what it describes, but two additions have
 landed on `strokes[]` since, one rule has gained an exception, and one field's
-units needed stating. **CLAUDE.md is authoritative for current behaviour**; this
+units needed stating. **CLAUDE.md (*Data formats*, *Invariants*) is authoritative for current behaviour**; this
 section exists so the schema example in §3 isn't read as complete.
 
 ### Point tuples are variable length (v2.4, sketch strokes)

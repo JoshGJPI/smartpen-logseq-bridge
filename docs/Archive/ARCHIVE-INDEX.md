@@ -36,7 +36,7 @@ This document provides an index of archived implementation documentation organiz
 ### Implementation Logs
 - `docs/implementation-logs/README.md` - Meta-doc describing the active/archive workflow
 - `docs/implementation-logs/testing-checklist.md` - ⚠️ Stale — a v1 blockUuid/LogSeq
-  manual-test procedure from Jan 2026. CLAUDE.md's own *Testing Considerations* section
+  manual-test procedure from Jan 2026. [../TESTING.md](../TESTING.md)
   (automated test table + manual scenarios) is the current reference; this file is a
   candidate for archiving rather than "Active Development"
 
@@ -68,7 +68,7 @@ implying open work.
 
 Nothing below is missing by accident. Starting with the v2.0 pivot, this project stopped
 spinning up a new dated `docs/Archive/` folder per feature and started keeping the
-authoritative history directly in **CLAUDE.md → "Recent Changes (Git History Context)"**,
+authoritative history directly in **[docs/CHANGELOG.md](../CHANGELOG.md)**,
 updated in place as each feature lands. That section (and `docs/LOCAL-STORAGE-PIVOT-SPEC.md`
 for storage specifically) is the real source for everything below — this is only a dated
 pointer so this index doesn't look like the trail goes cold in March 2026.
@@ -418,7 +418,7 @@ Look for suffixes: `-spec`, `-implementation`, `-complete`, `-fix`, `-summary`
    pivot (architecture, stores, and the "Recent Changes" history)
 2. **Architecture**: See `docs/LOCAL-STORAGE-PIVOT-SPEC.md` (storage, current) and
    `docs/QUICK-ARCHITECTURE-REFERENCE.md` (canvas/pen, still applies)
-3. **Testing**: See CLAUDE.md → *Testing Considerations* (automated test table + manual
+3. **Testing**: See [../TESTING.md](../TESTING.md) (automated test table + manual
    scenarios, kept current alongside each feature). `docs/implementation-logs/testing-checklist.md`
    is a stale v1 procedure, not this
 4. **Future Plans**: No live roadmap document at present. `FUTURE_ENHANCEMENTS_ROADMAP.md`
@@ -456,5 +456,5 @@ which got dated Archive folders), and archived three superseded document sets: t
 root-level docs (`docs/Archive/2026-01-superseded-planning-docs/`) and the
 `live-transcript-blocks` proposal (`docs/Archive/2025-01-live-transcript-blocks-proposal/`),
 leaving `docs/proposals/` empty. Everything from here forward should keep landing in
-CLAUDE.md's "Recent Changes" section as it already has been — update this index only when a
+docs/CHANGELOG.md as it already has been — update this index only when a
 new dated folder is actually archived.*

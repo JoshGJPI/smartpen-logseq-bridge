@@ -329,8 +329,8 @@ Framework: **Vitest 4.1.1** with happy-dom environment.
 
 ⚠️ **This table is v1-era and incomplete** — it lists files deleted in the v2.0 pivot
 (`logseq-api.test.js`, `transcript-updater.test.js`) and omits everything added since
-(storage, Book View, sketch strokes, point editing). See CLAUDE.md → *Automated Unit
-Tests* for the current list.
+(storage, Book View, sketch strokes, point editing). See [TESTING.md](TESTING.md) → *Automated unit
+tests* for the current list.
 
 ---
 
