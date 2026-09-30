@@ -832,6 +832,75 @@ ipcMain.handle('storage:setActiveVolume', ipcSafe(async (root, ncodeBook, volume
   return registry;
 }));
 
+// ===== Page backgrounds — `<dataRoot>/pages/_backgrounds/<ncodeBook>/` =====
+// Neo's printed-page images, cached by scripts/fetch-neo-backgrounds.mjs and drawn
+// behind the strokes in Book View and the Timeline (never in the Editor). READ-ONLY
+// here: main only serves what the script put on disk. Keyed by the NCode book
+// number, not the book key — volume 2 of a notebook is the same paper as volume 1.
+// The `_` prefix keeps the folder out of walkPageFiles, which only takes `B<key>`.
+
+/** A bare NCode book number: no volume suffix, nothing path-like. */
+function requireNcodeBookNumber(book) {
+  const s = String(book);
+  if (!/^\d+$/.test(s)) throw new Error(`Invalid NCode book: ${book}`);
+  return s;
+}
+
+/** A whole Ncode page number — a letter-suffixed id maps to its integer page first. */
+function requirePageNumber(page) {
+  const s = String(page);
+  if (!/^\d+$/.test(s)) throw new Error(`Invalid page number: ${page}`);
+  return s;
+}
+
+function backgroundBookDir(root, book) {
+  return path.join(pagesDir(root), '_backgrounds', requireNcodeBookNumber(book));
+}
+
+/** The raw manifest.json, or null when the book has none / it is unreadable. */
+async function readBackgroundManifest(root, book) {
+  try {
+    return JSON.parse(await fsp.readFile(path.join(backgroundBookDir(root, book), 'manifest.json'), 'utf8'));
+  } catch (err) {
+    if (err.code === 'ENOENT' || err instanceof SyntaxError) return null;
+    throw err;
+  }
+}
+
+ipcMain.handle('storage:getBackgroundManifest', ipcSafe(async (root, book) => readBackgroundManifest(root, book)));
+
+// The page image as bytes (a Buffer crosses IPC as a Uint8Array), or null.
+ipcMain.handle('storage:getBackgroundImage', ipcSafe(async (root, book, page) => {
+  const dir = backgroundBookDir(root, book);
+  const n = requirePageNumber(page);
+  for (const ext of ['jpg', 'png']) {
+    try {
+      return await fsp.readFile(path.join(dir, `P${n}.${ext}`));
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
+    }
+  }
+  return null;
+}));
+
+// Every book that has backgrounds, so the UI knows whether there is anything to toggle.
+ipcMain.handle('storage:listBackgrounds', ipcSafe(async (root) => {
+  let entries;
+  try {
+    entries = await fsp.readdir(path.join(pagesDir(root), '_backgrounds'), { withFileTypes: true });
+  } catch (err) {
+    if (err.code === 'ENOENT') return [];
+    throw err;
+  }
+  const out = [];
+  for (const e of entries) {
+    if (!e.isDirectory() || !/^\d+$/.test(e.name)) continue;
+    const manifest = await readBackgroundManifest(root, e.name);
+    if (manifest) out.push({ book: e.name, manifest });
+  }
+  return out;
+}));
+
 // ===== "Publish to graph" — mirror saved pages into a LogSeq graph folder =====
 // Pure filesystem writes (no LogSeq runtime). The renderer (src/lib/storage/
 // publish-graph.js) does the smartpen-specific building (PageDoc serialize +

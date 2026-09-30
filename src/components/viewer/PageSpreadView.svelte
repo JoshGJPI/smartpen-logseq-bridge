@@ -9,7 +9,8 @@
 <script>
   import { onMount, tick } from 'svelte';
   import { NCODE_SCALE, DEFAULT_STROKE_WIDTH, computeStrokeBounds, strokeToPathD, strokeToWidthRuns } from '$lib/viewer/page-svg.js';
-  import { sketchProfile } from '$stores';
+  import { sketchProfile, backgroundsEnabled, resolvePageBackground } from '$stores';
+  import { frameToBounds } from '$lib/neo-backgrounds.js';
   import { getCachedPage } from '$lib/viewer/page-cache.js';
   import TranscriptPane from './TranscriptPane.svelte';
 
@@ -75,11 +76,42 @@
     onTranscriptSaved(b, p, savedLines);
   }
 
+  // The printed page behind the strokes ({ frame, url }), when the book has one
+  // and backgrounds are switched on. Shown here because Book View is for reading;
+  // the Editor never draws it. Resolution never throws — no paper is just null.
+  let bg = null;
+  let bgKey = null;
+
+  $: updateBackground(record, $backgroundsEnabled);
+
+  async function updateBackground(rec, enabled) {
+    if (!rec || !enabled) {
+      bgKey = null;
+      if (bg) { bg = null; refit(); }
+      return;
+    }
+    const key = `${rec.book}:${idOf(rec)}`;
+    if (key === bgKey) return;
+    bgKey = key;
+    bg = null;                                   // never show another page's paper
+    const next = await resolvePageBackground(rec.book, idOf(rec));
+    if (bgKey !== key) return;                   // a newer page won the race
+    bg = next;
+    refit();
+  }
+
+  async function refit() {
+    await tick();
+    requestAnimationFrame(fitContent);
+  }
+
   $: strokes = (doc && doc.strokes) || [];
   $: lines = (doc && doc.transcript && doc.transcript.lines) || [];
   $: bounds = computeStrokeBounds(strokes);
-  $: svgWidth = bounds ? (bounds.maxX - bounds.minX) * NCODE_SCALE : 0;
-  $: svgHeight = bounds ? (bounds.maxY - bounds.minY) * NCODE_SCALE : 0;
+  // With paper, the page is the printed sheet; without, it is the ink's own box.
+  $: viewBounds = bg ? frameToBounds(bg.frame) : bounds;
+  $: svgWidth = viewBounds ? (viewBounds.maxX - viewBounds.minX) * NCODE_SCALE : 0;
+  $: svgHeight = viewBounds ? (viewBounds.maxY - viewBounds.minY) * NCODE_SCALE : 0;
   // pageId is the unique-within-book file identifier (incl. suffix); used as the
   // read/write key for the transcript and as the display/label.
   $: pageId = record ? (record.pageId != null ? String(record.pageId) : String(record.page)) : '';
@@ -87,11 +119,11 @@
   $: title = `${bookAlias || `B${record?.book}`} — P${pageId}`;
 
   function fitContent() {
-    if (!bounds || !containerEl) return;
+    if (!viewBounds || !containerEl) return;
     const cw = containerEl.clientWidth;
     const ch = containerEl.clientHeight;
-    const sw = (bounds.maxX - bounds.minX) * NCODE_SCALE + 20;
-    const sh = (bounds.maxY - bounds.minY) * NCODE_SCALE + 20;
+    const sw = (viewBounds.maxX - viewBounds.minX) * NCODE_SCALE + 20;
+    const sh = (viewBounds.maxY - viewBounds.minY) * NCODE_SCALE + 20;
     if (sw <= 0 || sh <= 0) return;
     zoom = Math.min(cw / sw, ch / sh) * 0.92;
     panX = (cw - sw * zoom) / 2;
@@ -176,7 +208,7 @@
       <TranscriptPane {lines} book={record.book} page={pageId} {pageKey} onSaved={handleSaved} {onEditingChange} />
     {:else if loadingDoc}
       <div class="pv-empty">Loading…</div>
-    {:else if bounds}
+    {:else if viewBounds}
       <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
       <div
         class="pv-canvas"
@@ -190,17 +222,22 @@
         aria-label="Page strokes — scroll to zoom, drag to pan"
       >
         <div class="pv-transform" style="transform: translate({panX}px, {panY}px) scale({zoom});">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {svgWidth.toFixed(2)} {svgHeight.toFixed(2)}" width={svgWidth.toFixed(2)} height={svgHeight.toFixed(2)}>
+          <svg class:paper={!!bg} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {svgWidth.toFixed(2)} {svgHeight.toFixed(2)}" width={svgWidth.toFixed(2)} height={svgHeight.toFixed(2)}>
+            {#if bg}
+              <!-- The sheet is drawn 1:1 into the frame (Ncode units × NCODE_SCALE),
+                   the same space the strokes are projected into below. -->
+              <image href={bg.url} x="0" y="0" width={svgWidth.toFixed(2)} height={svgHeight.toFixed(2)} preserveAspectRatio="none" />
+            {/if}
             {#each strokes as stroke (stroke.id)}
               {#if stroke.sketch}
                 <!-- One <path> per constant-width run: SVG applies a single
                      stroke-width per path, so a pressure-varying line has to be
                      split. Runs share their boundary vertices and round caps. -->
-                {#each strokeToWidthRuns(stroke, bounds, $sketchProfile) as run, i (i)}
+                {#each strokeToWidthRuns(stroke, viewBounds, $sketchProfile) as run, i (i)}
                   <path d={run.d} stroke="#1a1a2e" stroke-width={run.width} fill="none" stroke-linecap="round" stroke-linejoin="round" />
                 {/each}
               {:else}
-                <path d={strokeToPathD(stroke, bounds)} stroke="#1a1a2e" stroke-width={DEFAULT_STROKE_WIDTH} fill="none" stroke-linecap="round" stroke-linejoin="round" />
+                <path d={strokeToPathD(stroke, viewBounds)} stroke="#1a1a2e" stroke-width={DEFAULT_STROKE_WIDTH} fill="none" stroke-linecap="round" stroke-linejoin="round" />
               {/if}
             {/each}
           </svg>
@@ -275,6 +312,8 @@
   .pv-canvas.panning { cursor: grabbing; }
   .pv-transform { transform-origin: 0 0; position: absolute; top: 0; left: 0; }
   .pv-transform :global(svg) { display: block; }
+  /* The printed sheet stands off the pane like a page on a desk. */
+  .pv-transform :global(svg.paper) { background: #fff; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.22); }
 
   .pv-nav {
     position: absolute;

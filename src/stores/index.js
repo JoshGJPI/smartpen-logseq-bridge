@@ -87,6 +87,17 @@ export {
   deleteStrayPoints
 } from './point-edit.js';
 
+// Page backgrounds (Neo's printed pages, read-only views)
+export {
+  backgroundsEnabled,
+  setBackgroundsEnabled,
+  toggleBackgrounds,
+  installedBackgrounds,
+  backgroundsAvailable,
+  resolvePageBackground,
+  refreshBackgrounds
+} from './backgrounds.js';
+
 // Sketch render profile (pressure → thickness)
 export {
   sketchProfile,

@@ -153,6 +153,9 @@ All state is managed through Svelte stores located in `src/stores/`:
   anything already live), `pruneContextInk()`, `removeContextInkForPage()`,
   `clearContextInk()`
 
+**Page backgrounds (v2.10 spike):**
+- `backgrounds.js` — `backgroundsEnabled` (localStorage; the **Paper** toggle), `installedBackgrounds` / `backgroundsAvailable` (gate the toggle), `resolvePageBackground()` (→ `{frame, url}` or null, never throws), `refreshBackgrounds()`. Read-only: the images are put there by `scripts/fetch-neo-backgrounds.mjs`. Used by Book View and the Timeline only — **never the Editor**
+
 **Point Editing (v2.5):**
 - `point-edit.js` — the canvas "Edit Points" mode: `pointEditMode`, `selectedPoints` (keys `"{strokeIndex}:{pointIndex}"`), `pointEditStrokes` (derived from the stroke selection, capped at `MAX_POINT_EDIT_STROKES`), `strayPoints`/`strayPointKeys` (advisory detection), `selectPoint()`/`selectPoints()`, `deleteSelectedPoints()`, `deleteStrayPoints()`, `enterPointEditMode()`/`exitPointEditMode()`. A `selectedIndices` subscription prunes point keys whose stroke leaves the selection and exits the mode when the selection empties
 - `strokes.js` owns the mutation — `removeStrokePoints(Map<strokeIndex, Set<pointIndex>>)` and `clearPointEditMarkers(book, page)`. **This is the only code in the app that mutates captured geometry.** It preserves `startTime`/`endTime` (and so the `s{startTime}` id), every surviving point's force, and the sketch flag; it refuses to reduce a stroke below 2 points and reports those in `refused`; it stamps the edited stroke with the in-memory `pointsEdited` marker that gates the save-time rewrite
@@ -218,6 +221,7 @@ All state is managed through Svelte stores located in `src/stores/`:
   strokes; `firstDay` is the earliest day *inside* the range), `rangeSummary`,
   `pagesOnDay`, and the book filter's `filterIndexByBooks()` (returns the same
   object when nothing is excluded) and `indexBooks()` (book-key order)
+- `neo-backgrounds.js` - **Neo printed pages** (pure; shared by the importer script, the store and tests). `parseNproj()`, `frameOfPageItem()` (rectangle inset by `crop_margin`, 72-dpi pt → Ncode via `PT_PER_NCODE` = 6.72), `summarizeNproj()` (one frame per book, `uniform`/`rotated` flags), `buildManifest()`/`normalizeManifest()` (a bad manifest means "no background", never a throw), `pageNumberOfId()`, `manifestCoversPage()`, `frameToBounds()` (the shape `computeStrokeBounds()` returns, so a view can fit the sheet instead of the ink)
 - `transcript-search.js` - Full-text search across transcriptions
 - `timeline-feed.js` - **Timeline feed** (pure). `feedSkeleton()` (days with ink in a
   range, from the index alone, plus one `empty` entry per run of blank days between
@@ -545,6 +549,8 @@ Existing test files (all in `src/lib/__tests__/`):
 | `point-edit.test.js` | `detectStrayPoints` (origin exact/near/leading, non-finite, interior jump, fast-movement and short-flick non-detections, absolute-floor boundary, short strokes, single reason per point); `detectStrayPointsForStrokes`; `removePointsFromStroke` (order, identity preserved both ends, force + sketch preserved, `dotType` re-tag, cache drop, no mutation, min-points refusal, no-ops, Set input); key helpers; `removeStrokePoints`/`clearPointEditMarkers` store behaviour (marker stamping, dirty signalling, partial refusal, per-page clearing); `stores/point-edit.js` mode + selection (entry refusals, derived strokes/point count/strays, key pruning when a stroke leaves the selection, exit when the selection empties, toggle, select/delete strays, selection cleared after a delete) |
 | `timeline.test.js` | `src/lib/timeline.js` — `dayKey` (local not UTC, so a late-evening stroke stays on its own day), `dayStart`/`addDays` across month and year boundaries, `rangeBoundsMs` (half-open: midnight on the first day is in, midnight after the last is out; reversed range normalised; null rather than an open range on bad input), `inRange`, `eachDay` (gaps included); `pagesInRange` (in-range vs context split, `firstDay` is the earliest day INSIDE the range, ordering, volume keys and letter suffixes kept distinct), `rangeSummary` (days with ink ≠ calendar days; `partialPages` counts only pages that would arrive partly loaded), `pagesOnDay`, `dayTotals`, `timelineExtent`; the book filter — `filterIndexByBooks` (identity when nothing excluded, downstream answers change, volumes filtered separately, original untouched) and `indexBooks` (totals vs in-range, book-key order) |
 | `timeline-feed.test.js` | `src/lib/timeline-feed.js` + `viewer/feed-pages.js` — `daySessions` (local-day filter incl. both midnights; the 5/10/12/17/26/37 vs 80-minute chaining example; one session across a page turn with a part per page; one part per page however often it's revisited; cut on a pause measured from the previous stroke's END, across pages too; exactly-the-gap stays together; custom gap; cross-page ordering; distinct ids; stroke identity not ids; id-less strokes), `extendFeedRange` (next ink days in both orders, fewer left, end of ink, empty days skipped), `indexPageStrokes` (minimum frame, wider notebooks, bogus-only strokes dropped), `sessionBand` (padding, minimum height, clamped at both page edges), `sessionBands` (blank page cut out between clusters — the two-ticks case — merge threshold, no overlapping strips), `feedSkeleton` (newest/oldest order, empty runs between days only, reversed range), `nextFeedRange`, `estimateDayHeight`, `formatDuration`; the loader's sharing, ref-count release, retry after failure, volume/suffix keying |
+| `neo-backgrounds.test.js` | `src/lib/neo-backgrounds.js` — `PT_PER_NCODE` (the SDK's formula), `parseNproj` (identity, `ncode_start_page` numbering, rectangle + `crop_margin`, rejects non-nproj), `frameOfPageItem` (inset by the crop, Ncode units, ~14 px/unit), `summarizeNproj` (uniform / jittered-but-uniform / non-uniform / rotated / empty), manifest build → JSON → `normalizeManifest` round trip and the bad-manifest rejections, `pageNumberOfId` (letter suffix, path-like ids refused), `manifestCoversPage`, zip entry names |
+| `backgrounds-store.test.js` | `stores/backgrounds.js` — `resolvePageBackground` (frame + object URL; volume shares its NCode book's paper; suffixed page → integer page; null for no manifest / out of range / missing or empty image / unusable ids / invalid manifest / backend error, never a throw; failed image read not cached), manifest read once per book and image once per page, caches cleared on refresh, `refreshBackgrounds` availability, enabled-preference persistence (mocks `local-store.js`) |
 | `volumes.test.js` | `src/lib/volumes.js` — `makeBookKey`/`parseBookKey` round-trip, canonical-form rejection (`"388v1"`, `"388v0"`, `"0388"`, `"388v02"`), `compareBookKeys` ordering (`"388"` < `"388v2"` < `"3880"` — the case naive string sort gets wrong), `withVolume`, `bookDirName`/`parseBookDirName`, the disk↔memory `pageInfo` boundary (volume 1 omitted), display helpers, `BOOK_KEY_FRAGMENT` matching |
 | `volumes-store.test.js` | `stores/volumes.js` (`activeVolumeFor`, `applyActiveVolume` including its idempotency, `volumesForBook`) and reassignment in `stores/strokes.js` — identity/geometry/sketch preserved, `blockUuid` cleared, first origin kept across a double move, `getMovedAwayStrokeIdsForPage` (the copy→move fix), `clearMovedFromMarkers` no-op pre-check |
 | `pending-changes.test.js` | `computePendingChangesMap` — additions vs. the on-disk stroke-state index, explicit deletions, page separation/`isSaved`, missing `pageInfo`; sketch-flag **modifications** (flag on, flag off, absent-vs-false, matching flag, new-and-flagged counted once as an addition, unknown page, deleted stroke excluded, mixed page, modification-only page enters the map); geometry **edits** (fewer points than stored, self-clearing when counts agree, silent on unknown stored count, edited-and-reflagged counted once as an edit, new stroke stays an addition, deleted stroke excluded, edit-only page enters the map, all four categories side by side); `adjustDeletionsAfterRemoval` (shift, marks before the hole untouched, marks on removed strokes dropped, interleaved removals, Set input, empty/null no-op, no renumber collision, undo history cleared) |
@@ -719,6 +725,69 @@ npm run preview
 - [Svelte 4 Docs](https://svelte.dev/docs/svelte/overview) — Framework reference
 
 ## Recent Changes (Git History Context)
+
+### v2.10 (spike) — Neo page backgrounds in Book View and the Timeline
+
+**Neo's printed pages are drawn behind the strokes in the two read-only views, and
+deliberately not in the Editor.** A planner/notebook page is mostly its printed
+structure (ruled lines, dot grid, calendar cells); strokes alone lose it. The
+Editor sizes a page from its ink, so a fixed paper frame there would have touched
+layout, Fit, the page filter and dragged positions — Book View and the Timeline
+fit a page to a pane and lose nothing by using the paper. Josh's call: show
+backgrounds where things are *read*, not where they are *edited*.
+
+**Where the images come from.** Neo hosts, per notebook, an `.nproj` (XML: each
+page's rectangle and `crop_margin`, in 72-dpi points) and a zip of one JPG per
+page, in the same public Firebase bucket `web_pen_sdk` uses (`NoteServer.ts`
+`getNoteImage`/`extractMarginInfo` — unused by the app until now). No scanning and
+no calibration: Ncode unit = 8×7/600 in = 6.72 pt, the JPG covers the rectangle
+inset by `crop_margin`, and the result registers with real ink to the pixel
+(verified by overlaying stored strokes on books 387, 388, 390 and 3017). Every
+image comes out at ~14 px per Ncode unit (150 dpi).
+
+**Storage.** `scripts/fetch-neo-backgrounds.mjs <data-root> 3_27_388 3_1012_3017`
+caches them at `<dataRoot>/pages/_backgrounds/<ncodeBook>/{manifest.json,P<n>.jpg}`
+(~21 MB for 388's 144 pages, ~23 MB for 3017's 192). The folder is keyed by **NCode
+book number, not book key** — volume 2 is another copy of the same paper — and a
+letter-suffixed page (`P151b`) uses its integer page's paper. The `_` prefix keeps
+it out of `walkPageFiles`. The script refuses a book whose pages are not all one
+frame size or are rotated (all four inspected are uniform). The images are Neo's:
+cached for personal display, not for committing or redistributing.
+
+**Rendering.** `stores/backgrounds.js` `resolvePageBackground(book, pageId)` →
+`{frame, url}` or null (**never throws** — any failure reads as "no background",
+which is how every view behaved before). Manifest per book and object URL per page
+are cached for the session and cleared by `refreshBackgrounds()`. `PageSpreadView`
+substitutes the printed frame for the ink bounds (`frameToBounds`) so the existing
+fit/zoom/pan and `strokeToPathD(stroke, bounds)` projection work unchanged, and
+draws the `<image>` first. `FeedPart` does the same through a `frame` (the printed
+page, else `{0,0,page.width,page.height}` — identical to the old behaviour), so a
+strip is a slice of the sheet and the collapsed/expanded modes both show paper.
+A **Paper** toggle in the Book View bar (`backgroundsEnabled`, localStorage) only
+appears once any book has backgrounds.
+
+**Side effects to expect.** The printed share/mail/bookmark icons are visible, and
+a pen tap on them is recorded as a stray stroke there. Paper width changes how big
+handwriting is on a card (388's paper is wider than `PAGE_MIN_WIDTH`, 3017's
+narrower). The image resolves asynchronously, so a card paints strokes first and the
+paper a beat later.
+
+**Not done:** Home-grid thumbnails and the Timeline's location glyph don't show
+paper; no opacity control; SVG export and the LogSeq graph export are unchanged
+(no paper); pages with no Neo image (and books other than 388/3017 until fetched)
+render as before; nothing downloads from inside the app — it's the script only;
+`feed-pages`/FeedDay heights aren't pre-sized for the paper aspect, so a day can
+shift a little as its images arrive. Untested: a planner (its book id is unknown
+until the pen reports it).
+
+**New:** `src/lib/neo-backgrounds.js`, `src/stores/backgrounds.js`,
+`scripts/fetch-neo-backgrounds.mjs`, `neo-backgrounds.test.js`,
+`backgrounds-store.test.js`, `docs/mockups/` (design mockup; embeds Neo images and
+real handwriting — keep it out of commits).
+**Edited:** `electron/main.cjs` (`storage:listBackgrounds`/`getBackgroundManifest`/
+`getBackgroundImage`, read-only, digits-only book and page validation),
+`electron/preload.cjs`, `lib/storage/local-store.js`, `stores/index.js`,
+`App.svelte`, `components/viewer/{PageSpreadView,FeedPart}.svelte`.
 
 ### v2.9 — Book View Timeline: the Dates range as a scrolling feed (September 2026)
 
