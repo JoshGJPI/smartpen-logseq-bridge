@@ -185,6 +185,35 @@ export async function getTimelineIndex(options = {}) {
 }
 
 /* ============================================================
+ *  Page backgrounds (read-only)
+ * ============================================================ */
+
+/**
+ * Every NCode book with cached backgrounds: `[{ book, manifest }]`. The manifests
+ * are raw — run them through `normalizeManifest()` before trusting them.
+ * @returns {Promise<Array<{book: string, manifest: Object}>>}
+ */
+export async function listBackgrounds() {
+  const backend = getBackend();
+  const res = await backend.listBackgrounds(requireRoot());
+  return unwrap(res, 'listBackgrounds');
+}
+
+/** One book's raw `manifest.json`, or null. `book` is the NCode number, not a volume key. */
+export async function getBackgroundManifest(ncodeBook) {
+  const backend = getBackend();
+  const res = await backend.getBackgroundManifest(requireRoot(), ncodeBook);
+  return unwrap(res, 'getBackgroundManifest');
+}
+
+/** A page's image bytes (Uint8Array), or null when that page has none. */
+export async function getBackgroundImage(ncodeBook, pageNumber) {
+  const backend = getBackend();
+  const res = await backend.getBackgroundImage(requireRoot(), ncodeBook, pageNumber);
+  return unwrap(res, 'getBackgroundImage');
+}
+
+/* ============================================================
  *  Volumes
  * ============================================================ */
 

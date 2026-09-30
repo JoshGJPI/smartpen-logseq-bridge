@@ -137,6 +137,9 @@ All state is managed through Svelte stores located in `src/stores/`:
   anything already live), `pruneContextInk()`, `removeContextInkForPage()`,
   `clearContextInk()`
 
+**Page backgrounds (v2.10 spike):**
+- `backgrounds.js` — `backgroundsEnabled` (localStorage; the **Paper** toggle), `installedBackgrounds` / `backgroundsAvailable` (gate the toggle), `resolvePageBackground()` (→ `{frame, url}` or null, never throws), `refreshBackgrounds()`. Read-only: the images are put there by `scripts/fetch-neo-backgrounds.mjs`. Used by Book View and the Timeline only — **never the Editor**
+
 **Point Editing (v2.5):**
 - `point-edit.js` — the canvas "Edit Points" mode: `pointEditMode`, `selectedPoints` (keys `"{strokeIndex}:{pointIndex}"`), `pointEditStrokes` (derived from the stroke selection, capped at `MAX_POINT_EDIT_STROKES`), `strayPoints`/`strayPointKeys` (advisory detection), `selectPoint()`/`selectPoints()`, `deleteSelectedPoints()`, `deleteStrayPoints()`, `enterPointEditMode()`/`exitPointEditMode()`. A `selectedIndices` subscription prunes point keys whose stroke leaves the selection and exits the mode when the selection empties
 - `strokes.js` owns the mutation — `removeStrokePoints(Map<strokeIndex, Set<pointIndex>>)` and `clearPointEditMarkers(book, page)`. **This is the only code in the app that mutates captured geometry.** It preserves `startTime`/`endTime` (and so the `s{startTime}` id), every surviving point's force, and the sketch flag; it refuses to reduce a stroke below 2 points and reports those in `refused`; it stamps the edited stroke with the in-memory `pointsEdited` marker that gates the save-time rewrite
@@ -202,6 +205,7 @@ All state is managed through Svelte stores located in `src/stores/`:
   strokes; `firstDay` is the earliest day *inside* the range), `rangeSummary`,
   `pagesOnDay`, and the book filter's `filterIndexByBooks()` (returns the same
   object when nothing is excluded) and `indexBooks()` (book-key order)
+- `neo-backgrounds.js` - **Neo printed pages** (pure; shared by the importer script, the store and tests). `parseNproj()`, `frameOfPageItem()` (rectangle inset by `crop_margin`, 72-dpi pt → Ncode via `PT_PER_NCODE` = 6.72), `summarizeNproj()` (one frame per book, `uniform`/`rotated` flags), `buildManifest()`/`normalizeManifest()` (a bad manifest means "no background", never a throw), `pageNumberOfId()`, `manifestCoversPage()`, `frameToBounds()` (the shape `computeStrokeBounds()` returns, so a view can fit the sheet instead of the ink)
 - `transcript-search.js` - Full-text search across transcriptions
 - `timeline-feed.js` - **Timeline feed** (pure). `feedSkeleton()` (days with ink in a
   range, from the index alone, plus one `empty` entry per run of blank days between

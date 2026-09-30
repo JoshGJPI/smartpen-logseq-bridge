@@ -19,7 +19,7 @@
   import { NCODE_SCALE, DEFAULT_STROKE_WIDTH, strokeToPathD, strokeToWidthRuns } from '$lib/viewer/page-svg.js';
   import { sessionBands } from '$lib/timeline-feed.js';
   import { dayKey, dayStart } from '$lib/timeline.js';
-  import { sketchProfile } from '$stores';
+  import { sketchProfile, backgroundsEnabled, resolvePageBackground } from '$stores';
 
   /** A part from daySessions(): { book, pageId, count, strokes, firstStart, lastStart }. */
   export let part;
@@ -40,9 +40,39 @@
 
   let expanded = false;
 
-  $: bands = sessionBands(page.items.filter((it) => part.strokes.has(it.stroke)), page.height);
+  // The printed page behind this part ({ frame, url }), when its book has one and
+  // backgrounds are on. Resolution never throws: no paper is simply null, and the
+  // part draws exactly as it did before backgrounds existed.
+  let bg = null;
+  let bgKey = null;
+
+  $: updateBackground(part, $backgroundsEnabled);
+
+  async function updateBackground(p, enabled) {
+    if (!p || !enabled) {
+      bgKey = null;
+      bg = null;
+      return;
+    }
+    const key = `${p.book}/${p.pageId}`;
+    if (key === bgKey) return;
+    bgKey = key;
+    bg = null;
+    const next = await resolvePageBackground(p.book, p.pageId);
+    if (bgKey === key) bg = next;
+  }
+
+  // The sheet a strip is cut from. With paper that is the printed page; without
+  // it, the ink's own frame from the origin (frame width/height from
+  // indexPageStrokes — unchanged behaviour).
+  $: frame = bg ? bg.frame : { x0: 0, y0: 0, x1: page.width, y1: page.height };
+  $: fw = frame.x1 - frame.x0;
+  $: fh = frame.y1 - frame.y0;
+
+  $: bands = sessionBands(page.items.filter((it) => part.strokes.has(it.stroke)), frame.y1)
+    .map((b) => ({ y0: Math.max(b.y0, frame.y0), y1: b.y1 }));
   // What gets drawn: one view per strip, or the whole page.
-  $: views = (expanded ? [{ y0: 0, y1: page.height }] : bands).map((v) => {
+  $: views = (expanded ? [{ y0: frame.y0, y1: frame.y1 }] : bands).map((v) => {
     const visible = page.items.filter((it) => it.maxY >= v.y0 && it.minY <= v.y1);
     return {
       ...v,
@@ -77,10 +107,10 @@
 
 <div class="fp" class:divided>
   <div class="fp-head">
-    <svg class="fp-loc" viewBox="0 0 {page.width} {page.height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Where this sits on the page">
-      <rect x="0" y="0" width={page.width} height={page.height} rx="2" fill="#fff" stroke="#c9c9d2" stroke-width="1.6" vector-effect="non-scaling-stroke" />
+    <svg class="fp-loc" viewBox="{frame.x0} {frame.y0} {fw} {fh}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Where this sits on the page">
+      <rect x={frame.x0} y={frame.y0} width={fw} height={fh} rx="2" fill="#fff" stroke="#c9c9d2" stroke-width="1.6" vector-effect="non-scaling-stroke" />
       {#each bands as b}
-        <rect x="1" y={b.y0} width={page.width - 2} height={b.y1 - b.y0} fill="rgba(47, 95, 216, 0.2)" stroke="#2f5fd8" stroke-width="1" vector-effect="non-scaling-stroke" />
+        <rect x={frame.x0 + 1} y={b.y0} width={fw - 2} height={b.y1 - b.y0} fill="rgba(47, 95, 216, 0.2)" stroke="#2f5fd8" stroke-width="1" vector-effect="non-scaling-stroke" />
       {/each}
     </svg>
     <div class="fp-id">
@@ -112,10 +142,15 @@
       {#if i > 0}
         <span class="fp-cut" aria-hidden="true"></span>
       {/if}
-      <svg viewBox="0 {v.y0 * S} {page.width * S} {(v.y1 - v.y0) * S}" preserveAspectRatio="xMidYMin meet">
+      <svg viewBox="{frame.x0 * S} {v.y0 * S} {fw * S} {(v.y1 - v.y0) * S}" preserveAspectRatio="xMidYMin meet">
+        {#if bg}
+          <!-- The whole sheet, placed in Ncode units × S like the strokes; this
+               strip's viewBox just shows the slice of it the sitting covers. -->
+          <image href={bg.url} x={frame.x0 * S} y={frame.y0 * S} width={fw * S} height={fh * S} preserveAspectRatio="none" />
+        {/if}
         {#if expanded}
           {#each bands as b}
-            <rect x="0" y={b.y0 * S} width={page.width * S} height={(b.y1 - b.y0) * S} fill="rgba(47, 95, 216, 0.06)" />
+            <rect x={frame.x0 * S} y={b.y0 * S} width={fw * S} height={(b.y1 - b.y0) * S} fill="rgba(47, 95, 216, 0.06)" />
           {/each}
         {/if}
         {#each v.theirs as it}

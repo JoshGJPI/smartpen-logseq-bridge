@@ -6,6 +6,70 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v2.10 (spike) — Neo page backgrounds in Book View and the Timeline (September 2026)
+
+**Neo's printed pages are drawn behind the strokes in the two read-only views, and
+deliberately not in the Editor.** A planner/notebook page is mostly its printed
+structure (ruled lines, dot grid, calendar cells); strokes alone lose it. The
+Editor sizes a page from its ink, so a fixed paper frame there would have touched
+layout, Fit, the page filter and dragged positions — Book View and the Timeline
+fit a page to a pane and lose nothing by using the paper. Josh's call: show
+backgrounds where things are *read*, not where they are *edited*.
+
+**Where the images come from.** Neo hosts, per notebook, an `.nproj` (XML: each
+page's rectangle and `crop_margin`, in 72-dpi points) and a zip of one JPG per
+page, in the same public Firebase bucket `web_pen_sdk` uses (`NoteServer.ts`
+`getNoteImage`/`extractMarginInfo` — unused by the app until now). No scanning and
+no calibration: Ncode unit = 8×7/600 in = 6.72 pt, the JPG covers the rectangle
+inset by `crop_margin`, and the result registers with real ink to the pixel
+(verified by overlaying stored strokes on books 387, 388, 390 and 3017). Every
+image comes out at ~14 px per Ncode unit (150 dpi).
+
+**Storage.** `scripts/fetch-neo-backgrounds.mjs <data-root> 3_27_388 3_1012_3017`
+caches them at `<dataRoot>/pages/_backgrounds/<ncodeBook>/{manifest.json,P<n>.jpg}`
+(~21 MB for 388's 144 pages, ~23 MB for 3017's 192). The folder is keyed by **NCode
+book number, not book key** — volume 2 is another copy of the same paper — and a
+letter-suffixed page (`P151b`) uses its integer page's paper. The `_` prefix keeps
+it out of `walkPageFiles`. The script refuses a book whose pages are not all one
+frame size or are rotated (all four inspected are uniform). The images are Neo's:
+cached for personal display, not for committing or redistributing.
+
+**Rendering.** `stores/backgrounds.js` `resolvePageBackground(book, pageId)` →
+`{frame, url}` or null (**never throws** — any failure reads as "no background",
+which is how every view behaved before). Manifest per book and object URL per page
+are cached for the session and cleared by `refreshBackgrounds()`. `PageSpreadView`
+substitutes the printed frame for the ink bounds (`frameToBounds`) so the existing
+fit/zoom/pan and `strokeToPathD(stroke, bounds)` projection work unchanged, and
+draws the `<image>` first. `FeedPart` does the same through a `frame` (the printed
+page, else `{0,0,page.width,page.height}` — identical to the old behaviour), so a
+strip is a slice of the sheet and the collapsed/expanded modes both show paper.
+A **Paper** toggle in the Book View bar (`backgroundsEnabled`, localStorage) only
+appears once any book has backgrounds.
+
+**Side effects to expect.** The printed share/mail/bookmark icons are visible, and
+a pen tap on them is recorded as a stray stroke there. Paper width changes how big
+handwriting is on a card (388's paper is wider than `PAGE_MIN_WIDTH`, 3017's
+narrower). The image resolves asynchronously, so a card paints strokes first and the
+paper a beat later.
+
+**What Neo's bucket offers (useful beyond this feature).** The `nproj/` prefix is
+publicly *listable* (1,016 notebooks, Sep 2026) and a ranged read of a file's first
+2 KB gives its `<title>`, so a notebook's id can be found by name without guessing.
+The 2026 planner is `3_1012_3207` ("NEO SMART PLANNER 2026 Pro", 192 pp, A5,
+uniform, images present) — found, **deliberately not imported**. Its `.nproj` also
+defines 5,089 rectangle symbols whose `param` encodes what they are: `ws_YYYYMMDDHH`
+(3,710 hourly writing slots, 08–21h, 2025-12-29→2027-01-01), `ms_YYYYMMDD` (monthly
+day cells), `crop`/`share` and `bookmark` icons. A stroke's date and hour is therefore
+a rectangle lookup, which is the geometry half of a calendar sync. Not built; see
+"Open items" in CLAUDE.md.
+
+**Not done:** Home-grid thumbnails and the Timeline's location glyph don't show
+paper; no opacity control; SVG export and the LogSeq graph export are unchanged
+(no paper); pages with no Neo image (and books other than 388/3017 until fetched)
+render as before; nothing downloads from inside the app — it's the script only;
+`FeedDay` heights aren't pre-sized for the paper aspect, so a day can shift a little
+as its images arrive.
+
 ## v2.9 — Book View Timeline: the Dates range as a scrolling feed (September 2026)
 
 **Book View's second mode shows the Dates range as one scrolling column of ink, a

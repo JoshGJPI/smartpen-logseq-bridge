@@ -76,6 +76,11 @@ contextBridge.exposeInMainWorld('storageAPI', {
   getVolumes:       (root)                       => ipcRenderer.invoke('storage:getVolumes', root),
   setActiveVolume:  (root, ncodeBook, volume)    => ipcRenderer.invoke('storage:setActiveVolume', root, ncodeBook, volume),
 
+  // Page backgrounds — Neo's printed pages, cached under pages/_backgrounds/ (read-only)
+  listBackgrounds:       (root)               => ipcRenderer.invoke('storage:listBackgrounds', root),
+  getBackgroundManifest: (root, book)         => ipcRenderer.invoke('storage:getBackgroundManifest', root, book),
+  getBackgroundImage:    (root, book, page)   => ipcRenderer.invoke('storage:getBackgroundImage', root, book, page),
+
   // "Export to graph" — publish curated strokes into a LogSeq graph folder
   readGraphIndex:   (graphRoot)                                    => ipcRenderer.invoke('storage:readGraphIndex', graphRoot),
   readGraphAsset:   (graphRoot, book, pageId)                      => ipcRenderer.invoke('storage:readGraphAsset', graphRoot, book, pageId),
