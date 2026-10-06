@@ -24,7 +24,6 @@
   export let active = false;
   /** createFeedPageLoader() instance shared by the whole feed. */
   export let loader;
-  export let order = 'newest';
   export let pxPerUnit = 10;
   export let busy = false;
   /** (el, day) => unregister — the parent observes this day's element. */
@@ -53,7 +52,6 @@
   $: if (active && status === 'idle') load();
   $: if (!active && (status === 'ready' || status === 'error')) unload();
 
-  $: ordered = order === 'oldest' ? sessions : [...sessions].reverse();
   $: placeholder = measured || estimateDayHeight(item.entries, pxPerUnit);
 
   function releaseAll() {
@@ -127,12 +125,12 @@
     ? ` · ${clock(sessions[0].startTime)} – ${clock(sessions[sessions.length - 1].endTime)}`
     : '';
 
-  // Reading down the feed moves back in time when newest is on top. Sittings
-  // are more than the session gap apart by definition, so this is never tiny.
+  // Within a day the cards always read oldest to newest (a meeting's notes stay
+  // in the order they were written); only the days themselves follow `order`.
+  // Sittings are more than the session gap apart by definition, so this is
+  // never tiny.
   function gapLabel(a, b) {
-    const later = a.startTime > b.startTime ? a : b;
-    const earlier = later === a ? b : a;
-    return `${formatDuration(later.startTime - earlier.endTime)} ${order === 'oldest' ? 'later' : 'earlier'}`;
+    return `${formatDuration(b.startTime - a.endTime)} later`;
   }
 </script>
 
@@ -149,9 +147,9 @@
   </div>
 
   {#if status === 'ready'}
-    {#each ordered as s, i (s.id)}
+    {#each sessions as s, i (s.id)}
       {#if i > 0}
-        <div class="fd-gap"><div class="fd-rail"><i class="line"></i></div><span>{gapLabel(ordered[i - 1], s)}</span></div>
+        <div class="fd-gap"><div class="fd-rail"><i class="line"></i></div><span>{gapLabel(sessions[i - 1], s)}</span></div>
       {/if}
       <div class="fd-row">
         <div class="fd-rail">

@@ -125,7 +125,8 @@ When making changes, also verify manually:
   warning about covering the loaded strokes only
 - **Timeline feed** (v2.9): Book View → **Timeline**. The feed shows the Dates
   range, newest day on top, a card per sitting with its start time on the rail
-  and "N min earlier" between cards. A meeting that turned a page is ONE card
+  and "N min later" between cards (within a day the cards run oldest to
+  newest, whichever way the days are ordered). A meeting that turned a page is ONE card
   with a strip per page. Pick 30 days in the Dates tab and scroll: the day
   heading pins, "In view" in the Dates list and the ring in the grid follow, days
   load ("Reading N pages…") as they approach and a fast fling past one shows its

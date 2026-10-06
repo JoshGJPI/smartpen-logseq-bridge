@@ -316,7 +316,6 @@
               item={entry}
               active={near.has(entry.day)}
               {loader}
-              {order}
               {pxPerUnit}
               {busy}
               {register}
