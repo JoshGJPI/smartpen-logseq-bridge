@@ -53,6 +53,13 @@ Strokes/Transcript · Single/Spread) live in that same top bar and drive the bou
 imports that page's strokes into the Editor canvas and switches to it. Timeline's
 one global control is the Newest/Oldest-first toggle (`feedOrder`).
 
+The app opens on **Book View → Timeline**, showing the most recent day with ink
+(`loadTimeline()` defaults an unset range to the index's last capture day), rather
+than an empty Editor canvas. Live pen ink switches the pane to the Editor
+(`pen-sdk.js` → `showEditorForLiveInk()`, once per stroke) unless Book View has
+unsaved transcript edits; then it stays put, logs a warning, and the strokes are
+still captured.
+
 **Left panel tabs.** Tab *ids* are unchanged from the pre-v2.7 nested version
 (`'strokes'`, `'transcription'`, `'saved-pages'`, plus `'books'` and `'dates'`)
 even though two labels differ — `ActionBar` calls `setActiveTab('transcription')`
@@ -89,13 +96,13 @@ All state is managed through Svelte stores located in `src/stores/`:
 
 **Book View (v2.1):**
 - `viewer.js` — Book View pane state:
-  - `viewerMode` (`'editor' | 'book'`) — which view the right pane shows; `setViewerMode()`, `toggleViewerMode()`
+  - `viewerMode` (`'editor' | 'book'`, starts `'book'`) — which view the right pane shows; `setViewerMode()`, `toggleViewerMode()`
   - `viewerDirty` (derived) + `markViewerDirtyPage()`/`clearViewerDirtyPage()` — per-page unsaved-transcript-edit tracking, kept **separate** from the canvas `unsavedChanges` so saving a transcript never masks unsaved stroke changes (App's `beforeunload` checks both)
   - `viewerSelection` — last-open `{book, pageId}`, persisted to localStorage so Book View reopens the same spread across toggles/reload; `setViewerSelection()`/`clearViewerSelection()`
   - `recentViews` + `recordRecentView()` — recently-opened pages for the home grid
-  - **Timeline feed (v2.9):** `bookViewMode` (`'books' | 'timeline'`) + `setBookViewMode()`,
-    `feedOrder` (`'newest' | 'oldest'`, default newest) + `setFeedOrder()`/`toggleFeedOrder()`
-    — both persisted to localStorage as per-viewer conveniences. `feedVisible` (derived:
+  - **Timeline feed (v2.9):** `bookViewMode` (`'books' | 'timeline'`, session-only, starts
+    `'timeline'`) + `setBookViewMode()`, `feedOrder` (`'newest' | 'oldest'`, default newest)
+    + `setFeedOrder()`/`toggleFeedOrder()` — persisted to localStorage as a per-viewer convenience. `feedVisible` (derived:
     Book View *and* Timeline). `feedDayInView` (scroll-spy — the day key heading the
     feed's viewport) and `feedJumpRequest` + `requestFeedJump(day)` (a counter, like
     `transcriptSearchFocus`, so asking for the same day twice scrolls twice) — both

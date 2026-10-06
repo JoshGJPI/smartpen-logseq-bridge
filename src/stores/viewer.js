@@ -8,14 +8,17 @@
  * a transcript save never masks unsaved stroke changes), and the
  * recently-viewed pages list (persisted to localStorage).
  */
-import { writable, derived } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 
 /* ============================================================
  *  Pane mode
  * ============================================================ */
 
-/** 'editor' = live StrokeCanvas (capture/edit), 'book' = BookViewer */
-export const viewerMode = writable('editor');
+/**
+ * 'editor' = live StrokeCanvas (capture/edit), 'book' = BookViewer.
+ * The app opens on Book View's Timeline (see `bookViewMode`), not an empty canvas.
+ */
+export const viewerMode = writable('book');
 
 export function setViewerMode(mode) {
   viewerMode.set(mode === 'book' ? 'book' : 'editor');
@@ -55,6 +58,19 @@ export function clearViewerDirtyPage(key) {
 
 export function clearAllViewerDirty() {
   dirtyPages.set(new Set());
+}
+
+/**
+ * Live pen ink belongs on the Editor canvas, so Book View steps aside when the
+ * pen starts writing. Unsaved transcript edits win: switching would unmount
+ * them, so the pane stays put (the strokes are still captured either way).
+ * @returns {'switched' | 'blocked' | 'already'}
+ */
+export function showEditorForLiveInk() {
+  if (get(viewerMode) !== 'book') return 'already';
+  if (get(viewerDirty)) return 'blocked';
+  viewerMode.set('editor');
+  return 'switched';
 }
 
 /* ============================================================
@@ -142,11 +158,11 @@ export function clearViewerSelection() {
 /* ============================================================
  *  Timeline feed (v2.9)
  *  Book View's second mode: the Dates tab's range as one scrolling column of
- *  ink, card per sitting. Mode and order are per-viewer conveniences, so they
- *  persist to localStorage; the in-view day and jump requests are session-only.
+ *  ink, card per sitting. The app always opens on the Timeline; feed order is a
+ *  per-viewer convenience, so it persists to localStorage. The in-view day and
+ *  jump requests are session-only.
  * ============================================================ */
 
-const BOOK_VIEW_MODE_KEY = 'smartpen-book-view-mode';
 const FEED_ORDER_KEY = 'smartpen-feed-order';
 
 function loadChoice(key, allowed, fallback) {
@@ -167,12 +183,10 @@ function persistChoice(key, value) {
 }
 
 /** 'books' = the page grid / spread, 'timeline' = the date feed. */
-export const bookViewMode = writable(loadChoice(BOOK_VIEW_MODE_KEY, ['books', 'timeline'], 'books'));
+export const bookViewMode = writable('timeline');
 
 export function setBookViewMode(mode) {
-  const next = mode === 'timeline' ? 'timeline' : 'books';
-  persistChoice(BOOK_VIEW_MODE_KEY, next);
-  bookViewMode.set(next);
+  bookViewMode.set(mode === 'books' ? 'books' : 'timeline');
 }
 
 /** Feed order. Newest first by default — the day you just wrote is on top. */

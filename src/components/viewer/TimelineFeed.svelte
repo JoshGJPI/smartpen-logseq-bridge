@@ -191,6 +191,13 @@
   }
 
   let lastJump = 0;
+  // The app opens on the feed, so it mounts before the boot-time folder check
+  // has confirmed the data folder; load as soon as it does. The index load
+  // defaults the range to the most recent day with ink.
+  $: if ($dataFolderReady && !$timelineIndex && !$timelineLoading && !$timelineError) {
+    loadTimeline({ silent: true });
+  }
+
   const unsubJump = feedJumpRequest.subscribe((r) => {
     if (r.n === lastJump) return;
     lastJump = r.n;

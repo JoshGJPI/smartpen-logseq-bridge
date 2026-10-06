@@ -23,10 +23,29 @@ import {
 } from '$stores/pen.js';
 import { log, openBookSelectionDialog, setBluetoothStatus } from '$stores/ui.js';
 import { applyActiveVolume } from '$stores/volumes.js';
+import { showEditorForLiveInk } from '$stores/viewer.js';
 
 // Local state for tracking current stroke
 let currentStrokeData = null;
 let canvasRenderer = null;
+// Logged once per run of strokes that couldn't bring up the Editor.
+let liveInkBlockedLogged = false;
+
+/**
+ * A live stroke has its first real dot: bring the Editor up so the ink is
+ * visible. Called once per stroke, not per dot.
+ */
+function revealLiveInk() {
+  const outcome = showEditorForLiveInk();
+  if (outcome === 'blocked') {
+    if (!liveInkBlockedLogged) {
+      log('Pen ink is being captured — switch to the Editor to see it (unsaved transcript edits are open in Book View)', 'warning');
+      liveInkBlockedLogged = true;
+    }
+  } else {
+    liveInkBlockedLogged = false;
+  }
+}
 
 // ===== DELETION MODE STATE =====
 // (Legacy deletion mode flags - kept for safety but no longer used.
@@ -320,6 +339,7 @@ function processDot(dot) {
         startTime: dot.timeStamp,
         dotArray: isInvalidDot ? [] : [{ x: dot.x, y: dot.y, f: dot.f, timestamp: dot.timeStamp }]
       };
+      if (!isInvalidDot) revealLiveInk();
       break;
 
     case 1: // Pen move - add to current stroke
@@ -328,6 +348,7 @@ function processDot(dot) {
         // dot was invalid and left it null.
         if (!currentStrokeData.pageInfo) {
           currentStrokeData.pageInfo = { ...dot.pageInfo };
+          revealLiveInk();
         }
         currentStrokeData.dotArray.push({
           x: dot.x,
