@@ -6,6 +6,35 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Startup on the Timeline and Dates (October 2026)
+
+**The app opens on what you last wrote, not an empty canvas.** The right pane starts
+in Book View → Timeline and the left panel on Dates; `loadTimeline()` already
+defaulted an unset range to the last day with ink, so the feed opens on that day and
+the Dates activity grid is scrolled to its newest week (pinned there as it grows,
+unless you've scrolled back). Books ⇄ Timeline is no longer persisted: a saved
+"Books" would have overridden the new default on every launch. Feed order still is.
+
+**Live pen ink brings the Editor up** (`showEditorForLiveInk()`, called by
+`pen-sdk.js` on the first real dot of each stroke, never per dot). Unsaved
+transcript edits in Book View win: switching would unmount them, so the pane stays,
+the strokes are still captured, and the log warns once. Offline import is untouched;
+it already switches on load.
+
+**Boot ordering.** The feed now mounts before the async data-folder check finishes,
+so `TimelineFeed` loads the index reactively once `dataFolderReady` flips (guarded on
+`timelineError` so a failure can't retry in a loop), not only in `onMount`.
+
+**A Svelte 4 trap that froze the window.** The grid's first version scrolled with
+`scrollEl.scrollLeft = scrollEl.scrollWidth` inside a function called from
+`$: if (scrollEl && …)`. Svelte compiles a member assignment as an assignment to
+`scrollEl` itself (`$$invalidate(scrollEl)`), so the `$:` re-ran, scrolled again,
+and so on: an endless microtask loop that never yielded to the event loop, so no
+clicks, no resizing, and DevTools couldn't attach. Unit tests don't render components,
+so it surfaced only in `npm run dev`. The fix is `scrollEl.scrollTo({ left })`, a method
+call, which Svelte doesn't track. Found by bisecting a second Electron instance
+(`--user-data-dir` sidesteps the single-instance lock) against the real data folder.
+
 ## v2.10 (spike) — Neo page backgrounds in Book View and the Timeline (September 2026)
 
 **Neo's printed pages are drawn behind the strokes in the two read-only views, and

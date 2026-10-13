@@ -32,8 +32,9 @@ src/components/    grouped by feature (canvas, dialog, header, viewer, dates, bo
 
 Data flow: **pen → `strokes` store → canvas / MyScript → `savePageToFolder()` → PageDoc on disk.**
 
-The right pane toggles **Editor** (`StrokeCanvas`) ⇄ **Book View** (Books | Timeline). The left panel has
-tabs Strokes · Transcripts · Pages · Books · Dates; their ids (`'strokes'`, `'transcription'`,
+The right pane toggles **Editor** (`StrokeCanvas`) ⇄ **Book View** (Books | Timeline); the app opens on Book View →
+Timeline, and live pen ink switches to the Editor. The left panel has tabs Strokes · Transcripts · Pages · Books ·
+Dates (opens on Dates); their ids (`'strokes'`, `'transcription'`,
 `'saved-pages'`, `'books'`, `'dates'`) predate the current labels, so don't rename them
 (`ActionBar` calls `setActiveTab('transcription')`). Full component tree, store and library inventory:
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -181,6 +182,9 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
 
 - Svelte 4: `$:` for reactive statements; import stores directly (never pass them as props); derived stores for
   computed values. Components group by feature and stay under ~300 lines.
+- Svelte 4 treats `el.prop = x` as an assignment to `el`. If a `$:` depends on `el` and (directly or through a
+  function) assigns one of its members, it re-triggers itself forever and freezes the window. Use a method
+  (`el.scrollTo(...)`) or a local alias.
 - Business logic lives in `src/lib/` as pure functions with unit tests. Filesystem access is IPC only.
 - Long operations: try/catch, report to ActivityLog with `log()`, show progress.
 - Before a major change, settle: which stores change, where it persists, rendering cost at 1,000+ strokes, and what

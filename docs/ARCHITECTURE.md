@@ -53,7 +53,8 @@ Strokes/Transcript · Single/Spread) live in that same top bar and drive the bou
 imports that page's strokes into the Editor canvas and switches to it. Timeline's
 one global control is the Newest/Oldest-first toggle (`feedOrder`).
 
-The app opens on **Book View → Timeline**, showing the most recent day with ink
+The app opens on **Book View → Timeline** with the **Dates** tab on the left (its
+activity grid scrolled to the newest week), showing the most recent day with ink
 (`loadTimeline()` defaults an unset range to the index's last capture day), rather
 than an empty Editor canvas. Live pen ink switches the pane to the Editor
 (`pen-sdk.js` → `showEditorForLiveInk()`, once per stroke) unless Book View has

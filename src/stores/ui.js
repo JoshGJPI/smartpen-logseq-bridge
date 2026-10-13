@@ -5,7 +5,8 @@ import { writable, derived } from 'svelte/store';
 import { compareBookKeys } from '../lib/volumes.js';
 
 // Active tab in data explorer
-export const activeTab = writable('strokes'); // 'strokes' | 'transcription' | 'saved-pages'
+// Opens on Dates, alongside the Timeline feed the right pane opens on.
+export const activeTab = writable('dates'); // 'strokes' | 'transcription' | 'saved-pages' | 'books' | 'dates'
 
 // Sidebar collapsed state
 export const sidebarCollapsed = writable(false);

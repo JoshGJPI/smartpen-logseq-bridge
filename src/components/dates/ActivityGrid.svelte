@@ -10,7 +10,7 @@
   cell size a handle would be finer than the thing it selects.
 -->
 <script>
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, tick } from 'svelte';
   import { dayKey, dayStart, addDays } from '$lib/timeline.js';
 
   /** @type {Array<{day: string, strokes: number, pages: number}>} */
@@ -33,6 +33,25 @@
   $: totals = new Map(days.map(d => [d.day, d]));
 
   $: grid = buildGrid(days);
+
+  // Open on the newest weeks (the right edge), and stay pinned there as the grid
+  // grows — unless the user has scrolled back, in which case keep their place.
+  let scrollEl;
+  let pinnedRight = true;
+
+  $: if (scrollEl && grid.weeks.length) keepRightEdge();
+
+  // scrollTo(), not `scrollEl.scrollLeft = …`: Svelte treats a member assignment
+  // as an assignment to scrollEl, which re-runs the `$:` above — an endless
+  // microtask loop that froze the window.
+  async function keepRightEdge() {
+    await tick();
+    if (pinnedRight && scrollEl) scrollEl.scrollTo({ left: scrollEl.scrollWidth });
+  }
+
+  function onScroll() {
+    pinnedRight = scrollEl.scrollLeft + scrollEl.clientWidth >= scrollEl.scrollWidth - 2;
+  }
 
   function buildGrid(list) {
     if (!list.length) return { weeks: [], months: [] };
@@ -132,7 +151,7 @@
   {#if grid.weeks.length === 0}
     <p class="empty">No captured ink yet.</p>
   {:else}
-    <div class="scroll">
+    <div class="scroll" bind:this={scrollEl} on:scroll={onScroll}>
       <div class="inner">
         <div class="months">
           {#each grid.months as label}
