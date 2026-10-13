@@ -1079,7 +1079,13 @@ For issues, questions, or feature requests:
 
 ## Version History
 
-- **2.7.0** (Current) - Book View timeline: the Dates range as a scrolling feed of
+- **2.9.0** (Current) - Opens on the Timeline at your most recent day with ink,
+  with the Dates tab beside it; live pen ink switches to the Editor
+
+- **2.8.0** - Neo page backgrounds behind the ink in Book View and the Timeline;
+  Timeline days newest first, entries oldest first within a day
+
+- **2.7.0** - Book View timeline: the Dates range as a scrolling feed of
   sittings, with endless scroll and a shared book filter
 
 - **2.6.0** - Browse by date: load the canvas by capture date with
