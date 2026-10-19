@@ -1,7 +1,7 @@
 # Reading-first UX: review and implementation spec
 
-Status: packages A, B, C and D built and merged to `main` (2026-10-19); E proposed (the last package
-before the 3.0.0 bump). Review dated 2026-10-19, against v2.10.0.
+Status: packages A, B, C and D built and merged to `main` (2026-10-19); E built on its branch
+(`claude/reading-ux-package-e`, 2026-10-19), the last package before the 3.0.0 bump. Review dated 2026-10-19, against v2.10.0.
 
 **Target release: v3.0.0.** Packages A–E together are the v3.0.0 milestone ("reading-first"). v3.0.0
 is the major bump because the app's frame and navigation change, not because data changes: **PageDoc
@@ -239,6 +239,25 @@ Each package is shippable alone and leaves `npm test` green. Do not combine pack
   Keep Ctrl+F (canvas) and Ctrl+Shift+F behaviour.
 - Done when: home shows real data with no extra page reads (metadata-only scan rule); search results open in
   the reader; nothing loads strokes until a page is opened.
+
+**As built (differences from the bullets above).**
+- Files: the home is `LibraryHome` (extracted in D) with `NotebookCard`, `NotebookPages` and `PageThumb`; the
+  search is `layout/SearchField` + `SearchResults` in `Header`, not `App.svelte`. Logic: `lib/library-home.js`,
+  `lib/search-query.js`, `lib/global-search.js`, `lib/viewer/thumbs.js`, `lib/viewer/load-into-editor.js`;
+  stores `stores/library.js` and, in `viewer.js`, `libraryNotebook`, `openNotebookInLibrary`,
+  `transcriptEditing`, `readerPages`, `readerFocus`.
+- "Same index as `transcript-search.js`": there was no index (`searchPages` re-tokenizes per query). The header
+  search uses the same matching over an index built once per scan; Transcripts → Search is unchanged.
+- Cards read the unfiltered capture-date index (the Timeline's book filter does not blank a card); Day results
+  read the filtered one, so they agree with the Timeline they open.
+- Thumbnails bypass the reader's page cache (`thumbs.js`: peek without bumping, direct read, SVG-only LRU, two
+  reads at a time, only when on screen).
+- The grid's "Go to page…" is the pane toolbar's field (shown for a grid too, without zoom).
+- Highlight: on trusted pages the hit's line lights its ink and, with text shown, is marked and scrolled to;
+  Esc or a page turn clears it. Shift+Enter and the reader's page header share `load-into-editor.js`.
+- D's leftover fixed: the contents list highlights both pages of a spread. The breadcrumb's notebook crumb is a
+  link to the grid.
+- Ctrl+F and Ctrl+Shift+F stay the Editor canvas's keys (they always were); Ctrl K works in every destination.
 
 ## How to verify each package
 

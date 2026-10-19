@@ -38,7 +38,10 @@ them goes through `navigateTo()` / `openPageInLibrary()` (`stores/viewer.js`), t
 prompt is asked. The app opens on the Timeline, and live pen ink switches to the Editor. The left panel's tabs follow
 the destination (`CONTEXT_TABS` in `lib/left-panel.js`: Library → Contents · Transcripts, Timeline → Dates ·
 Transcripts, Editor → Strokes · Transcripts · Pages · Dates; `panelTab` is what shows); notebook names and volume
-routing are in Settings → Notebooks. The Library reader (package D) shows each page as Strokes, Transcript or
+routing are in Settings → Notebooks. With no page open the Library shows notebook cards (`LibraryHome`) or one
+notebook's page grid (`NotebookPages`, `libraryNotebook`); the header's global search (`SearchField`, Ctrl K) covers
+words, dates and notebook names (`lib/global-search.js`, `lib/search-query.js`, index built once per scan in
+`stores/library.js`). The Library reader (package D) shows each page as Strokes, Transcript or
 Ink + text (`'inktext'`), with shared zoom and Go to page in the pane toolbar (`SpreadToolbar`), rotation on
 each page's corner, and ←/→ page turns (`lib/viewer/page-reader.js` `pageTurnKey`). Tab ids (`'strokes'`, `'transcription'`, `'saved-pages'`, `'books'`, `'dates'`,
 `'contents'`) predate the labels, so don't rename them (`ActionBar` calls `setActiveTab('transcription')`). Full component tree, store and library inventory:
@@ -106,7 +109,8 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   fsync) in main. The renderer never touches `fs`; `requireBookKey()`/`requirePageId()` in `main.cjs` keep paths
   inside the data root.
 - **Scans are metadata-only.** `savedPages` records hold summary fields, never strokes; load strokes lazily via
-  `getPage()` / `viewer/page-cache.js`. `onDiskStrokeIds` (canvas pages only) holds scalar-sized records, so keep
+  `getPage()` / `viewer/page-cache.js`. Thumbnails go through `viewer/thumbs.js`, never the page cache (a screen
+  of them would evict the reader's spread), and only when on screen. `onDiskStrokeIds` (canvas pages only) holds scalar-sized records, so keep
   any new field as small.
 - **Transcript merge:** existing lines keep their order; new lines are sorted among themselves and appended;
   `checked` survives when text matches; dangling `lineId`s are scrubbed.
