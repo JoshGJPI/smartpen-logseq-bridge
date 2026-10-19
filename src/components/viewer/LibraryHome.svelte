@@ -1,146 +1,120 @@
 <!--
-  LibraryHome.svelte — the Library with no page open: Recent pages and every
-  notebook's pages as thumbnails. Extracted from BookViewer (reading-first
-  package D); package E replaces it with notebook cards.
+  LibraryHome.svelte — the Library with no notebook or page open (reading-first
+  package E): a Recent pages row, then one card per notebook (NotebookCard),
+  sorted by the chips (Recently written / Name / Most pages).
 
-  Thumbnails render lazily from each PageDoc (through the LRU page cache, not
-  held in the scan record); the small SVG strings are kept for the session,
-  keyed by book, page id (P151 and P151b don't collide) and rotation, so a page
-  turned in the reader redraws its thumbnail.
+  The cards' numbers come from the metadata-only scan and the capture-date
+  index (stores/library.js); the only page reads are the thumbnails on screen
+  (PageThumb → lib/viewer/thumbs.js, which keeps out of the reader's cache).
 -->
 <script>
   import { onMount } from 'svelte';
-  import { savedPages, pagesByBook, bookIds, bookAliases, isScanning, recentViews } from '$stores';
+  import {
+    savedPages, pagesByBook, bookAliases, isScanning, recentViews,
+    notebookCardList, librarySort, setLibrarySort, ensureTimelineLoaded
+  } from '$stores';
+  import { dataFolderReady } from '$stores/settings.js';
+  import { loadTimeline } from '$stores/timeline.js';
   import { scanLocalPages } from '$lib/storage/scan.js';
   import { formatBookName } from '$utils/formatting.js';
-  import { generateThumbnailSVG } from '$lib/viewer/page-svg.js';
-  import { pageOrientations } from '$stores/orientation.js';
-  import { rotationFor } from '$lib/page-orientation.js';
-  import { getCachedPage, clearPageCache } from '$lib/viewer/page-cache.js';
-  import { pageIdOf as idOf } from '$lib/viewer/page-reader.js';
+  import { clearPageCache } from '$lib/viewer/page-cache.js';
+  import { thumbs } from '$lib/viewer/thumbs.js';
+  import { sortNotebooks, recentRecords, SORT_ORDERS } from '$lib/library-home.js';
+  import { plural } from '$lib/plural.js';
+  import NotebookCard from './NotebookCard.svelte';
+  import PageThumb from './PageThumb.svelte';
 
-  /** (record) => void */
+  /** (record) => void: open a page in the reader. */
   export let onOpen = () => {};
+  /** (book) => void: open a notebook's page grid. */
+  export let onOpenNotebook = () => {};
 
-  // Book sections are collapsed by default so a long page list doesn't bury
-  // the book you want.
-  let expandedBooks = new Set();
-  let recentOpen = true;
-  const thumbCache = new Map();
+  const idOf = (r) => (r.pageId != null ? String(r.pageId) : String(r.page));
 
-  $: grouped = $pagesByBook;
-  $: books = $bookIds;
-  $: recentRecords = $recentViews
-    .map((rv) => (grouped[rv.book] || []).find((p) => idOf(p) === rv.pageId))
-    .filter(Boolean);
+  $: cards = sortNotebooks($notebookCardList, $librarySort);
+  $: recent = recentRecords($recentViews, $pagesByBook);
+  $: totalPages = $savedPages.length;
 
-  // `book` is a book key, so volumes of one notebook are separate sections here.
   function aliasFor(book) {
     return formatBookName(book, $bookAliases, 'alias-only');
   }
 
-  async function thumbAsync(record, rotation = 0) {
-    const key = `${record.book}:${idOf(record)}@${rotation}`;
-    if (thumbCache.has(key)) return thumbCache.get(key);
-    const doc = await getCachedPage(record.book, idOf(record));
-    const svg = generateThumbnailSVG((doc && doc.strokes) || [], 240, 180, undefined, rotation);
-    thumbCache.set(key, svg);
-    return svg;
-  }
-
-  function toggleBook(book) {
-    const next = new Set(expandedBooks);
-    next.has(book) ? next.delete(book) : next.add(book);
-    expandedBooks = next;
-  }
-
   async function rescan() {
-    thumbCache.clear();
+    thumbs.clear();
     clearPageCache();
     await scanLocalPages();
+    loadTimeline({ silent: true });
   }
 
   onMount(() => {
-    if ($savedPages.length === 0 && !$isScanning) scanLocalPages();
+    if ($dataFolderReady && $savedPages.length === 0 && !$isScanning) scanLocalPages();
+    ensureTimelineLoaded();
   });
 </script>
 
-<div class="bv-home">
-  <div class="bv-home-head">
-    <h2>Books &amp; Pages</h2>
-    <button class="bv-rescan" on:click={rescan} disabled={$isScanning}>
+<div class="lh">
+  <div class="lh-head">
+    <h2>Library</h2>
+    {#if cards.length}
+      <span class="lh-sum">{cards.length} {plural(cards.length, 'notebook')} · {totalPages} {plural(totalPages, 'page')}</span>
+      <div class="lh-sort" role="group" aria-label="Sort notebooks">
+        {#each SORT_ORDERS as o (o.id)}
+          <button
+            type="button"
+            class="chip"
+            class:on={$librarySort === o.id}
+            aria-pressed={$librarySort === o.id}
+            on:click={() => setLibrarySort(o.id)}
+          >{o.label}</button>
+        {/each}
+      </div>
+    {/if}
+    <span class="grow"></span>
+    <button class="lh-rescan" on:click={rescan} disabled={$isScanning || !$dataFolderReady}>
       {$isScanning ? 'Scanning…' : 'Rescan'}
     </button>
   </div>
 
-  {#if $isScanning && $savedPages.length === 0}
-    <div class="bv-msg">Scanning data folder…</div>
-  {:else if books.length === 0}
-    <div class="bv-msg">
-      <p>No saved pages found.</p>
-      <p class="sub">Capture and save pages, or check your data folder in Settings.</p>
+  {#if !$dataFolderReady}
+    <div class="lh-msg">
+      <p>No data folder yet.</p>
+      <p class="sub">Choose the folder your pages are saved in (Settings → Data Folder) to read your notebooks here.</p>
+    </div>
+  {:else if $isScanning && cards.length === 0}
+    <div class="lh-msg">Reading your notebooks…</div>
+  {:else if cards.length === 0}
+    <div class="lh-msg">
+      <p>No notebooks to read yet.</p>
+      <p class="sub">Pages you write and save appear here, one card per notebook.</p>
     </div>
   {:else}
-    {#if recentRecords.length}
-      <section class="bv-section">
-        <button class="bv-section-header" on:click={() => (recentOpen = !recentOpen)}>
-          <span class="bv-chevron" class:open={recentOpen}>▸</span>
-          <span class="bv-section-title">Recent</span>
-          <span class="bv-count">{recentRecords.length}</span>
-        </button>
-        {#if recentOpen}
-          <div class="bv-grid">
-            {#each recentRecords as r (`${r.book}:${idOf(r)}`)}
-              <button class="bv-card" on:click={() => onOpen(r)} title="{aliasFor(r.book)} — P{idOf(r)}">
-                <div class="bv-thumb">
-                  {#await thumbAsync(r, rotationFor($pageOrientations, r.book, idOf(r))) then svg}{@html svg}{/await}
-                </div>
-                <div class="bv-label">{aliasFor(r.book)} — P{idOf(r)}</div>
-              </button>
-            {/each}
-          </div>
-        {/if}
+    {#if recent.length}
+      <section class="lh-recent" aria-label="Recent pages">
+        <h3>Recent pages</h3>
+        <div class="lh-row">
+          {#each recent as r (`${r.book}/${idOf(r)}`)}
+            <button type="button" class="rp" on:click={() => onOpen(r)} title="{aliasFor(r.book)}, P{idOf(r)}">
+              <PageThumb book={r.book} pageId={idOf(r)} height="96px" />
+              <span class="rp-label"><span class="rp-book">{aliasFor(r.book)}</span> P{idOf(r)}</span>
+            </button>
+          {/each}
+        </div>
       </section>
     {/if}
 
-    {#each books as b (b)}
-      <section class="bv-section">
-        <button class="bv-section-header" on:click={() => toggleBook(b)}>
-          <span class="bv-chevron" class:open={expandedBooks.has(b)}>▸</span>
-          <span class="bv-section-title">{aliasFor(b)}</span>
-          <span class="bv-count">{grouped[b].length}</span>
-        </button>
-        {#if expandedBooks.has(b)}
-          <div class="bv-grid">
-            {#each grouped[b] as r (`${r.book}:${idOf(r)}`)}
-              <button class="bv-card" on:click={() => onOpen(r)} title="P{idOf(r)} · {r.strokeCount} strokes">
-                <div class="bv-thumb">
-                  {#await thumbAsync(r, rotationFor($pageOrientations, r.book, idOf(r))) then svg}{@html svg}{/await}
-                </div>
-                <div class="bv-label">P{idOf(r)}</div>
-              </button>
-            {/each}
-          </div>
-        {/if}
-      </section>
-    {/each}
+    <div class="lh-grid">
+      {#each cards as card (card.book)}
+        <NotebookCard {card} onOpen={onOpenNotebook} />
+      {/each}
+    </div>
   {/if}
 </div>
 
 <style>
-  /* ---- home ---- */
-  .bv-home {
-    flex: 1;
-    overflow-y: auto;
-    padding: 20px 24px;
-  }
-  .bv-home-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 16px;
-  }
-  .bv-home-head h2 {
+  .lh { flex: 1; overflow-y: auto; padding: 18px 24px 24px; }
+
+  .lh-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 16px; }
+  .lh-head h2 {
     margin: 0;
     font-size: 15px;
     font-weight: 600;
@@ -148,7 +122,23 @@
     letter-spacing: 0.5px;
     color: #888;
   }
-  .bv-rescan {
+  .lh-sum { font-size: 13px; color: #888; }
+  .grow { flex: 1; }
+
+  .lh-sort { display: flex; gap: 4px; }
+  .chip {
+    padding: 4px 11px;
+    border: 1px solid #ddd;
+    border-radius: 14px;
+    background: #fff;
+    color: #555;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .chip:hover { border-color: #bbb; color: #222; }
+  .chip.on { background: #eef3ff; border-color: #4a7cf7; color: #2c56c4; font-weight: 600; }
+
+  .lh-rescan {
     padding: 5px 12px;
     border: 1px solid #ddd;
     border-radius: 6px;
@@ -157,93 +147,43 @@
     font-size: 12px;
     color: #555;
   }
-  .bv-rescan:hover:not(:disabled) { background: #f0f0f0; }
-  .bv-rescan:disabled { opacity: 0.5; cursor: not-allowed; }
+  .lh-rescan:hover:not(:disabled) { background: #f0f0f0; }
+  .lh-rescan:disabled { opacity: 0.5; cursor: not-allowed; }
 
-  .bv-msg {
-    color: #999;
-    font-size: 14px;
-    padding: 40px 0;
-    text-align: center;
-  }
-  .bv-msg .sub { font-size: 12px; color: #bbb; margin-top: 6px; }
+  .lh-msg { color: #999; font-size: 14px; padding: 40px 0; text-align: center; }
+  .lh-msg p { margin: 0; }
+  .lh-msg .sub { font-size: 12px; color: #aaa; margin-top: 6px; }
 
-  .bv-section { margin-bottom: 8px; }
-  .bv-section-header {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    width: 100%;
-    padding: 9px 4px;
-    background: none;
-    border: none;
-    border-bottom: 1px solid #ececec;
-    cursor: pointer;
-    text-align: left;
-  }
-  .bv-section-header:hover { background: #fafafa; }
-  .bv-section-title {
-    font-size: 16px;
-    font-weight: 600;
-    color: #333;
-  }
-  .bv-chevron {
-    display: inline-block;
-    color: #999;
-    font-size: 12px;
-    transition: transform 0.15s;
-  }
-  .bv-chevron.open { transform: rotate(90deg); }
-  .bv-count {
-    font-size: 11px;
-    color: #888;
-    font-weight: 500;
-    background: #eee;
-    border-radius: 10px;
-    padding: 1px 9px;
-  }
-
-  .bv-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-    gap: 12px;
-    margin: 12px 0 18px;
-  }
-  .bv-card {
+  .lh-recent { margin-bottom: 20px; }
+  .lh-recent h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #666; }
+  .lh-row { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; }
+  .rp {
+    flex: 0 0 132px;
     display: flex;
     flex-direction: column;
-    background: #fff;
+    padding: 0;
     border: 1px solid #e0e0e0;
     border-radius: 8px;
+    background: #fff;
     overflow: hidden;
     cursor: pointer;
-    padding: 0;
     text-align: left;
-    transition: all 0.15s;
   }
-  .bv-card:hover {
-    border-color: #4a7cf7;
-    box-shadow: 0 2px 8px rgba(74, 124, 247, 0.15);
-    transform: translateY(-1px);
-  }
-  .bv-thumb {
-    height: 150px;
-    background: #fafafa;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    border-bottom: 1px solid #f0f0f0;
-    padding: 6px;
-  }
-  .bv-thumb :global(svg) { max-width: 100%; max-height: 100%; }
-  .bv-label {
-    padding: 7px 10px;
+  .rp:hover { border-color: #4a7cf7; }
+  .rp-label {
+    padding: 5px 8px;
+    border-top: 1px solid #f0f0f0;
     font-size: 12px;
-    font-weight: 500;
     color: #444;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .rp-book { color: #888; }
+
+  .lh-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 16px;
   }
 </style>

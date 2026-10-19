@@ -2,8 +2,9 @@
   PaneToolbar.svelte — one row over the reading pane (reading-first package C):
   where you are on the left, View ▾ on the right.
 
-  Library:  Library › Notebook › P12–P13 of 48   ("Library" goes back to the page grid),
-            then the reader's shared controls (the default slot: SpreadToolbar)
+  Library:  Library › Notebook › P12–P13 of 48   ("Library" goes back to the notebook
+            cards, "Notebook" to that notebook's page grid), then the reader's shared
+            controls (the default slot: SpreadToolbar). On a page grid: Library › Notebook.
   Timeline: Timeline                       (the range is in the feed's Range ▾)
 
   The Editor has no pane toolbar: none of the View options apply to it, and its
@@ -19,7 +20,11 @@
   export let contentMode = 'strokes';
   export let spread = true;
   export let hasSelection = false;
+  /** Book key of the open page or page grid, else null. */
+  export let openBook = null;
   export let onHome = () => {};
+  /** (book) => void: that notebook's page grid. */
+  export let onNotebook = () => {};
   export let onContent = (mode) => {};
   export let onToggleSpread = () => {};
 
@@ -29,9 +34,9 @@
     contentMode,
     backgroundsAvailable: $backgroundsAvailable
   });
-  $: open = $destination === 'library' && hasSelection && $viewerSelection;
-  $: bookLabel = open ? formatBookName($viewerSelection.book, $bookAliases, 'alias-only') : '';
-  $: pagesLabel = open ? pageCrumb($viewerSelection, $pagesByBook, spread) : '';
+  $: open = $destination === 'library' && openBook != null;
+  $: bookLabel = open ? formatBookName(openBook, $bookAliases, 'alias-only') : '';
+  $: pagesLabel = open && hasSelection && $viewerSelection ? pageCrumb($viewerSelection, $pagesByBook, spread) : '';
 
   function setSpread(on) {
     if (on !== spread) onToggleSpread();
@@ -44,7 +49,11 @@
       {#if open}
         <button type="button" class="crumb link" on:click={onHome} title="Back to all notebooks">Library</button>
         <span class="sep" aria-hidden="true">›</span>
-        <span class="crumb">{bookLabel}</span>
+        {#if pagesLabel}
+          <button type="button" class="crumb link book" on:click={() => onNotebook(openBook)} title="All pages of {bookLabel}">{bookLabel}</button>
+        {:else}
+          <span class="crumb here">{bookLabel}</span>
+        {/if}
         {#if pagesLabel}
           <span class="sep" aria-hidden="true">›</span>
           <span class="crumb here">{pagesLabel}</span>
@@ -101,6 +110,9 @@
     font: inherit;
     cursor: pointer;
   }
+
+  /* A long notebook name shrinks and ellipsises; "Library" never does. */
+  .crumb.link.book { flex-shrink: 1; min-width: 0; }
 
   .crumb.link:hover {
     color: var(--text-primary);

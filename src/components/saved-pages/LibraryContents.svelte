@@ -4,7 +4,7 @@
   Pages tab itself (import, export, edit structure) stays with the Editor.
 
   Notebooks and their pages from the metadata-only scan: a dot marks a
-  transcribed page, the open page is highlighted, and a click opens the page
+  transcribed page, the open page (both pages of a spread) is highlighted, and a click opens the page
   in the Library (`openPageInLibrary`, which asks before dropping unsaved
   transcript edits). No page file is read here. Which notebooks are open is
   kept in a store, since this tab is unmounted when the panel collapses.
@@ -13,7 +13,7 @@
   import { onMount, tick } from 'svelte';
   import {
     pagesByBook, bookIds, bookAliases, savedPages, isScanning, viewerSelection,
-    openPageInLibrary, contentsOpenBooks, setContentsBookOpen
+    openPageInLibrary, contentsOpenBooks, setContentsBookOpen, readerPages
   } from '$stores';
   import { dataFolderReady } from '$stores/settings.js';
   import { scanLocalPages } from '$lib/storage/scan.js';
@@ -36,7 +36,10 @@
     if (sel) setContentsBookOpen(sel.book, true);
   }
 
-  const isCurrent = (book, pageId) => !!sel && String(sel.book) === book && sel.pageId === pageId;
+  // Both pages of a spread (readerPages, set by BookViewer); the selection
+  // alone before the reader has reported.
+  $: shown = $readerPages.length ? $readerPages : sel ? [sel.pageId] : [];
+  $: isCurrent = (book, pageId) => !!sel && String(sel.book) === book && shown.includes(pageId);
 
   onMount(async () => {
     if ($dataFolderReady && $savedPages.length === 0 && !$isScanning) scanLocalPages();

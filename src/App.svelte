@@ -123,6 +123,7 @@
   let bookViewerSpread = true;
   let bookViewerHasSelection = false;
   let bookViewerZoom = '';
+  let bookViewerOpenBook = null;
 
   // `[` folds the left panel to its rail and back. isPanelToggleKey keeps it out
   // of text fields and modifier chords.
@@ -231,13 +232,16 @@
           contentMode={bookViewerContentMode}
           spread={bookViewerSpread}
           hasSelection={bookViewerHasSelection}
+          openBook={bookViewerOpenBook}
           onHome={() => bookViewer?.goHome()}
+          onNotebook={(book) => bookViewer?.openNotebook(book)}
           onContent={(mode) => bookViewer?.setContentMode(mode)}
           onToggleSpread={() => bookViewer?.toggleSpread()}
         >
-          {#if $destination === 'library' && bookViewerHasSelection}
+          <!-- An open page, or a notebook's page grid (Go to page only: no ink, no zoom). -->
+          {#if $destination === 'library' && bookViewerOpenBook != null}
             <SpreadToolbar
-              zoomLabel={bookViewerZoom}
+              zoomLabel={bookViewerHasSelection ? bookViewerZoom : ''}
               onZoom={(op) => bookViewer?.zoomAll(op)}
               onGoTo={(text) => bookViewer?.goToPage(text) ?? false}
             />
@@ -254,6 +258,7 @@
           bind:twoPageMode={bookViewerSpread}
           bind:hasSelection={bookViewerHasSelection}
           bind:zoomLabel={bookViewerZoom}
+          bind:openBook={bookViewerOpenBook}
         />
       {:else}
         <StrokeCanvas />

@@ -279,7 +279,8 @@ export {
   setSavedPages,
   setScanning,
   clearSavedPages,
-  updatePageSyncStatus
+  updatePageSyncStatus,
+  applyTranscriptToRecord
 } from './saved-pages.js';
 
 // Viewer (Book View pane)
@@ -311,8 +312,29 @@ export {
   // Navigation spine (reading-first package C)
   destination,
   navigateTo,
-  openPageInLibrary
+  openPageInLibrary,
+  // Library home + global search (reading-first package E)
+  libraryNotebook,
+  openNotebookInLibrary,
+  transcriptEditing,
+  readerPages,
+  readerFocus,
+  focusReaderLine,
+  clearReaderFocus
 } from './viewer.js';
+
+// Library home + global search (reading-first package E)
+export {
+  librarySort,
+  setLibrarySort,
+  libraryPageDates,
+  notebookCardList,
+  globalSearchIndex,
+  searchRecords,
+  searchDates,
+  notebookNames,
+  ensureTimelineLoaded
+} from './library.js';
 
 // Book Aliases
 export {
