@@ -1,7 +1,8 @@
 <!--
   TranscriptPane.svelte — view / edit / copy a page's transcript inside Book View.
 
-  Display mode: indented bullet list with TODO/DONE checkboxes.
+  Display mode: TranscriptLines (indented lines, TODO/DONE markers, the empty
+                state, and in Ink + text the line → ink hover).
   Edit mode:    inline structured editor — edit text, Tab/Shift+Tab to
                 indent/outdent, click a checkbox to cycle (none → TODO → DONE),
                 Enter adds a line below, Backspace on an empty line deletes it.
@@ -16,6 +17,7 @@
   import { log, markViewerDirtyPage, clearViewerDirtyPage } from '$stores';
   import { linesToLogseqMarkdown } from '$lib/viewer/transcript-markdown.js';
   import { saveTranscriptLines } from '$lib/viewer/save-transcript.js';
+  import TranscriptLines from '../transcription/TranscriptLines.svelte';
 
   /** @type {Array<{id:string,text:string,indentLevel:number,checked:boolean|null}>} */
   export let lines = [];
@@ -27,6 +29,12 @@
   export let onSaved = () => {};
   /** (editing:boolean) => void — lets Book View show this page's strokes alongside while editing */
   export let onEditingChange = () => {};
+  /** Ink + text, trusted page: (line|null) => void. Passed on to TranscriptLines. */
+  export let onHoverLine = null;
+  /** Ink + text, untrusted page: why lines aren't linked. */
+  export let linkNote = '';
+  /** Empty state's "Transcribe in Editor"; null hides it. */
+  export let onTranscribe = null;
 
   let editing = false;
   let saving = false;
@@ -199,12 +207,6 @@
     }
   }
 
-  function markerSymbol(checked) {
-    if (checked === true) return '☑';
-    if (checked === false) return '☐';
-    return '•';
-  }
-
   $: hasContent = lines.some((l) => (l.text || '').trim() !== '');
 
   // If this pane is torn down while still editing (e.g. the spread is
@@ -267,22 +269,8 @@
           </div>
         </div>
       {/each}
-    {:else if hasContent}
-      {#each lines as line (line.id)}
-        <div class="tp-line" style="padding-left: {(line.indentLevel || 0) * 1.5}rem">
-          <span
-            class="tp-marker"
-            class:todo={line.checked === false}
-            class:done={line.checked === true}
-          >{markerSymbol(line.checked)}</span>
-          <span class="tp-text" class:done={line.checked === true}>{line.text}</span>
-        </div>
-      {/each}
     {:else}
-      <div class="tp-empty">
-        <p>No transcript for this page yet.</p>
-        <button class="tp-btn" on:click={startEdit}>Add transcript</button>
-      </div>
+      <TranscriptLines {lines} {onHoverLine} {linkNote} {onTranscribe} onAddTranscript={startEdit} />
     {/if}
   </div>
 </div>
@@ -349,24 +337,6 @@
     border-bottom: 1px dashed #eee;
   }
 
-  /* ---- display ---- */
-  .tp-line {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    padding-top: 1px;
-  }
-  .tp-marker {
-    flex-shrink: 0;
-    color: #bbb;
-    font-size: 13px;
-    width: 1.1em;
-    text-align: center;
-  }
-  .tp-marker.todo { color: #e07b00; }
-  .tp-marker.done { color: #2e9e54; }
-  .tp-text.done { color: #999; text-decoration: line-through; }
-
   /* ---- edit ---- */
   .tp-edit-row {
     position: relative;
@@ -422,14 +392,4 @@
   }
   .tp-icon:hover:not(:disabled) { background: #f0f0f0; color: #333; }
   .tp-icon:disabled { opacity: 0.3; cursor: not-allowed; }
-
-  .tp-empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 12px;
-    color: #999;
-    padding: 32px 0;
-  }
-  .tp-empty p { margin: 0; font-size: 14px; }
 </style>

@@ -38,7 +38,9 @@ them goes through `navigateTo()` / `openPageInLibrary()` (`stores/viewer.js`), t
 prompt is asked. The app opens on the Timeline, and live pen ink switches to the Editor. The left panel's tabs follow
 the destination (`CONTEXT_TABS` in `lib/left-panel.js`: Library → Contents · Transcripts, Timeline → Dates ·
 Transcripts, Editor → Strokes · Transcripts · Pages · Dates; `panelTab` is what shows); notebook names and volume
-routing are in Settings → Notebooks. Tab ids (`'strokes'`, `'transcription'`, `'saved-pages'`, `'books'`, `'dates'`,
+routing are in Settings → Notebooks. The Library reader (package D) shows each page as Strokes, Transcript or
+Ink + text (`'inktext'`), with shared zoom and Go to page in the pane toolbar (`SpreadToolbar`), rotation on
+each page's corner, and ←/→ page turns (`lib/viewer/page-reader.js` `pageTurnKey`). Tab ids (`'strokes'`, `'transcription'`, `'saved-pages'`, `'books'`, `'dates'`,
 `'contents'`) predate the labels, so don't rename them (`ActionBar` calls `setActiveTab('transcription')`). Full component tree, store and library inventory:
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -154,6 +156,9 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   `originNcodeY`) before matching strokes to lines. `LINE_MATCH_TOLERANCE_NCODE = 1` deliberately matches
   `TranscriptStrokePreview`.
 - Pages transcribed before Aug 2026 mostly have wrong stroke `lineId`s (left alone; re-transcribing fixes a page).
+  The batch origin is never stored, so line → ink in Book View's Ink + text uses the stored `lineId`s, and only
+  where `isTrustworthyTranscript()` (`lib/viewer/ink-text.js`) says the page was matched by the fixed code; a
+  date check alone is wrong (Book View edits bump `lastTranscribed`).
 - MyScript only sees strokes that are loaded, so transcribing a partially loaded page covers those strokes only.
 - Free tier is 2,000 requests/month, HMAC-authenticated; process page by page.
 

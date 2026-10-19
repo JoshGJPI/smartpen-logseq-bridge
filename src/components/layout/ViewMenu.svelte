@@ -4,7 +4,7 @@
   Replaces the row of toggle buttons that sat above Book View. It shows only
   the options that apply to what is on screen (lib/pane-toolbar.js
   `viewOptionsFor`); each one drives the same store or BookViewer method the
-  old button did. Spread/Single and Strokes/Transcript go through BookViewer,
+  old button did. Spread/Single and Strokes/Transcript/Ink + text go through BookViewer,
   which asks before dropping unsaved transcript edits.
 -->
 <script>
@@ -70,6 +70,9 @@
                 on:click={() => choose(() => onContent('strokes'))}>Strokes</button>
               <button type="button" class:active={contentMode === 'transcript'} aria-pressed={contentMode === 'transcript'}
                 on:click={() => choose(() => onContent('transcript'))}>Transcript</button>
+              <button type="button" class:active={contentMode === 'inktext'} aria-pressed={contentMode === 'inktext'}
+                title="Ink beside its transcript (text under each page in a spread)"
+                on:click={() => choose(() => onContent('inktext'))}>Ink + text</button>
             </div>
           </div>
         {/if}

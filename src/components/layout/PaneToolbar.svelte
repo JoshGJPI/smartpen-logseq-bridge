@@ -2,7 +2,8 @@
   PaneToolbar.svelte — one row over the reading pane (reading-first package C):
   where you are on the left, View ▾ on the right.
 
-  Library:  Library › Notebook › P12–P13   ("Library" goes back to the page grid)
+  Library:  Library › Notebook › P12–P13 of 48   ("Library" goes back to the page grid),
+            then the reader's shared controls (the default slot: SpreadToolbar)
   Timeline: Timeline                       (the range is in the feed's Range ▾)
 
   The Editor has no pane toolbar: none of the View options apply to it, and its
@@ -55,6 +56,8 @@
       <span class="crumb here">Timeline</span>
     {/if}
   </nav>
+
+  <slot />
 
   <ViewMenu {options} {contentMode} {spread} onContent={onContent} onSpread={setSpread} />
 </div>
