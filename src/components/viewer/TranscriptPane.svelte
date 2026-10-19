@@ -37,6 +37,8 @@
   export let linkNote = '';
   /** Empty state's "Transcribe in Editor"; null hides it. */
   export let onTranscribe = null;
+  /** A global search hit's line (trusted pages only), passed to TranscriptLines. */
+  export let focusLineId = null;
 
   let editing = false;
   let saving = false;
@@ -282,7 +284,7 @@
         </div>
       {/each}
     {:else}
-      <TranscriptLines {lines} onCopyLine={copyBranch} {onHoverLine} {linkNote} {onTranscribe} onAddTranscript={startEdit} />
+      <TranscriptLines {lines} onCopyLine={copyBranch} {onHoverLine} {linkNote} {onTranscribe} onAddTranscript={startEdit} focusId={focusLineId} />
     {/if}
   </div>
 </div>

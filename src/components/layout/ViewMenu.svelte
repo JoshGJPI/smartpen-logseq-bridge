@@ -30,6 +30,8 @@
   function onKey(e) {
     if (open && e.key === 'Escape') {
       open = false;
+      // Handled: the reader's Escape (clear a search highlight) leaves it alone.
+      e.preventDefault();
       e.stopPropagation();
     }
   }

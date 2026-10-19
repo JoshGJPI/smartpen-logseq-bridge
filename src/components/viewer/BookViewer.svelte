@@ -25,7 +25,6 @@
     viewerSelection,
     setViewerSelection,
     clearViewerSelection,
-    navigateTo,
     libraryNotebook,
     transcriptEditing,
     readerPages,
@@ -33,8 +32,7 @@
     applyTranscriptToRecord,
   } from '$stores';
   import { formatBookName } from '$utils/formatting.js';
-  import { importStrokesFromFolder } from '$lib/storage/load-page.js';
-  import { getCachedPage } from '$lib/viewer/page-cache.js';
+  import { loadPageIntoEditor } from '$lib/viewer/load-into-editor.js';
   import { DISCARD_PROMPT } from '$lib/navigation.js';
   import { pageIdOf as idOf, resolveGoToPage, turnTarget, pageTurnKey, zoomText } from '$lib/viewer/page-reader.js';
   import LibraryHome from './LibraryHome.svelte';
@@ -191,17 +189,9 @@
     clearViewerSelection();
   }
 
-  // Load a single page into the live editor canvas and switch to the Editor
-  // view. Strokes are appended (deduped by id), matching the existing "Import
-  // Strokes" behaviour — non-destructive to anything already on the canvas.
-  async function loadRecordIntoEditor(record) {
-    if (!record || !guardNav()) return;
-    // Reuse the cached doc if present (the page is open in the spread) to
-    // avoid a second disk read; importStrokesFromFolder lazily loads otherwise.
-    const pageDoc = await getCachedPage(record.book, idOf(record));
-    await importStrokesFromFolder({ ...record, pageDoc });
-    navigateTo('editor');
-  }
+  // Load a page onto the Editor canvas (appended, deduped) and show the
+  // Editor: the shared guarded path, lib/viewer/load-into-editor.js.
+  const loadRecordIntoEditor = (record) => loadPageIntoEditor(record);
 
   export function setContentMode(mode) {
     if (mode === contentMode) return;
