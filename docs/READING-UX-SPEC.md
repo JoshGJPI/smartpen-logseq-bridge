@@ -1,6 +1,6 @@
 # Reading-first UX: review and implementation spec
 
-Status: packages A and B built and merged to `main` (2026-10-19); package C built on `claude/reading-ux-package-c`; D–E proposed. Review dated 2026-10-19, against v2.10.0.
+Status: packages A, B and C built and merged to `main` (2026-10-19); D–E proposed. Review dated 2026-10-19, against v2.10.0.
 
 **Target release: v3.0.0.** Packages A–E together are the v3.0.0 milestone ("reading-first"). v3.0.0
 is the major bump because the app's frame and navigation change, not because data changes: **PageDoc
