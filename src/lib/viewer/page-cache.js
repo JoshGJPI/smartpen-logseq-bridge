@@ -67,6 +67,14 @@ export async function getCachedPage(book, pageId) {
 }
 
 /**
+ * A cached doc WITHOUT bumping its recency or reading disk, else null. For
+ * thumbnails (viewer/thumbs.js), which must never push the open spread out.
+ */
+export function peekCachedPage(book, pageId) {
+  return cache.get(keyOf(book, pageId)) ?? null;
+}
+
+/**
  * Drop a page from the cache so the next read re-fetches from disk. Call after
  * a page is re-saved (e.g. a transcript edit) so a re-view shows fresh data.
  */
