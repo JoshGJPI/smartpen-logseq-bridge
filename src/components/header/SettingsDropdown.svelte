@@ -15,6 +15,7 @@
   import ActivityLogDialog from '../dialog/ActivityLogDialog.svelte';
   import DataFolderSettings from '../settings/DataFolderSettings.svelte';
   import GraphFolderSettings from '../settings/GraphFolderSettings.svelte';
+  import BooksTab from '../books/BooksTab.svelte';
   import PenMemoryDialog from '../dialog/PenMemoryDialog.svelte';
   import { penConnected } from '$stores/pen.js';
   import { dataFolderReady } from '$stores/settings.js';
@@ -186,6 +187,14 @@
       <section class="settings-section">
         <h4>Data Folder</h4>
         <DataFolderSettings />
+      </section>
+
+      <!-- Notebook names and volume routing: was the left panel's Books tab,
+           which is configuration rather than something to read beside a page
+           (reading-first package C). Same component, unchanged. -->
+      <section class="settings-section">
+        <h4>Notebooks</h4>
+        <BooksTab />
       </section>
 
       <!-- Publish to LogSeq graph (mirror saved pages as plugin assets) -->

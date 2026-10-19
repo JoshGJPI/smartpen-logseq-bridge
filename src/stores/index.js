@@ -206,6 +206,7 @@ export {
 // UI
 export {
   activeTab,
+  panelTab,
   sidebarCollapsed,
   canvasZoom,
   showLineGuides,
@@ -237,7 +238,9 @@ export {
   setLeftPanelCollapsed,
   toggleLeftPanel,
   expandLeftPanel,
-  collapseLeftPanel
+  collapseLeftPanel,
+  contentsOpenBooks,
+  setContentsBookOpen
 } from './left-panel.js';
 
 // Storage

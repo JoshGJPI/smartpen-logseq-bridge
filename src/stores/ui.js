@@ -5,10 +5,23 @@ import { writable, derived } from 'svelte/store';
 import { tick } from 'svelte';
 import { compareBookKeys } from '../lib/volumes.js';
 import { expandLeftPanel } from './left-panel.js';
+import { resolvePanelTab } from '../lib/left-panel.js';
+import { destination } from './viewer.js';
 
 // Active tab in data explorer
 // Opens on Dates, alongside the Timeline feed the right pane opens on.
-export const activeTab = writable('dates'); // 'strokes' | 'transcription' | 'saved-pages' | 'books' | 'dates'
+// 'strokes' | 'transcription' | 'saved-pages' | 'books' | 'dates' | 'contents'
+export const activeTab = writable('dates');
+
+/**
+ * The tab the left panel shows: `activeTab` when it belongs to the current
+ * destination's set (lib/left-panel.js CONTEXT_TABS), else that set's first
+ * tab. Derived, so a request made before a navigation lands (the ink click
+ * sets 'dates' and opens the Timeline) still shows, and nothing is rewritten.
+ */
+export const panelTab = derived([destination, activeTab], ([$destination, $activeTab]) =>
+  resolvePanelTab($destination, $activeTab)
+);
 
 // Sidebar collapsed state
 export const sidebarCollapsed = writable(false);

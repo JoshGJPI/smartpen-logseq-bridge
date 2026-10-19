@@ -101,14 +101,14 @@
         {#if options.includes('times')}
           <label class="vm-check" title="Hover ink to see when it was written">
             <input type="checkbox" checked={$sittingHoverEnabled} on:change={toggleSittingHover} />
-            Times <span class="vm-hint">hover ink to see when it was written</span>
+            <span>Times<span class="vm-hint">Hover ink to see when it was written</span></span>
           </label>
         {/if}
 
         {#if options.includes('paper')}
           <label class="vm-check" title="Show the printed page behind your writing">
             <input type="checkbox" checked={$backgroundsEnabled} on:change={toggleBackgrounds} />
-            Paper <span class="vm-hint">printed page behind the ink</span>
+            <span>Paper<span class="vm-hint">Printed page behind the ink</span></span>
           </label>
         {/if}
       </div>
@@ -197,16 +197,17 @@
 
   .vm-check {
     display: flex;
-    align-items: baseline;
-    gap: 7px;
+    align-items: flex-start;
+    gap: 8px;
     font-size: 0.85rem;
     color: var(--text-primary);
     cursor: pointer;
   }
 
-  .vm-check input { position: relative; top: 1px; }
+  .vm-check input { margin-top: 4px; }
 
   .vm-hint {
+    display: block;
     font-size: 0.75rem;
     color: var(--text-secondary);
   }

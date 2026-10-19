@@ -11,6 +11,95 @@ CLAUDE.md (Invariants); the store and library map is in
 Reading-first UI plan: [READING-UX-SPEC.md](READING-UX-SPEC.md). Packages land on their
 own branches and are not released one by one; no storage or PageDoc change in any of them.
 
+### C. Navigation spine, View menu, Timeline consolidation, contextual left panel (October 2026)
+
+**Three destinations instead of three tiers of modes.** The header switch is now
+**Library | Timeline | Editor**. They are a view over the existing `viewerMode` and
+`bookViewMode` (`lib/navigation.js`); no store field was renamed and nothing new is
+persisted (neither field ever was). The Editor leaves `bookViewMode` alone, so coming
+back from it returns to the last reading view.
+
+**One guarded `navigateTo()`.** `switchView` and `switchBookMode` each had their own
+copy of the "Discard transcript edits?" confirm. Every route between destinations now
+calls `navigateTo(dest)` (`stores/viewer.js`), whose rule is the old pair merged: ask
+when `viewerDirty` and the destination is not the Library. Unsaved strokes never
+prompt, as before. Routing everything through it fixed two routes that were wrong:
+the Book View ink click (open that day in the Timeline) left without asking, and
+while you edit a transcript the strokes slot beside it is clickable, so it could drop
+the edit; and a search result's Open set `viewerMode` but not `bookViewMode`, so from
+the Timeline it left the feed showing instead of the page. `openPageInLibrary()` is the
+one way to open a particular page (feed Open page, search results, the contents list)
+and asks before replacing a page with unsaved edits. Verified on the real app: header
+(both), breadcrumb, View ▾ (Single, Strokes), Contents and ink click each ask once;
+Cancel keeps the page and the edit, OK leaves and clears the marker.
+
+**Pane toolbar: where you are, and View ▾.** The row of toggles over Book View
+(Books | Timeline, Paper, Home, Strokes | Transcript, Spread, Times, Newest first) is
+now a breadcrumb (Library › notebook › P12–P13; "Library" is the old Home button) and
+one **View ▾** popover offering only what applies (`viewOptionsFor`): Strokes |
+Transcript, Spread | Single and Times for an open page, Paper wherever a book has
+paper, Newest | Oldest in the Timeline. Each drives the same store or `BookViewer`
+method as its old button. The Editor has no pane toolbar: nothing in the menu applies
+to it.
+
+**Timeline: the range set in the feed, the summary said once.** `TimelineHead`
+(extracted from `TimelineFeed`) holds ‹ **Range ▾** › (From / To and Latest day, 1, 7,
+30 days, shared with the Dates tab via `lib/timeline-range.js`), the summary, the book
+filter and one quiet **Load range into Editor**. Under it, an **activity strip** draws
+every day from the first to the last ink (gaps included, bucketed to stay ≥ 4 px a
+column) with the range as a window: drag it to slide (length kept), drag an edge to
+resize, drag across the strip to pick; ←/→ on the focused window slide a day. The
+range is set once, on release, so the feed is not rebuilt for every pixel. A red
+marker shows the scroll-spy day. "Change range" (which only opened the Dates tab, via
+`revealLeftPanel('dates')`) is gone. Cards show **Open page** and ⋯ (Whole page / Show
+only this sitting, Load sitting into Editor); a day's Load moved into a ⋯ on its sticky
+header; so "Load into Editor" appears once per level (range, day, card) and never as a
+primary button. Day headers were already sticky. Verified that the loads agree with
+what the feed shows: a day's ⋯ loaded 1,147 strokes (its heading), a card's 534 (its
+meta), the range 5,380 (the summary); jumping from the Dates list put that day at the
+top and marked it In view.
+
+**Left panel follows the destination** (`CONTEXT_TABS`, `panelTab`): Library →
+**Contents** · Transcripts; Timeline → Dates · Transcripts; Editor → Strokes ·
+Transcripts · Pages · Dates. **Contents** (`LibraryContents`) lists notebooks and
+their pages from the scan records alone (`buildContents`): a dot per transcribed page,
+the open page highlighted, its notebook opened when the page changes; which notebooks
+are open is a session store, since the tab is unmounted when collapsed. In the
+Timeline the Dates tab keeps the heat grid, From / To, presets and the day list, and
+drops its tally, book filter and Load (said once in the feed head). The Books tab
+moved unchanged to **Settings → Notebooks** (rename and volume routing verified there).
+`setActiveTab` ids are unchanged plus `'contents'`; an id outside the current set
+(including `'books'`) shows the set's first tab rather than being rewritten, so the
+ink click's `setActiveTab('dates')` still lands on Dates once the Timeline is up.
+
+**Rejected / deferred**
+- *Persisting a `destination` key.* It would be a second source of truth for
+  `viewerMode` / `bookViewMode`; derived is enough.
+- *Pages tab removed outright, replaced by Contents everywhere.* Its cards carry
+  Import / Import all, Export to graph, Edit structure and Reset transcript, which
+  have no other home yet. It stays with the Editor (loading onto the canvas is an
+  editing act), Contents takes its place beside the Library.
+- *Strip only, no heat grid in the panel.* The spec's open question. Kept the grid in
+  the Timeline's panel as well (the spec's "Timeline → grid + range controls"); the
+  strip is the in-feed control. Josh to decide.
+- *View options for the Editor.* None of them apply (it never draws paper).
+- *Setting the range on every pointer move while dragging the strip.* Each change
+  rebuilds the feed skeleton and resets its scroll.
+- *An absolutely placed ⋯ list.* Cards clip their overflow for the rounded corners;
+  the list is `position: fixed` and closes on any scroll.
+- *Dates in the Library's panel.* The Library is by notebook; Dates is one click away
+  in the Timeline.
+
+**Limitations**
+- The heat grid (panel) and Range ▾ / strip (feed) are two ways to set the range in
+  the Timeline, by choice for now (above).
+- The breadcrumb's notebook crumb is not a link yet (the per-notebook page grid is
+  package E). The contents list highlights the left page of a spread only.
+- At 1200 wide the per-page toolbar in a spread clips its "Load into Editor" button,
+  as on `main`; the shared spread toolbar is package D.
+- `openTranscriptReview()` still has no UI caller.
+- Not exercised: live pen, MyScript and offline import (no hardware or keys).
+
 ### B. Collapsible left panel, width cap, Editor overflow (October 2026)
 
 **The left panel folds to a 48 px rail, so reading can have the whole width.** A chevron
