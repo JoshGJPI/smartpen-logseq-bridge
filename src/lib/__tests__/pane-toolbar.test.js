@@ -25,6 +25,11 @@ describe('viewOptionsFor', () => {
       .toEqual(['content', 'layout', 'times']);
   });
 
+  it('Library page in Ink + text: Times applies (ink is shown)', () => {
+    expect(viewOptionsFor({ destination: 'library', hasSelection: true, contentMode: 'inktext', backgroundsAvailable: true }))
+      .toEqual(['content', 'layout', 'times', 'paper']);
+  });
+
   it('Library page showing the transcript: no Times', () => {
     expect(viewOptionsFor({ destination: 'library', hasSelection: true, contentMode: 'transcript' }))
       .toEqual(['content', 'layout']);
@@ -47,20 +52,20 @@ describe('pageCrumb', () => {
   };
 
   it('single page', () => {
-    expect(pageCrumb({ book: '388', pageId: '12' }, pages, false)).toBe('P12');
+    expect(pageCrumb({ book: '388', pageId: '12' }, pages, false)).toBe('P12 of 3');
   });
 
   it('spread pairs with the next record, suffix included', () => {
-    expect(pageCrumb({ book: '388', pageId: '12' }, pages, true)).toBe('P12–P13');
-    expect(pageCrumb({ book: '388', pageId: '13' }, pages, true)).toBe('P13–P13b');
+    expect(pageCrumb({ book: '388', pageId: '12' }, pages, true)).toBe('P12–P13 of 3');
+    expect(pageCrumb({ book: '388', pageId: '13' }, pages, true)).toBe('P13–P13b of 3');
   });
 
   it('last page of a book in a spread shows alone', () => {
-    expect(pageCrumb({ book: '388', pageId: '13b' }, pages, true)).toBe('P13b');
+    expect(pageCrumb({ book: '388', pageId: '13b' }, pages, true)).toBe('P13b of 3');
   });
 
   it('falls back to page number when a record has no pageId', () => {
-    expect(pageCrumb({ book: '388v2', pageId: '4' }, pages, true)).toBe('P4');
+    expect(pageCrumb({ book: '388v2', pageId: '4' }, pages, true)).toBe('P4 of 1');
   });
 
   it('empty for no selection, unknown book or page', () => {

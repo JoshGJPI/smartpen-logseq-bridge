@@ -6,11 +6,16 @@
  * when it is offered, so the menu never holds a switch that does nothing.
  */
 
+import { pagePosition } from './viewer/page-reader.js';
+
+/** Library content modes, in View ▾ order. Ids predate package D's 'inktext'; don't rename them. */
+export const CONTENT_MODES = ['strokes', 'transcript', 'inktext'];
+
 /**
  * View options, in menu order:
- *   content  Strokes | Transcript   (an open page)
+ *   content  Strokes | Transcript | Ink + text   (an open page)
  *   layout   Spread | Single         (an open page)
- *   times    hover-to-reveal times   (an open page showing strokes)
+ *   times    hover-to-reveal times   (an open page showing ink: Strokes or Ink + text)
  *   paper    printed page behind ink (Library page or Timeline, when any book has paper)
  *   order    Newest | Oldest first   (Timeline)
  *
@@ -24,7 +29,7 @@ export function viewOptionsFor({ destination, hasSelection = false, contentMode 
   if (destination === 'library') {
     if (!hasSelection) return [];
     const opts = ['content', 'layout'];
-    if (contentMode === 'strokes') opts.push('times');
+    if (contentMode !== 'transcript') opts.push('times');
     if (backgroundsAvailable) opts.push('paper');
     return opts;
   }
@@ -35,8 +40,8 @@ export function viewOptionsFor({ destination, hasSelection = false, contentMode 
 }
 
 /**
- * Page label for the breadcrumb: "P12", or "P12–P13" for a spread. The right
- * page is the next record in the book, as BookViewer pairs them.
+ * Page label for the breadcrumb: "P12 of 48", or "P12–P13 of 48" for a spread.
+ * The right page is the next record in the book, as BookViewer pairs them.
  *
  * @param {{book: string, pageId: string}|null} selection
  * @param {Record<string, Array<{pageId?: string, page?: number}>>} pagesByBook - metadata-only scan records
@@ -44,11 +49,6 @@ export function viewOptionsFor({ destination, hasSelection = false, contentMode 
  * @returns {string} '' when nothing is open or the page is not in the scan
  */
 export function pageCrumb(selection, pagesByBook, spread) {
-  if (!selection) return '';
-  const pages = (pagesByBook && pagesByBook[selection.book]) || [];
-  const idOf = (r) => (r.pageId != null ? String(r.pageId) : String(r.page));
-  const i = pages.findIndex((r) => idOf(r) === String(selection.pageId));
-  if (i < 0) return '';
-  const left = `P${idOf(pages[i])}`;
-  return spread && i + 1 < pages.length ? `${left}–P${idOf(pages[i + 1])}` : left;
+  const pos = pagePosition(selection, pagesByBook, spread);
+  return pos ? pos.label : '';
 }
