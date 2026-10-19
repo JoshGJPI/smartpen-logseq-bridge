@@ -122,7 +122,8 @@
     expanded = !expanded;
   }
 
-  $: items = [
+  // Not `items`: that name is the page's stroke boxes above.
+  $: overflowItems = [
     { label: expanded ? 'Show only this sitting' : 'Show the whole page', onSelect: toggle },
     ...menuItems
   ];
@@ -146,7 +147,7 @@
       </svg>
       Open page
     </button>
-    <OverflowMenu {items} label="More for this page" />
+    <OverflowMenu items={overflowItems} label="More for this page" />
   </div>
 
   <button type="button" class="fp-body" on:click={toggle} aria-expanded={expanded}

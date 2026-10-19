@@ -20,18 +20,20 @@
   $: range = $timelineRange;
   $: extent = $timelineRangeExtent;
 
+  // Handlers read $timelineRange, not `range`: a `$:` value only catches up at
+  // the next flush, so From then To in quick succession would see a stale end.
   function applyPreset(id) {
-    const r = rangePreset(id, range, extent);
+    const r = rangePreset(id, $timelineRange, extent);
     if (r) setTimelineRange(r.from, r.to);
     open = false;
   }
 
   function onFrom(e) {
-    if (e.target.value) setTimelineRange(e.target.value, range.to || e.target.value);
+    if (e.target.value) setTimelineRange(e.target.value, $timelineRange.to || e.target.value);
   }
 
   function onTo(e) {
-    if (e.target.value) setTimelineRange(range.from || e.target.value, e.target.value);
+    if (e.target.value) setTimelineRange($timelineRange.from || e.target.value, e.target.value);
   }
 
   function onWindowPointer(e) {
