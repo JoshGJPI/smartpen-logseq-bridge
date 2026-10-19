@@ -14,6 +14,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import FeedCard from './FeedCard.svelte';
+  import OverflowMenu from './OverflowMenu.svelte';
   import { daySessions, indexPageStrokes, estimateDayHeight, formatDuration } from '$lib/timeline-feed.js';
   import { dayStart } from '$lib/timeline.js';
   import { bookAliases } from '$stores';
@@ -141,9 +142,12 @@
       <h2>{heading}</h2>
       <span>{fmt(item.strokes)} strokes · {item.pages} page{item.pages === 1 ? '' : 's'}{span}</span>
     </div>
-    <button type="button" class="fd-action" on:click={() => onLoadDay(item.day)} disabled={busy}>
-      Load day into Editor
-    </button>
+    <!-- Day-level load, in an overflow like the cards' (package C). -->
+    <OverflowMenu label="More for this day" items={[{
+      label: busy ? 'Loading…' : 'Load day into Editor',
+      disabled: busy,
+      onSelect: () => onLoadDay(item.day)
+    }]} />
   </div>
 
   {#if status === 'ready'}
@@ -208,7 +212,6 @@
   .fd-title h2 { margin: 0; font-size: 17px; font-weight: 650; color: #1f1f28; }
   .fd-title span { font-size: 12.5px; color: #62626e; font-variant-numeric: tabular-nums; }
 
-  .fd-action,
   .fd-link {
     background: none;
     border: none;
@@ -219,8 +222,6 @@
     white-space: nowrap;
     padding: 4px 2px;
   }
-  .fd-action:disabled { opacity: 0.5; cursor: progress; }
-  .fd-action:hover:not(:disabled),
   .fd-link:hover { text-decoration: underline; }
 
   .fd-row { display: flex; align-items: stretch; }
