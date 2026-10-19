@@ -1,9 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   HOVER_TOLERANCE_PX, MAX_TOLERANCE_NCODE,
-  pageSittings, buildHitIndex, hitTest, hoverTolerance, formatSittingLabel
+  pageDayGroups, buildHitIndex, hitTest, hoverTolerance, formatSittingLabel
 } from '../viewer/page-sittings.js';
-import { SESSION_GAP_MS } from '../timeline-feed.js';
 
 /** Local time, so the fixtures don't depend on the machine's zone. */
 function at(d, h, m = 0, s = 0) {
@@ -23,56 +22,55 @@ function stroke(t, x = 10, y = 20, extra = {}) {
   };
 }
 
-describe('pageSittings', () => {
+describe('pageDayGroups', () => {
   it('returns nothing for an empty or missing page', () => {
-    expect(pageSittings([]).groups).toEqual([]);
-    expect(pageSittings(null).groups).toEqual([]);
-    expect(pageSittings(undefined).groupOf.length).toBe(0);
+    expect(pageDayGroups([]).groups).toEqual([]);
+    expect(pageDayGroups(null).groups).toEqual([]);
+    expect(pageDayGroups(undefined).groupOf.length).toBe(0);
   });
 
   it('makes one group of a single stroke, with its ink box', () => {
     const s = stroke(at(14, 9, 5), 10, 20);
-    const { groups, groupOf } = pageSittings([s]);
+    const { groups, groupOf } = pageDayGroups([s]);
     expect(groups).toHaveLength(1);
-    expect(groups[0]).toMatchObject({ index: 0, startTime: s.startTime, endTime: s.endTime });
+    expect(groups[0]).toMatchObject({ index: 0, day: '2026-10-14', startTime: s.startTime, endTime: s.endTime });
     expect(groups[0].strokes).toEqual([s]);
     expect(groups[0].bounds).toEqual({ minX: 10, minY: 20, maxX: 18, maxY: 20 });
     expect([...groupOf]).toEqual([0]);
   });
 
-  it('joins at exactly the gap and splits just past it (end of one to start of next)', () => {
-    const a = stroke(at(14, 9, 0));
-    const b = stroke(a.endTime + SESSION_GAP_MS);          // exactly 20 min after a ENDS
-    const c = stroke(b.endTime + SESSION_GAP_MS + 1);      // 1 ms too late
-    const { groups, groupOf } = pageSittings([a, b, c]);
-    expect(groups.map((g) => g.strokes.length)).toEqual([2, 1]);
-    expect([...groupOf]).toEqual([0, 0, 1]);
+  it('keeps a whole day together however long the pauses', () => {
+    const list = [stroke(at(14, 0, 0)), stroke(at(14, 9, 5)), stroke(at(14, 16, 30)), stroke(at(14, 23, 59, 59))];
+    const { groups } = pageDayGroups(list);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({ day: '2026-10-14', startTime: list[0].startTime, endTime: list[3].endTime });
   });
 
-  it('chains a long sitting however long it runs', () => {
-    const list = [5, 10, 12, 17, 26, 37].map((m) => stroke(at(14, 9, m)));
-    list.push(stroke(at(14, 10, 20)));
-    expect(pageSittings(list).groups.map((g) => g.strokes.length)).toEqual([6, 1]);
+  it('makes one group per day, ascending, skipping days with no ink', () => {
+    const { groups, groupOf } = pageDayGroups([stroke(at(20, 9)), stroke(at(14, 9)), stroke(at(14, 17)), stroke(at(16, 8))]);
+    expect(groups.map((g) => g.day)).toEqual(['2026-10-14', '2026-10-16', '2026-10-20']);
+    expect(groups.map((g) => g.index)).toEqual([0, 1, 2]);
+    expect([...groupOf]).toEqual([2, 0, 0, 1]);
   });
 
   it('groups by time, not file order, and maps groupOf back to file positions', () => {
-    const late = stroke(at(14, 15, 0), 40, 60);
+    const late = stroke(at(15, 9, 0), 40, 60);
     const early = stroke(at(14, 9, 0), 10, 20);
-    const { groups, groupOf } = pageSittings([late, early]);
+    const { groups, groupOf } = pageDayGroups([late, early]);
     expect(groups[0].strokes).toEqual([early]);
     expect([...groupOf]).toEqual([1, 0]);
   });
 
-  it('keeps a sitting that crosses midnight together', () => {
-    const a = stroke(at(14, 23, 50));
-    const b = stroke(at(15, 0, 5));
-    const { groups } = pageSittings([a, b]);
-    expect(groups).toHaveLength(1);
-    expect(groups[0].endTime).toBe(b.endTime);
+  it('splits at local midnight, filing each stroke by its start', () => {
+    const a = stroke(at(14, 23, 59, 59));                  // ends 500 ms into the 15th
+    const b = stroke(at(15, 0, 0, 1));
+    const { groups } = pageDayGroups([a, b]);
+    expect(groups.map((g) => g.day)).toEqual(['2026-10-14', '2026-10-15']);
+    expect(groups[0].endTime).toBe(a.endTime);
   });
 
   it('leaves strokes without a startTime out of every group', () => {
-    const { groups, groupOf } = pageSittings([{ points: [[1, 1], [2, 2]] }, stroke(at(14, 9))]);
+    const { groups, groupOf } = pageDayGroups([{ points: [[1, 1], [2, 2]] }, stroke(at(14, 9))]);
     expect(groups).toHaveLength(1);
     expect([...groupOf]).toEqual([-1, 0]);
   });
@@ -80,12 +78,12 @@ describe('pageSittings', () => {
   it('ignores the stray origin dot when sizing a group', () => {
     const s = stroke(at(14, 9), 10, 20);
     s.points.splice(1, 0, [0, 0, null]);
-    expect(pageSittings([s]).groups[0].bounds).toEqual({ minX: 10, minY: 20, maxX: 18, maxY: 20 });
+    expect(pageDayGroups([s]).groups[0].bounds).toEqual({ minX: 10, minY: 20, maxX: 18, maxY: 20 });
   });
 
   it('uses a missing endTime as the start', () => {
     const s = { ...stroke(at(14, 9)), endTime: undefined };
-    expect(pageSittings([s]).groups[0].endTime).toBe(s.startTime);
+    expect(pageDayGroups([s]).groups[0].endTime).toBe(s.startTime);
   });
 });
 
@@ -93,7 +91,7 @@ describe('buildHitIndex / hitTest', () => {
   const a = stroke(at(14, 9), 10, 20);     // 09:00 line at y=20
   const b = stroke(at(14, 15), 10, 23);    // 15:00 line at y=23, overlapping in x
   const strokes = [a, b];
-  const { groupOf } = pageSittings(strokes);
+  const { groupOf } = pageDayGroups(strokes);
   const index = buildHitIndex(strokes, groupOf);
 
   it('picks the stroke under the pointer', () => {
@@ -123,7 +121,7 @@ describe('buildHitIndex / hitTest', () => {
 
   it('finds a stroke spanning several grid cells from any of them', () => {
     const long = { ...stroke(at(14, 9)), points: [[1, 1], [41, 1]] };
-    const idx = buildHitIndex([long], pageSittings([long]).groupOf);
+    const idx = buildHitIndex([long], pageDayGroups([long]).groupOf);
     expect(hitTest(idx, 30, 1.2, 0.5)).toBe(0);
   });
 
@@ -131,7 +129,7 @@ describe('buildHitIndex / hitTest', () => {
     const dot = { ...stroke(at(14, 9)), points: [[30, 30]] };
     const untimed = { points: [[60, 60], [62, 60]] };
     const list = [dot, untimed];
-    const idx = buildHitIndex(list, pageSittings(list).groupOf);
+    const idx = buildHitIndex(list, pageDayGroups(list).groupOf);
     expect(hitTest(idx, 30.2, 30, 0.5)).toBe(0);
     expect(hitTest(idx, 61, 60, 0.5)).toBe(-1);
   });

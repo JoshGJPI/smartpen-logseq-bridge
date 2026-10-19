@@ -35,8 +35,8 @@ App.svelte (Root)
     │   ├── Home grid (recent + collapsible by-book page thumbnails)
     │   └── PageSpreadView ×1–2 (side-by-side spread, page-turn nav)
     │       ├── SVG stroke render (per-page zoom/pan/fit)
-    │       ├── SittingInk (hovered sitting redrawn in ink, inside the SVG)
-    │       ├── SittingHover (hover hit-test + capture-time label)
+    │       ├── SittingInk (hovered day's ink redrawn black, inside the SVG)
+    │       ├── SittingHover (hover hit-test + capture-time label; click → that day's Timeline)
     │       └── TranscriptPane (view/inline-edit lines, copy LogSeq markdown)
     └── TimelineFeed (Book View → Timeline — the Dates range as a scrolling feed;
         │             grows the range as you scroll off its end)
@@ -54,8 +54,8 @@ Strokes/Transcript · Single/Spread) live in that same top bar and drive the bou
 `BookViewer` instance; each page's toolbar has a **Load into Editor** action that
 imports that page's strokes into the Editor canvas and switches to it. In Strokes
 mode a **Times** toggle (`sittingHoverEnabled`) turns on hover-to-reveal capture time:
-hovering ink draws its sitting in ink, the rest of the page grey, with the sitting's
-date and time beside it (`SittingHover` + `SittingInk`, `page-sittings.js`). Timeline's
+hovering ink draws the day it was written in black, the rest of the page grey, with
+the date and time beside it; clicking it opens that day in the Timeline (`SittingHover` + `SittingInk`, `page-sittings.js`). Timeline's
 one global control is the Newest/Oldest-first toggle (`feedOrder`).
 
 The app opens on **Book View → Timeline** with the **Dates** tab on the left (its
@@ -257,7 +257,7 @@ All state is managed through Svelte stores located in `src/stores/`:
 
 **Book View Layer (`src/lib/viewer/`)** — v2.1:
 - `page-svg.js` — `computeStrokeBounds()`, `strokeToPathD()`, `generateThumbnailSVG()` — SVG render for the spread pages + home-grid thumbnails (`NCODE_SCALE = 2.371`). Also `strokePointPressures()` + `strokeToWidthRuns()` for sketch strokes: SVG applies one `stroke-width` per `<path>`, so a pressure-varying line is emitted as consecutive constant-width runs (thumbnails stay flat — too small to matter)
-- `page-sittings.js` — **hover-to-reveal capture time** (pure). `pageSittings(strokes)` (one page's strokes chained into sittings by the Timeline's rule — `strokeSpan()`/`continuesSitting()` from `timeline-feed.js` — with each group's ink box and a `groupOf` stroke→group map; not cut at midnight), `buildHitIndex()` + `hitTest()` (a uniform grid of stroke segments, nearest stroke within the tolerance wins), `hoverTolerance()` (a few screen px in Ncode units, capped) and `formatSittingLabel()` ("Wed Oct 14, 2026 · 9:05–9:42 AM", both dates across midnight). Built once per page load; ~25 ms and ~2 µs per hover on a 2,400-stroke page
+- `page-sittings.js` — **hover-to-reveal capture time** (pure). `pageDayGroups(strokes)` (one page's strokes grouped by local day of `startTime` via `dayKey`, each group with its `day` key, ink box and a `groupOf` stroke→group map), `buildHitIndex()` + `hitTest()` (a uniform grid of stroke segments, nearest stroke within the tolerance wins), `hoverTolerance()` (a few screen px in Ncode units, capped) and `formatSittingLabel()` ("Wed Oct 14, 2026 · 9:05–9:42 AM", both dates across midnight). Built once per page load; ~25 ms and ~2 µs per hover on a 2,400-stroke page
 - `feed-pages.js` — `createFeedPageLoader(load)` — the Timeline feed's **ref-counted** PageDoc holder: `acquire()`/`release()`/`clear()`/`size()`. Pages are shared across days (most hold ink from several), so a page is read once while any loaded day needs it and forgotten when the last lets go; a failed read is forgotten so the next acquire retries. Deliberately not `page-cache.js` — one busy day would evict the Books spread's six docs
 - `page-cache.js` — small LRU (`getCachedPage`/`invalidatePage`/`clearPageCache`, MAX 6) over full PageDocs. Book View loads strokes lazily through this (records no longer embed them, perf #3) so turning a spread doesn't re-read disk; older docs are evicted. Keyed by `B{book}/P{pageId}` (suffix-safe)
 - `transcript-markdown.js` — `linesToLogseqMarkdown()` — tab-indented `- ` bullets with `- TODO`/`- DONE` markers; `key:: value` property lines stripped (LogSeq-pasteable copy). Also `indentMarkdownBlock()`, `textToTranscriptLines()` (flat-text fallback) and `pagesToLogseqMarkdown()` (multi-page payload: one page copies bare, several nest under `- {label}` bullets) — used by the canvas text-view copy

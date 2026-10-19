@@ -9,7 +9,10 @@
 <script>
   import { onMount, tick } from 'svelte';
   import { NCODE_SCALE, DEFAULT_STROKE_WIDTH, computeStrokeBounds, strokeToPathD, strokeToWidthRuns } from '$lib/viewer/page-svg.js';
-  import { sketchProfile, backgroundsEnabled, resolvePageBackground } from '$stores';
+  import {
+    sketchProfile, backgroundsEnabled, resolvePageBackground,
+    setTimelineRange, setBookViewMode, setViewerMode, setActiveTab
+  } from '$stores';
   import { frameToBounds } from '$lib/neo-backgrounds.js';
   import { getCachedPage } from '$lib/viewer/page-cache.js';
   import TranscriptPane from './TranscriptPane.svelte';
@@ -41,6 +44,10 @@
   let panStartY = 0;
   let panStartPanX = 0;
   let panStartPanY = 0;
+  // A press only becomes a pan once it moves PAN_SLOP px, so a plain click on
+  // ink keeps its hover highlight and reaches SittingHover as a click.
+  const PAN_SLOP = 4;
+  let panArmed = false;
 
   // Hover-to-reveal capture time: the sitting under the pointer (SittingHover).
   // Pointer events are taken on the <svg> (blank paper included); page
@@ -178,18 +185,31 @@
 
   function handleMouseDown(e) {
     if (contentMode !== 'strokes' || e.button !== 0) return;
-    isPanning = true;
+    panArmed = true;
     panStartX = e.clientX;
     panStartY = e.clientY;
     panStartPanX = panX;
     panStartPanY = panY;
   }
   function handleMouseMove(e) {
-    if (!isPanning) return;
+    if (!panArmed) return;
+    if (!isPanning && Math.hypot(e.clientX - panStartX, e.clientY - panStartY) <= PAN_SLOP) return;
+    isPanning = true;
     panX = panStartPanX + (e.clientX - panStartX);
     panY = panStartPanY + (e.clientY - panStartY);
   }
-  function endPan() { isPanning = false; }
+  function endPan() { panArmed = false; isPanning = false; }
+
+  // Clicking a day's ink: show that day in the Timeline, with the Dates tab
+  // holding the same one-day range.
+  function openTimelineDay(e) {
+    const { day } = e.detail || {};
+    if (!day) return;
+    setTimelineRange(day, day);
+    setBookViewMode('timeline');
+    setViewerMode('book');
+    setActiveTab('dates');
+  }
 </script>
 
 <div class="page-view">
@@ -272,7 +292,7 @@
             </g>
           </svg>
         </div>
-        <SittingHover {svgEl} frameEl={contentEl} {strokes} {viewBounds} view="{zoom},{panX},{panY}" paused={isPanning} bind:hot={hotSitting} />
+        <SittingHover {svgEl} frameEl={contentEl} {strokes} {viewBounds} view="{zoom},{panX},{panY}" paused={isPanning} bind:hot={hotSitting} on:open={openTimelineDay} />
       </div>
     {:else}
       <div class="pv-empty">No strokes on this page</div>
@@ -348,6 +368,7 @@
   /* A sitting is hovered: the page's own ink goes context grey (FeedPart's
      CONTEXT) and SittingInk redraws that sitting in ink on top. */
   svg.dimmed path { stroke: #c3c7d4; }
+  .pv-canvas:not(.panning) svg.dimmed { cursor: pointer; }
 
   .pv-nav {
     position: absolute;

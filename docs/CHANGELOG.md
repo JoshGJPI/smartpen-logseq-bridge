@@ -10,31 +10,42 @@ CLAUDE.md (Invariants); the store and library map is in
 
 ### Hover-to-reveal capture time in Book View (October 2026)
 
-**Hovering ink on a page shows when it was written.** The stroke under the pointer
-picks its sitting; that sitting draws in ink, the rest of the page in the Timeline's
-context grey, and a label just outside the top-right of the sitting's ink gives its
-date and time. A **Times** toggle in the Book View bar turns it off (localStorage,
-default on). Read-only: nothing is written.
+**Hovering ink on a page shows the day it was written; clicking opens that day.** The
+stroke under the pointer picks its day; that day's ink draws black, the rest of the
+page in the Timeline's context grey, and a label just outside the top-right of that
+ink gives the date and first-to-last time ("Wed Sep 30, 2026 · 12:45–12:48 PM ·
+Timeline ›"). Clicking the ink sets the Dates range to that one day and switches to
+Book View → Timeline. A **Times** toggle in the Book View bar turns it off
+(localStorage, default on). Read-only: nothing is written.
 
-**Same sitting rule as the Timeline, not a copy.** `daySessions()`'s chaining step was
-factored into `strokeSpan()` + `continuesSitting()` in `timeline-feed.js` and both
-features use it. Book View's groups are per page (a sitting spread over pages shows
-only this page's part) and are *not* cut at midnight, because Book View has no day;
-the label names both dates instead.
+**Days, not sittings.** The first version grouped by the Timeline's 20-minute sitting
+rule (`daySessions()`'s chaining, factored into `strokeSpan()` + `continuesSitting()`
+in `timeline-feed.js`, which the Timeline still uses). Josh tried it and asked for one
+group per day: reading a page the question is which day, and the click lands on a
+Timeline day. Groups are local calendar days of stroke `startTime` (`dayKey`, the day
+the Timeline files the stroke under), cut to this page.
+
+**Click vs pan.** A press used to start a pan at once, which also suspended the hover,
+so a click never saw a highlighted group. The page now pans only after the pointer
+moves 4 px, and `SittingHover` treats a press that moved ≤ 4 px as a click, hit-testing
+the click point itself rather than trusting the hover state. The rejected option,
+jumping within the current Dates range when the day is already in it: the feed
+ignores a jump request made before it mounts (switching from the page view mounts
+it), so a one-day range is the reliable way to land on the day.
 
 **Cheap on dense pages.** Groups, their ink boxes and a uniform grid of stroke
 segments (4 Ncode units a cell) are built once per page load; pointer moves are
 coalesced to one hit-test per animation frame; and a hover never re-renders the
 page's paths. A class on the `<svg>` greys them by CSS and `SittingInk` redraws just
-the hovered sitting on top. Considered: per-sitting `<g>` wrappers with a class
-toggle, rejected because it restructures the page's stroke loop (the rotation work
-was changing the same markup at the same time). Pointer → Ncode uses
-`getScreenCTM()` of the page's rotated content group (`frameEl`; pointer events stay on
-the `<svg>` so blank paper still clears the hover), so zoom, pan and page rotation are
-handled without knowing about them, and `SittingInk` sits inside that group so the
-highlight turns with the page. Overlapping sittings: the nearest stroke wins; hover reach is 6 px
+the hovered group on top. Considered: per-group `<g>` wrappers with a class toggle,
+rejected because it restructures the page's stroke loop (the rotation work was
+changing the same markup at the same time). Pointer → Ncode uses `getScreenCTM()` of
+the page's rotated content group (`frameEl`; pointer events stay on the `<svg>` so
+blank paper still clears the hover), so zoom, pan and page rotation are handled
+without knowing about them, and `SittingInk` sits inside that group so the highlight
+turns with the page. Overlapping groups: the nearest stroke wins; hover reach is 6 px
 on screen, capped at 3 Ncode units when zoomed out. Ink with no `startTime` belongs to
-no sitting and can't be picked. The highlight is suppressed while dragging to pan.
+no group and can't be picked. The highlight is suppressed while dragging to pan.
 
 ### Page rotation: pages written sideways are shown upright
 

@@ -1,13 +1,15 @@
 /**
  * page-sittings — Book View's hover-to-reveal capture time (pure).
  *
- * Hovering ink on a page in Book View finds the sitting it was written in and
- * draws that sitting in ink, the rest of the page grey, with the sitting's date
- * and time beside it. A sitting here is the Timeline's (timeline-feed.js): the
- * page's strokes in `startTime` order, chained for as long as each starts within
- * `SESSION_GAP_MS` of the previous one's END. It is cut to this page — a sitting
- * that ran over several pages shows only the part written here — and, unlike a
- * Timeline card, it is not cut at midnight (the label then names both days).
+ * Hovering ink on a page in Book View finds the day it was written and draws
+ * that day's ink on the page black, the rest grey, with the date and the day's
+ * first-to-last time beside it; clicking opens that day in the Timeline. Groups
+ * are local calendar days of stroke `startTime` (`dayKey`, the same day the
+ * Timeline files a stroke under), cut to this page.
+ *
+ * Days, not the Timeline's 20-minute sittings: Josh tried sittings first and
+ * asked for days (Oct 2026). Reading a page you want "which day was this", and
+ * the click lands on a Timeline day, which is a day.
  *
  * Everything is computed once per page load: the groups, each group's ink box,
  * and a uniform grid of stroke segments so a hover looks at a handful of
@@ -16,7 +18,7 @@
  * Pure: no DOM, no stores. Tested in `src/lib/__tests__/page-sittings.test.js`.
  */
 
-import { SESSION_GAP_MS, strokeSpan, continuesSitting, isBogusPoint } from '../timeline-feed.js';
+import { strokeSpan, isBogusPoint } from '../timeline-feed.js';
 import { dayKey } from '../timeline.js';
 
 /** Hover reach round a stroke, in screen pixels (converted to Ncode per zoom). */
@@ -29,18 +31,17 @@ export const MAX_TOLERANCE_NCODE = 3;
 export const HIT_CELL = 4;
 
 /**
- * Split one page's strokes into sittings.
+ * Split one page's strokes into the local days they were written on.
  *
  * @param {Array<{startTime?: number, endTime?: number, points?: Array}>} strokes  the PageDoc's
- * @param {{gapMs?: number}} [options]
- * @returns {{groups: Array<{index: number, startTime: number, endTime: number,
+ * @returns {{groups: Array<{index: number, day: string, startTime: number, endTime: number,
  *                           strokes: Array<Object>, bounds: {minX: number, minY: number,
  *                           maxX: number, maxY: number} | null}>,
  *            groupOf: Int32Array}}
- *          groups ascending by startTime; `groupOf[i]` is stroke i's group, -1
+ *          groups ascending by day; `groupOf[i]` is stroke i's group, -1
  *          when it has no usable startTime
  */
-export function pageSittings(strokes, { gapMs = SESSION_GAP_MS } = {}) {
+export function pageDayGroups(strokes) {
   const list = Array.isArray(strokes) ? strokes : [];
   const groupOf = new Int32Array(list.length).fill(-1);
 
@@ -55,8 +56,9 @@ export function pageSittings(strokes, { gapMs = SESSION_GAP_MS } = {}) {
   const groups = [];
   let cur = null;
   for (const { i, st, et } of timed) {
-    if (!cur || !continuesSitting(st, cur.endTime, gapMs)) {
-      cur = { index: groups.length, startTime: st, endTime: et, strokes: [], bounds: null };
+    const day = dayKey(st);
+    if (!cur || day !== cur.day) {
+      cur = { index: groups.length, day, startTime: st, endTime: et, strokes: [], bounds: null };
       groups.push(cur);
     }
     if (et > cur.endTime) cur.endTime = et;
@@ -83,11 +85,11 @@ function growBounds(b, stroke) {
 
 /**
  * A spatial index of the page's stroke segments for hover hit-testing. Only
- * strokes in a sitting are indexed (ink with no time has nothing to reveal).
+ * strokes in a group are indexed (ink with no time has nothing to reveal).
  * A one-point stroke (a dot) is indexed as a zero-length segment.
  *
  * @param {Array<{points?: Array}>} strokes
- * @param {Int32Array|number[]} groupOf  from pageSittings()
+ * @param {Int32Array|number[]} groupOf  from pageDayGroups()
  * @param {number} [cell]
  */
 export function buildHitIndex(strokes, groupOf, cell = HIT_CELL) {
@@ -122,7 +124,7 @@ export function buildHitIndex(strokes, groupOf, cell = HIT_CELL) {
 
 /**
  * The stroke nearest (x, y) within `tol`, all in Ncode units, or -1 for blank
- * paper. Where sittings overlap, the nearest stroke wins; an exact tie keeps the
+ * paper. Where groups overlap, the nearest stroke wins; an exact tie keeps the
  * stroke indexed first (earlier in the file).
  */
 export function hitTest(index, x, y, tol) {
