@@ -256,6 +256,7 @@ then looks broken when it isn't). Launch with `--disable-backgrounding-occluded-
 | [docs/TESTING.md](docs/TESTING.md) | Test-file inventory and the manual test checklist |
 | [docs/LOCAL-STORAGE-PIVOT-SPEC.md](docs/LOCAL-STORAGE-PIVOT-SPEC.md) | Storage design; §12 records changes to `strokes[]` since v2.0 |
 | [docs/VOLUMES-SPEC.md](docs/VOLUMES-SPEC.md) | Notebook volumes: design and rejected alternatives |
+| [docs/READING-UX-SPEC.md](docs/READING-UX-SPEC.md) | **v3.0.0 plan (in progress):** reading-first UI/UX, packages A–E, with [mockups](docs/READING-UX-MOCKUPS.html) |
 | [docs/QUICK-ARCHITECTURE-REFERENCE.md](docs/QUICK-ARCHITECTURE-REFERENCE.md) | Canvas / pen / MyScript lookups (v1 era, mostly current) |
 | [docs/NEOSMARTPEN-SDK-USAGE.md](docs/NEOSMARTPEN-SDK-USAGE.md) | Pen SDK usage |
 | [docs/Archive/ARCHIVE-INDEX.md](docs/Archive/ARCHIVE-INDEX.md) | Superseded planning and implementation docs |

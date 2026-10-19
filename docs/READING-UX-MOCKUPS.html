@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>smartpen-bridge UX review</title>
+<style>
+  :root{
+    --bg:#12121f; --panel:#1a1a2e; --panel2:#16213e; --panel3:#0f3460; --line:#2a2a4a;
+    --text:#eaeaea; --muted:#a0a0b0; --accent:#e94560; --ok:#4ade80; --warn:#fbbf24; --blue:#5b8def;
+    --paper:#f5f5f5; --ink:#1b1b2a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-padding-top:56px}
+  body{background:var(--bg);color:var(--text);font:15px/1.6 'Segoe UI',system-ui,sans-serif;overflow-x:hidden}
+  .wrap{max-width:1180px;margin:0 auto;padding:40px 24px 120px}
+  h1{font-size:2rem;margin-bottom:6px}
+  h2{font-size:1.45rem;margin:64px 0 6px;padding-top:24px;border-top:1px solid var(--line)}
+  h3{font-size:1rem;margin:22px 0 6px;color:#fff}
+  p,li{color:#cfcfdc}
+  p{margin:8px 0}
+  ul{margin:8px 0 8px 20px}
+  .sub{color:var(--muted)}
+  .tag{display:inline-block;font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:99px;margin-right:6px;font-weight:600}
+  .hi{background:#3a1822;color:#ff8da1}.md{background:#3a3016;color:#f6d36b}.lo{background:#16313a;color:#78d6e8}
+  .num{color:var(--accent);font-weight:700;margin-right:6px}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  @media(max-width:860px){.cols{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+  .card h3{margin-top:0}
+  .lbl{font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:18px 0 6px}
+  table{border-collapse:collapse;width:100%;font-size:.9rem;margin:12px 0}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:.75rem;letter-spacing:.06em;text-transform:uppercase}
+  code{background:#23233d;padding:1px 6px;border-radius:4px;font-size:.85em;color:#ffb3c0}
+  .note{border-left:3px solid var(--warn);background:#2a2614;padding:10px 14px;border-radius:0 8px 8px 0;margin:14px 0;color:#e8dca8}
+  .good{border-left:3px solid var(--ok);background:#14281c;padding:10px 14px;border-radius:0 8px 8px 0;margin:14px 0;color:#bfe9cd}
+
+  /* ---------- mockup kit ---------- */
+  .mock{margin:14px 0 6px;border:1px solid var(--line);border-radius:12px;background:#0c0c17;padding:14px;overflow:hidden}
+  .mock-cap{font-size:.75rem;color:var(--muted);margin:6px 2px 0}
+  .mock .badge{position:absolute}
+  .win{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden;font-size:12px;line-height:1.4;color:var(--text)}
+  .win *{color:inherit}
+  .bar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--panel)}
+  .grow{flex:1}
+  .btn{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:6px;border:1px solid var(--line);background:var(--panel2);color:var(--muted);font-size:11.5px;white-space:nowrap}
+  .btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.ghost{background:transparent}
+  .btn.dis{opacity:.45}
+  .btn.ok{background:#2f7d4f;border-color:#2f7d4f;color:#fff}
+  .btn.del{background:#7d2f3b;border-color:#7d2f3b;color:#fff}
+  .btn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.sel{background:#262650;border-color:#4a4a8a;color:#fff;box-shadow:inset 0 -2px 0 var(--blue)}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+  .seg span{padding:5px 12px;color:var(--muted);background:var(--panel2);font-size:11.5px}
+  .seg span+span{border-left:1px solid var(--line)}
+  .seg span.on{background:var(--accent);color:#fff}
+  .seg.nav span.on{background:#262650;color:#fff;box-shadow:inset 0 -2px 0 var(--blue)}
+  .dot{width:8px;height:8px;border-radius:50%;background:#777;display:inline-block}
+  .dot.g{background:var(--ok)}
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:99px;background:#23233d;color:var(--muted);font-size:11px}
+  .chip.b{background:#17305a;color:#9cc0ff}
+  .chip.a{background:#3a1822;color:#ff8da1}
+  .chip.g{background:#14341f;color:#7fe0a0}
+  .body{display:flex;min-height:0}
+  .rail{background:var(--panel2);border-right:1px solid var(--line);padding:10px}
+  .main{flex:1;background:var(--paper);color:#222;padding:12px;min-width:0;position:relative}
+  .main *{color:inherit}
+  .main .muted{color:#777}
+  .darkmain{background:#10101c;color:var(--text)}
+  .sheet{background:#fff;border:1px solid #ddd;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12);position:relative}
+  svg.ink{display:block;width:100%}
+  .heat{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,9px);gap:2px}
+  .heat i{width:9px;height:9px;border-radius:2px;background:#22223a;display:block}
+  .heat i.a1{background:#5a2234}.heat i.a2{background:#9c2c47}.heat i.a3{background:#e94560}
+  .callout{position:absolute;background:var(--warn);color:#222!important;font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:99px;z-index:3;white-space:nowrap;box-shadow:0 1px 6px rgba(0,0,0,.4)}
+  .callout.g{background:var(--ok)}
+  .strike{text-decoration:line-through;opacity:.55}
+  .toc{position:sticky;top:0;background:rgba(18,18,31,.92);backdrop-filter:blur(8px);padding:10px 0;margin:0 -24px;padding-left:24px;z-index:20;border-bottom:1px solid var(--line);display:flex;gap:14px;flex-wrap:wrap;font-size:.8rem}
+  .toc a{color:var(--muted);text-decoration:none}.toc a:hover{color:#fff}
+  .photo{width:100%;border-radius:8px;border:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="toc" style="max-width:none"><b style="color:#fff">UX review</b>
+  <a href="#find">Findings</a><a href="#r1">1 Header</a><a href="#r2">2 Navigation</a><a href="#r3">3 Left panel</a><a href="#r4">4 Timeline</a><a href="#r5">5 Library</a><a href="#r6">6 Reader</a><a href="#r7">7 Search</a><a href="#r8">8 Colour &amp; polish</a><a href="#order">Order of work</a>
+</div>
+<div class="wrap">
+
+<h1>smartpen-bridge: UX review for a read-first app</h1>
+<p class="sub">v2.10.0 · reviewed 2026-10-19 · nothing in the repo was changed. Mockups are illustrative HTML with synthetic ink (not your handwriting).</p>
+
+<p style="margin-top:18px">The app's frame was built for capture: a header of pen and save controls, and a left panel of stroke lists. Book View, the Timeline and the Dates grid now do most of the daily work, and they sit inside that frame. The reading surface is the newer and better-looking part of the app, but it only gets what space the capture frame leaves over. The recommendations below move the app's weight toward reading, and leave capture and edit one deliberate step away.</p>
+
+<h2 id="find" style="border-top:none;margin-top:36px">What I looked at</h2>
+<p>I ran the real app (a scratch copy of your data, in an isolated profile, so your running app and real files were untouched) and captured it at 1600×950 and 1280×760: Timeline, Books home, a two-page spread, Transcript mode, all five left tabs, Transcript search, and the empty Editor. I also read <code>App.svelte</code>, <code>Header</code>, <code>LeftPanel</code>, <code>TimelineFeed</code>, <code>DatesTab</code> and <code>ARCHITECTURE.md</code>.</p>
+<div class="note"><b>Not covered:</b> anything needing a live pen, MyScript calls, or a populated Editor canvas (the Review flow, point editing, transcription runs). Search for "gift" returned "no matches in 116 transcribed pages". I did not check whether that is correct, so I make no search-quality claims here.</div>
+
+<h3>What is already working (keep it)</h3>
+<div class="good">The two-page spread is calm and legible. Hover-to-reveal capture time (<em>Times</em>), the lazy Timeline feed, and the Dates heat grid are real strengths. "Load into Editor" as the deliberate crossing from reading to editing is the right model. Everything below builds on these.</div>
+
+<h3>Findings, ranked by how much they cost a reader</h3>
+<table>
+  <tr><th>#</th><th>Finding</th><th>Evidence</th></tr>
+  <tr><td>1</td><td>The reading surface is the smallest thing on screen.</td><td>At 1280×760 the header (~170 px) + view bar + feed header leave about 500 px of reading height. At 1600 the left panel takes 450 px and the feed column is ~760 px wide. The page is capped at 1600 px, so wider monitors gain only margin.</td></tr>
+  <tr><td>2</td><td>The header is a capture toolbar that is mostly dead while reading.</td><td><i>Connect · Fetch Notes · Save (Strokes) · Delete (0) · Undo · Clear · Transcribe (0/0)</i> are always shown; most are disabled in every Book View screenshot. At 1280 they collapse to unlabelled icons.</td></tr>
+  <tr><td>3</td><td>The left panel is unrelated to what you are reading.</td><td>Over a spread it shows "Connect pen and write to see strokes". The Transcripts tab shows "Select strokes and click Transcribe…". Its tabs describe capture; reading controls are only in the Dates tab.</td></tr>
+  <tr><td>4</td><td>Three tiers of mode switches plus five tabs.</td><td>Editor│Book View → Books│Timeline → Paper, Home, Strokes│Transcript, Spread, Times, Newest first, plus Strokes│Transcripts│Pages│Books│Dates on the left. That is 11+ choices before reaching a page, and "Books" means two different things (right pane vs. left tab).</td></tr>
+  <tr><td>5</td><td>The same information and actions repeat.</td><td>Timeline: "Load … into Editor" appears four times (left, feed header, day, card). Range appears in the left inputs and as "Change range". The book filter is in both places. "947 strokes · 2 pages" appears three times. "1 days" is a plural bug.</td></tr>
+  <tr><td>6</td><td>Pages tab and Books home are the same list in two designs.</td><td>Both enumerate the same 7 books and page counts; neither shows when a book was written or how much is transcribed.</td></tr>
+  <tr><td>7</td><td>Books home is a collapsed list.</td><td>Seven rows with a count each; the thumbnails (which are good) only appear after expanding one; "Recent" is absent until you've opened pages.</td></tr>
+  <tr><td>8</td><td>Ink and text are either/or.</td><td>Strokes│Transcript is a toggle, so you can never check a transcript line against the handwriting it came from. Each page also carries its own duplicate toolbar (zoom, Fit, rotate, orientation, Load into Editor).</td></tr>
+  <tr><td>9</td><td>Search is hidden behind a capture-named tab.</td><td>Full-text search is Transcripts → Search (or Ctrl+Shift+F). Nothing in Book View hints it exists.</td></tr>
+  <tr><td>10</td><td>One red does every job.</td><td>Primary action (Connect, Load), selected state (Book View, Paper, Newest) and destructive (Delete) are all pink-red, so "on" and "do this" look alike.</td></tr>
+</table>
+
+
+<!-- ============ 1 ============ -->
+<h2 id="r1"><span class="num">1</span>Slim the header; let capture tools appear when relevant <span class="tag hi">high impact</span><span class="tag lo">small effort</span></h2>
+<p><b>Problem.</b> Finding 1, 2. A 110 px header (170 px when it wraps) with seven mostly-disabled buttons, on a screen you now mostly read.</p>
+<p><b>Recommendation.</b> One 44 px row: product name (also drop the stale "Stroke Bridge"/arrow wording), the primary navigation (rec. 2), search, a single <em>pen chip</em> (state + battery + a Connect click target), and Settings. The capture group (Save, Undo, Delete, Clear, Transcribe) lives in a <em>capture bar</em> that shows when the Editor is active, when a pen is connected, or when anything is unsaved, with the unsaved amber dot always visible on the chip. Folder status moves into Settings with a warning dot on the gear only when it is not ready.</p>
+<div class="mock">
+  <div class="lbl" style="margin-top:0">Today (1280 px wide)</div>
+  <div class="win">
+    <div class="bar" style="padding:14px 12px 10px;flex-wrap:wrap">
+      <b style="font-size:15px">NeoSmartpen → <span style="color:var(--accent)">Stroke</span> Bridge</b><span class="grow"></span>
+      <span style="font-size:11px;color:var(--muted)"><span class="dot"></span> Disconnected &nbsp; <span class="dot g"></span> Folder: data</span>
+    </div>
+    <div class="bar" style="justify-content:flex-end;border-bottom:0">
+      <span class="btn pri">⌁</span><span class="btn">⇩</span><span class="btn ok dis">▣</span><span class="btn del dis">🗑</span><span class="btn">↶</span><span class="btn">▯</span><span class="btn del dis">✎</span><span class="btn">⚙ Settings</span>
+    </div>
+  </div>
+  <div class="lbl">Proposed: reading</div>
+  <div class="win"><div class="bar">
+    <b>smartpen-bridge</b>
+    <span class="seg nav" style="margin-left:14px"><span class="on">Library</span><span>Timeline</span><span>Editor</span></span>
+    <span class="btn ghost" style="margin-left:10px;min-width:210px">🔍 Search notes… <span class="grow"></span><span style="opacity:.6">Ctrl K</span></span>
+    <span class="grow"></span>
+    <span class="chip"><span class="dot"></span> Pen: not connected · <b style="color:#ff8da1">Connect</b></span><span class="btn ghost">⚙</span>
+  </div></div>
+  <div class="lbl">Proposed: Editor, or pen connected, or unsaved work</div>
+  <div class="win"><div class="bar">
+    <b>smartpen-bridge</b>
+    <span class="seg nav" style="margin-left:14px"><span>Library</span><span>Timeline</span><span class="on">Editor</span></span>
+    <span class="btn ghost" style="min-width:150px;margin-left:10px">🔍 Search</span>
+    <span class="grow"></span>
+    <span class="chip g"><span class="dot g"></span> Neo Lamy · 82%</span><span class="btn ghost">⚙</span>
+  </div>
+  <div class="bar" style="background:#13132a;border-top:0"><span class="chip a">● 3 pages unsaved</span><span class="btn ok">Save</span><span class="btn">↶ Undo</span><span class="btn">Delete (4)</span><span class="btn">Clear</span><span class="grow"></span><span class="btn pri">Transcribe 2 of 5</span></div></div>
+</div>
+<p class="mock-cap">Gain: ~65 px at 1600 wide, ~125 px at 1280, and the header stops reflowing into three rows. The existing close-with-unsaved-work dialog in main is unaffected.</p>
+
+
+<!-- ============ 2 ============ -->
+<h2 id="r2"><span class="num">2</span>One navigation spine, and view options in one place <span class="tag hi">high impact</span><span class="tag md">medium effort</span></h2>
+<p><b>Problem.</b> Finding 4. The user's decision tree has three levels of mutually exclusive modes plus loose toggles scattered across two bars.</p>
+<p><b>Recommendation.</b> Make the three things you actually do the top-level destinations, and name them by task, not by internals:</p>
+<ul>
+  <li><b>Library</b>: Books home → book → pages/spread (today's Book View → Books).</li>
+  <li><b>Timeline</b>: the date feed (today's Book View → Timeline, with Dates folded in; rec. 4).</li>
+  <li><b>Editor</b>: capture and edit (rename the pane "Editor"; keep tab ids unchanged as the code notes require).</li>
+</ul>
+<p>Per-view toggles (Paper, Times, Spread/Single, Newest first, Strokes│Transcript) move out of the top bar into a single <b>View ▾</b> popover on the pane's own toolbar, so each view shows only the options that apply to it. The current mode-switch buttons then stop needing the "unsaved edits" confirm in three separate places; one guarded route change does it.</p>
+<div class="cols">
+  <div class="card"><h3>Today: where each control lives</h3>
+    <table><tr><th>Tier</th><th>Controls</th></tr>
+    <tr><td>1</td><td>Editor│Book View</td></tr>
+    <tr><td>2</td><td>Books│Timeline</td></tr>
+    <tr><td>3</td><td>Paper · ⌂ · Strokes│Transcript · Spread · Times · Newest first</td></tr>
+    <tr><td>Left</td><td>Strokes│Transcripts│Pages│Books│Dates (+ Review│Search sub-tabs)</td></tr></table></div>
+  <div class="card"><h3>Proposed</h3>
+    <table><tr><th>Where</th><th>Controls</th></tr>
+    <tr><td>Top</td><td>Library│Timeline│Editor · Search</td></tr>
+    <tr><td>Pane toolbar</td><td>breadcrumb + <b>View ▾</b> (only options for this view)</td></tr>
+    <tr><td>Left</td><td>contextual (rec. 3), collapsible</td></tr>
+    <tr><td>Settings</td><td>Books naming/volume routing, folders, MyScript</td></tr></table></div>
+</div>
+<div class="mock">
+  <div class="win"><div class="bar"><span class="seg nav"><span class="on">Library</span><span>Timeline</span><span>Editor</span></span><span class="grow"></span></div>
+  <div class="bar" style="background:var(--panel2)"><span style="color:var(--muted)">Library ›</span> <b>Study Notes 1</b> <span style="color:var(--muted)">› P101–P103</span><span class="grow"></span><span class="btn">⇤ Prev</span><span class="btn">Next ⇥</span>
+    <span class="btn sel" style="position:relative">View ▾</span></div>
+  <div style="position:relative;height:150px;background:var(--paper)">
+    <div style="position:absolute;right:12px;top:6px;width:210px;background:#1d1d36;border:1px solid #3a3a6a;border-radius:8px;padding:10px;box-shadow:0 8px 24px rgba(0,0,0,.5)">
+      <div class="lbl" style="margin:0 0 4px">Show</div>
+      <div style="display:flex;gap:6px;margin-bottom:8px"><span class="seg"><span class="on">Ink</span><span>Text</span><span>Ink + text</span></span></div>
+      <div style="display:flex;flex-direction:column;gap:5px;font-size:11.5px"><div>☑ Printed page behind ink (Paper)</div><div>☑ Show when written on hover (Times)</div><div>☑ Two-page spread</div></div>
+    </div></div></div>
+</div>
+<p class="mock-cap">The popover consolidates Paper, Times, Spread and Strokes│Transcript. The "Ink + text" choice is rec. 6.</p>
+
+
+<!-- ============ 3 ============ -->
+<h2 id="r3"><span class="num">3</span>Make the left panel contextual, and collapsible <span class="tag hi">high impact</span><span class="tag md">medium effort</span></h2>
+<p><b>Problem.</b> Finding 1, 3, 6. A fixed 450 px panel of capture tabs next to a reading pane; reading-relevant navigation (dates, books, pages) is split across Dates, Pages and Books tabs and the right pane's own home.</p>
+<p><b>Recommendation.</b> The panel's content follows the destination, and a <kbd style="background:#23233d;padding:1px 6px;border-radius:4px">[</kbd> key (and a chevron) collapses it to a 48 px rail:</p>
+<table>
+  <tr><th>Destination</th><th>Left panel shows</th></tr>
+  <tr><td>Library</td><td>Book/volume tree with page numbers as a table of contents. Dots mark transcribed pages. A click jumps to that page in the reader. The Pages tab goes away: it is this.</td></tr>
+  <tr><td>Timeline</td><td>The heat grid and range controls (today's Dates tab), minus the load/ordering controls.</td></tr>
+  <tr><td>Editor</td><td>Today's Strokes│Transcripts│Review tabs, unchanged (this is where they belong).</td></tr>
+</table>
+<p>Today's <b>Books</b> tab is configuration (aliases, volume routing, "capturing to…"). It is rarely used during reading, so it moves to Settings → Notebooks.</p>
+<div class="mock">
+  <div class="win" style="height:300px;display:flex;flex-direction:column">
+    <div class="bar"><b>smartpen-bridge</b><span class="seg nav" style="margin-left:12px"><span class="on">Library</span><span>Timeline</span><span>Editor</span></span><span class="grow"></span><span class="chip"><span class="dot"></span> Not connected</span></div>
+    <div class="body" style="flex:1">
+      <div class="rail" style="width:210px;font-size:11.5px">
+        <div class="lbl" style="margin-top:0">Study Notes 1 · B390</div>
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <div style="color:var(--muted)">▸ Pages 1–50</div>
+          <div style="color:var(--muted)">▾ Pages 51–111</div>
+          <div style="padding-left:12px;color:var(--muted)">P99 <span class="chip g" style="padding:0 6px">✓</span></div>
+          <div style="padding-left:12px;color:var(--muted)">P100 <span class="chip g" style="padding:0 6px">✓</span></div>
+          <div style="padding-left:12px;background:#262650;border-radius:5px;padding-top:2px;padding-bottom:2px"><b>P101</b> · Mythic Circus <span class="chip g" style="padding:0 6px">✓</span></div>
+          <div style="padding-left:12px;color:var(--muted)">P102</div>
+          <div style="padding-left:12px;background:#262650;border-radius:5px;padding-top:2px;padding-bottom:2px"><b>P103</b> · This day comes…</div>
+          <div style="padding-left:12px;color:var(--muted)">P104</div>
+        </div>
+        <div class="lbl">Notebooks</div>
+        <div style="color:var(--muted);line-height:1.8">Study Notes 2 · 51<br>JPI Dotted · 121<br>JPI Ruled · 13</div>
+      </div>
+      <div class="main" style="display:flex;gap:10px;align-items:center;justify-content:center">
+        <div class="sheet" style="width:38%;height:200px;padding:10px"><svg class="ink" viewBox="0 0 200 120" data-ink="9"></svg></div>
+        <div class="sheet" style="width:38%;height:200px;padding:10px"><svg class="ink" viewBox="0 0 200 120" data-ink="11"></svg></div>
+        <span class="callout" style="left:12px;top:10px">press [ to hide panel → full-width reading</span>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="mock-cap">Left: a page-number table of contents with transcribed ticks, and a way to switch notebooks without returning home. Right: the spread gets whatever width is left.</p>
+<p>Also raise the page container's <code>max-width: 1600px</code> for Library and Timeline (keep it for the Editor), so large monitors enlarge the page instead of the margins.</p>
+
+
+<!-- ============ 4 ============ -->
+<h2 id="r4"><span class="num">4</span>Timeline: one range control, one load action <span class="tag hi">high impact</span><span class="tag md">medium effort</span></h2>
+<p><b>Problem.</b> Finding 5. Setting a range takes two places (grid/inputs on the left, "Change range" in the feed). "Load into Editor" is offered at range, day, card and left-panel level at once, and each repeats counts the reader has already seen.</p>
+<p><b>Recommendation.</b></p>
+<ul>
+  <li>Put a <b>horizontal activity strip</b> across the top of the feed (the heat grid, turned sideways, with the visible range as a draggable window). It doubles as scroll-spy. The date inputs and Latest/1/7/30 presets become one <em>Range ▾</em> menu next to it. The left panel can then be collapsed in Timeline like everywhere else.</li>
+  <li><b>Sticky day headers</b> with the date, counts and a single <em>Edit day…</em> overflow. Cards keep <em>Open page</em> and <em>Whole page</em>, and put "Load into Editor" under a <b>⋯</b> menu. The range-level load moves to that same top bar as a quiet secondary button.</li>
+  <li>Fix "1 days" (pluralise), and show the summary once, in the top bar.</li>
+  <li>Day density at a glance: the card header shows <code>9:05–9:42 · 37 min</code> already; add the page chips ("Study Notes 3 · P2, P3") as links to the reader, and a one-line transcript excerpt for a card's page when that page is transcribed.</li>
+</ul>
+<div class="note">The transcript excerpt needs care: stored <code>lineId</code>s are unreliable for pre-Aug-2026 pages and a card is a <em>sitting</em>, not a page. Use page-level text only, label it "Page transcript", and keep it collapsed by default.</div>
+<div class="mock">
+  <div class="win">
+    <div class="bar"><b>smartpen-bridge</b><span class="seg nav" style="margin-left:12px"><span>Library</span><span class="on">Timeline</span><span>Editor</span></span><span class="grow"></span><span class="chip"><span class="dot"></span> Not connected</span></div>
+    <div class="bar" style="background:var(--panel2);gap:14px">
+      <span class="btn">Range ▾ <b style="color:#fff">Oct 1 – Oct 19</b></span>
+      <div style="flex:1;display:flex;align-items:center;gap:8px">
+        <span style="color:var(--muted);font-size:10px">APR</span>
+        <div class="heat" data-heat="46" style="grid-template-rows:repeat(3,9px);overflow:hidden"></div>
+        <span style="color:var(--muted);font-size:10px">OCT</span>
+      </div>
+      <span class="btn">All books ▾</span><span class="btn">Newest ▾</span>
+      <span class="btn">Edit range… ⋯</span>
+    </div>
+    <div class="main" style="background:#f0f0f3;padding:0">
+      <div style="padding:8px 18px;background:#e6e6ec;border-bottom:1px solid #d6d6de;display:flex;align-items:baseline;gap:10px;position:sticky;top:0">
+        <b style="font-size:14px">Thu, Oct 15</b><span class="muted">947 strokes · 2 pages · 6:17–7:12 AM</span><span style="flex:1"></span><span class="muted">Edit day… ⋯</span></div>
+      <div style="padding:12px 18px">
+        <div style="display:flex;gap:12px">
+          <div style="width:56px;text-align:right" class="muted">6:17 AM</div>
+          <div class="sheet" style="flex:1;max-width:620px">
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #e5e5ea">
+              <b>Study Notes 3</b> <span class="chip b">P2</span><span class="chip b">P3</span><span class="muted">55 min · 947 strokes</span><span style="flex:1"></span>
+              <span class="btn" style="color:#444;background:#f3f3f7;border-color:#d7d7e0">Open page</span><span class="btn" style="color:#444;background:#f3f3f7;border-color:#d7d7e0">⋯</span></div>
+            <div style="padding:6px 12px"><svg class="ink" viewBox="0 0 300 70" data-ink="6"></svg></div>
+            <div class="muted" style="padding:6px 12px 8px;border-top:1px solid #eee">▸ Page transcript <span style="opacity:.6">· “I'm afraid of not having words or not being enough…”</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="mock-cap">One strip + one range menu replaces the left date controls. Actions per card shrink to Open page and an overflow menu.</p>
+
+
+<!-- ============ 5 ============ -->
+<h2 id="r5"><span class="num">5</span>Library home: notebooks as covers, not a collapsed list <span class="tag md">medium impact</span><span class="tag md">medium effort</span></h2>
+<p><b>Problem.</b> Finding 6, 7. The app's best visual asset (page thumbnails) is hidden behind a click, and the home view contains no sense of <em>when</em> or <em>how much</em> you wrote. Yet the capture-date index already knows both.</p>
+<p><b>Recommendation.</b> Home is a shelf of notebook cards: alias, volume badge, page count, <b>first–last written</b> dates, <b>last written</b>, a thin <b>transcribed % bar</b> and a three-page thumbnail fan (the most recently written pages, not P1). Sort chips: Recently written · Name · Most pages. Opening a book shows today's thumbnail grid, with a <b>date badge</b> on each card and a small ✓ for transcribed, plus a "Jump to page…" field. "Recent" stays, but sits above the shelf when non-empty.</p>
+<div class="mock">
+  <div class="win">
+    <div class="bar"><span style="font-weight:600">Library</span><span class="grow"></span><span class="seg"><span class="on">Recently written</span><span>Name</span><span>Most pages</span></span><span class="btn">Rescan</span></div>
+    <div class="main" style="padding:16px">
+      <div class="muted" style="font-size:10.5px;letter-spacing:.1em;margin-bottom:8px">RECENT PAGES</div>
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <div class="sheet" style="width:70px;height:86px;padding:5px"><svg class="ink" viewBox="0 0 100 100" data-ink="7"></svg></div>
+        <div class="sheet" style="width:70px;height:86px;padding:5px"><svg class="ink" viewBox="0 0 100 100" data-ink="8"></svg></div>
+        <div class="sheet" style="width:70px;height:86px;padding:5px"><svg class="ink" viewBox="0 0 100 100" data-ink="6"></svg></div>
+      </div>
+      <div class="muted" style="font-size:10.5px;letter-spacing:.1em;margin-bottom:8px">NOTEBOOKS</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+        <div class="sheet" style="padding:12px"><div style="display:flex;gap:-6px;margin-bottom:8px"><div style="width:44px;height:56px;background:#fafafa;border:1px solid #ddd;transform:rotate(-5deg)"><svg class="ink" viewBox="0 0 100 100" data-ink="6"></svg></div><div style="width:44px;height:56px;background:#fafafa;border:1px solid #ddd;margin-left:-14px"><svg class="ink" viewBox="0 0 100 100" data-ink="7"></svg></div><div style="width:44px;height:56px;background:#fafafa;border:1px solid #ddd;transform:rotate(5deg);margin-left:-14px"><svg class="ink" viewBox="0 0 100 100" data-ink="8"></svg></div></div>
+          <b>Study Notes 3</b> <span class="chip a" style="padding:0 7px">v2</span><div class="muted" style="font-size:11px">3 pages · Oct 12 – Oct 15</div><div style="height:4px;background:#e4e4ea;border-radius:2px;margin:8px 0 3px"><div style="width:33%;height:4px;background:#2f7d4f;border-radius:2px"></div></div><div class="muted" style="font-size:10.5px">33% transcribed · last written 4 days ago</div></div>
+        <div class="sheet" style="padding:12px"><div style="display:flex;margin-bottom:8px"><div style="width:44px;height:56px;background:#fafafa;border:1px solid #ddd;transform:rotate(-5deg)"><svg class="ink" viewBox="0 0 100 100" data-ink="9"></svg></div><div style="width:44px;height:56px;background:#fafafa;border:1px solid #ddd;margin-left:-14px"><svg class="ink" viewBox="0 0 100 100" data-ink="10"></svg></div></div>
+          <b>Study Notes 1</b><div class="muted" style="font-size:11px">111 pages · Mar 2025 – Sep 2026</div><div style="height:4px;background:#e4e4ea;border-radius:2px;margin:8px 0 3px"><div style="width:94%;height:4px;background:#2f7d4f;border-radius:2px"></div></div><div class="muted" style="font-size:10.5px">94% transcribed · last written Sep 28</div></div>
+        <div class="sheet" style="padding:12px"><div style="display:flex;margin-bottom:8px"><div style="width:44px;height:56px;background:#fafafa;border:1px solid #ddd"><svg class="ink" viewBox="0 0 100 100" data-ink="5"></svg></div></div>
+          <b>Blank Journal</b><div class="muted" style="font-size:11px">1 page · Jun 3</div><div style="height:4px;background:#e4e4ea;border-radius:2px;margin:8px 0 3px"></div><div class="muted" style="font-size:10.5px">not transcribed</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="mock-cap">All fields come from data already in memory (the scan's <code>transcribed</code> flag, the timeline index's first/last day). Figures above are illustrative.</p>
+
+
+<!-- ============ 6 ============ -->
+<h2 id="r6"><span class="num">6</span>The page reader: one toolbar, a position, and ink beside text <span class="tag hi">high impact</span><span class="tag md">medium effort</span></h2>
+<p><b>Problem.</b> Finding 8. While reading you cannot tell where you are in the book, you cannot see text next to its ink, and each page repeats a full toolbar. The capture-date information the app now tracks isn't shown on the page you are reading, except through hover.</p>
+<p><b>Recommendation.</b></p>
+<ul>
+  <li><b>One shared toolbar</b> above the spread (zoom/Fit apply to both pages by default, rotate and orientation per page via a small ⟲ on the page corner). Per-page header keeps just title, stroke count and written date.</li>
+  <li><b>Position and jump:</b> "P101–P103 of 111", a page slider or <em>Go to page…</em>, ←/→ keys (and J/K for next/previous transcribed page if cheap).</li>
+  <li><b>Written-on ribbon</b> under each page title: "Written Mar 10, 2025" or day chips when the page spans several; hovering a chip highlights that day's ink (what <em>Times</em> does now), clicking opens that day in Timeline. Today this is discoverable only by hovering ink with Times on.</li>
+  <li><b>Ink + text:</b> add a third state beside Ink and Text. On a single page, ink is left and text right; in a spread, text sits under the ink. Where a line's <code>yBounds</code> are trustworthy (post-Aug 2026), hovering a line highlights its ink band, a natural reuse of the existing preview matching. For older pages, show side-by-side with no linking.</li>
+  <li>Transcript pane empty state: replace "No transcript for this page yet. [Add transcript]" with <em>Transcribe this page</em> only when MyScript is configured, since "Add transcript" reads as typing it by hand.</li>
+</ul>
+<div class="mock">
+  <div class="win">
+    <div class="bar"><span style="color:var(--muted)">Library ›</span> <b>Study Notes 1</b><span class="grow"></span>
+      <span class="btn">−</span><span class="chip">272%</span><span class="btn">+</span><span class="btn">Fit</span>
+      <span class="seg"><span>Ink</span><span>Text</span><span class="on">Ink + text</span></span>
+      <span class="btn">View ▾</span></div>
+    <div class="main" style="padding:14px;background:#ececf0">
+      <div style="display:flex;gap:12px">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px"><b>P101</b><span class="muted">378 strokes</span><span class="chip" style="background:#e3e3ec;color:#555">Written Mar 10, 2025</span><span style="flex:1"></span><span class="muted" style="font-size:11px">⟲ Portrait</span></div>
+          <div class="sheet" style="padding:10px"><svg class="ink" viewBox="0 0 300 150" data-ink="12"></svg></div>
+        </div>
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+          <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px"><b>Transcript</b><span class="muted">P101</span><span style="flex:1"></span><span class="btn" style="background:#fff;color:#444;border-color:#d7d7e0">Copy</span><span class="btn" style="background:#fff;color:#444;border-color:#d7d7e0">Edit</span></div>
+          <div class="sheet" style="padding:12px;flex:1;font-size:12px;line-height:1.9">
+            <div><b>Mythic Circus Brainstorming</b></div>
+            <div style="background:#fff3c4;margin:0 -12px;padding:0 12px">Goblin&nbsp;&nbsp; 1 &nbsp;1 &nbsp;2 &nbsp; −1 +1</div>
+            <div>Baby Troll&nbsp;&nbsp; 0 &nbsp;2 &nbsp;2 &nbsp; +2</div>
+            <div>Faun&nbsp;&nbsp; 1 &nbsp;4 &nbsp;3</div>
+            <div class="muted">…</div>
+          </div>
+          <div class="muted" style="font-size:10.5px;margin-top:4px">Hover a line to see its ink (pages transcribed after Aug 2026)</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:12px">
+        <span class="btn" style="background:#fff;color:#444;border-color:#d7d7e0">⇤</span>
+        <div style="flex:1;height:6px;background:#d3d3dc;border-radius:3px;position:relative"><div style="position:absolute;left:78%;top:-4px;width:14px;height:14px;border-radius:50%;background:var(--accent)"></div></div>
+        <span class="muted" style="font-size:11px">P101 of 111 · Go to page…</span>
+        <span class="btn" style="background:#fff;color:#444;border-color:#d7d7e0">⇥</span>
+      </div>
+      <span class="callout g" style="right:20px;top:-2px">single toolbar</span>
+    </div>
+  </div>
+</div>
+<p class="mock-cap">Single page with ink and text side by side, a written-on ribbon, and a slider with the position. In a two-page spread the text moves under each page.</p>
+
+
+<!-- ============ 7 ============ -->
+<h2 id="r7"><span class="num">7</span>Search that you can reach from anywhere <span class="tag md">medium impact</span><span class="tag md">medium effort</span></h2>
+<p><b>Problem.</b> Finding 9. Reading is about finding things, and the one full-text search sits in a left tab named for a capture workflow, two modes deep. A reader won't look for it there.</p>
+<p><b>Recommendation.</b> A search field (and <kbd style="background:#23233d;padding:1px 6px;border-radius:4px">Ctrl K</kbd>) in the top bar, using the same <code>transcript-search.js</code> index plus a lightweight parse of dates and notebook names ("Mar 2025", "Study Notes 1"). Results are grouped (Pages · Notebooks · Days), each with a snippet, a thumbnail and the written date; Enter opens the page in the reader with the matched line highlighted (when line→ink is trustworthy), and "Load into Editor" stays a secondary action. The existing left-panel search can remain inside the Editor's context.</p>
+<div class="mock">
+  <div class="win" style="height:310px;position:relative">
+    <div class="bar"><b>smartpen-bridge</b><span class="seg nav" style="margin-left:12px"><span class="on">Library</span><span>Timeline</span><span>Editor</span></span></div>
+    <div style="position:absolute;left:14%;right:14%;top:38px;background:#1d1d36;border:1px solid #3a3a6a;border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.6);overflow:hidden">
+      <div style="padding:10px 14px;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:center">🔍 <b style="font-size:13px">bearing capacity</b><span class="grow"></span><span class="chip">3 results · 116 pages searched</span></div>
+      <div style="padding:6px 8px">
+        <div class="lbl" style="margin:6px 6px 4px">Pages</div>
+        <div style="display:flex;gap:10px;padding:7px 8px;background:#262650;border-radius:7px"><div class="sheet" style="width:30px;height:38px;flex:none"><svg class="ink" viewBox="0 0 100 100" data-ink="7"></svg></div><div><div><b>Study Notes 1 · P88</b> <span class="chip">Mar 14, 2025</span></div><div style="color:var(--muted)">…the allowable <mark style="background:#fbbf24;color:#222;border-radius:3px">bearing capacity</mark> governs for the spread footing at…</div></div></div>
+        <div style="display:flex;gap:10px;padding:7px 8px"><div class="sheet" style="width:30px;height:38px;flex:none"><svg class="ink" viewBox="0 0 100 100" data-ink="8"></svg></div><div><div><b>JPI Dotted · P12</b> <span class="chip">Sep 2, 2026</span></div><div style="color:var(--muted)">…check <mark style="background:#fbbf24;color:#222;border-radius:3px">bearing capacity</mark> vs. geotech report…</div></div></div>
+        <div class="lbl" style="margin:8px 6px 4px">Jump to</div>
+        <div style="padding:4px 8px;color:var(--muted)">📅 Day: Mar 14, 2025 &nbsp;·&nbsp; 📓 Notebook: Study Notes 1</div>
+      </div>
+      <div style="padding:6px 14px;border-top:1px solid var(--line);color:var(--muted);font-size:10.5px">↵ open in reader &nbsp; ⇧↵ load into Editor &nbsp; Esc close</div>
+    </div>
+  </div>
+</div>
+<p class="mock-cap">Example queries and results are invented.</p>
+
+
+<!-- ============ 8 ============ -->
+<h2 id="r8"><span class="num">8</span>Colour roles and small polish <span class="tag md">medium impact</span><span class="tag lo">small effort</span></h2>
+<h3>Give each state its own colour</h3>
+<p>Finding 10. Right now the same pink-red means "primary", "selected" and (darkened) "destructive". For a viewer where you are constantly toggling things on and off, selection should not shout: use a neutral raised style with a blue underline for <em>on</em>, keep the red accent for the single primary action on a screen, and keep red-dark only for deletion.</p>
+<div class="mock" style="padding:18px">
+  <div class="cols">
+    <div><div class="lbl" style="margin-top:0">Today</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <span class="btn pri">Connect</span><span class="btn on">Paper</span><span class="seg"><span class="on">Books</span><span>Timeline</span></span><span class="btn del">Delete (0)</span><span class="btn on">Times</span>
+      </div><div class="mock-cap">A toggle that is "on" looks identical to a primary action.</div></div>
+    <div><div class="lbl" style="margin-top:0">Proposed</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <span class="btn pri">Load into Editor</span><span class="btn sel">Paper</span><span class="seg nav"><span class="on">Books</span><span>Timeline</span></span><span class="btn del">Delete (4)</span><span class="btn sel">Times</span>
+      </div><div class="mock-cap">Selection = neutral + blue underline. Red = the one thing to do. Dark red = destructive.</div></div>
+  </div>
+</div>
+<h3>Smaller items</h3>
+<table>
+  <tr><th>Item</th><th>Why</th></tr>
+  <tr><td>Pluralise: "1 days", "1 strokes" cases</td><td>Visible in Dates tally; feed header already pluralises.</td></tr>
+  <tr><td>Retitle the app</td><td>Header says "NeoSmartpen → Stroke Bridge"; the product is now "smartpen-bridge" and storage is local. The arrow tells a story that is no longer true.</td></tr>
+  <tr><td>Heat grid: add weekday labels and a visible scrollbar style</td><td>Rows are unlabelled; the default white scrollbar under the grid is the brightest thing in the dark panel.</td></tr>
+  <tr><td>Reading-surface tone</td><td>A white sheet on near-black chrome is high-contrast glare for long reads. Offer a "Reading surface" option (white / warm / dim) in View ▾; it is display-only like rotation.</td></tr>
+  <tr><td>Narrow windows</td><td>At 1280 the left tabs wrap onto a second row, the header reflows into three rows with unlabelled icon buttons. The slim header and a collapsible panel largely fix both.</td></tr>
+  <tr><td>Type scale</td><td>Several labels are 0.65–0.7 rem uppercase grey on navy. Raise the smallest to ≥ 0.75 rem for the places you read, not just capture.</td></tr>
+  <tr><td>Empty states point at capture</td><td>"Connect pen and write to see strokes" appears in a read context. In Library/Timeline, empty states should talk about reading (e.g. "Nothing written in this range. Try 30 days").</td></tr>
+</table>
+
+
+<!-- ============ order ============ -->
+<h2 id="order">Suggested order of work</h2>
+<table>
+  <tr><th>Step</th><th>Change</th><th>Why first</th><th>Risk</th></tr>
+  <tr><td>A</td><td>Rec. 1 (slim header, capture bar on demand) + rec. 8 polish</td><td>Mostly layout and CSS; instantly returns height to reading.</td><td>Low. Keep the unsaved dot and close guard behaviour.</td></tr>
+  <tr><td>B</td><td>Rec. 3 collapse button + width cap lift</td><td>Biggest single gain in reading width for tiny code.</td><td>Low</td></tr>
+  <tr><td>C</td><td>Rec. 4 (Timeline controls) + rec. 2 (View ▾)</td><td>Removes duplication and the 3-tier bar; touches TimelineFeed/App.svelte together.</td><td>Medium: the Dates tab, feed and jump/scroll-spy stores are coupled.</td></tr>
+  <tr><td>D</td><td>Rec. 6 (reader toolbar, position, ribbon, Ink + text)</td><td>Reading quality; reuses page-sittings and transcript preview code.</td><td>Medium: line→ink linking only trustworthy post-Aug 2026.</td></tr>
+  <tr><td>E</td><td>Rec. 5 (Library covers) + rec. 7 (global search)</td><td>Bigger feature work; benefits from A–D being settled.</td><td>Medium</td></tr>
+</table>
+<p class="sub" style="margin-top:28px">One caution for any of this: tab ids (<code>'strokes'</code>, <code>'transcription'</code>, <code>'saved-pages'</code>, <code>'books'</code>, <code>'dates'</code>) must stay as they are (ActionBar calls <code>setActiveTab('transcription')</code>), and the capture-date and book-key invariants in CLAUDE.md apply to anything new that reads dates or notebooks.</p>
+
+</div>
+
+<script>
+  // deterministic pseudo-handwriting so mockups show "ink" without using real notes
+  function rng(seed){let s=seed*9301+49297;return()=>{s=(s*9301+49297)%233280;return s/233280}}
+  document.querySelectorAll('svg.ink').forEach((svg,idx)=>{
+    const n=+svg.dataset.ink||8; const vb=svg.viewBox.baseVal; const W=vb.width,H=vb.height;
+    const r=rng(idx+n); let out='';
+    const gap=H/(n+1);
+    for(let i=1;i<=n;i++){
+      const y0=i*gap, len=W*(0.55+r()*0.4), x0=W*0.04;
+      let d=`M${x0} ${y0}`; const steps=Math.round(len/(W*0.03));
+      for(let k=1;k<=steps;k++){const x=x0+k*(len/steps);d+=` L${x.toFixed(1)} ${(y0+(r()-.5)*gap*0.7).toFixed(1)}`}
+      out+=`<line x1="0" x2="${W}" y1="${y0+gap*0.35}" y2="${y0+gap*0.35}" stroke="#c9d0e6" stroke-width="0.6" opacity=".7"/>`;
+      out+=`<path d="${d}" fill="none" stroke="#1b1b2a" stroke-width="${Math.max(.7,W/260)}" stroke-linecap="round" stroke-linejoin="round"/>`;
+    }
+    svg.innerHTML=out;
+  });
+  document.querySelectorAll('.heat[data-heat]').forEach((el,i)=>{
+    const r=rng(42);const n=+el.dataset.heat*3;let h='';
+    for(let k=0;k<n;k++){const v=r();h+=`<i class="${v>.82?'a3':v>.6?'a2':v>.4?'a1':''}"></i>`}
+    el.innerHTML=h;
+  });
+</script>
+</body>
+</html>

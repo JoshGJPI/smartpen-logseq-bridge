@@ -1,0 +1,160 @@
+# Reading-first UX: review and implementation spec
+
+Status: proposed (review dated 2026-10-19, against v2.10.0). Nothing here is built yet.
+
+**Target release: v3.0.0.** Packages A–E together are the v3.0.0 milestone ("reading-first"). v3.0.0
+is the major bump because the app's frame and navigation change, not because data changes: **PageDoc
+stays `"2.0"`, sidecar files and storage are untouched, and existing data folders open unchanged.**
+Version policy while this is in flight:
+- Land each package on its own branch/PR into `main`; packages are shippable alone but are **not**
+  individually released. Don't bump `package.json` per package. Record each in `docs/CHANGELOG.md`
+  under an `## Unreleased (toward v3.0.0)` heading (why, rejected alternatives, limitations), as for earlier
+  features.
+- Bump to `3.0.0` only when A–E are done (or Josh explicitly cuts a smaller 3.0.0), in a single
+  "Bump to 3.0.0" commit like the previous bumps. Update the version line in CLAUDE.md at that point.
+- If a package is dropped or changed, edit this spec in the same PR so it stays the source of truth.
+Mockups: [READING-UX-MOCKUPS.html](READING-UX-MOCKUPS.html) (open in a browser; synthetic ink only).
+
+## Why
+
+The app began as a capture, edit and transcribe tool. Book View, the Timeline and the Dates grid
+now carry most daily use (viewing, reading, finding by date), but they sit inside a frame built for
+capture. The reading surface is the smallest thing on screen. Goal: make reading and finding the
+default weight of the UI, and keep capture/edit one deliberate step away. **No change to data
+formats, storage, or any invariant in CLAUDE.md.** This is layout, navigation and presentation.
+
+## Evidence (real app, 1600×950 and 1280×760)
+
+1. At 1280×760 the header (~170 px, wraps to 3 rows with unlabelled icon buttons) plus view bar plus feed
+   header leave ~500 px of reading height. At 1600 the left panel takes 450 px, the feed column is ~760 px,
+   and `.app { max-width: 1600px }` means wider monitors gain only margin.
+2. Header is a capture toolbar (Connect, Fetch Notes, Save, Delete (0), Undo, Clear, Transcribe (0/0)),
+   mostly disabled while reading.
+3. Left panel is unrelated to the reading context: Strokes tab says "Connect pen and write to see strokes";
+   Transcripts says "Select strokes and click Transcribe". Reading-relevant controls are only in Dates.
+4. Three mode tiers plus five tabs: Editor|Book View → Books|Timeline → Paper, Home, Strokes|Transcript,
+   Spread, Times, Newest first; left Strokes|Transcripts|Pages|Books|Dates. "Books" means two things.
+5. Duplication: Timeline "Load … into Editor" appears 4 times (left button, feed header, day, card); range
+   is set in two places; book filter in two places; "947 strokes · 2 pages" shown three times; "1 days".
+6. The Pages tab and Books home list the same books in two designs. Neither shows when written or how much
+   is transcribed.
+7. Books home is a collapsed accordion; thumbnails (good) only appear after expanding; Recent is absent
+   until pages have been opened.
+8. Ink and transcript are either/or (Strokes|Transcript toggle). Each page carries its own full toolbar.
+   No page position, no jump-to-page; written date shown only via hover (Times).
+9. Full-text search lives at Transcripts → Search (or Ctrl+Shift+F); nothing in Book View hints at it.
+10. One pink-red means primary action, selected state and (darkened) destructive.
+
+**Keep:** the two-page spread, hover-to-reveal capture time, lazy Timeline feed, Dates heat grid, and
+"Load into Editor" as the deliberate crossing from reading to editing.
+
+## Constraints (read before touching anything)
+
+- CLAUDE.md invariants all apply. Specifically relevant: tab ids `'strokes' | 'transcription' |
+  'saved-pages' | 'books' | 'dates'` must not be renamed (`ActionBar` calls `setActiveTab('transcription')`);
+  capture-date rules (local day keys, half-open ranges, date from stroke `startTime` only; every timeline
+  store reads `timelineIndexFiltered`); book keys are strings, use `lib/volumes.js` helpers; page rotation is
+  display-only; stored `lineId`s are unreliable for pages transcribed before Aug 2026.
+- Unsaved-work guards must survive: `viewerDirty` + the "Discard transcript edits?" confirm when leaving
+  Book View or Books; `unsavedChanges` amber dot and the main-process close dialog (`setUnsavedState`).
+- Live pen ink still switches the pane to the Editor (`showEditorForLiveInk()`), and must still be
+  reachable with the capture bar hidden.
+- Svelte 4 conventions; components stay under ~300 lines (several are over now; do not make them worse);
+  business logic in `src/lib/` with unit tests.
+- Mockups use synthetic ink. Don't commit real handwriting or Neo images.
+
+## Work packages (one session each, in this order)
+
+Each package is shippable alone and leaves `npm test` green. Do not combine packages: A–C all touch
+`App.svelte`.
+
+### A. Slim header + colour roles + copy polish  (high impact, small effort)
+- `layout/Header.svelte`, `header/ActionBar.svelte`, `header/SettingsDropdown.svelte`, `App.svelte` styles.
+- One ~44 px bar: name ("smartpen-bridge", drop "NeoSmartpen → Stroke Bridge"), primary nav, search entry
+  (placeholder only until package E), pen chip (state, battery, Connect click target, unsaved amber dot),
+  Settings gear with a warning dot only if the data folder is not ready.
+- Capture bar (Save, Undo, Delete (n), Clear, Transcribe n/m) renders only when: Editor active, pen
+  connected, or anything unsaved (`unsavedChanges || $viewerDirty`). Check `ActionBar`'s own state before
+  moving it (1,100 lines; it owns dialogs and side effects, so move the *rendering condition*, don't rewrite it).
+- Folder status text moves to Settings.
+- Colours: selected/"on" = neutral raised + blue underline; red accent = the single primary action; dark red =
+  destructive only. Apply to `.view-switch-btn`, `.vg-btn.active`, `.vg-segment .active`, `.panel-tab`.
+- Copy: pluralise "1 days" (DatesTab tally) and similar; empty states in reading contexts talk about
+  reading, not pen capture; heat grid weekday labels; styled scrollbar under the grid; raise smallest labels
+  to ≥ 0.75 rem.
+- Done when: at 1280×760 the header is one row and reading height grows by ~125 px; capture bar appears in
+  Editor / pen connected / unsaved and not otherwise; unsaved dot visible from every view.
+
+### B. Collapsible left panel + width cap  (high impact, small effort)
+- `layout/LeftPanel.svelte`, `App.svelte` (`.main-grid`, `.app` max-width).
+- Chevron and `[` key collapse the panel to a ~48 px rail (state in localStorage, per-viewer convenience).
+- Lift `max-width: 1600px` for Book View/Timeline (keep for Editor).
+- Done when: collapsed panel gives the Timeline/spread the full width; the key does not fire while typing in
+  inputs; state persists across reload.
+
+### C. Navigation spine + View menu + Timeline consolidation  (high impact, medium effort)
+- `App.svelte` (topbar), `viewer/TimelineFeed.svelte`, `dates/DatesTab.svelte`, `dates/ActivityGrid.svelte`,
+  `stores/viewer.js`, `stores/ui.js`.
+- Top-level destinations: **Library** (today's Book View → Books), **Timeline**, **Editor**. Keep the store
+  fields (`viewerMode`, `bookViewMode`) and map them; don't churn persisted keys. One guarded navigation
+  function replaces the duplicated confirm in `switchView` / `switchBookMode`.
+- Pane toolbar: breadcrumb + **View ▾** popover holding only options valid for the current view (Paper,
+  Times, Spread/Single, Strokes|Transcript|Ink+text once D lands, Newest/Oldest).
+- Left panel becomes contextual: Library → book/page table of contents (replaces the Pages tab; dots for
+  transcribed); Timeline → grid + range controls; Editor → today's Strokes/Transcripts. Books-tab config
+  (aliases, volume routing) moves to Settings → Notebooks. Preserve `setActiveTab` ids internally.
+- Timeline: horizontal activity strip across the feed top with the visible range as a draggable window; a
+  single **Range ▾** menu (From/To, Latest/1/7/30); sticky day headers; per-card actions = Open page + ⋯
+  (Load into Editor lives in the overflow); one range-level load as a quiet secondary button; summary shown
+  once. Keep scroll-spy, `feedJumpRequest`, endless-scroll range growth, and the book filter working.
+- Open question for Josh before building: keep the Dates heat grid vertical in the left panel as well, or
+  strip only?
+- Done when: no feature is lost (every action reachable), "Load into Editor" appears once per level at most
+  and not as a primary button, jump/scroll-spy/filter still agree with the Editor loads, tests green.
+
+### D. Page reader  (high impact, medium effort)
+- `viewer/BookViewer.svelte`, `PageSpreadView.svelte`, `TranscriptPane.svelte`, `SittingHover.svelte`,
+  `lib/viewer/page-sittings.js`.
+- One shared toolbar over the spread (zoom/Fit apply to both pages; rotate/orientation per page via a small
+  control on the page corner). Per-page header: title, stroke count, written date.
+- Position and jump: "P101–P103 of N", slider or "Go to page…", ←/→ keys.
+- Written-on ribbon: single date or day chips per page (from `pageDayGroups`); hover highlights that day's
+  ink; click opens that day in the Timeline (existing behaviour, made discoverable).
+- **Ink + text** third content mode: single page = ink left, text right; spread = text under each page.
+  Line→ink hover linking only for pages transcribed after Aug 2026 (trustworthy `yBounds`); older pages
+  side-by-side with no linking. No changes to transcript merge or `lineId` handling.
+- Transcript empty state: "Transcribe this page" only when MyScript is configured.
+- Done when: all of the above work in single and spread modes, rotation still applies as one transform per
+  page, and reading a 2,000-stroke page isn't slower (check the hover hit-index cost).
+
+### E. Library home + global search  (medium impact, medium effort)
+- `viewer/BookViewer.svelte` (home), `stores/saved-pages.js`, `stores/timeline.js`, `lib/transcript-search.js`,
+  `transcription/TranscriptSearch.svelte`, `App.svelte` (top bar).
+- Library home: notebook cards with alias, volume badge, page count, first–last written (timeline index),
+  last-written, transcribed % bar (scan's `transcribed` flag), three-page thumbnail fan using the most
+  recently written pages. Sort chips: Recently written / Name / Most pages. Recent pages row when non-empty.
+  Opening a book: thumbnail grid with date badge and ✓ per page, "Go to page…".
+- Global search: top-bar field and Ctrl K, same index as `transcript-search.js` plus parsing of dates and
+  notebook names; grouped results (Pages / Notebooks / Days) with snippet, thumbnail, written date; Enter
+  opens the page in the reader (highlight the line only where trustworthy); Shift+Enter loads into Editor.
+  Keep Ctrl+F (canvas) and Ctrl+Shift+F behaviour.
+- Done when: home shows real data with no extra page reads (metadata-only scan rule); search results open in
+  the reader; nothing loads strokes until a page is opened.
+
+## How to verify each package
+
+- `npm test` (add unit tests for any new pure logic in `src/lib/`).
+- Run the real Electron app against a **scratch copy** of the data folder, in an isolated profile so the
+  user's running app is untouched (a second instance with the default profile quits on the single-instance
+  lock): copy `<dataRoot>/pages` to a temp dir, then launch
+  `electron . --user-data-dir=<temp> --remote-debugging-port=9444 --disable-backgrounding-occluded-windows --disable-renderer-backgrounding`
+  and, over CDP, set `localStorage['smartpen-bridge-settings'] = JSON.stringify({dataRoot: '<temp>/data'})`
+  and reload. Capture screenshots at 1600×950 and 1280×760 before and after. Stop only that instance.
+- Walk the flows that must not regress: open on Timeline; Dates range → feed → Load into Editor; Library →
+  spread → Load into Editor; transcript edit then leave view (discard prompt); Times hover → click opens
+  Timeline day; rotate a page; Paper toggle. Live pen, MyScript and offline import can't be exercised
+  without hardware or keys: say so rather than claiming they were checked.
+
+## Not in scope
+
+Data model, PageDoc/sidecar formats, save/transcribe logic, the Planner idea in CLAUDE.md, mobile layouts.
