@@ -1,6 +1,6 @@
 # Reading-first UX: review and implementation spec
 
-Status: proposed (review dated 2026-10-19, against v2.10.0). Nothing here is built yet.
+Status: package A built and merged to `main` (2026-10-19); B–E proposed. Review dated 2026-10-19, against v2.10.0.
 
 **Target release: v3.0.0.** Packages A–E together are the v3.0.0 milestone ("reading-first"). v3.0.0
 is the major bump because the app's frame and navigation change, not because data changes: **PageDoc
@@ -85,12 +85,59 @@ Each package is shippable alone and leaves `npm test` green. Do not combine pack
 - Done when: at 1280×760 the header is one row and reading height grows by ~125 px; capture bar appears in
   Editor / pen connected / unsaved and not otherwise; unsaved dot visible from every view.
 
+**As built (differences from the bullets above).** Record kept here so the spec stays the source of truth:
+- Header nav is the *existing* Editor | Book View switch, passed into `Header` through a `nav` slot (`switchView`
+  and its discard prompt stay in `App.svelte`). Library | Timeline | Editor is still package C. In the Editor the
+  pane bar is dropped; Books | Timeline and the other per-view toggles stay in the Book View pane bar.
+- Search entry is a button into the existing Transcripts → Search (`openTranscriptSearch()`), not a dead
+  placeholder. No Ctrl K yet (package E).
+- Unsaved marker ("Unsaved", amber dot) sits next to the pen chip, not inside it. Pen chip: state + battery +
+  Connect / Disconnect (`PenChip.svelte`); the pen-memory percentage is no longer shown in the header.
+- Capture bar condition (`lib/capture-bar.js`) also includes "a transcription or offline transfer is running",
+  because the progress popups hang off the bar. `ActionBar` stays mounted and takes a `visible` prop; it owns the
+  save dialog and in-flight handlers, so never wrap it in `{#if}`.
+- Layout contract B must keep: `.main-grid` has `grid-template-rows: minmax(0, 1fr)` and the left panel has
+  `max-height: 100%` (no `calc(100vh - …)` guess). Header height now varies (45 px, or 96 px with the capture bar).
+- Colour tokens live in `App.svelte :root` (`--selected-*`, `--destructive*`, `--ok-solid*`).
+
 ### B. Collapsible left panel + width cap  (high impact, small effort)
-- `layout/LeftPanel.svelte`, `App.svelte` (`.main-grid`, `.app` max-width).
-- Chevron and `[` key collapse the panel to a ~48 px rail (state in localStorage, per-viewer convenience).
-- Lift `max-width: 1600px` for Book View/Timeline (keep for Editor).
-- Done when: collapsed panel gives the Timeline/spread the full width; the key does not fire while typing in
-  inputs; state persists across reload.
+- `layout/LeftPanel.svelte`, `App.svelte` (`.main-grid`, `.app` max-width), a small store + pure helpers in `src/lib/`.
+- Chevron and `[` key collapse the panel to a ~48 px rail (state in localStorage, per-viewer convenience; wrap
+  every storage read/write in try/catch). The key must not fire while typing (`input`, `textarea`, `select`,
+  `contenteditable`) or with Ctrl/Alt/Meta held. The rail keeps what a collapsed panel would otherwise hide: an expand
+  chevron, one icon per tab (click = expand and select that tab) and the Transcripts count badge
+  (`pageTranscriptionCount`), so a finished MyScript run is still visible. Keep `setActiveTab` ids unchanged.
+- **Nothing may open into a hidden panel.** Several callers change the left panel on the assumption the user can see
+  it. With the panel collapsed they would silently do nothing visible. Add one `revealLeftPanel(tabId?)` (expands, and
+  selects the tab if given) and call it from the callers where the user *asked* to see the panel:
+  - `openTranscriptSearch()` (header search button, canvas Ctrl+Shift+F, canvas search button): expand, switch to
+    Transcripts → Search and focus the input. Focus must still land (the existing `transcriptSearchFocus` token
+    plus `tick()` in `TranscriptsPanel` assumes the input exists, so expand before bumping the token).
+  - `openTranscriptReview()`.
+  - `TimelineFeed` "Change range" (`setActiveTab('dates')`).
+  - Leave passive callers alone so a panel the user collapsed does not pop open: the Book View ink click in
+    `PageSpreadView` (sets the range and opens the Timeline day) and `ActionBar`'s post-transcription
+    `setActiveTab('transcription')` (the rail badge covers it). Re-check with `grep -rn "setActiveTab\|openTranscript"`
+    before building; any caller added since is yours to classify.
+  - Package C will replace "Change range" with a Range menu; keep the call site easy to find.
+- **Width cap.** Lift `.app { max-width: 1600px }` for Book View (Books and Timeline) so wide monitors enlarge
+  the reading surface; **keep the 1600 px cap for the Editor** (a stretched canvas toolbar is worse, and the
+  canvas is sized from ink bounds). Drive it from `$viewerMode` with a class on `.app`, not a media query, and keep the
+  padding. Collapsing the panel changes the grid's first column (`48px 1fr`); keep `grid-template-rows: minmax(0, 1fr)`,
+  the left panel's `max-height: 100%` and the ≤ 1400 / ≤ 1000 px media queries working.
+- **Editor at narrow widths.** The Editor already overflows horizontally at 1280 wide (the document scrolls sideways,
+  clipping the right end of the canvas toolbar; present before package A). The window's minimum is 1200 px. Find which
+  element sets the minimum content width (likely the canvas toolbar row in `StrokeCanvas.svelte`) and fix it so the
+  toolbar wraps or scrolls inside the pane instead of widening the page. Collapsing the panel gives the Editor 400 px
+  back, which may hide the problem but is not the fix: it must hold with the panel expanded.
+- The canvas must redraw when the panel toggles (`StrokeCanvas` already has a `ResizeObserver`; confirm the page
+  does not keep a stale size or lose zoom/pan).
+- Done when: collapsed panel gives the Timeline/spread the full width; at ≥ 1920 wide Book View fills and the Editor
+  stays at 1600; the key does not fire while typing in inputs; state persists across reload; header search, canvas
+  Ctrl+Shift+F, Review and "Change range" each work with the panel collapsed (it expands, and the search input has
+  focus); passive callers leave it collapsed; at 1280 and 1200 wide `document.documentElement.scrollWidth <= innerWidth`
+  in the Editor with the panel both expanded and collapsed; unit tests for the collapse store (persistence,
+  corrupt storage, reveal) and the typing-target check.
 
 ### C. Navigation spine + View menu + Timeline consolidation  (high impact, medium effort)
 - `App.svelte` (topbar), `viewer/TimelineFeed.svelte`, `dates/DatesTab.svelte`, `dates/ActivityGrid.svelte`,
