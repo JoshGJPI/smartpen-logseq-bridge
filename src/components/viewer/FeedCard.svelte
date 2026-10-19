@@ -7,12 +7,15 @@
   two pages reads as one card with two strips rather than two cards.
 
   A one-page sitting — most of them — gets no extra header: the part's own
-  header carries the sitting's time, and the Load button sits in its slot.
-  A multi-page sitting gets a header of its own for the time and the Load
-  button, and each part heads itself with its page and share of the strokes.
+  header carries the sitting's time, and Load into Editor sits in its ⋯ menu.
+  A multi-page sitting gets a header of its own for the time and a ⋯ with the
+  Load, and each part heads itself with its page and share of the strokes.
+  Load lives in an overflow (package C): Open page is the card's one plain
+  action; editing is the deliberate step.
 -->
 <script>
   import FeedPart from './FeedPart.svelte';
+  import OverflowMenu from './OverflowMenu.svelte';
   import { formatDuration } from '$lib/timeline-feed.js';
   import { bookAliases } from '$stores';
   import { formatBookName } from '$utils/formatting.js';
@@ -52,6 +55,13 @@
     return groups.map((g) => `${bookName(g.book, aliases)} · P${g.ids.join(', P')}`).join(' + ');
   }
 
+  $: loadItem = {
+    label: loading ? 'Loading…' : 'Load sitting into Editor',
+    title: 'The rest of each page comes along as grey context',
+    disabled: loading,
+    onSelect: load
+  };
+
   async function load() {
     if (loading) return;
     loading = true;
@@ -70,13 +80,7 @@
         <div class="fc-title">{multiTitle}</div>
         <div class="fc-meta">{timeMeta} · {shown.length} pages</div>
       </div>
-      <button type="button" class="fc-load" on:click={load} disabled={loading}
-        title="Load this sitting into the Editor — the rest of each page comes along as grey context">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
-        </svg>
-        {loading ? 'Loading…' : 'Load into Editor'}
-      </button>
+      <OverflowMenu items={[loadItem]} label="More for this sitting" />
     </header>
     {#each shown as part, i (`${part.book}/${part.pageId}`)}
       <FeedPart
@@ -94,16 +98,9 @@
       page={pages.get(`${shown[0].book}/${shown[0].pageId}`)}
       title={`${bookName(shown[0].book, $bookAliases)} · P${shown[0].pageId}`}
       meta={timeMeta}
+      menuItems={[loadItem]}
       {onOpen}
-    >
-      <button slot="actions" type="button" class="fc-load" on:click={load} disabled={loading}
-        title="Load this sitting into the Editor — the rest of the page comes along as grey context">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
-        </svg>
-        {loading ? 'Loading…' : 'Load into Editor'}
-      </button>
-    </FeedPart>
+    />
   {/if}
 </article>
 
@@ -154,33 +151,4 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Styled here for both copies: Svelte scopes slotted markup to the
-     component that wrote it, so the one in FeedPart's header is ours too. */
-  .fc-load {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    flex-shrink: 0;
-    height: 30px;
-    padding: 0 9px;
-    border: 1px solid #c7d6fb;
-    border-radius: 6px;
-    background: #fff;
-    color: #2f5fd8;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    white-space: nowrap;
-    transition: all 0.15s;
-  }
-
-  .fc-load:hover:not(:disabled) {
-    background: #eef3ff;
-    border-color: #4a7cf7;
-  }
-
-  .fc-load:disabled {
-    opacity: 0.6;
-    cursor: progress;
-  }
 </style>

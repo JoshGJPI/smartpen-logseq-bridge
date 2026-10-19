@@ -17,7 +17,8 @@
   next few days with ink (earlier when newest is on top), rather than keeping a
   private extension. The Dates tab's grid and tallies then keep describing
   exactly what the feed shows, and "Load range into Editor" loads what you
-  scrolled through. It runs only on a user scroll or wheel — opening the feed
+  scrolled through. The range itself is set in the head (TimelineHead: Range ▾
+  and the activity strip) or the Dates panel; all write the same store. It runs only on a user scroll or wheel — opening the feed
   never widens a range you picked.
 
   Everything here reads the book-filtered index, so an excluded notebook is
@@ -26,7 +27,7 @@
 <script>
   import { onMount, onDestroy, tick } from 'svelte';
   import FeedDay from './FeedDay.svelte';
-  import BookFilterMenu from '../dates/BookFilterMenu.svelte';
+  import TimelineHead from './TimelineHead.svelte';
   import { feedSkeleton, nextFeedRange, extendFeedRange, PAGE_MIN_WIDTH } from '$lib/timeline-feed.js';
   import { dayStart } from '$lib/timeline.js';
   import { createFeedPageLoader } from '$lib/viewer/feed-pages.js';
@@ -36,8 +37,8 @@
   import {
     timelineIndex, timelineIndexFiltered, timelineExcludedBooks, timelineLoading, timelineError,
     timelineRange, timelineDays, timelineSummary, loadTimeline, setTimelineRange,
-    setCanvasPageOrder, feedOrder, feedDayInView, feedJumpRequest, setViewerMode,
-    setBookViewMode, setViewerSelection, recordRecentView, revealLeftPanel
+    setCanvasPageOrder, feedOrder, feedDayInView, feedJumpRequest, navigateTo,
+    openPageInLibrary
   } from '$stores';
   import { dataFolderReady } from '$stores/settings.js';
 
@@ -74,8 +75,6 @@
   const fmt = (n) => (n || 0).toLocaleString();
   $: rangeLabel = spanLabel(range.from, range.to, { day: 'numeric', month: 'long', year: 'numeric' });
   $: summary = $timelineSummary;
-  $: summaryLine = `${summary.days} day${summary.days === 1 ? '' : 's'} with ink · `
-    + `${summary.pages} page${summary.pages === 1 ? '' : 's'} · ${fmt(summary.strokes)} strokes`;
   // The far end of the ink the feed can reach, for the "that's everything" line.
   $: farDay = order === 'oldest'
     ? $timelineDays[$timelineDays.length - 1]?.day
@@ -240,7 +239,7 @@
   function afterLoad(result) {
     if (result && result.success && (result.imported > 0 || result.duplicatesSkipped > 0)) {
       setCanvasPageOrder('date');
-      setViewerMode('editor');
+      navigateTo('editor');
     }
   }
 
@@ -274,9 +273,7 @@
   }
 
   function openPage(p) {
-    setViewerSelection(p.book, p.pageId);
-    recordRecentView(p.book, p.pageId);
-    setBookViewMode('books');
+    openPageInLibrary(p.book, p.pageId);
   }
 
   function shiftRange(direction) {
@@ -286,26 +283,7 @@
 </script>
 
 <div class="tf">
-  <div class="tf-head">
-    <div class="tf-range">
-      <button type="button" class="tf-nav" on:click={() => shiftRange(-1)} aria-label="Earlier range" title="Earlier range">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6" /></svg>
-      </button>
-      <div class="tf-label">
-        <div class="tf-title">{rangeLabel || 'No range selected'}</div>
-        <div class="tf-sub">{range.from ? summaryLine : 'Pick a range in the Dates tab'}</div>
-      </div>
-      <button type="button" class="tf-nav" on:click={() => shiftRange(1)} aria-label="Later range" title="Later range">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6" /></svg>
-      </button>
-      <button type="button" class="tf-btn" on:click={() => revealLeftPanel('dates')}>Change range</button>
-      <BookFilterMenu theme="light" />
-    </div>
-    <button type="button" class="tf-btn load" on:click={loadRange} disabled={busy || summary.strokes === 0}>
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" /></svg>
-      {busy ? 'Loading…' : 'Load range into Editor'}
-    </button>
-  </div>
+  <TimelineHead {busy} onLoadRange={loadRange} onShift={shiftRange} />
 
   <div class="tf-scroll" bind:this={scrollEl} on:scroll={onScroll} on:wheel|passive={onWheel}>
     <div class="tf-col" bind:clientWidth={colWidth}>
@@ -391,33 +369,15 @@
     overflow: hidden;
   }
 
-  .tf-head {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
-    padding: 10px 20px;
-    background: #fff;
-    border-bottom: 1px solid #e0e0e0;
-    /* Above the feed's sticky day headings, so the book menu can drop over them. */
-    position: relative;
-    z-index: 5;
-  }
-
-  .tf-range { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
-  .tf-label { min-width: 0; }
-  .tf-title { font-size: 16px; font-weight: 650; color: #1f1f28; }
   .tf-sub { font-size: 12px; color: #62626e; font-variant-numeric: tabular-nums; }
 
-  .tf-nav,
   .tf-btn {
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 6px;
     height: 30px;
+    padding: 0 11px;
     border: 1px solid #dcdce2;
     border-radius: 6px;
     background: #fff;
@@ -428,9 +388,6 @@
     white-space: nowrap;
     transition: all 0.15s;
   }
-  .tf-nav { width: 30px; padding: 0; }
-  .tf-btn { padding: 0 11px; }
-  .tf-nav:hover,
   .tf-btn:hover:not(:disabled) { background: #f2f2f4; border-color: #c8c8d0; }
   .tf-btn.load { color: #2f5fd8; border-color: #c7d6fb; font-weight: 600; }
   .tf-btn.load:hover:not(:disabled) { background: #eef3ff; border-color: #4a7cf7; }

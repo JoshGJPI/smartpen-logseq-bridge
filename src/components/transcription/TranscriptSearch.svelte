@@ -12,7 +12,7 @@
 <script>
   import { onDestroy } from 'svelte';
   import { savedPages, canvasPageKeys, log } from '$stores';
-  import { setViewerSelection, setViewerMode } from '$stores/viewer.js';
+  import { openPageInLibrary } from '$stores/viewer.js';
   import { importStrokesFromFolder } from '$lib/storage/load-page.js';
   import { searchPages } from '$lib/transcript-search.js';
   import SearchResultCard from './SearchResultCard.svelte';
@@ -57,8 +57,9 @@
   }
 
   function handleOpen(page) {
-    setViewerSelection(page.book, page.pageId);
-    setViewerMode('book');
+    // Library, not just "Book View": from the Timeline the old setViewerMode('book')
+    // left the feed showing instead of the page.
+    openPageInLibrary(page.book, page.pageId);
   }
 
   function clearQuery() {

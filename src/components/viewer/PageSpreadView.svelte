@@ -11,7 +11,7 @@
   import { NCODE_SCALE, DEFAULT_STROKE_WIDTH, computeStrokeBounds, strokeToPathD, strokeToWidthRuns } from '$lib/viewer/page-svg.js';
   import {
     sketchProfile, backgroundsEnabled, resolvePageBackground,
-    setTimelineRange, setBookViewMode, setViewerMode, setActiveTab
+    setTimelineRange, navigateTo, setActiveTab
   } from '$stores';
   import { frameToBounds } from '$lib/neo-backgrounds.js';
   import { getCachedPage } from '$lib/viewer/page-cache.js';
@@ -201,13 +201,14 @@
   function endPan() { panArmed = false; isPanning = false; }
 
   // Clicking a day's ink: show that day in the Timeline, with the Dates tab
-  // holding the same one-day range.
+  // holding the same one-day range. Guarded like every other way out of the
+  // Library: while a transcript is edited, the strokes beside it are clickable.
+  // setActiveTab, not revealLeftPanel: a panel the user collapsed stays so.
   function openTimelineDay(e) {
     const { day } = e.detail || {};
     if (!day) return;
+    if (navigateTo('timeline') === 'cancelled') return;
     setTimelineRange(day, day);
-    setBookViewMode('timeline');
-    setViewerMode('book');
     setActiveTab('dates');
   }
 </script>

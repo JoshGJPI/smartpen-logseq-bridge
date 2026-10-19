@@ -6,9 +6,12 @@
   of each touched page comes along as context ink (halftoned, untouchable) so the
   day's writing can be read where it actually sits on the page.
 
-  The same range drives Book View's Timeline feed. While the feed is showing,
-  the day list jumps it to a day and marks the one at its top, and the load
-  button hands the range to the Editor.
+  The same range drives the Timeline feed. While the feed is showing (this tab
+  is then the Timeline's own panel), the day list jumps it to a day and marks
+  the one at its top; the heat grid, summary, book filter and Load live once,
+  in the feed's head (the activity strip stands in for the grid), so this panel
+  keeps the range fields and the day list (package C). In the Editor it is the full tool: tally, filter, load onto the
+  canvas.
 -->
 <script>
   import { onMount } from 'svelte';
@@ -23,10 +26,11 @@
   import { bookAliases } from '$stores';
   import { contextInkCount, clearContextInk } from '$stores/context-ink.js';
   import {
-    feedVisible, feedDayInView, feedOrder, requestFeedJump, setViewerMode, setBookViewMode
+    feedVisible, feedDayInView, feedOrder, requestFeedJump, navigateTo
   } from '$stores/viewer.js';
   import { importDateRangeFromFolder, LARGE_LOAD_STROKES } from '$lib/storage/load-range.js';
   import { dayStart, addDays } from '$lib/timeline.js';
+  import { RANGE_PRESETS, rangePreset } from '$lib/timeline-range.js';
   import { formatBookName } from '$utils/formatting.js';
   import { plural } from '$lib/plural.js';
 
@@ -73,15 +77,10 @@
     if (event.target.value) setTimelineRange(range.from || event.target.value, event.target.value);
   }
 
-  /** Jump to the last day with ink, and optionally back n days from it. */
+  /** Same presets as the feed's Range ▾ (lib/timeline-range.js). */
   function preset(kind) {
-    const extent = $timelineRangeExtent;
-    if (!extent) return;
-    const anchor = (range.to && range.to <= extent.last) ? range.to : extent.last;
-    if (kind === 'day') setTimelineRange(anchor, anchor);
-    if (kind === 'week') setTimelineRange(addDays(anchor, -6), anchor);
-    if (kind === 'month') setTimelineRange(addDays(anchor, -29), anchor);
-    if (kind === 'latest') setTimelineRange(extent.last, extent.last);
+    const r = rangePreset(kind, range, $timelineRangeExtent);
+    if (r) setTimelineRange(r.from, r.to);
   }
 
   function shift(n) {
@@ -109,8 +108,6 @@
       // Only switch the canvas to date order once something is actually on it —
       // reordering an empty canvas just changes a setting the user can't see.
       if (result.success && result.imported > 0) setCanvasPageOrder('date');
-      // From the feed, "Load into Editor" means go there too.
-      if (result.success && $feedVisible) setViewerMode('editor');
     } finally {
       loading = false;
       progress = null;
@@ -119,8 +116,7 @@
   }
 
   function showTimeline() {
-    setBookViewMode('timeline');
-    setViewerMode('book');
+    navigateTo('timeline');
   }
 
   function longDate(day) {
@@ -147,7 +143,11 @@
   {:else if $timelineLoading && !$timelineIndex}
     <p class="notice">Reading capture dates…</p>
   {:else}
-    <ActivityGrid days={$timelineDays} from={range.from} to={range.to} {inView} on:select={onGridSelect} />
+    <!-- Beside the Timeline the feed's activity strip is the picture of the range
+         (Josh, 2026-10-19: strip only); the Editor has no strip, so it keeps the grid. -->
+    {#if !$feedVisible}
+      <ActivityGrid days={$timelineDays} from={range.from} to={range.to} on:select={onGridSelect} />
+    {/if}
 
     <div class="range">
       <div class="field">
@@ -165,12 +165,16 @@
     </div>
 
     <div class="presets">
-      <button type="button" on:click={() => preset('latest')}>Latest day</button>
-      <button type="button" on:click={() => preset('day')}>1 day</button>
-      <button type="button" on:click={() => preset('week')}>7 days</button>
-      <button type="button" on:click={() => preset('month')}>30 days</button>
+      {#each RANGE_PRESETS as p (p.id)}
+        <button type="button" on:click={() => preset(p.id)}>{p.label}</button>
+      {/each}
     </div>
 
+    {#if $feedVisible}
+      <p class="feed-note">
+        The Timeline is showing this range. Pick a day below to jump to it.
+      </p>
+    {:else}
     <div class="tally">
       <span><b>{summary.days}</b> {plural(summary.days, 'day')}</span>
       <span><b>{summary.pages}</b> {plural(summary.pages, 'page')}</span>
@@ -186,12 +190,6 @@
       </p>
     {/if}
 
-    {#if $feedVisible}
-      <p class="feed-note">
-        Book View is showing this range as a timeline. Pick a day below to jump to it.
-      </p>
-    {/if}
-
     <div class="actions">
       <button class="btn btn-primary" on:click={handleLoad} disabled={!canLoad}>
         {#if loading}
@@ -200,17 +198,13 @@
           Load {fmt(summary.strokes)} {plural(summary.strokes, 'stroke')} anyway
         {:else if summary.strokes === 0}
           Nothing in range
-        {:else if $feedVisible}
-          Load into Editor
         {:else}
           Load onto canvas
         {/if}
       </button>
-      {#if !$feedVisible}
-        <button class="btn btn-secondary" on:click={showTimeline} disabled={!$dataFolderReady}>
-          View as timeline
-        </button>
-      {/if}
+      <button class="btn btn-secondary" on:click={showTimeline} disabled={!$dataFolderReady}>
+        View as timeline
+      </button>
       <label class="order">
         <input
           type="checkbox"
@@ -243,6 +237,7 @@
       Loading adds to the canvas; it never replaces what is already there. Use
       Clear to start from empty.
     </p>
+    {/if}
 
     <div class="daylist" class:feed={$feedVisible}>
       {#each dayList as day (day.day)}

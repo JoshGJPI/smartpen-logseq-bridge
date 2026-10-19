@@ -12,8 +12,9 @@
 
   The sitting's strokes draw in ink and everything else on the page in the
   canvas's context-ink grey — the same convention as a date load in the Editor.
-  The header's right end is a slot, so a one-page card can put its Load button
-  there instead of drawing a second header above.
+  The header's actions are Open page plus a ⋯ menu (package C): Whole page /
+  Strip, and whatever the card adds (`menuItems`) — a one-page card puts its
+  Load into Editor there instead of drawing a second header above.
 -->
 <script>
   import { NCODE_SCALE, DEFAULT_STROKE_WIDTH, strokeToPathD, strokeToWidthRuns } from '$lib/viewer/page-svg.js';
@@ -22,6 +23,7 @@
   import { sketchProfile, backgroundsEnabled, resolvePageBackground } from '$stores';
   import { pageOrientations } from '$stores/orientation.js';
   import { rotationFor, rotateFrame, rotateBox, svgRotationTransform } from '$lib/page-orientation.js';
+  import OverflowMenu from './OverflowMenu.svelte';
 
   /** A part from daySessions(): { book, pageId, count, strokes, firstStart, lastStart }. */
   export let part;
@@ -32,6 +34,8 @@
   /** Drawn under another part — gets a top rule rather than sitting flush. */
   export let divided = false;
   export let onOpen = () => {};
+  /** Extra ⋯ entries from the card: [{ label, onSelect, disabled?, title? }]. */
+  export let menuItems = [];
 
   const ORIGIN = { minX: 0, minY: 0 };
   const S = NCODE_SCALE;
@@ -117,6 +121,12 @@
   function toggle() {
     expanded = !expanded;
   }
+
+  // Not `items`: that name is the page's stroke boxes above.
+  $: overflowItems = [
+    { label: expanded ? 'Show only this sitting' : 'Show the whole page', onSelect: toggle },
+    ...menuItems
+  ];
 </script>
 
 <div class="fp" class:divided>
@@ -131,23 +141,13 @@
       <div class="fp-title">{title}</div>
       <div class="fp-meta">{meta}</div>
     </div>
-    <button type="button" class="fp-btn" on:click={toggle} aria-expanded={expanded}>
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        {#if expanded}
-          <polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" />
-        {:else}
-          <polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" />
-        {/if}
-      </svg>
-      {expanded ? 'Strip' : 'Whole page'}
-    </button>
-    <button type="button" class="fp-btn" on:click={() => onOpen(part)} title="Open this page in Books">
+    <button type="button" class="fp-btn" on:click={() => onOpen(part)} title="Open this page in the Library">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M2 4h6a4 4 0 0 1 4 4v12a3 3 0 0 0-3-3H2z" /><path d="M22 4h-6a4 4 0 0 0-4 4v12a3 3 0 0 1 3-3h7z" />
       </svg>
       Open page
     </button>
-    <slot name="actions" />
+    <OverflowMenu items={overflowItems} label="More for this page" />
   </div>
 
   <button type="button" class="fp-body" on:click={toggle} aria-expanded={expanded}

@@ -9,6 +9,9 @@
  * recently-viewed pages list (persisted to localStorage).
  */
 import { writable, derived, get } from 'svelte/store';
+import {
+  destinationOf, modesFor, planNavigation, isDestination, DISCARD_PROMPT
+} from '../lib/navigation.js';
 
 /* ============================================================
  *  Pane mode
@@ -219,6 +222,66 @@ export function toggleSittingHover() {
     persistChoice(SITTING_HOVER_KEY, on ? 'off' : 'on');
     return !on;
   });
+}
+
+/* ============================================================
+ *  Navigation spine (reading-first package C)
+ *  Library | Timeline | Editor, mapped onto viewerMode + bookViewMode
+ *  (lib/navigation.js). Every route between them goes through navigateTo, so
+ *  the unsaved-transcript prompt is asked in one place.
+ * ============================================================ */
+
+/** 'library' | 'timeline' | 'editor' */
+export const destination = derived(
+  [viewerMode, bookViewMode],
+  ([$viewerMode, $bookViewMode]) => destinationOf($viewerMode, $bookViewMode)
+);
+
+function windowConfirm(message) {
+  return typeof window !== 'undefined' && typeof window.confirm === 'function'
+    ? window.confirm(message)
+    : false;
+}
+
+/**
+ * Go to a destination, asking first when that would drop transcript edits.
+ * @param {'library'|'timeline'|'editor'} dest
+ * @param {{confirm?: (message: string) => boolean}} [opts] - injectable for tests
+ * @returns {'same'|'cancelled'|'navigated'|'invalid'}
+ */
+export function navigateTo(dest, { confirm = windowConfirm } = {}) {
+  if (!isDestination(dest)) return 'invalid';
+  const plan = planNavigation({ from: get(destination), to: dest, viewerDirty: get(viewerDirty) });
+  if (plan === 'same') return 'same';
+  if (plan === 'confirm') {
+    if (!confirm(DISCARD_PROMPT)) return 'cancelled';
+    clearAllViewerDirty();
+  }
+  const modes = modesFor(dest);
+  if (modes.bookViewMode) bookViewMode.set(modes.bookViewMode);
+  viewerMode.set(modes.viewerMode);
+  return 'navigated';
+}
+
+/**
+ * Open one page in the Library (feed card, search result, contents list).
+ * Changing the open page unmounts its transcript editor even when the Library
+ * is already showing, so the same prompt applies; re-opening the page that is
+ * already open does not ask.
+ * @returns {'cancelled'|'opened'}
+ */
+export function openPageInLibrary(book, pageId, { confirm = windowConfirm } = {}) {
+  const sel = get(viewerSelection);
+  const samePage = sel && String(sel.book) === String(book) && sel.pageId === String(pageId);
+  if (!samePage && get(viewerDirty)) {
+    if (!confirm(DISCARD_PROMPT)) return 'cancelled';
+    clearAllViewerDirty();
+  }
+  setViewerSelection(book, pageId);
+  recordRecentView(book, String(pageId));
+  // Dirty was settled above, so this never asks again.
+  navigateTo('library', { confirm });
+  return 'opened';
 }
 
 /** True when the right pane is actually showing the feed. */

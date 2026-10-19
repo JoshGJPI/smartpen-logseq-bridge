@@ -19,22 +19,21 @@
   // Book viewer
   import BookViewer from './components/viewer/BookViewer.svelte';
   import TimelineFeed from './components/viewer/TimelineFeed.svelte';
+  import PaneToolbar from './components/layout/PaneToolbar.svelte';
 
   // Stores
   import { log } from '$stores';
   import { openBluetoothPicker, updateBluetoothDevices, closeBluetoothPicker } from '$stores/ui.js';
   import { dataRoot, setDataFolderStatus, getDataRoot } from '$stores/settings.js';
   import { graphRoot, setGraphFolderStatus, getGraphRoot } from '$stores/settings.js';
-  import { unsavedChanges, viewerMode, viewerDirty, setViewerMode, clearAllViewerDirty } from '$stores';
+  import { unsavedChanges, viewerDirty, destination, navigateTo } from '$stores';
+  import { DESTINATIONS, DESTINATION_LABELS } from '$lib/navigation.js';
   import { leftPanelCollapsed, toggleLeftPanel } from '$stores';
   import { isPanelToggleKey } from '$lib/left-panel.js';
-  import { bookViewMode, setBookViewMode, feedOrder, toggleFeedOrder } from '$stores';
-  import { sittingHoverEnabled, toggleSittingHover } from '$stores';
-  import { backgroundsEnabled, backgroundsAvailable, toggleBackgrounds, refreshBackgrounds } from '$stores';
+  import { refreshBackgrounds } from '$stores';
   import { isAvailable as folderIsAvailable } from '$lib/storage/local-store.js';
   import { scanLocalPages } from '$lib/storage/scan.js';
   import { loadVolumes } from '$stores/volumes.js';
-  import { get } from 'svelte/store';
 
   // Initialize pen SDK on mount
   import { initializePenSDK, disconnectAllPens } from '$lib/pen-sdk.js';
@@ -115,33 +114,13 @@
     }
   }
 
-  // Book View instance + shared state bound from BookViewer, so the global
-  // controls (Home, Strokes/Transcript, Single/Spread) can live in the top bar.
+  // Book View instance + shared state bound from BookViewer, so the pane
+  // toolbar's breadcrumb and View menu can drive Home, Strokes/Transcript and
+  // Single/Spread.
   let bookViewer;
   let bookViewerContentMode = 'strokes';
   let bookViewerSpread = true;
   let bookViewerHasSelection = false;
-
-  // Switch the right pane between the Editor (live StrokeCanvas) and Book View.
-  // Guards against silently dropping unsaved transcript edits when leaving Book View.
-  function switchView(mode) {
-    if (mode === 'editor' && get(viewerDirty)) {
-      if (!window.confirm('You have unsaved transcript edits. Discard them?')) return;
-      clearAllViewerDirty();
-    }
-    setViewerMode(mode);
-  }
-
-  // Books ⇄ Timeline inside Book View. Leaving Books unmounts its transcript
-  // editor, so it gets the same unsaved-edits guard as leaving Book View.
-  function switchBookMode(mode) {
-    if (mode === $bookViewMode) return;
-    if (mode === 'timeline' && get(viewerDirty)) {
-      if (!window.confirm('You have unsaved transcript edits. Discard them?')) return;
-      clearAllViewerDirty();
-    }
-    setBookViewMode(mode);
-  }
 
   // `[` folds the left panel to its rail and back. isPanelToggleKey keeps it out
   // of text fields and modifier chords.
@@ -220,23 +199,20 @@
 <!-- `wide` lifts the 1600 px cap while reading (Book View: Books and Timeline) so
      a big monitor enlarges the reading surface. The Editor keeps the cap: its
      canvas is sized from ink bounds and a stretched toolbar is worse. -->
-<div class="app" class:wide={$viewerMode === 'book'}>
+<div class="app" class:wide={$destination !== 'editor'}>
   <Header>
-    <!-- Primary navigation. Lives here, not in Header, because switchView owns the
-         unsaved-transcript-edits guard. -->
-    <div slot="nav" class="view-switch" role="group" aria-label="Pane">
-      <button
-        class="view-switch-btn"
-        class:active={$viewerMode === 'editor'}
-        aria-pressed={$viewerMode === 'editor'}
-        on:click={() => switchView('editor')}
-      >Editor</button>
-      <button
-        class="view-switch-btn"
-        class:active={$viewerMode === 'book'}
-        aria-pressed={$viewerMode === 'book'}
-        on:click={() => switchView('book')}
-      >Book View</button>
+    <!-- Primary navigation: the three destinations. navigateTo (stores/viewer.js)
+         asks before dropping unsaved transcript edits, for this and every other
+         route between them. -->
+    <div slot="nav" class="view-switch" role="group" aria-label="Destination">
+      {#each DESTINATIONS as dest (dest)}
+        <button
+          class="view-switch-btn"
+          class:active={$destination === dest}
+          aria-pressed={$destination === dest}
+          on:click={() => navigateTo(dest)}
+        >{DESTINATION_LABELS[dest]}</button>
+      {/each}
     </div>
   </Header>
   
@@ -246,120 +222,22 @@
     
     <!-- Right: Canvas or Book View -->
     <div class="canvas-section">
-      <!-- The Editor has its own toolbar, so this bar is Book View's alone. -->
-      {#if $viewerMode === 'book'}
-      <div class="viewer-topbar">
-        <div class="vg-segment" role="group" aria-label="Book View mode">
-          <button
-            class:active={$bookViewMode === 'books'}
-            aria-pressed={$bookViewMode === 'books'}
-            on:click={() => switchBookMode('books')}
-          >Books</button>
-          <button
-            class:active={$bookViewMode === 'timeline'}
-            aria-pressed={$bookViewMode === 'timeline'}
-            on:click={() => switchBookMode('timeline')}
-          >Timeline</button>
-        </div>
-
-        {#if $backgroundsAvailable}
-          <!-- Printed pages behind the ink: for reading, so Book View and the
-               Timeline only — the Editor never draws them. -->
-          <div class="viewer-globals">
-            <button
-              class="vg-btn"
-              class:active={$backgroundsEnabled}
-              aria-pressed={$backgroundsEnabled}
-              on:click={toggleBackgrounds}
-              title={$backgroundsEnabled ? 'Showing the printed page behind your writing — click to hide it' : 'Show the printed page behind your writing'}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
-                <line x1="8" y1="13" x2="16" y2="13"/>
-                <line x1="8" y1="17" x2="16" y2="17"/>
-              </svg>
-              Paper
-            </button>
-          </div>
-        {/if}
-
-        {#if $bookViewMode === 'timeline'}
-          <div class="viewer-globals">
-            <button
-              class="vg-btn"
-              on:click={toggleFeedOrder}
-              title={$feedOrder === 'newest' ? 'Showing newest first — click for oldest first' : 'Showing oldest first — click for newest first'}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                {#if $feedOrder === 'newest'}
-                  <path d="M12 5v14"/><polyline points="19 12 12 19 5 12"/>
-                {:else}
-                  <path d="M12 19V5"/><polyline points="5 12 12 5 19 12"/>
-                {/if}
-              </svg>
-              {$feedOrder === 'newest' ? 'Newest first' : 'Oldest first'}
-            </button>
-          </div>
-        {/if}
-
-        {#if $bookViewMode === 'books' && bookViewerHasSelection}
-          <div class="viewer-globals">
-            <button class="vg-btn icon" on:click={() => bookViewer?.goHome()} title="Back to all pages">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-                <polyline points="9 22 9 12 15 12 15 22"/>
-              </svg>
-            </button>
-            <div class="vg-segment">
-              <button
-                class:active={bookViewerContentMode === 'strokes'}
-                on:click={() => bookViewer?.setContentMode('strokes')}
-              >Strokes</button>
-              <button
-                class:active={bookViewerContentMode === 'transcript'}
-                on:click={() => bookViewer?.setContentMode('transcript')}
-              >Transcript</button>
-            </div>
-            <button
-              class="vg-btn"
-              class:active={bookViewerSpread}
-              on:click={() => bookViewer?.toggleSpread()}
-              title={bookViewerSpread ? 'Single page' : 'Two-page spread'}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                {#if bookViewerSpread}
-                  <rect x="3" y="3" width="18" height="18" rx="2"/>
-                  <line x1="12" y1="3" x2="12" y2="21"/>
-                {:else}
-                  <rect x="5" y="3" width="14" height="18" rx="2"/>
-                {/if}
-              </svg>
-              {bookViewerSpread ? 'Spread' : 'Single'}
-            </button>
-            {#if bookViewerContentMode === 'strokes'}
-              <button
-                class="vg-btn"
-                class:active={$sittingHoverEnabled}
-                aria-pressed={$sittingHoverEnabled}
-                on:click={toggleSittingHover}
-                title={$sittingHoverEnabled ? 'Hover ink to see when it was written — click to turn off' : 'Show when ink was written on hover'}
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="12" cy="12" r="9"/>
-                  <polyline points="12 7 12 12 15 14"/>
-                </svg>
-                Times
-              </button>
-            {/if}
-          </div>
-        {/if}
-      </div>
+      <!-- Library and Timeline only: no View option applies to the Editor, which
+           has its own canvas toolbar. -->
+      {#if $destination !== 'editor'}
+        <PaneToolbar
+          contentMode={bookViewerContentMode}
+          spread={bookViewerSpread}
+          hasSelection={bookViewerHasSelection}
+          onHome={() => bookViewer?.goHome()}
+          onContent={(mode) => bookViewer?.setContentMode(mode)}
+          onToggleSpread={() => bookViewer?.toggleSpread()}
+        />
       {/if}
 
-      {#if $viewerMode === 'book' && $bookViewMode === 'timeline'}
+      {#if $destination === 'timeline'}
         <TimelineFeed />
-      {:else if $viewerMode === 'book'}
+      {:else if $destination === 'library'}
         <BookViewer
           bind:this={bookViewer}
           bind:contentMode={bookViewerContentMode}
@@ -458,14 +336,6 @@
     min-width: 0;
   }
 
-  .viewer-topbar {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 10px;
-    flex-wrap: wrap;
-  }
-
   .view-switch {
     display: inline-flex;
     background: var(--bg-secondary);
@@ -492,76 +362,6 @@
   }
 
   .view-switch-btn.active {
-    background: var(--selected-bg);
-    color: white;
-    box-shadow: inset 0 -2px 0 var(--selected-line);
-  }
-
-  /* Book View global controls (shared header for both spread pages) */
-  .viewer-globals {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .vg-btn {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    padding: 6px 12px;
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    background: var(--bg-secondary);
-    color: var(--text-secondary);
-    font-size: 0.85rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-
-  .vg-btn:hover {
-    color: var(--text-primary);
-    border-color: var(--text-secondary);
-  }
-
-  .vg-btn.icon {
-    padding: 6px 8px;
-  }
-
-  .vg-btn.active {
-    background: var(--selected-bg);
-    border-color: var(--selected-border);
-    color: white;
-    box-shadow: inset 0 -2px 0 var(--selected-line);
-  }
-
-  .vg-segment {
-    display: inline-flex;
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    overflow: hidden;
-  }
-
-  .vg-segment button {
-    padding: 6px 14px;
-    border: none;
-    background: var(--bg-secondary);
-    color: var(--text-secondary);
-    font-size: 0.85rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-
-  .vg-segment button + button {
-    border-left: 1px solid var(--border);
-  }
-
-  .vg-segment button:hover {
-    color: var(--text-primary);
-  }
-
-  .vg-segment button.active {
     background: var(--selected-bg);
     color: white;
     box-shadow: inset 0 -2px 0 var(--selected-line);

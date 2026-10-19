@@ -1,6 +1,6 @@
 # Reading-first UX: review and implementation spec
 
-Status: package A built and merged to `main` (2026-10-19); package B built on `claude/reading-ux-package-b`; C–E proposed. Review dated 2026-10-19, against v2.10.0.
+Status: packages A and B built and merged to `main` (2026-10-19); package C built on `claude/reading-ux-package-c`; D–E proposed. Review dated 2026-10-19, against v2.10.0.
 
 **Target release: v3.0.0.** Packages A–E together are the v3.0.0 milestone ("reading-first"). v3.0.0
 is the major bump because the app's frame and navigation change, not because data changes: **PageDoc
@@ -172,11 +172,30 @@ Each package is shippable alone and leaves `npm test` green. Do not combine pack
   (Load into Editor lives in the overflow); one range-level load as a quiet secondary button; summary shown
   once. Keep scroll-spy, `feedJumpRequest`, endless-scroll range growth, and the book filter working.
 - Open question for Josh before building: keep the Dates heat grid vertical in the left panel as well, or
-  strip only?
+  strip only? **Decided: strip only in the Timeline** (see As built).
 - Done when: no feature is lost (every action reachable), "Load into Editor" appears once per level at most
   and not as a primary button, jump/scroll-spy/filter still agree with the Editor loads, tests green.
 
+**As built (differences from the bullets above).**
+- Open question, decided by Josh (2026-10-19): **strip only** in the Timeline. The Timeline's Dates panel keeps
+  From/To, presets and the day list, without the heat grid; the Editor's Dates tab (no strip there) keeps it.
+- Navigation: `navigateTo(dest)` and `openPageInLibrary(book, pageId)` in `stores/viewer.js`, pure rule in
+  `lib/navigation.js`. Also routed through it: the Book View ink click (was unguarded) and search-result Open (did
+  not switch to Books from the Timeline).
+- Left panel sets: Library → Contents · Transcripts; Timeline → Dates · Transcripts; Editor → Strokes · Transcripts ·
+  **Pages · Dates**. Transcripts is everywhere because search opens there. The Pages tab is kept (with the Editor),
+  not replaced: its cards hold Import / Import all, Export to graph, Edit structure and Reset transcript. Contents is
+  a new id, `'contents'`; ids outside the current set (including `'books'`) show the set's first tab.
+- The Editor has no pane toolbar (no View option applies). Timeline breadcrumb is just "Timeline": the range is the
+  Range ▾ button's label, so it is said once.
+- In the Timeline the Dates panel drops its tally, book filter and Load (all in the feed head); in the Editor it is
+  unchanged ("Load onto canvas", "View as timeline").
+- Card ⋯ holds Whole page / Show only this sitting and Load sitting into Editor; a day's ⋯ holds Load day.
+  Sticky day headers already existed.
+
 ### D. Page reader  (high impact, medium effort)
+- Found in package C: at 1200 wide each spread page's own toolbar clips its "Load into Editor" (also on `main`);
+  the shared toolbar below fixes it.
 - `viewer/BookViewer.svelte`, `PageSpreadView.svelte`, `TranscriptPane.svelte`, `SittingHover.svelte`,
   `lib/viewer/page-sittings.js`.
 - One shared toolbar over the spread (zoom/Fit apply to both pages; rotate/orientation per page via a small

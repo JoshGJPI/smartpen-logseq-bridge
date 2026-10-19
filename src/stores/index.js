@@ -206,6 +206,7 @@ export {
 // UI
 export {
   activeTab,
+  panelTab,
   sidebarCollapsed,
   canvasZoom,
   showLineGuides,
@@ -237,7 +238,9 @@ export {
   setLeftPanelCollapsed,
   toggleLeftPanel,
   expandLeftPanel,
-  collapseLeftPanel
+  collapseLeftPanel,
+  contentsOpenBooks,
+  setContentsBookOpen
 } from './left-panel.js';
 
 // Storage
@@ -304,7 +307,11 @@ export {
   feedVisible,
   feedDayInView,
   feedJumpRequest,
-  requestFeedJump
+  requestFeedJump,
+  // Navigation spine (reading-first package C)
+  destination,
+  navigateTo,
+  openPageInLibrary
 } from './viewer.js';
 
 // Book Aliases

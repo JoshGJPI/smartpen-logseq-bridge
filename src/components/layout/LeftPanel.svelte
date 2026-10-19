@@ -14,34 +14,39 @@
   folds the panel to a ~48 px rail. The rail keeps what a hidden panel would
   lose: an expand chevron, one icon per tab (click = expand and select) and the
   Transcripts badge. The tab content is not mounted while collapsed.
+
+  Contextual (package C): the tabs follow the destination on the right
+  (lib/left-panel.js CONTEXT_TABS): Library → Contents, Timeline → Dates,
+  Editor → Strokes, Pages, Dates; Transcripts (search, review) everywhere.
+  `panelTab` resolves an `activeTab` that is not in the current set to the
+  set's first tab. Notebook names and volume routing (the old Books tab) are
+  in Settings → Notebooks.
 -->
 <script>
   import StrokeList from '../strokes/StrokeList.svelte';
   import SavedPagesTab from '../saved-pages/SavedPagesTab.svelte';
+  import LibraryContents from '../saved-pages/LibraryContents.svelte';
   import TranscriptsPanel from '../transcription/TranscriptsPanel.svelte';
-  import BooksTab from '../books/BooksTab.svelte';
   import DatesTab from '../dates/DatesTab.svelte';
+  import { tabsFor } from '$lib/left-panel.js';
 
   import {
-    activeTab, setActiveTab, pageTranscriptionCount,
+    panelTab, setActiveTab, pageTranscriptionCount, destination,
     leftPanelCollapsed, toggleLeftPanel, revealLeftPanel
   } from '$stores';
 
   // `icon` is an SVG path set (24×24, stroked) for the collapsed rail.
-  const tabs = [
-    { id: 'strokes', label: 'Strokes',
-      icon: 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z' },
-    { id: 'transcription', label: 'Transcripts',
-      icon: 'M4 6h16M4 10h16M4 14h16M4 18h10' },
-    { id: 'saved-pages', label: 'Pages',
-      icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6' },
-    { id: 'books', label: 'Books',
+  const TAB_META = {
+    strokes: { label: 'Strokes', icon: 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z' },
+    transcription: { label: 'Transcripts', icon: 'M4 6h16M4 10h16M4 14h16M4 18h10' },
+    'saved-pages': { label: 'Pages', icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6' },
+    contents: { label: 'Contents',
       icon: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z' },
-    // Loads the canvas by capture date instead of by notebook. Last because it
-    // cuts across the other four rather than sitting alongside them.
-    { id: 'dates', label: 'Dates',
+    dates: { label: 'Dates',
       icon: 'M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM16 2v4M8 2v4M3 10h18' }
-  ];
+  };
+
+  $: tabs = tabsFor($destination).map((id) => ({ id, ...TAB_META[id] }));
 </script>
 
 <aside class="left-panel panel" class:collapsed={$leftPanelCollapsed}>
@@ -59,9 +64,9 @@
       {#each tabs as tab (tab.id)}
         <button
           class="rail-btn"
-          class:active={$activeTab === tab.id}
+          class:active={$panelTab === tab.id}
           role="tab"
-          aria-selected={$activeTab === tab.id}
+          aria-selected={$panelTab === tab.id}
           aria-label={tab.label}
           title={tab.label}
           on:click={() => revealLeftPanel(tab.id)}
@@ -79,9 +84,9 @@
       {#each tabs as tab (tab.id)}
         <button
           class="panel-tab"
-          class:active={$activeTab === tab.id}
+          class:active={$panelTab === tab.id}
           role="tab"
-          aria-selected={$activeTab === tab.id}
+          aria-selected={$panelTab === tab.id}
           on:click={() => setActiveTab(tab.id)}
         >
           {tab.label}
@@ -104,21 +109,20 @@
     </div>
 
     <div class="tab-content">
-      {#if $activeTab === 'strokes'}
+      {#if $panelTab === 'strokes'}
         <StrokeList />
-      {:else if $activeTab === 'transcription'}
+      {:else if $panelTab === 'transcription'}
         <TranscriptsPanel />
-      {:else if $activeTab === 'saved-pages'}
+      {:else if $panelTab === 'saved-pages'}
         <SavedPagesTab />
-      {:else if $activeTab === 'books'}
-        <BooksTab />
-      {:else if $activeTab === 'dates'}
+      {:else if $panelTab === 'contents'}
+        <LibraryContents />
+      {:else if $panelTab === 'dates'}
         <DatesTab />
       {/if}
     </div>
   {/if}
 </aside>
-
 <style>
   .left-panel {
     display: flex;
@@ -211,8 +215,8 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    /* 11 px, not 16: five tabs plus the collapse chevron have to share one row
-       of the 450 px panel. */
+    /* 11 px, not 16: the Editor's four tabs plus the collapse chevron share one
+       row of the 380 px panel (≤1400 px windows). */
     padding: 9px 11px;
     background: transparent;
     border: none;

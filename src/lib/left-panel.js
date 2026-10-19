@@ -55,3 +55,39 @@ export function isPanelToggleKey(e) {
   if (e.isComposing || e.defaultPrevented) return false;
   return !isTypingTarget(e.target);
 }
+
+/* ------------------------------------------------------------------
+ * Contextual tabs (reading-first package C). The panel shows the tabs that
+ * belong to the destination on the right: reading tools beside the Library
+ * and the Timeline, capture tools beside the Editor. Transcripts is in every
+ * set, because search (header button, Ctrl+Shift+F) opens there from any
+ * view, and nothing may open into a panel that is not on screen.
+ *
+ * Ids are the long-standing `setActiveTab` ids plus 'contents' (the Library's
+ * table of contents). 'books' is in no set any more (its content moved to
+ * Settings → Notebooks); a stored or requested id outside the current set
+ * shows that set's first tab instead.
+ * ------------------------------------------------------------------ */
+
+export const CONTEXT_TABS = {
+  library: ['contents', 'transcription'],
+  timeline: ['dates', 'transcription'],
+  // Pages and Dates stay with the Editor: they load onto the canvas (Import,
+  // Import all, Load onto canvas) and the Pages cards carry Export to graph,
+  // Edit structure and Reset transcript, which have no other home yet.
+  editor: ['strokes', 'transcription', 'saved-pages', 'dates']
+};
+
+/** @param {string} destination 'library' | 'timeline' | 'editor' */
+export function tabsFor(destination) {
+  return CONTEXT_TABS[destination] || CONTEXT_TABS.editor;
+}
+
+/**
+ * The tab the panel actually shows: the active one when it belongs here,
+ * otherwise this destination's first tab.
+ */
+export function resolvePanelTab(destination, activeTab) {
+  const tabs = tabsFor(destination);
+  return tabs.includes(activeTab) ? activeTab : tabs[0];
+}

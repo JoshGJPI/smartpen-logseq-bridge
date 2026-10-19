@@ -29,6 +29,22 @@ function persist(collapsed) {
   }
 }
 
+/**
+ * Notebooks open in the Library's contents list. Session-only (tab content is
+ * unmounted when collapsed or switched away, so it cannot live in the component).
+ */
+export const contentsOpenBooks = writable(new Set());
+
+/** @param {string} book @param {boolean} [open] - toggles when omitted */
+export function setContentsBookOpen(book, open) {
+  contentsOpenBooks.update((set) => {
+    const key = String(book);
+    const next = new Set(set);
+    if (open ?? !set.has(key)) next.add(key); else next.delete(key);
+    return next;
+  });
+}
+
 /** True when the panel is the ~48 px rail. */
 export const leftPanelCollapsed = writable(load());
 

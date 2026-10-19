@@ -6,23 +6,26 @@ rules that must not be broken; this file is the map you look things up in.
 ## Component Hierarchy
 ```
 App.svelte (Root)
-├── Header (one 44 px row: name, `nav` slot from App, search entry, Unsaved marker)
+├── Header (one 44 px row: name, `nav` slot = Library | Timeline | Editor from App, search entry, Unsaved marker)
 │   ├── PenChip (pen state + battery; Connect / Disconnect)
 │   ├── ActionBar (capture bar: Fetch, Save, Delete, Undo, Clear, Transcribe; always
 │   │   mounted, `visible` from `lib/capture-bar.js`)
-│   └── SettingsDropdown (gear, warning dot when the data folder is not ready; MyScript, Data Folder, Graph Folder, Pen Memory,
+│   └── SettingsDropdown (gear, warning dot when the data folder is not ready; MyScript, Data Folder,
+│       │                 Notebooks, Graph Folder, Pen Memory, Troubleshooting)
+│       ├── BooksTab (Settings → Notebooks: per-notebook aliases + volume routing)
 │       └── ActivityLogDialog (Troubleshooting → 🩺, filter by level + copy)
-├── LeftPanel (one row of tabs — see "Left panel tabs" below; folds to a 48 px rail, `stores/left-panel.js`)
-│   ├── StrokeList ("Strokes" — browse by book/page)
-│   ├── TranscriptsPanel ("Transcripts")
+├── LeftPanel (contextual tabs — see "Left panel tabs" below; folds to a 48 px rail, `stores/left-panel.js`)
+│   ├── LibraryContents ("Contents", Library — notebooks and pages from the scan, ● = transcribed)
+│   ├── StrokeList ("Strokes", Editor — browse by book/page)
+│   ├── TranscriptsPanel ("Transcripts", every destination)
 │   │   ├── TranscriptionView (Review — incoming MyScript results)
 │   │   └── TranscriptSearch (Search — full-text over saved pages on disk)
-│   │       └── SearchResultCard (per-result import / open in Book View)
-│   ├── SavedPagesTab ("Pages" — folder-backed page list)
-│   ├── BooksTab ("Books" — per-notebook aliases + volume routing)
-│   └── DatesTab ("Dates" — load the canvas by capture date)
-│       └── ActivityGrid (weekday heat grid, drag to select a range)
-└── Canvas Section (Editor ⇄ Book View toggle, in App.svelte)
+│   │       └── SearchResultCard (per-result import / open in the Library)
+│   ├── SavedPagesTab ("Pages", Editor — folder-backed page list: import, export, edit structure)
+│   └── DatesTab ("Dates", Timeline and Editor — range by capture date; load onto canvas in the Editor)
+│       └── ActivityGrid (weekday heat grid, drag to select a range; Editor only — the Timeline has the strip)
+└── Canvas Section (destination from `$destination`, in App.svelte)
+    ├── PaneToolbar (Library and Timeline only: breadcrumb + ViewMenu "View ▾")
     ├── StrokeCanvas (Editor — live capture/edit)
     │   ├── panel header: Select All · Deselect · CanvasSearch · stroke count
     │   ├── top toolbar: Decorative · Duplicate · Edit Points · Volume ▾ ·
@@ -32,47 +35,78 @@ App.svelte (Root)
     │   ├── Canvas Renderer (Drawing engine)
     │   ├── PointEditPanel (Edit Points mode — stray-point list + delete)
     │   └── FilteredStrokesPanel (Decorative strokes)
-    ├── BookViewer (Book View → Books — read/edit saved pages as a book)
+    ├── BookViewer (Library — read/edit saved pages as a book)
     │   ├── Home grid (recent + collapsible by-book page thumbnails)
     │   └── PageSpreadView ×1–2 (side-by-side spread, page-turn nav)
     │       ├── SVG stroke render (per-page zoom/pan/fit)
     │       ├── SittingInk (hovered day's ink redrawn black, inside the SVG)
     │       ├── SittingHover (hover hit-test + capture-time label; click → that day's Timeline)
     │       └── TranscriptPane (view/inline-edit lines, copy LogSeq markdown)
-    └── TimelineFeed (Book View → Timeline — the Dates range as a scrolling feed;
+    └── TimelineFeed (Timeline — the Dates range as a scrolling feed;
         │             grows the range as you scroll off its end)
-        ├── BookFilterMenu (which notebooks count — also in the Dates tab)
-        └── FeedDay ×N (one per day with ink; loads its pages when near)
-            └── FeedCard ×N (one sitting — any number of pages)
-                └── FeedPart ×N (one page's share: strips ⇄ whole page)
+        ├── TimelineHead (‹ RangeMenu › · summary · BookFilterMenu · Load range into Editor)
+        │   ├── RangeMenu ("Range ▾": From / To, Latest day · 1 · 7 · 30 days)
+        │   └── ActivityStrip (every day with ink; the range as a draggable window)
+        └── FeedDay ×N (one per day with ink; loads its pages when near; ⋯ = Load day)
+            └── FeedCard ×N (one sitting — any number of pages; ⋯ = Load sitting)
+                └── FeedPart ×N (one page's share: Open page + ⋯ (Whole page ⇄ strip))
+                    (OverflowMenu is the shared ⋯ list, position: fixed)
 ```
 
-The right-hand pane toggles between the **Editor** (`StrokeCanvas`) and **Book View**
-via a segmented control in the top bar (`App.svelte`). Book View has two modes,
-**Books** (`BookViewer`) and **Timeline** (`TimelineFeed`), switched by a second
-segment beside it (`bookViewMode`). Books' global controls (Home ·
-Strokes/Transcript · Single/Spread) live in that same top bar and drive the bound
-`BookViewer` instance; each page's toolbar has a **Load into Editor** action that
-imports that page's strokes into the Editor canvas and switches to it. In Strokes
-mode a **Times** toggle (`sittingHoverEnabled`) turns on hover-to-reveal capture time:
-hovering ink draws the day it was written in black, the rest of the page grey, with
-the date and time beside it; clicking it opens that day in the Timeline (`SittingHover` + `SittingInk`, `page-sittings.js`). Timeline's
-one global control is the Newest/Oldest-first toggle (`feedOrder`).
+**Destinations (v3.0 package C).** The right pane is one of three destinations,
+**Library** (`BookViewer`), **Timeline** (`TimelineFeed`) and **Editor**
+(`StrokeCanvas`), chosen in the header. They are a view over the two store fields
+that existed before (`lib/navigation.js`: library = `viewerMode 'book'` +
+`bookViewMode 'books'`, timeline = `'book'` + `'timeline'`, editor = `'editor'`,
+which leaves `bookViewMode` as it was), exposed as the derived `destination`.
+Every route between them goes through **`navigateTo(dest)`** (`stores/viewer.js`),
+which asks "Discard transcript edits?" when leaving for anything but the Library
+with `viewerDirty` set; opening a particular page goes through
+`openPageInLibrary(book, pageId)` (feed **Open page**, search results, the contents
+list). Unsaved strokes never prompt. `showEditorForLiveInk()` keeps its own rule.
 
-The app opens on **Book View → Timeline** with the **Dates** tab on the left (its
-activity grid scrolled to the newest week), showing the most recent day with ink
+Over the Library and the Timeline sits **PaneToolbar**: a breadcrumb (Library ›
+notebook › P12–P13; "Library" goes back to the page grid) and **View ▾**, which
+offers only what applies (`lib/pane-toolbar.js` `viewOptionsFor`): Strokes |
+Transcript, Spread | Single and **Times** (hover-to-reveal capture time,
+`sittingHoverEnabled`) for an open page, **Paper** where any book has paper,
+Newest | Oldest in the Timeline (`feedOrder`). Spread/Single and
+Strokes/Transcript drive the bound `BookViewer` instance, whose `guardNav()`
+asks before dropping edits. The Editor has no pane toolbar. Each Library page's
+toolbar has **Load into Editor**. Hovering ink in Times mode draws the day it was
+written in black, the rest grey, with the date and time; clicking opens that day
+in the Timeline (`SittingHover` + `SittingInk`, `page-sittings.js`), guarded by
+`navigateTo`.
+
+The Timeline's head says the range and its summary once: **Range ▾**
+(`lib/timeline-range.js` presets), the activity strip (drag the window to move,
+an edge to resize, across the strip to pick; set on release), the book filter and
+a quiet **Load range into Editor**. Cards show **Open page** and ⋯ (Whole page,
+Load sitting into Editor); a day's ⋯ holds Load day into Editor.
+
+The app opens on the **Timeline** with the **Dates** tab on the left (range
+fields and the day list; the heat grid shows only in the Editor's Dates tab), showing the most recent day with ink
 (`loadTimeline()` defaults an unset range to the index's last capture day), rather
 than an empty Editor canvas. Live pen ink switches the pane to the Editor
-(`pen-sdk.js` → `showEditorForLiveInk()`, once per stroke) unless Book View has
+(`pen-sdk.js` → `showEditorForLiveInk()`, once per stroke) unless the Library has
 unsaved transcript edits; then it stays put, logs a warning, and the strokes are
 still captured.
 
-**Collapsible left panel (v3.0 package B).** `leftPanelCollapsed` (`stores/left-panel.js`, localStorage, a missing, corrupt or blocked value means expanded) folds the panel to a 48 px rail: expand chevron, one icon per tab (click = `revealLeftPanel(tab)`), the Transcripts badge. `App.svelte` adds `panel-collapsed` to `.main-grid` (`48px 1fr`) and handles the `[` key (`isPanelToggleKey()` in `lib/left-panel.js`). Tab content is *not mounted* while collapsed. Callers that mean "show me the panel" use `revealLeftPanel()` (`ui.js`: `openTranscriptSearch`, `openTranscriptReview`, TimelineFeed "Change range"); passive callers keep `setActiveTab()` so a collapsed panel stays collapsed. `.app` gets `wide` in Book View, which lifts the 1600 px cap; the Editor keeps it.
+**Collapsible left panel (v3.0 package B).** `leftPanelCollapsed` (`stores/left-panel.js`, localStorage, a missing, corrupt or blocked value means expanded) folds the panel to a 48 px rail: expand chevron, one icon per tab (click = `revealLeftPanel(tab)`), the Transcripts badge. `App.svelte` adds `panel-collapsed` to `.main-grid` (`48px 1fr`) and handles the `[` key (`isPanelToggleKey()` in `lib/left-panel.js`). Tab content is *not mounted* while collapsed. Callers that mean "show me the panel" use `revealLeftPanel()` (`ui.js`: `openTranscriptSearch`, `openTranscriptReview`); passive callers keep `setActiveTab()` so a collapsed panel stays collapsed. `.app` gets `wide` in the Library and the Timeline, which lifts the 1600 px cap; the Editor keeps it.
 
-**Left panel tabs.** Tab *ids* are unchanged from the pre-v2.7 nested version
-(`'strokes'`, `'transcription'`, `'saved-pages'`, plus `'books'` and `'dates'`)
-even though two labels differ — `ActionBar` calls `setActiveTab('transcription')`
-after a transcription run.
+**Left panel tabs (contextual since v3.0 package C).** The tabs follow the
+destination (`lib/left-panel.js` `CONTEXT_TABS`): Library → Contents ·
+Transcripts; Timeline → Dates · Transcripts; Editor → Strokes · Transcripts ·
+Pages · Dates. Transcripts is in every set because search opens there from any
+view. `panelTab` (`stores/ui.js`, derived) shows `activeTab` when it belongs to
+the current set and the set's first tab otherwise, so nothing is rewritten when
+you move. Tab *ids* are unchanged from the pre-v2.7 nested version
+(`'strokes'`, `'transcription'`, `'saved-pages'`, `'books'`, `'dates'`, plus
+`'contents'`); `ActionBar` calls `setActiveTab('transcription')` after a
+transcription run. `'books'` is in no set: notebook names and volume routing are
+in Settings → Notebooks (the same `BooksTab` component). Pages and Dates stay
+with the Editor because they load onto the canvas, and the Pages cards carry
+Export to graph, Edit structure and Reset transcript.
 
 **Two searches, deliberately separate.** `CanvasSearch` (panel header) searches
 only pages already loaded and *pans* to one — <kbd>Ctrl+F</kbd>. `TranscriptSearch`
@@ -156,7 +190,11 @@ All state is managed through Svelte stores located in `src/stores/`:
   `clearContextInk()`
 
 **Left panel collapse (Unreleased, v3.0 package B):**
-- `left-panel.js` — `leftPanelCollapsed`, `setLeftPanelCollapsed()`, `toggleLeftPanel()`, `expandLeftPanel()`, `collapseLeftPanel()`. localStorage key `smartpen-left-panel-collapsed`; every access in try/catch. `revealLeftPanel(tabId?)` and the `openTranscript*` helpers live in `ui.js`, built on `expandLeftPanel()`.
+- `left-panel.js` — `leftPanelCollapsed`, `setLeftPanelCollapsed()`, `toggleLeftPanel()`, `expandLeftPanel()`, `collapseLeftPanel()`. localStorage key `smartpen-left-panel-collapsed`; every access in try/catch. `revealLeftPanel(tabId?)` and the `openTranscript*` helpers live in `ui.js`, built on `expandLeftPanel()`. Since package C also `contentsOpenBooks` / `setContentsBookOpen()` (notebooks open in the Library contents list; session only, since tab content is unmounted when collapsed or switched away)
+- `ui.js` — `panelTab` (package C): derived from `destination` + `activeTab` via `resolvePanelTab()`; what the left panel actually shows
+
+**Navigation spine (Unreleased, v3.0 package C), in `viewer.js`:**
+- `destination` (derived: `'library' | 'timeline' | 'editor'` from `viewerMode` + `bookViewMode`), `navigateTo(dest, {confirm?})` → `'same' | 'cancelled' | 'navigated' | 'invalid'` (the one place the discard prompt is asked when changing destination), `openPageInLibrary(book, pageId, {confirm?})` → `'cancelled' | 'opened'` (also asks when replacing a page with unsaved edits). No persisted keys; `viewerMode` and `bookViewMode` were never persisted
 
 **Page orientation (Unreleased):**
 - `orientation.js` — `pageOrientations` (`{ "<bookKey>/<pageId>": 90|180|270 }`, portrait by absence), `loadOrientations()` (called by `scanLocalPages()`; missing folder, missing or corrupt sidecar → every page portrait), `setPageRotation(book, pageId, rotation)` (optimistic, written at once to `<dataRoot>/pages/_orientation.json`; a failed write undoes only its own page). Display-only: never touches a PageDoc and never marks unsaved changes. UI: `components/viewer/OrientationControl.svelte` (↺ / picker / ↻) in the Book View page toolbar and the Editor canvas toolbar
@@ -220,7 +258,11 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `sketch-width.js` - Pressure → line thickness mapping for sketch strokes (pure): profile normalisation/presets, `pressureToUnit`, `smoothSeries` (symmetric, spike attenuation), `limitSlew`, `widthsForPressures`, `widthsForStrokeSeries` (the single "no pressure data → flatWidth" rule), `profileKey` for width-cache tagging
 - `capture-bar.js` - `shouldShowCaptureBar()` (pure): Editor, pen connected, anything unsaved, or a transcription/transfer running
 - `plural.js` - `plural(n, one, many?)`, the noun that agrees with a count
-- `left-panel.js` - pure helpers for the collapsible left panel: `parseCollapsed()` / `serializeCollapsed()`, `isTypingTarget()` (input, textarea, select, contenteditable), `isPanelToggleKey()` (bare `[`, no Ctrl/Alt/Meta, not typing, not IME)
+- `left-panel.js` - pure helpers for the collapsible left panel: `parseCollapsed()` / `serializeCollapsed()`, `isTypingTarget()` (input, textarea, select, contenteditable), `isPanelToggleKey()` (bare `[`, no Ctrl/Alt/Meta, not typing, not IME); since package C the contextual tab sets `CONTEXT_TABS`, `tabsFor()`, `resolvePanelTab()`
+- `navigation.js` - destinations (package C, pure): `DESTINATIONS`, `destinationOf(viewerMode, bookViewMode)`, `modesFor(dest)`, `planNavigation({from, to, viewerDirty})` → `'same' | 'go' | 'confirm'`, `DISCARD_PROMPT`
+- `pane-toolbar.js` - `viewOptionsFor({destination, hasSelection, contentMode, backgroundsAvailable})` (which View ▾ options apply), `pageCrumb()` (breadcrumb page label, paired as BookViewer pairs a spread)
+- `timeline-range.js` - Range ▾ presets (`RANGE_PRESETS`, `rangePreset()`, shared with the Dates tab) and activity-strip geometry: `dayOffset()` (calendar days, DST-safe), `stripLayout()` (every day from first to last ink, bucketed to fit), `dayAtFraction()`, `windowFraction()`, `moveWindow()` (keeps length, stays inside the ink's span), `resizeWindow()` (ends never cross)
+- `library-contents.js` - `buildContents(pagesByBook, bookIds, nameOf)`: the Library contents list from scan records only (pages, `transcribed`, `strokeCount`)
 - `timeline.js` - **Capture dates** (pure). Interprets the index built in
   `main.cjs`. Two units that are NOT interchangeable: a **day key**
   (`"YYYY-MM-DD"`, a LOCAL calendar day — string comparison is the range test)

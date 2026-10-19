@@ -32,11 +32,14 @@ src/components/    grouped by feature (canvas, dialog, header, viewer, dates, bo
 
 Data flow: **pen → `strokes` store → canvas / MyScript → `savePageToFolder()` → PageDoc on disk.**
 
-The right pane toggles **Editor** (`StrokeCanvas`) ⇄ **Book View** (Books | Timeline); the app opens on Book View →
-Timeline, and live pen ink switches to the Editor. The left panel has tabs Strokes · Transcripts · Pages · Books ·
-Dates (opens on Dates); their ids (`'strokes'`, `'transcription'`,
-`'saved-pages'`, `'books'`, `'dates'`) predate the current labels, so don't rename them
-(`ActionBar` calls `setActiveTab('transcription')`). Full component tree, store and library inventory:
+The right pane is one of three destinations, **Library** (`BookViewer`), **Timeline** (`TimelineFeed`) and
+**Editor** (`StrokeCanvas`), a view over `viewerMode` + `bookViewMode` (`lib/navigation.js`). Every route between
+them goes through `navigateTo()` / `openPageInLibrary()` (`stores/viewer.js`), the one place the unsaved-transcript
+prompt is asked. The app opens on the Timeline, and live pen ink switches to the Editor. The left panel's tabs follow
+the destination (`CONTEXT_TABS` in `lib/left-panel.js`: Library → Contents · Transcripts, Timeline → Dates ·
+Transcripts, Editor → Strokes · Transcripts · Pages · Dates; `panelTab` is what shows); notebook names and volume
+routing are in Settings → Notebooks. Tab ids (`'strokes'`, `'transcription'`, `'saved-pages'`, `'books'`, `'dates'`,
+`'contents'`) predate the labels, so don't rename them (`ActionBar` calls `setActiveTab('transcription')`). Full component tree, store and library inventory:
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Data formats
