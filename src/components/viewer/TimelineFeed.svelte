@@ -37,7 +37,7 @@
     timelineIndex, timelineIndexFiltered, timelineExcludedBooks, timelineLoading, timelineError,
     timelineRange, timelineDays, timelineSummary, loadTimeline, setTimelineRange,
     setCanvasPageOrder, feedOrder, feedDayInView, feedJumpRequest, setViewerMode,
-    setBookViewMode, setViewerSelection, recordRecentView, setActiveTab
+    setBookViewMode, setViewerSelection, recordRecentView, revealLeftPanel
   } from '$stores';
   import { dataFolderReady } from '$stores/settings.js';
 
@@ -298,7 +298,7 @@
       <button type="button" class="tf-nav" on:click={() => shiftRange(1)} aria-label="Later range" title="Later range">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6" /></svg>
       </button>
-      <button type="button" class="tf-btn" on:click={() => setActiveTab('dates')}>Change range</button>
+      <button type="button" class="tf-btn" on:click={() => revealLeftPanel('dates')}>Change range</button>
       <BookFilterMenu theme="light" />
     </div>
     <button type="button" class="tf-btn load" on:click={loadRange} disabled={busy || summary.strokes === 0}>

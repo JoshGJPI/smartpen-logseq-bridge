@@ -11,6 +11,68 @@ CLAUDE.md (Invariants); the store and library map is in
 Reading-first UI plan: [READING-UX-SPEC.md](READING-UX-SPEC.md). Packages land on their
 own branches and are not released one by one; no storage or PageDoc change in any of them.
 
+### B. Collapsible left panel, width cap, Editor overflow (October 2026)
+
+**The left panel folds to a 48 px rail, so reading can have the whole width.** A chevron
+(end of the tab row) or the `[` key collapses it; the state is a per-viewer convenience in
+localStorage (`smartpen-left-panel-collapsed`), and a missing, corrupt or blocked value
+means expanded, so the panel cannot be stranded hidden. The rail keeps what a hidden panel
+would lose: an expand chevron, one icon per tab (click = expand and select) and the
+Transcripts count badge. Tab ids are unchanged. Measured on the real app: at 1600 wide the
+Timeline / spread pane goes from 1090 to 1492 px with the panel collapsed.
+
+**Nothing opens into a hidden panel.** `revealLeftPanel(tabId?)` (`stores/ui.js`) expands
+the panel and optionally selects a tab. The callers where the user *asked* to see the
+panel use it: `openTranscriptSearch()` (header search button, canvas Ctrl+Shift+F),
+`openTranscriptReview()` and the Timeline's "Change range". The passive ones keep
+`setActiveTab()`, so a panel the user collapsed stays collapsed: the Book View ink click
+(which also sets the range and opens the Timeline day) and the post-transcription switch to
+Transcripts (the rail badge covers it). `openTranscriptSearch()` is now async: tab content
+is unmounted while collapsed, and `TranscriptsPanel` takes the focus token's value at mount
+as its baseline, so the token is bumped one `tick()` *after* the panel is expanded.
+Bumping it at once would be swallowed, and the search input would not be focused.
+
+**Width cap.** `.app` gets a `wide` class in Book View (Books and Timeline) that lifts the
+1600 px cap, driven by `$viewerMode`, not a media query. The Editor keeps 1600: its canvas is
+sized from ink bounds and a stretched toolbar is worse. At 1920 the Book View pane is
+1410 px (was 1090).
+
+**Editor overflow at narrow widths, fixed at the cause.** The document scrolled sideways at
+1280 and 1200 (scrollWidth 1381) with the Editor open. Measured: hiding the canvas toolbar's
+scroll container dropped the `1fr` column from 962 to 840 px. A grid item's minimum width is
+its content's min-content, and a nowrap flex row counts a scrolling child at its full
+length even with `min-width: 0` on that child, so the toolbar held the column wide and
+pushed the page. `.canvas-section { min-width: 0 }` lets the column shrink, and the
+toolbar scrolls inside the pane as `StrokeCanvas` always intended (verified `scrollWidth
+== innerWidth` at 1280 and 1200, panel expanded and collapsed). Its scrollbar is now dark
+instead of the default white bar, which read as a stray control once it appeared.
+Collapsing the panel would only have hidden the problem.
+
+**Canvas on toggle.** The existing `ResizeObserver` handles it: toggling resizes the
+canvas bitmap to the pane (1048 → 1450 px wide at 1600) with zoom (291%) and the view kept.
+
+**Rejected / deferred**
+- *Reusing `sidebarCollapsed` in `ui.js`.* Unused and left over from an earlier layout;
+  a new `leftPanelCollapsed` store keeps the persistence and tests in one place.
+- *Hiding the panel with `display: none` and keeping its tabs mounted.* A hidden mount
+  measures widths as 0 (the heat grid scrolls to "now" on mount, for one), and the focus
+  race above disappears only by luck. Unmounting is simple, and state such as the Dates
+  range is in stores, not the component.
+- *Narrowing the Editor problem by collapsing the panel on small windows.* Hides the
+  overflow for one layout and leaves it for the other.
+- *A transition on collapse.* The canvas would redraw at every intermediate width.
+- *Lifting the cap in the Editor too.*
+
+**Limitations**
+- The Timeline feed has its own inner max width, so collapsing at wide sizes adds margin
+  around the cards rather than larger cards; the spread pages use the extra width.
+- `openTranscriptReview()` has no UI caller yet; it is covered by the unit test only.
+- The tab row's chevron wraps onto the second row at 1400 and below (the tabs already
+  wrap there). Tab padding went from 16 to 11 px so the chevron fits on the first row of
+  the 450 px panel.
+- Not exercised: live pen, MyScript and offline import (no hardware or keys).
+- The `≤1000 px` media query is untouched but unreachable (window minimum is 1200).
+
 ### A. Slim header, capture bar on demand, colour roles (October 2026)
 
 **The header is one 44 px row and the capture controls appear only when there is
@@ -71,7 +133,7 @@ tab's), and labels in the Dates tab, heat grid and panel tab badge are at least 
   feed buttons) still use the red accent.
 - Not exercised: live pen ink and Fetch Notes (no hardware), MyScript transcription (no
   keys). The capture bar's pen condition is covered by the unit test only.
-- The Editor still overflows horizontally at 1280 wide, as before.
+- The Editor still overflows horizontally at 1280 wide, as before (fixed in B).
 
 ## v2.10.0 — Book View hover times and page rotation (October 2026)
 

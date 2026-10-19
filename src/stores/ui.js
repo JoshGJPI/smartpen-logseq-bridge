@@ -2,7 +2,9 @@
  * UI Store - UI state management
  */
 import { writable, derived } from 'svelte/store';
+import { tick } from 'svelte';
 import { compareBookKeys } from '../lib/volumes.js';
+import { expandLeftPanel } from './left-panel.js';
 
 // Active tab in data explorer
 // Opens on Dates, alongside the Timeline feed the right pane opens on.
@@ -146,13 +148,32 @@ export function closeActivityLogDialog() {
 }
 
 /**
- * Show the Transcripts panel's search half and focus its input.
- * The canvas toolbar's search button and Ctrl+F both route here — search used
- * to be a modal, and this keeps a one-key path to it from the canvas.
+ * Make the left panel visible, optionally on a given tab.
+ *
+ * For callers where the user asked to see the panel (search, Review, "Change
+ * range"). A collapsed panel would otherwise change state nobody can see. Passive
+ * callers, such as the post-transcription tab switch and the Book View ink click,
+ * use `setActiveTab` instead so a panel the user collapsed stays collapsed.
+ * @param {string} [tabId]
  */
-export function openTranscriptSearch() {
-  activeTab.set('transcription');
+export function revealLeftPanel(tabId) {
+  expandLeftPanel();
+  if (tabId) activeTab.set(tabId);
+}
+
+/**
+ * Show the Transcripts panel's search half and focus its input.
+ * The header search button and the canvas's Ctrl+Shift+F route here; search used
+ * to be a modal, and this keeps a one-key path to it from the canvas.
+ *
+ * A collapsed panel is expanded first and its tab content is not mounted until
+ * Svelte flushes, so the focus request waits a tick. Bumping the token earlier
+ * would be missed: `TranscriptsPanel` reads the token at mount as its baseline.
+ */
+export async function openTranscriptSearch() {
+  revealLeftPanel('transcription');
   transcriptsMode.set('search');
+  await tick();
   transcriptSearchFocus.update(n => n + 1);
 }
 
@@ -160,7 +181,7 @@ export function openTranscriptSearch() {
  * Show the Transcripts panel's review half.
  */
 export function openTranscriptReview() {
-  activeTab.set('transcription');
+  revealLeftPanel('transcription');
   transcriptsMode.set('review');
 }
 

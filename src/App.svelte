@@ -26,6 +26,8 @@
   import { dataRoot, setDataFolderStatus, getDataRoot } from '$stores/settings.js';
   import { graphRoot, setGraphFolderStatus, getGraphRoot } from '$stores/settings.js';
   import { unsavedChanges, viewerMode, viewerDirty, setViewerMode, clearAllViewerDirty } from '$stores';
+  import { leftPanelCollapsed, toggleLeftPanel } from '$stores';
+  import { isPanelToggleKey } from '$lib/left-panel.js';
   import { bookViewMode, setBookViewMode, feedOrder, toggleFeedOrder } from '$stores';
   import { sittingHoverEnabled, toggleSittingHover } from '$stores';
   import { backgroundsEnabled, backgroundsAvailable, toggleBackgrounds, refreshBackgrounds } from '$stores';
@@ -141,6 +143,14 @@
     setBookViewMode(mode);
   }
 
+  // `[` folds the left panel to its rail and back. isPanelToggleKey keeps it out
+  // of text fields and modifier chords.
+  function handleGlobalKeydown(e) {
+    if (!isPanelToggleKey(e)) return;
+    e.preventDefault();
+    toggleLeftPanel();
+  }
+
   onMount(() => {
     initializePenSDK();
     log('Bridge initialized. Click "Connect Pen" to begin.', 'info');
@@ -205,7 +215,12 @@
   });
 </script>
 
-<div class="app">
+<svelte:window on:keydown={handleGlobalKeydown} />
+
+<!-- `wide` lifts the 1600 px cap while reading (Book View: Books and Timeline) so
+     a big monitor enlarges the reading surface. The Editor keeps the cap: its
+     canvas is sized from ink bounds and a stretched toolbar is worse. -->
+<div class="app" class:wide={$viewerMode === 'book'}>
   <Header>
     <!-- Primary navigation. Lives here, not in Header, because switchView owns the
          unsaved-transcript-edits guard. -->
@@ -225,7 +240,7 @@
     </div>
   </Header>
   
-  <main class="main-grid">
+  <main class="main-grid" class:panel-collapsed={$leftPanelCollapsed}>
     <!-- Left Panel: Data Explorer & Activity Log -->
     <LeftPanel />
     
@@ -411,6 +426,10 @@
     padding: 0 20px;
   }
 
+  .app.wide {
+    max-width: none;
+  }
+
   .main-grid {
     display: grid;
     grid-template-columns: 450px 1fr;
@@ -421,10 +440,22 @@
     padding-bottom: 20px;
   }
 
+  /* Rail width (LeftPanel). Two classes outrank the ≤1400 px rule below, so the
+     rail stays 48 px at every window width. */
+  .main-grid.panel-collapsed {
+    grid-template-columns: 48px 1fr;
+  }
+
   .canvas-section {
     display: flex;
     flex-direction: column;
     min-height: 0;
+    /* A grid item's minimum width is its content's min-content, and a nowrap
+       flex row counts its scrolling child at full length even with `min-width: 0`
+       on that child. The Editor's canvas toolbar therefore held the `1fr` column
+       at ~960 px and widened the whole page at 1280. Letting the column shrink
+       makes the toolbar scroll inside the pane, as StrokeCanvas intends. */
+    min-width: 0;
   }
 
   .viewer-topbar {
