@@ -6,6 +6,34 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Unreleased
+
+### Hover-to-reveal capture time in Book View (October 2026)
+
+**Hovering ink on a page shows when it was written.** The stroke under the pointer
+picks its sitting; that sitting draws in ink, the rest of the page in the Timeline's
+context grey, and a label just outside the top-right of the sitting's ink gives its
+date and time. A **Times** toggle in the Book View bar turns it off (localStorage,
+default on). Read-only: nothing is written.
+
+**Same sitting rule as the Timeline, not a copy.** `daySessions()`'s chaining step was
+factored into `strokeSpan()` + `continuesSitting()` in `timeline-feed.js` and both
+features use it. Book View's groups are per page (a sitting spread over pages shows
+only this page's part) and are *not* cut at midnight, because Book View has no day;
+the label names both dates instead.
+
+**Cheap on dense pages.** Groups, their ink boxes and a uniform grid of stroke
+segments (4 Ncode units a cell) are built once per page load; pointer moves are
+coalesced to one hit-test per animation frame; and a hover never re-renders the
+page's paths. A class on the `<svg>` greys them by CSS and `SittingInk` redraws just
+the hovered sitting on top. Considered: per-sitting `<g>` wrappers with a class
+toggle, rejected because it restructures the page's stroke loop (the rotation work
+was changing the same markup at the same time). Pointer → Ncode uses the SVG's
+`getScreenCTM()`, so zoom, pan and any later transform of the page are handled without
+knowing about them. Overlapping sittings: the nearest stroke wins; hover reach is 6 px
+on screen, capped at 3 Ncode units when zoomed out. Ink with no `startTime` belongs to
+no sitting and can't be picked. The highlight is suppressed while dragging to pan.
+
 ## Startup on the Timeline and Dates (October 2026)
 
 **The app opens on what you last wrote, not an empty canvas.** The right pane starts

@@ -206,6 +206,21 @@ export function toggleFeedOrder() {
   });
 }
 
+/**
+ * Book View's hover highlight: hovering ink shows its sitting in ink, the rest
+ * of the page grey, with the sitting's date and time. On unless switched off.
+ */
+const SITTING_HOVER_KEY = 'smartpen-sitting-hover';
+
+export const sittingHoverEnabled = writable(loadChoice(SITTING_HOVER_KEY, ['on', 'off'], 'on') === 'on');
+
+export function toggleSittingHover() {
+  sittingHoverEnabled.update((on) => {
+    persistChoice(SITTING_HOVER_KEY, on ? 'off' : 'on');
+    return !on;
+  });
+}
+
 /** True when the right pane is actually showing the feed. */
 export const feedVisible = derived(
   [viewerMode, bookViewMode],

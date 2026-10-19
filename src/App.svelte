@@ -27,6 +27,7 @@
   import { graphRoot, setGraphFolderStatus, getGraphRoot } from '$stores/settings.js';
   import { unsavedChanges, viewerMode, viewerDirty, setViewerMode, clearAllViewerDirty } from '$stores';
   import { bookViewMode, setBookViewMode, feedOrder, toggleFeedOrder } from '$stores';
+  import { sittingHoverEnabled, toggleSittingHover } from '$stores';
   import { backgroundsEnabled, backgroundsAvailable, toggleBackgrounds, refreshBackgrounds } from '$stores';
   import { isAvailable as folderIsAvailable } from '$lib/storage/local-store.js';
   import { scanLocalPages } from '$lib/storage/scan.js';
@@ -317,6 +318,21 @@
               </svg>
               {bookViewerSpread ? 'Spread' : 'Single'}
             </button>
+            {#if bookViewerContentMode === 'strokes'}
+              <button
+                class="vg-btn"
+                class:active={$sittingHoverEnabled}
+                aria-pressed={$sittingHoverEnabled}
+                on:click={toggleSittingHover}
+                title={$sittingHoverEnabled ? 'Hover ink to see when it was written — click to turn off' : 'Show when ink was written on hover'}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="9"/>
+                  <polyline points="12 7 12 12 15 14"/>
+                </svg>
+                Times
+              </button>
+            {/if}
           </div>
         {/if}
       </div>

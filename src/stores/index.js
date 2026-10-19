@@ -282,6 +282,8 @@ export {
   feedOrder,
   setFeedOrder,
   toggleFeedOrder,
+  sittingHoverEnabled,
+  toggleSittingHover,
   feedVisible,
   feedDayInView,
   feedJumpRequest,

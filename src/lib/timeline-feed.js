@@ -63,10 +63,34 @@ export const BAND_MERGE_GAP = 12;
  * dot the pen sometimes emits mid-stroke (see point-edit.js). Left in, one such
  * dot stretches a strip to the top of the page.
  */
-function isBogusPoint(p) {
+export function isBogusPoint(p) {
   const x = p && p[0], y = p && p[1];
   if (!Number.isFinite(x) || !Number.isFinite(y)) return true;
   return Math.abs(x) <= ORIGIN_TOLERANCE && Math.abs(y) <= ORIGIN_TOLERANCE;
+}
+
+/**
+ * A stroke's place in time for chaining sittings: `st` its startTime, `et` its
+ * end (never before its start; the start when endTime is missing). Null for a
+ * stroke with no usable startTime, which belongs to no sitting.
+ *
+ * @param {{startTime?: number, endTime?: number}} stroke
+ * @returns {{st: number, et: number} | null}
+ */
+export function strokeSpan(stroke) {
+  const st = Number(stroke && stroke.startTime);
+  if (!Number.isFinite(st)) return null;
+  const end = Number(stroke.endTime);
+  return { st, et: Number.isFinite(end) ? Math.max(st, end) : st };
+}
+
+/**
+ * The sitting rule, shared by the Timeline's cards and Book View's hover: a
+ * stroke starting at `st` continues the sitting whose ink last ended at `endTime`
+ * when the pause between them is at most `gapMs` (exactly the gap still joins).
+ */
+export function continuesSitting(st, endTime, gapMs = SESSION_GAP_MS) {
+  return st - endTime <= gapMs;
 }
 
 /**
@@ -202,9 +226,8 @@ export function daySessions(pages, day, { gapMs = SESSION_GAP_MS } = {}) {
   let cur = null;
   let partsByPage = null;
   for (const { stroke, st, pageIndex } of timed) {
-    const end = Number(stroke.endTime);
-    const et = Number.isFinite(end) ? Math.max(st, end) : st;
-    if (!cur || st - cur.endTime > gapMs) {
+    const { et } = strokeSpan(stroke);
+    if (!cur || !continuesSitting(st, cur.endTime, gapMs)) {
       cur = {
         id: `${day}@${st}`,
         startTime: st,

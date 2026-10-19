@@ -13,6 +13,8 @@
   import { frameToBounds } from '$lib/neo-backgrounds.js';
   import { getCachedPage } from '$lib/viewer/page-cache.js';
   import TranscriptPane from './TranscriptPane.svelte';
+  import SittingHover from './SittingHover.svelte';
+  import SittingInk from './SittingInk.svelte';
 
   /** store record: lightweight { book, page, pageId, strokeCount, ... } — NO strokes */
   export let record;
@@ -36,6 +38,10 @@
   let panStartY = 0;
   let panStartPanX = 0;
   let panStartPanY = 0;
+
+  // Hover-to-reveal capture time: the sitting under the pointer (SittingHover).
+  let svgEl;
+  let hotSitting = null;
 
   // The PageDoc (with strokes + transcript) is loaded lazily — records no longer
   // carry strokes (perf #3). A small LRU keeps recently-viewed docs so turning a
@@ -222,7 +228,7 @@
         aria-label="Page strokes — scroll to zoom, drag to pan"
       >
         <div class="pv-transform" style="transform: translate({panX}px, {panY}px) scale({zoom});">
-          <svg class:paper={!!bg} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {svgWidth.toFixed(2)} {svgHeight.toFixed(2)}" width={svgWidth.toFixed(2)} height={svgHeight.toFixed(2)}>
+          <svg bind:this={svgEl} class:paper={!!bg} class:dimmed={!!hotSitting} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {svgWidth.toFixed(2)} {svgHeight.toFixed(2)}" width={svgWidth.toFixed(2)} height={svgHeight.toFixed(2)}>
             {#if bg}
               <!-- The sheet is drawn 1:1 into the frame (Ncode units × NCODE_SCALE),
                    the same space the strokes are projected into below. -->
@@ -240,8 +246,10 @@
                 <path d={strokeToPathD(stroke, viewBounds)} stroke="#1a1a2e" stroke-width={DEFAULT_STROKE_WIDTH} fill="none" stroke-linecap="round" stroke-linejoin="round" />
               {/if}
             {/each}
+            <SittingInk sitting={hotSitting} {viewBounds} />
           </svg>
         </div>
+        <SittingHover {svgEl} {strokes} {viewBounds} view="{zoom},{panX},{panY}" paused={isPanning} bind:hot={hotSitting} />
       </div>
     {:else}
       <div class="pv-empty">No strokes on this page</div>
@@ -314,6 +322,9 @@
   .pv-transform :global(svg) { display: block; }
   /* The printed sheet stands off the pane like a page on a desk. */
   .pv-transform :global(svg.paper) { background: #fff; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.22); }
+  /* A sitting is hovered: the page's own ink goes context grey (FeedPart's
+     CONTEXT) and SittingInk redraws that sitting in ink on top. */
+  svg.dimmed path { stroke: #c3c7d4; }
 
   .pv-nav {
     position: absolute;
