@@ -23,7 +23,7 @@
   import { bookAliases } from '$stores';
   import { contextInkCount, clearContextInk } from '$stores/context-ink.js';
   import {
-    feedVisible, feedDayInView, feedOrder, requestFeedJump, setViewerMode, setBookViewMode
+    feedVisible, feedDayInView, feedOrder, requestFeedJump, navigateTo
   } from '$stores/viewer.js';
   import { importDateRangeFromFolder, LARGE_LOAD_STROKES } from '$lib/storage/load-range.js';
   import { dayStart, addDays } from '$lib/timeline.js';
@@ -110,7 +110,7 @@
       // reordering an empty canvas just changes a setting the user can't see.
       if (result.success && result.imported > 0) setCanvasPageOrder('date');
       // From the feed, "Load into Editor" means go there too.
-      if (result.success && $feedVisible) setViewerMode('editor');
+      if (result.success && $feedVisible) navigateTo('editor');
     } finally {
       loading = false;
       progress = null;
@@ -119,8 +119,7 @@
   }
 
   function showTimeline() {
-    setBookViewMode('timeline');
-    setViewerMode('book');
+    navigateTo('timeline');
   }
 
   function longDate(day) {

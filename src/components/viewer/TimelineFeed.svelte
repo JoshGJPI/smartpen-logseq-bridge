@@ -36,8 +36,8 @@
   import {
     timelineIndex, timelineIndexFiltered, timelineExcludedBooks, timelineLoading, timelineError,
     timelineRange, timelineDays, timelineSummary, loadTimeline, setTimelineRange,
-    setCanvasPageOrder, feedOrder, feedDayInView, feedJumpRequest, setViewerMode,
-    setBookViewMode, setViewerSelection, recordRecentView, revealLeftPanel
+    setCanvasPageOrder, feedOrder, feedDayInView, feedJumpRequest, navigateTo,
+    openPageInLibrary, revealLeftPanel
   } from '$stores';
   import { dataFolderReady } from '$stores/settings.js';
 
@@ -240,7 +240,7 @@
   function afterLoad(result) {
     if (result && result.success && (result.imported > 0 || result.duplicatesSkipped > 0)) {
       setCanvasPageOrder('date');
-      setViewerMode('editor');
+      navigateTo('editor');
     }
   }
 
@@ -274,9 +274,7 @@
   }
 
   function openPage(p) {
-    setViewerSelection(p.book, p.pageId);
-    recordRecentView(p.book, p.pageId);
-    setBookViewMode('books');
+    openPageInLibrary(p.book, p.pageId);
   }
 
   function shiftRange(direction) {

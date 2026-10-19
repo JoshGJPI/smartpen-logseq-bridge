@@ -25,16 +25,16 @@
   import { openBluetoothPicker, updateBluetoothDevices, closeBluetoothPicker } from '$stores/ui.js';
   import { dataRoot, setDataFolderStatus, getDataRoot } from '$stores/settings.js';
   import { graphRoot, setGraphFolderStatus, getGraphRoot } from '$stores/settings.js';
-  import { unsavedChanges, viewerMode, viewerDirty, setViewerMode, clearAllViewerDirty } from '$stores';
+  import { unsavedChanges, viewerDirty, destination, navigateTo } from '$stores';
+  import { DESTINATIONS, DESTINATION_LABELS } from '$lib/navigation.js';
   import { leftPanelCollapsed, toggleLeftPanel } from '$stores';
   import { isPanelToggleKey } from '$lib/left-panel.js';
-  import { bookViewMode, setBookViewMode, feedOrder, toggleFeedOrder } from '$stores';
+  import { bookViewMode, feedOrder, toggleFeedOrder } from '$stores';
   import { sittingHoverEnabled, toggleSittingHover } from '$stores';
   import { backgroundsEnabled, backgroundsAvailable, toggleBackgrounds, refreshBackgrounds } from '$stores';
   import { isAvailable as folderIsAvailable } from '$lib/storage/local-store.js';
   import { scanLocalPages } from '$lib/storage/scan.js';
   import { loadVolumes } from '$stores/volumes.js';
-  import { get } from 'svelte/store';
 
   // Initialize pen SDK on mount
   import { initializePenSDK, disconnectAllPens } from '$lib/pen-sdk.js';
@@ -122,27 +122,6 @@
   let bookViewerSpread = true;
   let bookViewerHasSelection = false;
 
-  // Switch the right pane between the Editor (live StrokeCanvas) and Book View.
-  // Guards against silently dropping unsaved transcript edits when leaving Book View.
-  function switchView(mode) {
-    if (mode === 'editor' && get(viewerDirty)) {
-      if (!window.confirm('You have unsaved transcript edits. Discard them?')) return;
-      clearAllViewerDirty();
-    }
-    setViewerMode(mode);
-  }
-
-  // Books ⇄ Timeline inside Book View. Leaving Books unmounts its transcript
-  // editor, so it gets the same unsaved-edits guard as leaving Book View.
-  function switchBookMode(mode) {
-    if (mode === $bookViewMode) return;
-    if (mode === 'timeline' && get(viewerDirty)) {
-      if (!window.confirm('You have unsaved transcript edits. Discard them?')) return;
-      clearAllViewerDirty();
-    }
-    setBookViewMode(mode);
-  }
-
   // `[` folds the left panel to its rail and back. isPanelToggleKey keeps it out
   // of text fields and modifier chords.
   function handleGlobalKeydown(e) {
@@ -220,23 +199,20 @@
 <!-- `wide` lifts the 1600 px cap while reading (Book View: Books and Timeline) so
      a big monitor enlarges the reading surface. The Editor keeps the cap: its
      canvas is sized from ink bounds and a stretched toolbar is worse. -->
-<div class="app" class:wide={$viewerMode === 'book'}>
+<div class="app" class:wide={$destination !== 'editor'}>
   <Header>
-    <!-- Primary navigation. Lives here, not in Header, because switchView owns the
-         unsaved-transcript-edits guard. -->
-    <div slot="nav" class="view-switch" role="group" aria-label="Pane">
-      <button
-        class="view-switch-btn"
-        class:active={$viewerMode === 'editor'}
-        aria-pressed={$viewerMode === 'editor'}
-        on:click={() => switchView('editor')}
-      >Editor</button>
-      <button
-        class="view-switch-btn"
-        class:active={$viewerMode === 'book'}
-        aria-pressed={$viewerMode === 'book'}
-        on:click={() => switchView('book')}
-      >Book View</button>
+    <!-- Primary navigation: the three destinations. navigateTo (stores/viewer.js)
+         asks before dropping unsaved transcript edits, for this and every other
+         route between them. -->
+    <div slot="nav" class="view-switch" role="group" aria-label="Destination">
+      {#each DESTINATIONS as dest (dest)}
+        <button
+          class="view-switch-btn"
+          class:active={$destination === dest}
+          aria-pressed={$destination === dest}
+          on:click={() => navigateTo(dest)}
+        >{DESTINATION_LABELS[dest]}</button>
+      {/each}
     </div>
   </Header>
   
@@ -246,21 +222,9 @@
     
     <!-- Right: Canvas or Book View -->
     <div class="canvas-section">
-      <!-- The Editor has its own toolbar, so this bar is Book View's alone. -->
-      {#if $viewerMode === 'book'}
+      <!-- The Editor has its own toolbar, so this bar is Library's and Timeline's. -->
+      {#if $destination !== 'editor'}
       <div class="viewer-topbar">
-        <div class="vg-segment" role="group" aria-label="Book View mode">
-          <button
-            class:active={$bookViewMode === 'books'}
-            aria-pressed={$bookViewMode === 'books'}
-            on:click={() => switchBookMode('books')}
-          >Books</button>
-          <button
-            class:active={$bookViewMode === 'timeline'}
-            aria-pressed={$bookViewMode === 'timeline'}
-            on:click={() => switchBookMode('timeline')}
-          >Timeline</button>
-        </div>
 
         {#if $backgroundsAvailable}
           <!-- Printed pages behind the ink: for reading, so Book View and the
@@ -357,9 +321,9 @@
       </div>
       {/if}
 
-      {#if $viewerMode === 'book' && $bookViewMode === 'timeline'}
+      {#if $destination === 'timeline'}
         <TimelineFeed />
-      {:else if $viewerMode === 'book'}
+      {:else if $destination === 'library'}
         <BookViewer
           bind:this={bookViewer}
           bind:contentMode={bookViewerContentMode}

@@ -27,7 +27,7 @@
     viewerSelection,
     setViewerSelection,
     clearViewerSelection,
-    setViewerMode,
+    navigateTo,
   } from '$stores';
   import { scanLocalPages } from '$lib/storage/scan.js';
   import { formatBookName } from '$utils/formatting.js';
@@ -103,6 +103,16 @@
     : (twoPageMode && rightRecord ? { record: rightRecord, mode: contentMode } : null);
   // Companion strokes pane is forced visible during editing even in single mode.
   $: showSlotB = !!editingRecord || twoPageMode;
+
+  // A page opened from outside (contents list, feed card, search) changes the
+  // selection without selectPage(); its prompt already ran, so just drop the
+  // stale editing slot rather than pinning the new page into edit layout.
+  let lastSelKey = null;
+  $: selKey = `${selectedBook}:${selectedPageId}`;
+  $: if (selKey !== lastSelKey) {
+    lastSelKey = selKey;
+    editingSide = null;
+  }
 
   function reportEditing(side, isEditing) {
     editingSide = isEditing ? side : null;
@@ -184,7 +194,7 @@
     // avoid a second disk read; importStrokesFromFolder lazily loads otherwise.
     const pageDoc = await getCachedPage(record.book, idOf(record));
     await importStrokesFromFolder({ ...record, pageDoc });
-    setViewerMode('editor');
+    navigateTo('editor');
   }
 
   export function setContentMode(mode) {

@@ -304,7 +304,11 @@ export {
   feedVisible,
   feedDayInView,
   feedJumpRequest,
-  requestFeedJump
+  requestFeedJump,
+  // Navigation spine (reading-first package C)
+  destination,
+  navigateTo,
+  openPageInLibrary
 } from './viewer.js';
 
 // Book Aliases
