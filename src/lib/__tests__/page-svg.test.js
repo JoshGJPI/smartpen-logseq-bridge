@@ -59,6 +59,19 @@ describe('strokeToPathD', () => {
 });
 
 describe('generateThumbnailSVG', () => {
+  it('lays a turned page out at its turned aspect, with one group transform', () => {
+    const tall = [{ points: [[0, 0], [10, 40]] }];
+    const plain = generateThumbnailSVG(tall, 240, 200);
+    const turned = generateThumbnailSVG(tall, 240, 200, '#000', 90);
+    const box = (svg) => svg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/).slice(1).map(Number);
+    const [pw, ph] = box(plain);
+    const [tw, th] = box(turned);
+    expect(ph).toBeGreaterThan(pw);
+    expect(tw).toBeGreaterThan(th);
+    expect(turned).toMatch(/<g transform="matrix\(/);
+    expect(plain).not.toMatch(/<g transform/);
+  });
+
   it('renders an "Empty" placeholder when there are no strokes', () => {
     const svg = generateThumbnailSVG([], 240, 180);
     expect(svg).toContain('<svg');

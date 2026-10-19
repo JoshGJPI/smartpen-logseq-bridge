@@ -33,6 +33,8 @@
   import { formatBookName } from '$utils/formatting.js';
   import { importStrokesFromFolder } from '$lib/storage/load-page.js';
   import { generateThumbnailSVG } from '$lib/viewer/page-svg.js';
+  import { pageOrientations } from '$stores/orientation.js';
+  import { rotationFor } from '$lib/page-orientation.js';
   import { getCachedPage, invalidatePage, clearPageCache } from '$lib/viewer/page-cache.js';
   import PageSpreadView from './PageSpreadView.svelte';
 
@@ -114,11 +116,13 @@
   // in the record). The rendered SVG strings are tiny, so they stay in thumbCache
   // for the session; the underlying docs go through the LRU page cache and are
   // released. Keyed by pageId so P151 and P151b don't collide.
-  async function thumbAsync(record) {
-    const key = `${record.book}:${idOf(record)}`;
+  // `rotation` is passed from the template so a page turned in Book View redraws
+  // its thumbnail (the template re-runs when $pageOrientations changes).
+  async function thumbAsync(record, rotation = 0) {
+    const key = `${record.book}:${idOf(record)}@${rotation}`;
     if (thumbCache.has(key)) return thumbCache.get(key);
     const doc = await getCachedPage(record.book, idOf(record));
-    const svg = generateThumbnailSVG((doc && doc.strokes) || [], 240, 180);
+    const svg = generateThumbnailSVG((doc && doc.strokes) || [], 240, 180, undefined, rotation);
     thumbCache.set(key, svg);
     return svg;
   }
@@ -261,7 +265,7 @@
                 {#each recentRecords as r (`${r.book}:${idOf(r)}`)}
                   <button class="bv-card" on:click={() => selectPage(r)} title="{aliasFor(r.book)} — P{idOf(r)}">
                     <div class="bv-thumb">
-                      {#await thumbAsync(r) then svg}{@html svg}{/await}
+                      {#await thumbAsync(r, rotationFor($pageOrientations, r.book, idOf(r))) then svg}{@html svg}{/await}
                     </div>
                     <div class="bv-label">{aliasFor(r.book)} — P{idOf(r)}</div>
                   </button>
@@ -283,7 +287,7 @@
                 {#each grouped[b] as r (`${r.book}:${idOf(r)}`)}
                   <button class="bv-card" on:click={() => selectPage(r)} title="P{idOf(r)} · {r.strokeCount} strokes">
                     <div class="bv-thumb">
-                      {#await thumbAsync(r) then svg}{@html svg}{/await}
+                      {#await thumbAsync(r, rotationFor($pageOrientations, r.book, idOf(r))) then svg}{@html svg}{/await}
                     </div>
                     <div class="bv-label">P{idOf(r)}</div>
                   </button>

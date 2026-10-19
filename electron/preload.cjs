@@ -76,6 +76,10 @@ contextBridge.exposeInMainWorld('storageAPI', {
   getVolumes:       (root)                       => ipcRenderer.invoke('storage:getVolumes', root),
   setActiveVolume:  (root, ncodeBook, volume)    => ipcRenderer.invoke('storage:setActiveVolume', root, ncodeBook, volume),
 
+  // Page orientation — display rotation per page, pages/_orientation.json
+  getOrientation:   (root)                       => ipcRenderer.invoke('storage:getOrientation', root),
+  setOrientation:   (root, book, page, rotation) => ipcRenderer.invoke('storage:setOrientation', root, book, page, rotation),
+
   // Page backgrounds — Neo's printed pages, cached under pages/_backgrounds/ (read-only)
   listBackgrounds:       (root)               => ipcRenderer.invoke('storage:listBackgrounds', root),
   getBackgroundManifest: (root, book)         => ipcRenderer.invoke('storage:getBackgroundManifest', root, book),

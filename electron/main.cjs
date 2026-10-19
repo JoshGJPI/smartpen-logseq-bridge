@@ -318,6 +318,10 @@ function volumesPath(root) {
   return path.join(pagesDir(root), '_volumes.json');
 }
 
+function orientationPath(root) {
+  return path.join(pagesDir(root), '_orientation.json');
+}
+
 // ----- "Publish to graph" target paths (JPI Tools plugin asset storage) -----
 // The plugin (v1.9.66+) discovers pages from smartpen-index.json under its
 // mandatory storages/<plugin-id>/ asset sub-folder. See the bridge module
@@ -744,6 +748,56 @@ async function writeVolumes(root, registry) {
   await writeFileAtomic(volumesPath(root), JSON.stringify(registry, null, 2));
 }
 
+/**
+ * Page orientation — `<dataRoot>/pages/_orientation.json`.
+ *
+ * `{ version: 1, pages: { "<bookKey>/<pageId>": 90 | 180 | 270 } }`: the
+ * clockwise turn that shows a page written with the notebook sideways the right
+ * way up. Display-only, so it lives beside the PageDocs rather than in them —
+ * a rotation is not a stroke edit and never goes through the save path.
+ * Portrait (0) is recorded by absence. src/lib/page-orientation.js owns the
+ * format; the renderer normalises whatever this returns.
+ *
+ * A missing or unreadable file reads as "every page portrait" rather than an
+ * error: it is a display preference, and a corrupt one must not block the
+ * views. The next write replaces it.
+ */
+async function readOrientation(root) {
+  let raw;
+  try {
+    raw = await fsp.readFile(orientationPath(root), 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return { version: 1, pages: {} };
+    throw err;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    const pages = parsed && typeof parsed === 'object' && parsed.pages
+      && typeof parsed.pages === 'object' && !Array.isArray(parsed.pages)
+      ? parsed.pages : {};
+    return { version: parsed.version || 1, pages };
+  } catch (err) {
+    console.warn('[storage] _orientation.json is unreadable; treating every page as portrait:', err.message);
+    return { version: 1, pages: {} };
+  }
+}
+
+async function writeOrientation(root, registry) {
+  await writeFileAtomic(orientationPath(root), JSON.stringify(registry, null, 2));
+}
+
+const ROTATIONS = [0, 90, 180, 270];
+
+// Rotation clicks arrive faster than a read-modify-write of the sidecar takes,
+// and two overlapping ones each read the file before the other wrote it, so
+// the first was lost. Every update goes through this one chain instead.
+let orientationChain = Promise.resolve();
+function withOrientationLock(fn) {
+  const run = orientationChain.then(fn, fn);
+  orientationChain = run.catch(() => {});
+  return run;
+}
+
 /** Wraps an IPC handler so thrown errors become `{ok:false, error}` responses. */
 function ipcSafe(fn) {
   return async (_event, ...args) => {
@@ -830,6 +884,22 @@ ipcMain.handle('storage:setActiveVolume', ipcSafe(async (root, ncodeBook, volume
   else registry.active[String(n)] = v;
   await writeVolumes(root, registry);
   return registry;
+}));
+
+ipcMain.handle('storage:getOrientation', ipcSafe(async (root) => readOrientation(root)));
+ipcMain.handle('storage:setOrientation', ipcSafe(async (root, book, page, rotation) => {
+  // Same guards as a page path: the key is built from a validated book key and
+  // page id, so nothing path-like or non-canonical ("388v1") gets recorded.
+  const key = `${requireBookKey(book)}/${requirePageId(page)}`;
+  const r = Number(rotation);
+  if (!ROTATIONS.includes(r)) throw new Error(`Invalid rotation: ${rotation}`);
+  return withOrientationLock(async () => {
+    const registry = await readOrientation(root);
+    if (r === 0) delete registry.pages[key];
+    else registry.pages[key] = r;
+    await writeOrientation(root, registry);
+    return registry;
+  });
 }));
 
 // ===== Page backgrounds — `<dataRoot>/pages/_backgrounds/<ncodeBook>/` =====

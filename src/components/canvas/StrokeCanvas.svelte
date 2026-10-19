@@ -26,6 +26,8 @@
   import { ncodeBookOf, volumeOf, BOOK_KEY_FRAGMENT } from '$lib/volumes.js';
   import { contextInk } from '$stores/context-ink.js';
   import { canvasPageOrder } from '$stores/timeline.js';
+  import { pageOrientations } from '$stores/orientation.js';
+  import OrientationControl from '../viewer/OrientationControl.svelte';
 
   // S#/O#/B<bookKey>/P# — the book portion may carry a volume suffix.
   const BOOK_PAGE_KEY_RE = new RegExp(`S\\d+\\/O\\d+\\/B(${BOOK_KEY_FRAGMENT})\\/P(\\d+)`);
@@ -495,6 +497,41 @@
     // itself schedule a repaint from any of the reactive blocks above.
     renderStrokes(false);
   }
+
+  /* ---------------------------------------------------------------
+   *  Page orientation — show a page written sideways upright
+   * --------------------------------------------------------------- */
+
+  // The renderer turns each rotated page as part of its one per-page projection
+  // (canvas-renderer.js pageProjection), so selection, lasso, point edit and
+  // culling all see the page as drawn. A turn changes the page's layout box, so
+  // it needs a full-reset render; the view itself stays where it is.
+  $: applyPageRotations(renderer, $pageOrientations);
+
+  function applyPageRotations(r, map) {
+    if (!r) return;
+    r.setPageRotations(map);
+    if ($strokeCount > 0) renderStrokes(true);
+  }
+
+  // The page the toolbar's orientation control acts on: the selection's page
+  // when every selected stroke is on one page, else the only page shown.
+  const CANVAS_PAGE_KEY_RE = new RegExp(`^S\\d+\\/O\\d+\\/B(${BOOK_KEY_FRAGMENT})\\/P(\\d+)$`);
+  $: selectionPageIds = $hasSelection
+    ? [...new Set(Array.from($selectedIndices)
+        .map(i => $strokes[i]?.pageInfo)
+        .filter(pi => pi && pi.book !== undefined && pi.page !== undefined)
+        .map(pi => `${pi.book}/${pi.page}`))]
+    : [];
+  $: shownPageIds = [...selectedPages]
+    .filter(k => $pages.has(k))
+    .map(k => k.match(CANVAS_PAGE_KEY_RE))
+    .filter(Boolean)
+    .map(m => `${m[1]}/${m[2]}`);
+  $: orientationTargetId = selectionPageIds.length === 1
+    ? selectionPageIds[0]
+    : (selectionPageIds.length === 0 && shownPageIds.length === 1 ? shownPageIds[0] : null);
+  $: orientationTarget = orientationTargetId ? orientationTargetId.split('/') : [null, null];
 
   /* ---------------------------------------------------------------
    *  Volumes — move the selection to another physical notebook
@@ -2179,6 +2216,19 @@
         >
           {copiedPageKey === 'all' ? '✅ Copied' : '📋 Copy'}
         </button>
+      </div>
+
+      <span class="tb-sep" aria-hidden="true"></span>
+
+      <!-- Display rotation for a page written with the notebook sideways. Acts
+           on the selection's page, or the only page shown; written straight to
+           pages/_orientation.json, so there is nothing to save. -->
+      <div class="tb-group" role="group" aria-label="Page orientation">
+        <OrientationControl
+          book={orientationTarget[0]}
+          pageId={orientationTarget[1]}
+          disabledReason="Select strokes on one page (or show a single page) to rotate it"
+        />
       </div>
     </div>
 

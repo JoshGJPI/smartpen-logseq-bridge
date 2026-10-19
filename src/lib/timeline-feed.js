@@ -94,29 +94,33 @@ export function continuesSitting(st, endTime, gapMs = SESSION_GAP_MS) {
 }
 
 /**
- * Per-stroke vertical extent plus the page's frame, computed once per PageDoc.
- * Cards filter strokes to their band by these numbers rather than walking every
- * point of every stroke again on each render.
+ * Per-stroke extent plus the page's frame, computed once per PageDoc. Cards
+ * filter strokes to their band by these numbers rather than walking every point
+ * of every stroke again on each render. The horizontal extent is there for a
+ * page shown turned (lib/page-orientation.js): turning a box needs all four
+ * sides, and a turned page's bands are cut across what was its width.
  *
  * @param {{strokes?: Array}} doc
  * @returns {{width: number, height: number,
- *            items: Array<{stroke: Object, minY: number, maxY: number}>}}
+ *            items: Array<{stroke: Object, minX: number, maxX: number, minY: number, maxY: number}>}}
  */
 export function indexPageStrokes(doc) {
   const strokes = (doc && Array.isArray(doc.strokes)) ? doc.strokes : [];
   let maxX = 0, maxY = 0;
   const items = [];
   for (const stroke of strokes) {
-    let lo = Infinity, hi = -Infinity;
+    let lo = Infinity, hi = -Infinity, left = Infinity, right = -Infinity;
     for (const p of stroke.points || []) {
       if (isBogusPoint(p)) continue;
       if (p[1] < lo) lo = p[1];
       if (p[1] > hi) hi = p[1];
-      if (p[0] > maxX) maxX = p[0];
+      if (p[0] < left) left = p[0];
+      if (p[0] > right) right = p[0];
     }
     if (!Number.isFinite(lo)) continue;
     if (hi > maxY) maxY = hi;
-    items.push({ stroke, minY: lo, maxY: hi });
+    if (right > maxX) maxX = right;
+    items.push({ stroke, minX: left, maxX: right, minY: lo, maxY: hi });
   }
   return {
     width: Math.max(PAGE_MIN_WIDTH, maxX + BAND_PAD),

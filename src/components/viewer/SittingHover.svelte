@@ -10,8 +10,9 @@
   Built for dense pages: the sittings and a segment grid are computed once per
   page load, pointer moves are coalesced to one hit-test per animation frame,
   and `hot` changes only when the pointer crosses into another sitting, so the
-  page's own paths never re-render. Pointer → Ncode goes through the SVG's
-  screen matrix, so it holds under zoom, pan and any transform on the page.
+  page's own paths never re-render. Pointer → Ncode goes through the screen
+  matrix of the page's content (`frameEl`, the rotated group), so it holds under
+  zoom, pan and page rotation.
 -->
 <script>
   import { onDestroy } from 'svelte';
@@ -19,8 +20,13 @@
   import { pageSittings, buildHitIndex, hitTest, hoverTolerance, formatSittingLabel } from '$lib/viewer/page-sittings.js';
   import { sittingHoverEnabled } from '$stores';
 
-  /** The page's <svg>, whose user units are Ncode × NCODE_SCALE from viewBounds' corner. */
+  /** The page's <svg>: pointer events are taken here, blank paper included. */
   export let svgEl = null;
+  /**
+   * The element whose user units are Ncode × NCODE_SCALE from viewBounds' corner:
+   * the page's rotated content group. Defaults to `svgEl` (an unturned page).
+   */
+  export let frameEl = null;
   /** The PageDoc's strokes. */
   export let strokes = [];
   /** { minX, minY, ... } the SVG is drawn from. */
@@ -80,7 +86,7 @@
     const p = pending;
     pending = null;
     if (!p || !model || paused || !svgEl || !viewBounds) return;
-    const m = svgEl.getScreenCTM();
+    const m = (frameEl || svgEl).getScreenCTM();
     if (!m) return;
     const u = new DOMPoint(p.x, p.y).matrixTransform(m.inverse());
     const x = u.x / NCODE_SCALE + viewBounds.minX;
@@ -104,7 +110,7 @@
   function place() {
     const g = hot;
     if (!g || !g.bounds || !svgEl || !layerEl || !viewBounds) { labelPos = null; return; }
-    const m = svgEl.getScreenCTM();
+    const m = (frameEl || svgEl).getScreenCTM();
     if (!m) return;
     const b = g.bounds;
     let right = -Infinity, top = Infinity;

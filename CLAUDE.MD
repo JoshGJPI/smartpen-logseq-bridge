@@ -77,7 +77,8 @@ Dates (opens on Dates); their ids (`'strokes'`, `'transcription'`,
 - Letter-suffixed pages (`P151b.json`) are real: the integer `pageInfo.page` is the NCode page, the suffix is the
   user's variant label and is preserved.
 - Sidecar files in `pages/`: `_aliases.json` (book names, keyed by book key), `_volumes.json` (active volume per
-  NCode book), `_timeline.json` (per-page capture-day histograms; a pure cache, safe to delete).
+  NCode book), `_timeline.json` (per-page capture-day histograms; a pure cache, safe to delete), `_orientation.json`
+  (display rotation per page, `"<bookKey>/<pageId>": 90|180|270`, portrait by absence; missing or corrupt = all portrait).
 
 ## Invariants
 
@@ -174,6 +175,11 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   `fitContent()` once on the first batch. `liveWritingViewSet` stops repeat viewport jumps.
 - Performance matters above ~1,000 strokes: cull, use `requestAnimationFrame`, debounce. Above ~2,000 per page,
   use the page selector.
+- **Page rotation is display-only** (`lib/page-orientation.js`): never rewrite stored points for it. Turn a page within
+  its paper frame (Neo frame, or `NOMINAL_FRAME`), never its ink box, and apply it as ONE transform per page: an SVG
+  `<g transform>` in Book View / Timeline, the Editor's per-page `pageProjection()` affine. Every canvas Ncode↔screen
+  mapping must go through `pageProjection()` / `ncodeToScreen()` / `screenToNcode()` so it follows the turn.
+  Transcription sends turned copies and matches stored strokes in that frame (`strokesInTranscriptionFrame()`).
 - Neo page backgrounds are drawn only in the read-only views (Book View, Timeline), never in the Editor, whose
   page bounds come from ink. `resolvePageBackground()` never throws: any failure means "no background". They are keyed
   by NCode book number (a volume shares its book's paper) and a suffixed page uses its integer page's image.
@@ -216,6 +222,10 @@ then looks broken when it isn't). Launch with `--disable-backgrounding-occluded-
 
 ## Known limitations and open items
 
+- **Page rotation** (Unreleased): live pen ink and transcription on a rotated page are verified by unit tests only (no
+  pen or MyScript key in the Oct 2026 app check). Changing a rotation after transcribing misaligns the transcript
+  preview's Y band until re-transcribed; a suffixed page on the canvas uses its integer page's rotation; pasted
+  strokes, SVG export and Export to graph stay unturned.
 - **Offline import with volumes is unverified on hardware** (live capture, volume definition and reassignment were
   verified 2026-08-07). Check: multi-book batch imports completely, strokes land in the active volume, reassignment
   works on imported strokes. See [docs/VOLUMES-SPEC.md](docs/VOLUMES-SPEC.md) §11.

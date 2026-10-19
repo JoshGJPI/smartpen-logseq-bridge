@@ -25,6 +25,10 @@
  *       new lineId onto those strokes. The line's yBounds are MyScript
  *       millimetres and have to be converted back to Ncode against the batch's
  *       own origin first - see transcriptionOriginY.
+ *     - A page shown rotated (lib/page-orientation.js) was sent to MyScript
+ *       turned upright, so its yBounds are in that upright frame. The match
+ *       turns a COPY of the stored points the same way (`pageTranscription.rotation`);
+ *       stored points are never rewritten.
  *     - Skip duplicate lines whose text+yBounds match an existing line.
  *     - Existing transcript.lines are preserved.
  *
@@ -36,6 +40,7 @@ import { getPage, savePage, deletePage } from './local-store.js';
 import { emptyPageDoc, computeBounds, PAGE_DOC_VERSION } from './page-doc.js';
 import { pageInfoForDisk } from '$lib/volumes.js';
 import { yBoundsToNcode } from '$lib/myscript-api.js';
+import { normalizeRotation, rotateStoredPoints } from '$lib/page-orientation.js';
 import { noteOnDiskStrokeIds } from '$stores/pending-changes.js';
 
 /* -----------------------------------------------------------------
@@ -318,6 +323,21 @@ function mergeTranscript(existingLines, myscriptLines, storedStrokes, originNcod
   return { lines: [...existing, ...newLines], lineIdAssignments };
 }
 
+/**
+ * Stored strokes as the transcription saw them: turned upright when the page
+ * was sent rotated (ActionBar records the rotation on the transcription), so
+ * their Y can be compared with the batch's yBounds and origin. A matching-only
+ * copy of `{ id, points }` — never what is written back.
+ *
+ * @param {Array} storedStrokes
+ * @param {number} [rotation]
+ * @returns {Array}
+ */
+export function strokesInTranscriptionFrame(storedStrokes, rotation) {
+  if (!normalizeRotation(rotation)) return storedStrokes;
+  return storedStrokes.map(s => ({ id: s.id, points: rotateStoredPoints(s.points || [], rotation) }));
+}
+
 /* -----------------------------------------------------------------
  *  Main save entry point
  * ----------------------------------------------------------------- */
@@ -441,11 +461,12 @@ export async function savePageToFolder(input) {
 
     if (pageTranscription && Array.isArray(pageTranscription.lines) && pageTranscription.lines.length > 0) {
       const before = transcript.lines.length;
+      const frameStrokes = strokesInTranscriptionFrame(merged, pageTranscription.rotation);
       const { lines, lineIdAssignments } = mergeTranscript(
         transcript.lines || [],
         pageTranscription.lines,
-        merged,
-        transcriptionOriginY(pageTranscription, merged)
+        frameStrokes,
+        transcriptionOriginY(pageTranscription, frameStrokes)
       );
       linesAdded = lines.length - before;
 

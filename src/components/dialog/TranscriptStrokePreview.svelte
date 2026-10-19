@@ -28,6 +28,8 @@
   import { getStrokesSnapshot } from '$stores/strokes.js';
   import { getCachedPage } from '$lib/viewer/page-cache.js';
   import { yBoundsToNcode } from '$lib/myscript-api.js';
+  import { pageOrientations } from '$stores/orientation.js';
+  import { rotationFor, rotateStoredPoints } from '$lib/page-orientation.js';
 
   /** Book key (string, may carry a volume suffix — e.g. "388v2"). */
   export let book;
@@ -48,7 +50,7 @@
   /** Y-overlap slack (Ncode units) when a line has no stroke ids to match on. */
   const Y_TOLERANCE = 1;
 
-  let previewStrokes = [];
+  let rawStrokes = [];
   let loading = false;
   let error = '';
   let source = '';           // 'canvas' | 'disk' | ''
@@ -62,7 +64,17 @@
     resolveStrokes(book, pageId, resolveKey);
   }
 
+  // A page shown rotated is previewed upright, and everything below (bounds,
+  // band, Y-overlap) works in that frame — the frame its transcription was sent
+  // to MyScript in (ActionBar). The canvas copy is keyed by its integer page,
+  // as the Editor does. Turned copies are made once per resolve or rotation
+  // change, not per render.
+  $: rotation = rotationFor($pageOrientations, book, source === 'canvas' ? parseInt(String(pageId), 10) : pageId);
+  $: previewStrokes = rotation
+    ? rawStrokes.map((s) => ({ ...s, points: rotateStoredPoints(s.points, rotation) }))
+    : rawStrokes;
   $: bounds = computeStrokeBounds(previewStrokes);
+  $: if (baseWidth) fitToWidth();
   $: baseWidth = bounds ? (bounds.maxX - bounds.minX) * NCODE_SCALE : 0;
   $: baseHeight = bounds ? (bounds.maxY - bounds.minY) * NCODE_SCALE : 0;
 
@@ -109,7 +121,7 @@
   }
 
   async function resolveStrokes(bookKey, id, key) {
-    previewStrokes = [];
+    rawStrokes = [];
     error = '';
     source = '';
     if (bookKey == null || id == null) return;
@@ -121,7 +133,7 @@
       (s) => s.pageInfo?.book === bookKey && s.pageInfo?.page === pageNum && !s.deleted
     );
     if (canvas.length > 0) {
-      previewStrokes = canvas.map(fromCanvasStroke).filter((s) => s.points.length > 1);
+      rawStrokes = canvas.map(fromCanvasStroke).filter((s) => s.points.length > 1);
       source = 'canvas';
       await tick();
       fitToWidth();
@@ -133,8 +145,8 @@
     try {
       const doc = await getCachedPage(bookKey, id);
       if (lastResolveKey !== key) return; // a newer resolve superseded this one
-      previewStrokes = (doc && doc.strokes) || [];
-      source = previewStrokes.length > 0 ? 'disk' : '';
+      rawStrokes = (doc && doc.strokes) || [];
+      source = rawStrokes.length > 0 ? 'disk' : '';
     } catch (err) {
       if (lastResolveKey === key) error = err?.message || String(err);
     } finally {

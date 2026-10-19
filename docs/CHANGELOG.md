@@ -28,11 +28,73 @@ coalesced to one hit-test per animation frame; and a hover never re-renders the
 page's paths. A class on the `<svg>` greys them by CSS and `SittingInk` redraws just
 the hovered sitting on top. Considered: per-sitting `<g>` wrappers with a class
 toggle, rejected because it restructures the page's stroke loop (the rotation work
-was changing the same markup at the same time). Pointer → Ncode uses the SVG's
-`getScreenCTM()`, so zoom, pan and any later transform of the page are handled without
-knowing about them. Overlapping sittings: the nearest stroke wins; hover reach is 6 px
+was changing the same markup at the same time). Pointer → Ncode uses
+`getScreenCTM()` of the page's rotated content group (`frameEl`; pointer events stay on
+the `<svg>` so blank paper still clears the hover), so zoom, pan and page rotation are
+handled without knowing about them, and `SittingInk` sits inside that group so the
+highlight turns with the page. Overlapping sittings: the nearest stroke wins; hover reach is 6 px
 on screen, capped at 3 Ncode units when zoomed out. Ink with no `startTime` belongs to
 no sitting and can't be picked. The highlight is suppressed while dragging to pan.
+
+### Page rotation: pages written sideways are shown upright
+
+**A page can be marked Portrait, Landscape ↻ (90°), Landscape ↺ (270°) or Upside
+down (180°)**, and every view shows it upright: Book View (page, spread and home
+thumbnails), the Timeline cards and the Editor canvas. The control (↺, a picker, ↻)
+sits in each Book View page toolbar and on the Editor's canvas toolbar, where it acts
+on the selection's page, or on the only page shown. A turn takes effect at once and
+is written straight to disk, so it is not an unsaved edit.
+
+**Display-only, stored in a sidecar.** `pages/_orientation.json` holds
+`{ version: 1, pages: { "<bookKey>/<pageId>": 90 | 180 | 270 } }`, portrait by
+absence, read and written through IPC like `_aliases.json` (atomic write, book key and
+page id validated by `requireBookKey`/`requirePageId` so the key can't be path-like or
+non-canonical). Storing it in the PageDoc was rejected: a rotation isn't a stroke
+edit, and putting it there would route a display preference through the append-only
+save path, `validatePageDoc()` and the SaveConfirmDialog diff for no gain. Stroke
+points are never rewritten. A missing or corrupt sidecar means every page is portrait.
+Volume books (`388v2/…`) and suffixed pages (`…/151b`) are separate entries.
+
+**One transform per page.** The maths is pure (`lib/page-orientation.js`): a page
+turns within a FRAME, its paper (the Neo background's frame, or a nominal sheet), and
+the turned frame keeps the same top-left with width and height swapped. The frame is
+paper rather than the ink box because the translation part of a turn depends on the
+frame: an ink-derived frame would shift every existing stroke whenever new ink grew
+the box. Book View and the Timeline wrap paper and ink in one SVG `<g transform>`;
+the Editor folds the turn into the per-page affine that every Ncode→screen projection
+already goes through (`canvas-renderer.js` `pageProjection()`, resolved once per
+stroke rather than per dot, which also made unrotated projection cheaper). Because
+selection, lasso, hit-testing, point handles, culling, `centerOnPoint`, Fit and live
+pen ink all project through that one function, they all follow the turn; the formula
+for an unrotated page is unchanged. `screenToNcode()` is its inverse. The Timeline's
+strips are cut in the turned frame, so a strip is a horizontal slice of the upright
+page (`indexPageStrokes()` now records each stroke's x extent too, so a turned box
+costs four numbers rather than a pass over its points).
+
+**Transcription is sent upright.** Sideways ink sent as-is recognises as vertical
+scribble. `ActionBar` sends turned copies of the strokes, so the batch origin
+(`batchOriginY`) and the returned yBounds are in the upright frame; the rotation rides
+on the in-memory transcription, and `save-page.js` (`strokesInTranscriptionFrame()`)
+turns a matching-only copy of the stored points the same way before the yBounds →
+stroke match. `TranscriptStrokePreview` draws the page upright so its line band lines
+up. Persisted results (stroke `lineId`s) don't depend on the frame.
+
+**A race found in the running app.** Two quick rotations each read the sidecar
+before the other wrote it, so the first was lost. Writes in `main.cjs` now go through
+one promise chain, the store keeps its own optimistic state rather than adopting each
+write's reply (an earlier reply would briefly undo a later click), and the ↺/↻ buttons
+step from the store rather than from a `$:` value that updates only at the next flush.
+
+**Limitations.**
+- Changing a page's rotation after it was transcribed leaves the transcript
+  preview's Y band out of line for those lines (stored `lineId`s are unaffected);
+  re-transcribing realigns it.
+- On the Editor canvas a letter-suffixed page (P151b) uses its integer page's
+  rotation, because the canvas has already merged it onto that page.
+- Duplicated/pasted strokes, SVG export and "Export to graph" stay in page
+  coordinates (unturned).
+- Live pen ink on a rotated page and transcription were verified by unit tests only
+  (no pen or MyScript key in the test run).
 
 ## Startup on the Timeline and Dates (October 2026)
 

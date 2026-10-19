@@ -87,6 +87,13 @@ export {
   deleteStrayPoints
 } from './point-edit.js';
 
+// Page orientation (display rotation for pages written sideways)
+export {
+  pageOrientations,
+  loadOrientations,
+  setPageRotation
+} from './orientation.js';
+
 // Page backgrounds (Neo's printed pages, read-only views)
 export {
   backgroundsEnabled,

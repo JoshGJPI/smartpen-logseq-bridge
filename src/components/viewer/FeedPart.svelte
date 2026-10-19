@@ -20,6 +20,8 @@
   import { sessionBands } from '$lib/timeline-feed.js';
   import { dayKey, dayStart } from '$lib/timeline.js';
   import { sketchProfile, backgroundsEnabled, resolvePageBackground } from '$stores';
+  import { pageOrientations } from '$stores/orientation.js';
+  import { rotationFor, rotateFrame, rotateBox, svgRotationTransform } from '$lib/page-orientation.js';
 
   /** A part from daySessions(): { book, pageId, count, strokes, firstStart, lastStart }. */
   export let part;
@@ -66,14 +68,26 @@
   // it, the ink's own frame from the origin (frame width/height from
   // indexPageStrokes — unchanged behaviour).
   $: frame = bg ? bg.frame : { x0: 0, y0: 0, x1: page.width, y1: page.height };
-  $: fw = frame.x1 - frame.x0;
-  $: fh = frame.y1 - frame.y0;
 
-  $: bands = sessionBands(page.items.filter((it) => part.strokes.has(it.stroke)), frame.y1)
-    .map((b) => ({ y0: Math.max(b.y0, frame.y0), y1: b.y1 }));
+  // A page written sideways is shown turned (lib/page-orientation.js). Strips,
+  // bands and the locator all work in the TURNED frame, so a strip is a
+  // horizontal slice of the upright page; the ink and paper keep their page
+  // coordinates and one group transform per strip turns them into it. The
+  // per-stroke boxes are turned once (four numbers a stroke, not its points).
+  $: rotation = rotationFor($pageOrientations, part.book, part.pageId);
+  $: shown = rotateFrame(frame, rotation);
+  $: turn = svgRotationTransform(rotation, frame, S) || null;
+  $: items = rotation
+    ? page.items.map((it) => ({ ...rotateBox(it, rotation, frame), stroke: it.stroke }))
+    : page.items;
+  $: fw = shown.x1 - shown.x0;
+  $: fh = shown.y1 - shown.y0;
+
+  $: bands = sessionBands(items.filter((it) => part.strokes.has(it.stroke)), shown.y1)
+    .map((b) => ({ y0: Math.max(b.y0, shown.y0), y1: b.y1 }));
   // What gets drawn: one view per strip, or the whole page.
-  $: views = (expanded ? [{ y0: frame.y0, y1: frame.y1 }] : bands).map((v) => {
-    const visible = page.items.filter((it) => it.maxY >= v.y0 && it.minY <= v.y1);
+  $: views = (expanded ? [{ y0: shown.y0, y1: shown.y1 }] : bands).map((v) => {
+    const visible = items.filter((it) => it.maxY >= v.y0 && it.minY <= v.y1);
     return {
       ...v,
       ours: visible.filter((it) => part.strokes.has(it.stroke)),
@@ -107,10 +121,10 @@
 
 <div class="fp" class:divided>
   <div class="fp-head">
-    <svg class="fp-loc" viewBox="{frame.x0} {frame.y0} {fw} {fh}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Where this sits on the page">
-      <rect x={frame.x0} y={frame.y0} width={fw} height={fh} rx="2" fill="#fff" stroke="#c9c9d2" stroke-width="1.6" vector-effect="non-scaling-stroke" />
+    <svg class="fp-loc" viewBox="{shown.x0} {shown.y0} {fw} {fh}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Where this sits on the page">
+      <rect x={shown.x0} y={shown.y0} width={fw} height={fh} rx="2" fill="#fff" stroke="#c9c9d2" stroke-width="1.6" vector-effect="non-scaling-stroke" />
       {#each bands as b}
-        <rect x={frame.x0 + 1} y={b.y0} width={fw - 2} height={b.y1 - b.y0} fill="rgba(47, 95, 216, 0.2)" stroke="#2f5fd8" stroke-width="1" vector-effect="non-scaling-stroke" />
+        <rect x={shown.x0 + 1} y={b.y0} width={fw - 2} height={b.y1 - b.y0} fill="rgba(47, 95, 216, 0.2)" stroke="#2f5fd8" stroke-width="1" vector-effect="non-scaling-stroke" />
       {/each}
     </svg>
     <div class="fp-id">
@@ -142,17 +156,18 @@
       {#if i > 0}
         <span class="fp-cut" aria-hidden="true"></span>
       {/if}
-      <svg viewBox="{frame.x0 * S} {v.y0 * S} {fw * S} {(v.y1 - v.y0) * S}" preserveAspectRatio="xMidYMin meet">
+      <svg viewBox="{shown.x0 * S} {v.y0 * S} {fw * S} {(v.y1 - v.y0) * S}" preserveAspectRatio="xMidYMin meet">
         {#if bg}
           <!-- The whole sheet, placed in Ncode units × S like the strokes; this
                strip's viewBox just shows the slice of it the sitting covers. -->
-          <image href={bg.url} x={frame.x0 * S} y={frame.y0 * S} width={fw * S} height={fh * S} preserveAspectRatio="none" />
+          <image href={bg.url} x={frame.x0 * S} y={frame.y0 * S} width={(frame.x1 - frame.x0) * S} height={(frame.y1 - frame.y0) * S} preserveAspectRatio="none" transform={turn} />
         {/if}
         {#if expanded}
           {#each bands as b}
-            <rect x={frame.x0 * S} y={b.y0 * S} width={fw * S} height={(b.y1 - b.y0) * S} fill="rgba(47, 95, 216, 0.06)" />
+            <rect x={shown.x0 * S} y={b.y0 * S} width={fw * S} height={(b.y1 - b.y0) * S} fill="rgba(47, 95, 216, 0.06)" />
           {/each}
         {/if}
+        <g transform={turn}>
         {#each v.theirs as it}
           <path d={strokeToPathD(it.stroke, ORIGIN)} stroke={CONTEXT} stroke-width={DEFAULT_STROKE_WIDTH} fill="none" stroke-linecap="round" stroke-linejoin="round" />
         {/each}
@@ -165,6 +180,7 @@
             <path d={strokeToPathD(it.stroke, ORIGIN)} stroke={INK} stroke-width={DEFAULT_STROKE_WIDTH} fill="none" stroke-linecap="round" stroke-linejoin="round" />
           {/if}
         {/each}
+        </g>
       </svg>
     {/each}
     {#if greyNote}
