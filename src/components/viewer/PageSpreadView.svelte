@@ -1,31 +1,36 @@
 <!--
-  PageSpreadView.svelte — renders ONE page within the Book View.
+  PageSpreadView.svelte — ONE page in the Library reader.
 
-  Shows either the rendered strokes (SVG, with local zoom/pan/fit) or the
-  transcript (TranscriptPane), based on `contentMode`. The primary page
-  (showGlobalControls) also hosts the viewer-wide toggles: Strokes⇄Transcript,
-  Single⇄Spread, and Home. Prev/Next arrows turn pages.
+  Header (PageHeader: title, strokes, written-on ribbon, Load into Editor) over
+  the page's content in one of three modes:
+    strokes     PageInk
+    transcript  TranscriptPane
+    inktext     both: ink left / text right for a single page (`layout` 'side'),
+                text under the ink in a spread ('stack')
+  Zoom and Fit are driven for both pages by the shared spread toolbar
+  (BookViewer → zoomBy() / fit()); rotation sits on the page's own corner.
+
+  Ink + text links a hovered line to its ink only on pages whose stroke
+  lineIds can be trusted (lib/viewer/ink-text.js); other pages sit side by
+  side without linking. Nothing here writes lineIds or touches the merge.
 -->
 <script>
-  import { onMount, tick } from 'svelte';
-  import { NCODE_SCALE, DEFAULT_STROKE_WIDTH, computeStrokeBounds, strokeToPathD, strokeToWidthRuns } from '$lib/viewer/page-svg.js';
-  import {
-    sketchProfile, backgroundsEnabled, resolvePageBackground,
-    setTimelineRange, navigateTo, setActiveTab
-  } from '$stores';
-  import { frameToBounds } from '$lib/neo-backgrounds.js';
+  import { tick } from 'svelte';
+  import { setTimelineRange, navigateTo, setActiveTab } from '$stores';
   import { getCachedPage } from '$lib/viewer/page-cache.js';
+  import { pageDayGroups } from '$lib/viewer/page-sittings.js';
+  import { isTrustworthyTranscript, strokesByLine } from '$lib/viewer/ink-text.js';
+  import PageHeader from './PageHeader.svelte';
+  import PageInk from './PageInk.svelte';
   import TranscriptPane from './TranscriptPane.svelte';
-  import SittingHover from './SittingHover.svelte';
-  import SittingInk from './SittingInk.svelte';
-  import OrientationControl from './OrientationControl.svelte';
-  import { pageOrientations } from '$stores/orientation.js';
-  import { rotationFor, rotateFrame, svgRotationTransform } from '$lib/page-orientation.js';
+  import PageTurnButtons from './PageTurnButtons.svelte';
 
   /** store record: lightweight { book, page, pageId, strokeCount, ... } — NO strokes */
   export let record;
   export let bookAlias = '';
-  export let contentMode = 'strokes'; // 'strokes' | 'transcript'
+  export let contentMode = 'strokes'; // 'strokes' | 'transcript' | 'inktext'
+  /** Ink + text arrangement: 'side' (single page) or 'stack' (spread). */
+  export let layout = 'side';
 
   export let hasPrev = false;
   export let hasNext = false;
@@ -34,31 +39,16 @@
   export let onTranscriptSaved = () => {};
   export let onLoadIntoEditor = () => {};
   export let onEditingChange = () => {};
+  /** Out: the ink's zoom factor, or null when no ink is shown. */
+  export let zoom = null;
 
-  let containerEl;
-  let zoom = 1;
-  let panX = 0;
-  let panY = 0;
-  let isPanning = false;
-  let panStartX = 0;
-  let panStartY = 0;
-  let panStartPanX = 0;
-  let panStartPanY = 0;
-  // A press only becomes a pan once it moves PAN_SLOP px, so a plain click on
-  // ink keeps its hover highlight and reaches SittingHover as a click.
-  const PAN_SLOP = 4;
-  let panArmed = false;
+  let ink = null;
+  let inkZoom = 1;
+  let dayHighlight = null;
+  let lineHighlight = null;
 
-  // Hover-to-reveal capture time: the sitting under the pointer (SittingHover).
-  // Pointer events are taken on the <svg> (blank paper included); page
-  // coordinates are mapped through the rotated content group's matrix.
-  let svgEl;
-  let contentEl;
-  let hotSitting = null;
-
-  // The PageDoc (with strokes + transcript) is loaded lazily — records no longer
-  // carry strokes (perf #3). A small LRU keeps recently-viewed docs so turning a
-  // spread doesn't re-read disk each time.
+  // The PageDoc (strokes + transcript) is loaded lazily: records carry no
+  // strokes. The LRU page cache keeps turning a spread off the disk.
   let doc = null;
   let loadingDoc = false;
   let loadedKey = null;
@@ -80,7 +70,6 @@
       if (loadedKey !== key) return; // a newer record won the race
       doc = d;
       await tick();
-      requestAnimationFrame(fitContent); // fit once strokes are in the DOM
     } catch (e) {
       if (loadedKey === key) console.warn('Book View: failed to load page', key, e);
     } finally {
@@ -95,117 +84,40 @@
     onTranscriptSaved(b, p, savedLines);
   }
 
-  // The printed page behind the strokes ({ frame, url }), when the book has one
-  // and backgrounds are switched on. Shown here because Book View is for reading;
-  // the Editor never draws it. Resolution never throws — no paper is just null.
-  let bg = null;
-  let bgKey = null;
-
-  $: updateBackground(record, $backgroundsEnabled);
-
-  async function updateBackground(rec, enabled) {
-    if (!rec || !enabled) {
-      bgKey = null;
-      if (bg) { bg = null; refit(); }
-      return;
-    }
-    const key = `${rec.book}:${idOf(rec)}`;
-    if (key === bgKey) return;
-    bgKey = key;
-    bg = null;                                   // never show another page's paper
-    const next = await resolvePageBackground(rec.book, idOf(rec));
-    if (bgKey !== key) return;                   // a newer page won the race
-    bg = next;
-    refit();
-  }
-
-  async function refit() {
-    await tick();
-    requestAnimationFrame(fitContent);
-  }
-
   $: strokes = (doc && doc.strokes) || [];
   $: lines = (doc && doc.transcript && doc.transcript.lines) || [];
-  $: bounds = computeStrokeBounds(strokes);
-  // With paper, the page is the printed sheet; without, it is the ink's own box.
-  $: viewBounds = bg ? frameToBounds(bg.frame) : bounds;
-  $: svgWidth = viewBounds ? (viewBounds.maxX - viewBounds.minX) * NCODE_SCALE : 0;
-  $: svgHeight = viewBounds ? (viewBounds.maxY - viewBounds.minY) * NCODE_SCALE : 0;
-  // pageId is the unique-within-book file identifier (incl. suffix); used as the
-  // read/write key for the transcript and as the display/label.
-  $: pageId = record ? (record.pageId != null ? String(record.pageId) : String(record.page)) : '';
+  // pageId is the unique-within-book file identifier (incl. suffix).
+  $: pageId = record ? idOf(record) : '';
   $: pageKey = record ? `${record.book}:${pageId}` : '';
   $: title = `${bookAlias || `B${record?.book}`} — P${pageId}`;
 
-  // Display rotation for a page written with the notebook sideways. The strokes
-  // and paper keep their page coordinates; ONE transform on the content group
-  // turns them, within the page's own frame (the sheet, or the ink's box), so
-  // anything drawn inside that group turns with them. The svg itself takes the
-  // turned frame's size, so a landscape page lays out landscape.
-  $: rotation = record ? rotationFor($pageOrientations, record.book, pageId) : 0;
-  $: pageFrame = { x0: 0, y0: 0, x1: svgWidth, y1: svgHeight };
-  $: shownFrame = rotateFrame(pageFrame, rotation);
-  $: shownWidth = shownFrame.x1 - shownFrame.x0;
-  $: shownHeight = shownFrame.y1 - shownFrame.y0;
-  $: contentTransform = svgRotationTransform(rotation, pageFrame) || null;
-  $: rotation, refit();
+  // Built once per page load and shared by the ribbon and the ink hover.
+  $: dayModel = doc ? pageDayGroups(strokes) : null;
 
-  function fitContent() {
-    if (!viewBounds || !containerEl) return;
-    const cw = containerEl.clientWidth;
-    const ch = containerEl.clientHeight;
-    const sw = shownWidth + 20;
-    const sh = shownHeight + 20;
-    if (sw <= 0 || sh <= 0) return;
-    zoom = Math.min(cw / sw, ch / sh) * 0.92;
-    panX = (cw - sw * zoom) / 2;
-    panY = (ch - sh * zoom) / 2;
+  $: showInk = contentMode !== 'transcript';
+  $: showText = contentMode !== 'strokes';
+  $: zoom = showInk && doc && strokes.length ? inkZoom : null;
+
+  // Ink + text linking, decided per page load.
+  $: linkable = contentMode === 'inktext' && doc ? isTrustworthyTranscript(doc) : false;
+  $: lineInk = linkable ? strokesByLine(strokes, lines) : null;
+  $: linkNote = contentMode === 'inktext' && doc && !linkable && lines.length
+    ? 'Lines aren’t linked to ink on this page: its transcript predates the Aug 2026 line matching. Re-transcribing links it.'
+    : '';
+  $: if (!linkable) lineHighlight = null;
+
+  function hoverLine(line) {
+    const list = line && lineInk ? lineInk.get(line.id) : null;
+    lineHighlight = list && list.length ? { strokes: list } : null;
   }
 
-  onMount(async () => {
-    await tick();
-    requestAnimationFrame(fitContent);
-  });
+  export function zoomBy(factor) { ink && ink.zoomBy(factor); }
+  export function fit() { ink && ink.fit(); }
 
-  function zoomIn() { zoom = Math.min(20, zoom * 1.2); }
-  function zoomOut() { zoom = Math.max(0.1, zoom / 1.2); }
-
-  function handleWheel(e) {
-    if (contentMode !== 'strokes') return;
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    const rect = containerEl.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-    const nz = Math.max(0.1, Math.min(20, zoom * delta));
-    panX = mx - (mx - panX) * (nz / zoom);
-    panY = my - (my - panY) * (nz / zoom);
-    zoom = nz;
-  }
-
-  function handleMouseDown(e) {
-    if (contentMode !== 'strokes' || e.button !== 0) return;
-    panArmed = true;
-    panStartX = e.clientX;
-    panStartY = e.clientY;
-    panStartPanX = panX;
-    panStartPanY = panY;
-  }
-  function handleMouseMove(e) {
-    if (!panArmed) return;
-    if (!isPanning && Math.hypot(e.clientX - panStartX, e.clientY - panStartY) <= PAN_SLOP) return;
-    isPanning = true;
-    panX = panStartPanX + (e.clientX - panStartX);
-    panY = panStartPanY + (e.clientY - panStartY);
-  }
-  function endPan() { panArmed = false; isPanning = false; }
-
-  // Clicking a day's ink: show that day in the Timeline, with the Dates tab
-  // holding the same one-day range. Guarded like every other way out of the
-  // Library: while a transcript is edited, the strokes beside it are clickable.
-  // setActiveTab, not revealLeftPanel: a panel the user collapsed stays so.
-  function openTimelineDay(e) {
-    const { day } = e.detail || {};
+  // A day chip or the day's ink: show that day in the Timeline, with the Dates
+  // tab on the same one-day range. Guarded like every other way out of the
+  // Library. setActiveTab, not revealLeftPanel: a collapsed panel stays so.
+  function openTimelineDay(day) {
     if (!day) return;
     if (navigateTo('timeline') === 'cancelled') return;
     setTimelineRange(day, day);
@@ -214,89 +126,53 @@
 </script>
 
 <div class="page-view">
-  <div class="pv-toolbar">
-    <div class="pv-left">
-      <span class="pv-title">{title}</span>
-      <span class="pv-stats">{record.strokeCount} strokes</span>
-    </div>
+  <PageHeader
+    {title}
+    strokeCount={record.strokeCount}
+    groups={dayModel ? dayModel.groups : null}
+    onHoverDay={(g) => (dayHighlight = g)}
+    onOpenDay={openTimelineDay}
+    {onLoadIntoEditor}
+  />
 
-    <div class="pv-center">
-      {#if contentMode === 'strokes'}
-        <button class="pv-btn" on:click={zoomOut} title="Zoom out">&#x2212;</button>
-        <span class="pv-zoom">{Math.round(zoom * 100)}%</span>
-        <button class="pv-btn" on:click={zoomIn} title="Zoom in">&#x2B;</button>
-        <button class="pv-btn" on:click={fitContent} title="Fit page">Fit</button>
-        <span class="pv-divider"></span>
-        <OrientationControl book={record.book} {pageId} />
-        <span class="pv-divider"></span>
-      {/if}
-      <button class="pv-btn load" on:click={() => onLoadIntoEditor()} title="Load this page into the Editor for editing">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 20h9"/>
-          <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
-        </svg>
-        Load into Editor
-      </button>
-    </div>
-  </div>
-
-  <div class="pv-area" bind:this={containerEl}>
-    {#if hasPrev && onPrev}
-      <button class="pv-nav prev" class:below-toolbar={contentMode === 'transcript'} on:click={onPrev} title="Previous page">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-      </button>
-    {/if}
-    {#if hasNext && onNext}
-      <button class="pv-nav next" class:below-toolbar={contentMode === 'transcript'} on:click={onNext} title="Next page">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-      </button>
+  <div class="pv-area" class:inktext={contentMode === 'inktext'} class:stack={layout === 'stack'}>
+    {#if !showInk}
+      <PageTurnButtons {hasPrev} {hasNext} {onPrev} {onNext} belowToolbar />
     {/if}
 
-    {#if contentMode === 'transcript'}
-      <TranscriptPane {lines} book={record.book} page={pageId} {pageKey} onSaved={handleSaved} {onEditingChange} />
-    {:else if loadingDoc}
-      <div class="pv-empty">Loading…</div>
-    {:else if viewBounds}
-      <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-      <div
-        class="pv-canvas"
-        class:panning={isPanning}
-        on:wheel={handleWheel}
-        on:mousedown={handleMouseDown}
-        on:mousemove={handleMouseMove}
-        on:mouseup={endPan}
-        on:mouseleave={endPan}
-        role="application"
-        aria-label="Page strokes — scroll to zoom, drag to pan"
-      >
-        <div class="pv-transform" style="transform: translate({panX}px, {panY}px) scale({zoom});">
-          <svg bind:this={svgEl} class:paper={!!bg} class:dimmed={!!hotSitting} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {shownWidth.toFixed(2)} {shownHeight.toFixed(2)}" width={shownWidth.toFixed(2)} height={shownHeight.toFixed(2)}>
-            <g bind:this={contentEl} transform={contentTransform}>
-            {#if bg}
-              <!-- The sheet is drawn 1:1 into the frame (Ncode units × NCODE_SCALE),
-                   the same space the strokes are projected into below. -->
-              <image href={bg.url} x="0" y="0" width={svgWidth.toFixed(2)} height={svgHeight.toFixed(2)} preserveAspectRatio="none" />
-            {/if}
-            {#each strokes as stroke (stroke.id)}
-              {#if stroke.sketch}
-                <!-- One <path> per constant-width run: SVG applies a single
-                     stroke-width per path, so a pressure-varying line has to be
-                     split. Runs share their boundary vertices and round caps. -->
-                {#each strokeToWidthRuns(stroke, viewBounds, $sketchProfile) as run, i (i)}
-                  <path d={run.d} stroke="#1a1a2e" stroke-width={run.width} fill="none" stroke-linecap="round" stroke-linejoin="round" />
-                {/each}
-              {:else}
-                <path d={strokeToPathD(stroke, viewBounds)} stroke="#1a1a2e" stroke-width={DEFAULT_STROKE_WIDTH} fill="none" stroke-linecap="round" stroke-linejoin="round" />
-              {/if}
-            {/each}
-            <SittingInk sitting={hotSitting} {viewBounds} />
-            </g>
-          </svg>
-        </div>
-        <SittingHover {svgEl} frameEl={contentEl} {strokes} {viewBounds} view="{zoom},{panX},{panY}" paused={isPanning} bind:hot={hotSitting} on:open={openTimelineDay} />
+    {#if showInk}
+      <div class="pv-ink">
+        <PageTurnButtons {hasPrev} {hasNext} {onPrev} {onNext} />
+        {#if loadingDoc}
+          <div class="pv-empty">Loading…</div>
+        {:else if doc}
+          <PageInk
+            bind:this={ink}
+            bind:zoom={inkZoom}
+            book={record.book}
+            {pageId}
+            {strokes}
+            {dayModel}
+            highlight={dayHighlight || lineHighlight}
+            onOpenDay={openTimelineDay}
+          />
+        {/if}
       </div>
-    {:else}
-      <div class="pv-empty">No strokes on this page</div>
+    {/if}
+    {#if showText}
+      <div class="pv-text">
+        <TranscriptPane
+          {lines}
+          book={record.book}
+          page={pageId}
+          {pageKey}
+          onSaved={handleSaved}
+          {onEditingChange}
+          onHoverLine={linkable ? hoverLine : null}
+          {linkNote}
+          onTranscribe={doc && strokes.length ? onLoadIntoEditor : null}
+        />
+      </div>
     {/if}
   </div>
 </div>
@@ -311,41 +187,6 @@
     overflow: hidden;
   }
 
-  .pv-toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 6px 12px;
-    background: #fff;
-    border-bottom: 1px solid #e0e0e0;
-    gap: 10px;
-    flex-shrink: 0;
-    flex-wrap: wrap;
-  }
-  .pv-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
-  .pv-title { font-weight: 600; font-size: 14px; color: #333; white-space: nowrap; }
-  .pv-stats { font-size: 12px; color: #aaa; white-space: nowrap; }
-  .pv-center { display: flex; align-items: center; gap: 4px; }
-  .pv-zoom { font-size: 12px; color: #666; min-width: 42px; text-align: center; }
-
-  .pv-btn {
-    padding: 4px 8px;
-    border: 1px solid #ddd;
-    border-radius: 5px;
-    background: #fff;
-    cursor: pointer;
-    font-size: 12px;
-    color: #555;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    transition: all 0.15s;
-  }
-  .pv-btn:hover { background: #f2f2f2; border-color: #ccc; }
-  .pv-btn.load { color: #4a7cf7; border-color: #c7d6fb; }
-  .pv-btn.load:hover { background: #eef3ff; border-color: #4a7cf7; }
-  .pv-divider { width: 1px; height: 20px; background: #e0e0e0; margin: 0 4px; }
-
   .pv-area {
     flex: 1;
     position: relative;
@@ -354,45 +195,19 @@
     min-height: 0;
     background: #f9f9f9;
   }
-
-  .pv-canvas {
+  .pv-ink,
+  .pv-text {
     flex: 1;
-    position: relative;
-    overflow: hidden;
-    cursor: grab;
-  }
-  .pv-canvas.panning { cursor: grabbing; }
-  .pv-transform { transform-origin: 0 0; position: absolute; top: 0; left: 0; }
-  .pv-transform :global(svg) { display: block; }
-  /* The printed sheet stands off the pane like a page on a desk. */
-  .pv-transform :global(svg.paper) { background: #fff; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.22); }
-  /* A sitting is hovered: the page's own ink goes context grey (FeedPart's
-     CONTEXT) and SittingInk redraws that sitting in ink on top. */
-  svg.dimmed path { stroke: #c3c7d4; }
-  .pv-canvas:not(.panning) svg.dimmed { cursor: pointer; }
-
-  .pv-nav {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 44px;
-    z-index: 15;
     display: flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    color: rgba(0, 0, 0, 0.18);
-    transition: all 0.2s;
+    min-width: 0;
+    min-height: 0;
   }
-  .pv-nav:hover { background: rgba(0, 0, 0, 0.04); color: rgba(0, 0, 0, 0.55); }
-  .pv-nav.prev { left: 0; }
-  .pv-nav.next { right: 0; }
-  /* In transcript mode the TranscriptPane's toolbar (Edit / Copy / Save …) sits
-     at the top of this area; keep the page-turn arrows below it so they don't
-     capture clicks meant for those buttons. */
-  .pv-nav.below-toolbar { top: 44px; }
+  .pv-ink { position: relative; }
+  /* Ink + text: side by side for one page, text under the ink in a spread. */
+  .pv-area.inktext .pv-text { border-left: 1px solid #e6e6e6; }
+  .pv-area.inktext.stack { flex-direction: column; }
+  .pv-area.inktext.stack .pv-ink { flex: 3 1 0; }
+  .pv-area.inktext.stack .pv-text { flex: 2 1 0; border-left: none; border-top: 1px solid #e6e6e6; }
 
   .pv-empty {
     flex: 1;

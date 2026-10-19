@@ -1,6 +1,7 @@
 # Reading-first UX: review and implementation spec
 
-Status: packages A, B and C built and merged to `main` (2026-10-19); D–E proposed. Review dated 2026-10-19, against v2.10.0.
+Status: packages A, B and C built and merged to `main` (2026-10-19); D built on its branch
+(`claude/reading-ux-package-d`, 2026-10-19); E proposed. Review dated 2026-10-19, against v2.10.0.
 
 **Target release: v3.0.0.** Packages A–E together are the v3.0.0 milestone ("reading-first"). v3.0.0
 is the major bump because the app's frame and navigation change, not because data changes: **PageDoc
@@ -209,6 +210,21 @@ Each package is shippable alone and leaves `npm test` green. Do not combine pack
 - Transcript empty state: "Transcribe this page" only when MyScript is configured.
 - Done when: all of the above work in single and spread modes, rotation still applies as one transform per
   page, and reading a 2,000-stroke page isn't slower (check the hover hit-index cost).
+
+**As built (differences from the bullets above).**
+- The shared controls (Go to page, − % + Fit) sit in the pane toolbar's slot between the breadcrumb and
+  View ▾ (`SpreadToolbar`), not in a row of their own. Zoom stays per page underneath; the readout shows
+  "62% · 58%" when the pages differ. Pages refit on pane resize until zoomed or panned by hand.
+- Position "P26–P27 of 13" is the breadcrumb's page crumb; no slider. ‹ › edge strips kept (now over the ink).
+- Written date: one day = a single chip in the header; several = range text + a chip per day.
+- Ink + text links through stored `lineId`s, not a fresh yBounds match: the batch origin is never stored on
+  disk. "Trustworthy" = transcribed ≥ Aug 2026, has links, and < 90% of links fit the pre-fix raw-mm ± 5
+  rule (100% on every older page, 4–67% on newer ones). See CHANGELOG D.
+- Empty state: "Transcribe in Editor" loads the page into the Editor (guarded); it does not start MyScript.
+- ← / → do nothing while a transcript is edited (no prompt), as the requirement says.
+- Extracted: `LibraryHome`, `PageInk`, `PageHeader`, `PageTurnButtons`, `SpreadToolbar`,
+  `transcription/TranscriptLines`; lib `viewer/page-reader.js`, `viewer/written-on.js`, `viewer/ink-text.js`.
+- Left for E: the notebook crumb is still not a link; the contents list highlights the left page only.
 
 ### E. Library home + global search  (medium impact, medium effort)
 - `viewer/BookViewer.svelte` (home), `stores/saved-pages.js`, `stores/timeline.js`, `lib/transcript-search.js`,

@@ -2,7 +2,7 @@
   OrientationControl.svelte — turn one page for display: ↺ / ↻ a quarter at a
   time, or pick Portrait / Landscape ↻ / Landscape ↺ / Upside down.
 
-  Used in the Book View page toolbar and the Editor's canvas toolbar. Writes the
+  Used on the corner of each Library page (compact) and in the Editor's canvas toolbar. Writes the
   page's entry in pages/_orientation.json straight away (stores/orientation.js);
   nothing about the page's strokes changes, so there is nothing to save.
   Disabled (rather than hidden) when there is no single page to act on, so the
@@ -19,6 +19,8 @@
   export let pageId = null;
   /** Why the control is disabled, shown as its tooltip. */
   export let disabledReason = 'Select strokes on one page to rotate it';
+  /** Smaller, for the corner of a page in the Library reader. */
+  export let compact = false;
 
   // Portrait, the two landscapes, then upside down — the order you reach for them.
   const CHOICES = [0, 90, 270, 180].filter((r) => ROTATIONS.includes(r));
@@ -38,7 +40,7 @@
   }
 </script>
 
-<span class="oc" role="group" aria-label="Page orientation">
+<span class="oc" class:compact role="group" aria-label="Page orientation">
   <button
     type="button"
     class="oc-btn"
@@ -103,6 +105,14 @@
     background: #f2f2f2;
     border-color: #ccc;
   }
+
+  .compact .oc-btn,
+  .compact .oc-select {
+    height: 22px;
+    font-size: 11px;
+  }
+
+  .compact .oc-btn { width: 22px; font-size: 13px; }
 
   .oc-btn:disabled,
   .oc-select:disabled {

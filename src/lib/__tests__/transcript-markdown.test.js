@@ -9,6 +9,7 @@
  *   - indentMarkdownBlock (nesting an existing block)
  *   - textToTranscriptLines (flat-text fallback)
  *   - pagesToLogseqMarkdown (single vs. multi-page clipboard payload)
+ *   - subtreeLines (one node and its children, re-based, for per-node Copy)
  */
 
 import { describe, it, expect } from 'vitest';
@@ -19,6 +20,7 @@ import {
   indentMarkdownBlock,
   textToTranscriptLines,
   pagesToLogseqMarkdown,
+  subtreeLines,
 } from '../viewer/transcript-markdown.js';
 
 const line = (text, indentLevel = 0, checked = null) => ({ text, indentLevel, checked });
@@ -162,5 +164,52 @@ describe('pagesToLogseqMarkdown', () => {
     expect(pagesToLogseqMarkdown([])).toBe('');
     expect(pagesToLogseqMarkdown(null)).toBe('');
     expect(pagesToLogseqMarkdown([{ lines: null }])).toBe('');
+  });
+});
+
+describe('subtreeLines', () => {
+  const L = (text, indentLevel = 0, checked = null) => ({ text, indentLevel, checked });
+  const page = [
+    L('Site visit'),            // 0
+    L('Steel ok', 1),           // 1
+    L('Paint flaking', 2),      // 2
+    L('Grout', 1),              // 3
+    L('10/19 Meeting'),         // 4
+    L('Attendees', 1),          // 5
+    L('Bo, Erin', 2),           // 6
+    L('Mech loads', 1, false),  // 7
+  ];
+
+  it('top-level node: itself and its children, up to the next top-level line', () => {
+    expect(subtreeLines(page, 0).map((l) => l.text)).toEqual(['Site visit', 'Steel ok', 'Paint flaking', 'Grout']);
+  });
+
+  it('the last node runs to the end of the page', () => {
+    expect(linesToLogseqMarkdown(subtreeLines(page, 4))).toBe(['- 10/19 Meeting', '\t- Attendees', '\t\t- Bo, Erin', '\t- TODO Mech loads'].join('\n'));
+  });
+
+  it('second-level node is re-based to level 0 and stops at a sibling', () => {
+    expect(linesToLogseqMarkdown(subtreeLines(page, 5))).toBe(['- Attendees', '\t- Bo, Erin'].join('\n'));
+  });
+
+  it('a leaf copies alone', () => {
+    expect(subtreeLines(page, 3).map((l) => l.text)).toEqual(['Grout']);
+  });
+
+  it('blank and property lines do not end the branch', () => {
+    const p = [L('A'), L('', 0), L('id:: x', 0), L('A1', 1), L('B')];
+    expect(linesToLogseqMarkdown(subtreeLines(p, 0))).toBe(['- A', '\t- A1'].join('\n'));
+  });
+
+  it('does not mutate the input', () => {
+    subtreeLines(page, 5);
+    expect(page[5].indentLevel).toBe(1);
+  });
+
+  it('[] for a bad index or input', () => {
+    expect(subtreeLines(page, -1)).toEqual([]);
+    expect(subtreeLines(page, 8)).toEqual([]);
+    expect(subtreeLines(page, 1.5)).toEqual([]);
+    expect(subtreeLines(null, 0)).toEqual([]);
   });
 });

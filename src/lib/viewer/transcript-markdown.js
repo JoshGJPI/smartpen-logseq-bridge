@@ -61,6 +61,31 @@ export function linesToLogseqMarkdown(lines) {
 }
 
 /**
+ * One node of a transcript and everything nested under it: the line at `index`
+ * plus the lines after it that sit deeper, re-based so the node is at level 0
+ * (it pastes into LogSeq as a top-level bullet with its children under it).
+ * Blank and property lines don't end the branch (the markdown drops them).
+ * Used by Book View's per-node Copy, e.g. a meeting's notes at the foot of a page.
+ *
+ * @param {Array<{text?:string, indentLevel?:number}>} lines
+ * @param {number} index
+ * @returns {Array<Object>} copies of the lines with adjusted indentLevel; [] for a bad index
+ */
+export function subtreeLines(lines, index) {
+  if (!Array.isArray(lines) || !Number.isInteger(index) || index < 0 || index >= lines.length) return [];
+  const level = (l) => Math.max(0, (l && l.indentLevel) || 0);
+  const base = level(lines[index]);
+  const out = [{ ...lines[index], indentLevel: 0 }];
+  for (let j = index + 1; j < lines.length; j++) {
+    const l = lines[j];
+    const text = l && typeof l.text === 'string' ? l.text : '';
+    if (text.trim() !== '' && !isPropertyLine(text) && level(l) <= base) break;
+    out.push({ ...l, indentLevel: Math.max(0, level(l) - base) });
+  }
+  return out;
+}
+
+/**
  * Indent an already-built markdown block by whole levels (tabs), so it can be
  * nested under a parent bullet.
  * @param {string} md

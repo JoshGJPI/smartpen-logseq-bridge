@@ -26,6 +26,7 @@ App.svelte (Root)
 │       └── ActivityGrid (weekday heat grid, drag to select a range; Editor only — the Timeline has the strip)
 └── Canvas Section (destination from `$destination`, in App.svelte)
     ├── PaneToolbar (Library and Timeline only: breadcrumb + ViewMenu "View ▾")
+    │   └── SpreadToolbar (open Library page: Go to page · − % + Fit for both pages)
     ├── StrokeCanvas (Editor — live capture/edit)
     │   ├── panel header: Select All · Deselect · CanvasSearch · stroke count
     │   ├── top toolbar: Decorative · Duplicate · Edit Points · Volume ▾ ·
@@ -35,13 +36,17 @@ App.svelte (Root)
     │   ├── Canvas Renderer (Drawing engine)
     │   ├── PointEditPanel (Edit Points mode — stray-point list + delete)
     │   └── FilteredStrokesPanel (Decorative strokes)
-    ├── BookViewer (Library — read/edit saved pages as a book)
-    │   ├── Home grid (recent + collapsible by-book page thumbnails)
-    │   └── PageSpreadView ×1–2 (side-by-side spread, page-turn nav)
-    │       ├── SVG stroke render (per-page zoom/pan/fit)
-    │       ├── SittingInk (hovered day's ink redrawn black, inside the SVG)
-    │       ├── SittingHover (hover hit-test + capture-time label; click → that day's Timeline)
-    │       └── TranscriptPane (view/inline-edit lines, copy LogSeq markdown)
+    ├── BookViewer (Library — read/edit saved pages as a book; ←/→ turn pages)
+    │   ├── LibraryHome (no page open: recent + collapsible by-book page thumbnails)
+    │   └── PageSpreadView ×1–2 (one page: header + Strokes | Transcript | Ink + text)
+    │       ├── PageHeader (title, strokes, written-on date / day chips, Load into Editor icon)
+    │       ├── PageInk (SVG render, per-page zoom/pan/fit, refit on resize)
+    │       │   ├── PageTurnButtons (‹ › edge strips over the ink)
+    │       │   ├── OrientationControl compact (page corner)
+    │       │   ├── SittingInk (highlighted day / line redrawn in ink, inside the SVG)
+    │       │   └── SittingHover (hover hit-test + capture-time label; click → that day's Timeline)
+    │       └── TranscriptPane (inline edit, copy LogSeq markdown)
+    │           └── TranscriptLines (read view, line → ink hover, empty state)
     └── TimelineFeed (Timeline — the Dates range as a scrolling feed;
         │             grows the range as you scroll off its end)
         ├── TimelineHead (‹ RangeMenu › · summary · BookFilterMenu · Load range into Editor)
@@ -68,12 +73,14 @@ list). Unsaved strokes never prompt. `showEditorForLiveInk()` keeps its own rule
 Over the Library and the Timeline sits **PaneToolbar**: a breadcrumb (Library ›
 notebook › P12–P13; "Library" goes back to the page grid) and **View ▾**, which
 offers only what applies (`lib/pane-toolbar.js` `viewOptionsFor`): Strokes |
-Transcript, Spread | Single and **Times** (hover-to-reveal capture time,
+Transcript | Ink + text, Spread | Single and **Times** (hover-to-reveal capture time,
 `sittingHoverEnabled`) for an open page, **Paper** where any book has paper,
 Newest | Oldest in the Timeline (`feedOrder`). Spread/Single and
 Strokes/Transcript drive the bound `BookViewer` instance, whose `guardNav()`
-asks before dropping edits. The Editor has no pane toolbar. Each Library page's
-toolbar has **Load into Editor**. Hovering ink in Times mode draws the day it was
+asks before dropping edits. The Editor has no pane toolbar. With a page open the
+toolbar also holds **SpreadToolbar** (Go to page, shared zoom); the crumb reads
+"P26–P27 of 13". Each page's header has the written-on chips (hover = that day's
+ink, click = that day in the Timeline) and **Load into Editor** (package D). Hovering ink in Times mode draws the day it was
 written in black, the rest grey, with the date and time; clicking opens that day
 in the Timeline (`SittingHover` + `SittingInk`, `page-sittings.js`), guarded by
 `navigateTo`.
@@ -197,7 +204,7 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `destination` (derived: `'library' | 'timeline' | 'editor'` from `viewerMode` + `bookViewMode`), `navigateTo(dest, {confirm?})` → `'same' | 'cancelled' | 'navigated' | 'invalid'` (the one place the discard prompt is asked when changing destination), `openPageInLibrary(book, pageId, {confirm?})` → `'cancelled' | 'opened'` (also asks when replacing a page with unsaved edits). No persisted keys; `viewerMode` and `bookViewMode` were never persisted
 
 **Page orientation (Unreleased):**
-- `orientation.js` — `pageOrientations` (`{ "<bookKey>/<pageId>": 90|180|270 }`, portrait by absence), `loadOrientations()` (called by `scanLocalPages()`; missing folder, missing or corrupt sidecar → every page portrait), `setPageRotation(book, pageId, rotation)` (optimistic, written at once to `<dataRoot>/pages/_orientation.json`; a failed write undoes only its own page). Display-only: never touches a PageDoc and never marks unsaved changes. UI: `components/viewer/OrientationControl.svelte` (↺ / picker / ↻) in the Book View page toolbar and the Editor canvas toolbar
+- `orientation.js` — `pageOrientations` (`{ "<bookKey>/<pageId>": 90|180|270 }`, portrait by absence), `loadOrientations()` (called by `scanLocalPages()`; missing folder, missing or corrupt sidecar → every page portrait), `setPageRotation(book, pageId, rotation)` (optimistic, written at once to `<dataRoot>/pages/_orientation.json`; a failed write undoes only its own page). Display-only: never touches a PageDoc and never marks unsaved changes. UI: `components/viewer/OrientationControl.svelte` (↺ / picker / ↻) on each Library page's corner (`compact`) and in the Editor canvas toolbar
 
 **Page backgrounds (spike, released in 2.8.0):**
 - `backgrounds.js` — `backgroundsEnabled` (localStorage; the **Paper** toggle), `installedBackgrounds` / `backgroundsAvailable` (gate the toggle), `resolvePageBackground()` (→ `{frame, url}` or null, never throws), `refreshBackgrounds()`. Read-only: the images are put there by `scripts/fetch-neo-backgrounds.mjs`. Used by Book View and the Timeline only — **never the Editor**
@@ -260,7 +267,7 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `plural.js` - `plural(n, one, many?)`, the noun that agrees with a count
 - `left-panel.js` - pure helpers for the collapsible left panel: `parseCollapsed()` / `serializeCollapsed()`, `isTypingTarget()` (input, textarea, select, contenteditable), `isPanelToggleKey()` (bare `[`, no Ctrl/Alt/Meta, not typing, not IME); since package C the contextual tab sets `CONTEXT_TABS`, `tabsFor()`, `resolvePanelTab()`
 - `navigation.js` - destinations (package C, pure): `DESTINATIONS`, `destinationOf(viewerMode, bookViewMode)`, `modesFor(dest)`, `planNavigation({from, to, viewerDirty})` → `'same' | 'go' | 'confirm'`, `DISCARD_PROMPT`
-- `pane-toolbar.js` - `viewOptionsFor({destination, hasSelection, contentMode, backgroundsAvailable})` (which View ▾ options apply), `pageCrumb()` (breadcrumb page label, paired as BookViewer pairs a spread)
+- `pane-toolbar.js` - `viewOptionsFor({destination, hasSelection, contentMode, backgroundsAvailable})` (which View ▾ options apply; `CONTENT_MODES` = strokes, transcript, inktext), `pageCrumb()` (breadcrumb label "P12–P13 of 48", via `pagePosition`)
 - `timeline-range.js` - Range ▾ presets (`RANGE_PRESETS`, `rangePreset()`, shared with the Dates tab) and activity-strip geometry: `dayOffset()` (calendar days, DST-safe), `stripLayout()` (every day from first to last ink, bucketed to fit), `dayAtFraction()`, `windowFraction()`, `moveWindow()` (keeps length, stays inside the ink's span), `resizeWindow()` (ends never cross)
 - `library-contents.js` - `buildContents(pagesByBook, bookIds, nameOf)`: the Library contents list from scan records only (pages, `transcribed`, `strokeCount`)
 - `timeline.js` - **Capture dates** (pure). Interprets the index built in
@@ -309,9 +316,12 @@ All state is managed through Svelte stores located in `src/stores/`:
 **Book View Layer (`src/lib/viewer/`)** — v2.1:
 - `page-svg.js` — `computeStrokeBounds()`, `strokeToPathD()`, `generateThumbnailSVG()` — SVG render for the spread pages + home-grid thumbnails (`NCODE_SCALE = 2.371`). Also `strokePointPressures()` + `strokeToWidthRuns()` for sketch strokes: SVG applies one `stroke-width` per `<path>`, so a pressure-varying line is emitted as consecutive constant-width runs (thumbnails stay flat — too small to matter)
 - `page-sittings.js` — **hover-to-reveal capture time** (pure). `pageDayGroups(strokes)` (one page's strokes grouped by local day of `startTime` via `dayKey`, each group with its `day` key, ink box and a `groupOf` stroke→group map), `buildHitIndex()` + `hitTest()` (a uniform grid of stroke segments, nearest stroke within the tolerance wins), `hoverTolerance()` (a few screen px in Ncode units, capped) and `formatSittingLabel()` ("Wed Oct 14, 2026 · 9:05–9:42 AM", both dates across midnight). Built once per page load; ~25 ms and ~2 µs per hover on a 2,400-stroke page
+- `page-reader.js` — the Library reader's movement (pure, package D): `pageIdOf`, `pagePosition(selection, pagesByBook, spread)` (index, total, "P26–P27 of 13"), `resolveGoToPage(input, pages)` (exact id, else first suffixed variant of a bare number), `turnTarget(index, total, dir, spread)`, `pageTurnKey(e, {editing})` (←/→ rule) and `zoomText(a, b)`
+- `written-on.js` — the page header's `writtenLabel(groups)` ("Feb 5 – Jun 25, 2026") and `writtenChips(groups)` from `pageDayGroups`
+- `ink-text.js` — Ink + text: `isTrustworthyTranscript(doc)` (≥ `TRUST_SINCE`, has links, links lack the pre-fix raw-mm signature) and `strokesByLine(strokes, lines)` (stored `lineId`s)
 - `feed-pages.js` — `createFeedPageLoader(load)` — the Timeline feed's **ref-counted** PageDoc holder: `acquire()`/`release()`/`clear()`/`size()`. Pages are shared across days (most hold ink from several), so a page is read once while any loaded day needs it and forgotten when the last lets go; a failed read is forgotten so the next acquire retries. Deliberately not `page-cache.js` — one busy day would evict the Books spread's six docs
 - `page-cache.js` — small LRU (`getCachedPage`/`invalidatePage`/`clearPageCache`, MAX 6) over full PageDocs. Book View loads strokes lazily through this (records no longer embed them, perf #3) so turning a spread doesn't re-read disk; older docs are evicted. Keyed by `B{book}/P{pageId}` (suffix-safe)
-- `transcript-markdown.js` — `linesToLogseqMarkdown()` — tab-indented `- ` bullets with `- TODO`/`- DONE` markers; `key:: value` property lines stripped (LogSeq-pasteable copy). Also `indentMarkdownBlock()`, `textToTranscriptLines()` (flat-text fallback) and `pagesToLogseqMarkdown()` (multi-page payload: one page copies bare, several nest under `- {label}` bullets) — used by the canvas text-view copy
+- `transcript-markdown.js` — `linesToLogseqMarkdown()` — tab-indented `- ` bullets with `- TODO`/`- DONE` markers; `key:: value` property lines stripped (LogSeq-pasteable copy). Also `indentMarkdownBlock()`, `textToTranscriptLines()` (flat-text fallback) and `pagesToLogseqMarkdown()` (multi-page payload: one page copies bare, several nest under `- {label}` bullets) — used by the canvas text-view copy; `subtreeLines(lines, index)` (one node and its deeper lines, re-based to level 0) — the Library transcript's per-node copy
 - `save-transcript.js` — `saveTranscriptLines(book, pageId, lines)` — writes inline transcript edits back to the PageDoc verbatim (getPage → replace `transcript.lines` → scrub deleted `lineId`s on strokes → `savePage`); `recomputeParentIds()` keeps the hierarchy consistent after indent edits
 
 ## Transcription Result (in-memory)

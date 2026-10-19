@@ -20,6 +20,7 @@
   import BookViewer from './components/viewer/BookViewer.svelte';
   import TimelineFeed from './components/viewer/TimelineFeed.svelte';
   import PaneToolbar from './components/layout/PaneToolbar.svelte';
+  import SpreadToolbar from './components/viewer/SpreadToolbar.svelte';
 
   // Stores
   import { log } from '$stores';
@@ -115,12 +116,13 @@
   }
 
   // Book View instance + shared state bound from BookViewer, so the pane
-  // toolbar's breadcrumb and View menu can drive Home, Strokes/Transcript and
-  // Single/Spread.
+  // toolbar's breadcrumb, View menu and the reader's shared controls can drive
+  // Home, the content mode, Single/Spread, zoom and Go to page.
   let bookViewer;
   let bookViewerContentMode = 'strokes';
   let bookViewerSpread = true;
   let bookViewerHasSelection = false;
+  let bookViewerZoom = '';
 
   // `[` folds the left panel to its rail and back. isPanelToggleKey keeps it out
   // of text fields and modifier chords.
@@ -232,7 +234,15 @@
           onHome={() => bookViewer?.goHome()}
           onContent={(mode) => bookViewer?.setContentMode(mode)}
           onToggleSpread={() => bookViewer?.toggleSpread()}
-        />
+        >
+          {#if $destination === 'library' && bookViewerHasSelection}
+            <SpreadToolbar
+              zoomLabel={bookViewerZoom}
+              onZoom={(op) => bookViewer?.zoomAll(op)}
+              onGoTo={(text) => bookViewer?.goToPage(text) ?? false}
+            />
+          {/if}
+        </PaneToolbar>
       {/if}
 
       {#if $destination === 'timeline'}
@@ -243,6 +253,7 @@
           bind:contentMode={bookViewerContentMode}
           bind:twoPageMode={bookViewerSpread}
           bind:hasSelection={bookViewerHasSelection}
+          bind:zoomLabel={bookViewerZoom}
         />
       {:else}
         <StrokeCanvas />

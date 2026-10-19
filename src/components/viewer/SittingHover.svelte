@@ -1,16 +1,16 @@
 <!--
   SittingHover.svelte — Book View's hover-to-reveal capture time.
 
-  Sits over one page's SVG (inside PageSpreadView's .pv-canvas). Hovering ink
+  Sits over one page's SVG (inside PageInk's .pi-canvas). Hovering ink
   finds the day it was written (lib/viewer/page-sittings.js) and reports it
   through `bind:hot`; the page then draws that day's ink black and the rest grey
   (SittingInk + a class on the SVG), and this layer shows the date and time just
   outside the top-right corner of its ink. Clicking ink fires `open` with the
-  day, which PageSpreadView turns into "show this day in the Timeline". A press
+  day, which the page turns into "show this day in the Timeline". A press
   that moves more than CLICK_SLOP px is a pan, not a click.
 
-  Built for dense pages: the groups and a segment grid are computed once per
-  page load, pointer moves are coalesced to one hit-test per animation frame,
+  Built for dense pages: the groups (passed in as `dayModel`, shared with the
+  page's written-on ribbon) and a segment grid are computed once per page load, pointer moves are coalesced to one hit-test per animation frame,
   and `hot` changes only when the pointer crosses into another group, so the
   page's own paths never re-render. Pointer → Ncode goes through the screen
   matrix of the page's content (`frameEl`, the rotated group), so it holds under
@@ -19,7 +19,7 @@
 <script>
   import { onDestroy, createEventDispatcher } from 'svelte';
   import { NCODE_SCALE } from '$lib/viewer/page-svg.js';
-  import { pageDayGroups, buildHitIndex, hitTest, hoverTolerance, formatSittingLabel } from '$lib/viewer/page-sittings.js';
+  import { buildHitIndex, hitTest, hoverTolerance, formatSittingLabel } from '$lib/viewer/page-sittings.js';
   import { sittingHoverEnabled } from '$stores';
 
   /** The page's <svg>: pointer events are taken here, blank paper included. */
@@ -31,6 +31,8 @@
   export let frameEl = null;
   /** The PageDoc's strokes. */
   export let strokes = [];
+  /** { groups, groupOf } from pageDayGroups(strokes), built once by the page. */
+  export let dayModel = null;
   /** { minX, minY, ... } the SVG is drawn from. */
   export let viewBounds = null;
   /** Anything that changes when the page moves on screen (zoom, pan), so the label follows. */
@@ -54,14 +56,13 @@
   let attached = null;
   let downAt = null;     // where the last primary press started, for click-vs-pan
 
-  $: model = $sittingHoverEnabled ? buildModel(strokes) : null;
+  $: model = $sittingHoverEnabled && dayModel ? buildModel(strokes, dayModel) : null;
   $: if (!model || paused) setHot(null);
   $: attach(svgEl);
   $: label = hot ? formatSittingLabel(hot.startTime, hot.endTime) : '';
   $: schedulePlace(hot, view, label);
 
-  function buildModel(list) {
-    const { groups, groupOf } = pageDayGroups(list);
+  function buildModel(list, { groups, groupOf }) {
     return { groups, groupOf, index: buildHitIndex(list, groupOf) };
   }
 

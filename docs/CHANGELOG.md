@@ -11,6 +11,157 @@ CLAUDE.md (Invariants); the store and library map is in
 Reading-first UI plan: [READING-UX-SPEC.md](READING-UX-SPEC.md). Packages land on their
 own branches and are not released one by one; no storage or PageDoc change in any of them.
 
+### Copy one part of a transcript (October 2026)
+
+**Copy a node and what's under it, not only the whole page.** Josh's pages often
+end with a meeting's notes under their own heading line; copying them meant
+copying the page and deleting the rest in LogSeq. The Library transcript's
+toolbar button is now **Copy all** (same output as before), and every top- and
+second-level line has its own copy icon, shown on hover just after its text, which
+copies that line and every deeper line after it (`subtreeLines()` in
+`transcript-markdown.js`). The branch is re-based so it pastes as a top-level
+bullet with its children under it; TODO/DONE markers, tab indents and property
+stripping are the same as Copy all. Blank and property lines inside a branch don't
+end it. Verified on P170: the "10:00 5444-006 Rich update" icon copied that line
+and its four children; "Plan to demo…" (second level) copied itself and its two
+children at levels 0 and 1.
+
+**Rejected:** buttons on every level (deeper lines rarely stand alone and the icons
+crowd the list); icons always visible (they read as noise down a long transcript).
+
+**Limitations:** a branch is what the transcript's indentation says. Where a date
+line and the meeting under it were recognised as siblings (P170's "10/19/26" and
+"10:00 …"), copying the date copies only the date; Edit → indent fixes the
+structure. Per-node copy is in the read view only, not while editing, and not in
+the Editor's transcript views.
+
+### D. Page reader: shared toolbar, position and jump, written-on ribbon, Ink + text (October 2026)
+
+**One toolbar over the spread instead of one per page.** Each page carried its own
+zoom, Fit, orientation and Load into Editor, which at 1200 wide clipped "Load into
+Editor" (on `main` too). Now the pane toolbar holds the reader's shared controls
+(`SpreadToolbar`, in `PaneToolbar`'s slot between the breadcrumb and View ▾):
+**Go to page…** and **− % + Fit**, which act on both pages. Zoom stays per page
+underneath (each page fits its own paper or ink, so a spread's zooms can differ: the
+readout says "62% · 58%" then); the shared buttons call each page's `zoomBy()` /
+`fit()`. Wheel zoom and drag-to-pan stay per page. A page now **refits when its pane
+changes size** (window, panel toggle, header wrapping) until you zoom or pan it by
+hand; before, a resize left the old zoom, which is what overflowed the left page at
+1200. Each page has a **header** (`PageHeader`): title, stroke count, when it was
+written, and **Load into Editor** as a quiet pencil icon, once per page.
+**Rotation** moved to a small control on the page's own corner (`OrientationControl
+compact`, faint until the page is hovered); still display-only and still one SVG
+`<g transform>` per page.
+
+**Where you are, and moving.** The breadcrumb's page crumb reads "P26–P27 of 13"
+(`pagePosition`, paired exactly as BookViewer pairs a spread: the open page plus
+the next record, not odd/even). **Go to page…** takes "42", "P42", "151b", "p 151B"
+(`resolveGoToPage`): an exact id wins; a bare number whose page exists only as
+suffixed variants (P152b with no P152) opens the first of them; an unknown
+suffix is not found rather than silently falling back. It works inside the open
+book key, so a volume (Study Notes 3 = `390v2`) counts its own pages. **← / →** turn
+pages (`pageTurnKey`): never in a text field (`isTypingTarget`, so Go to page and
+the transcript editor keep their arrows), never with Ctrl / Alt / Meta / Shift,
+never mid-IME, never while a transcript is being edited. Every page change still
+goes through BookViewer's `guardNav`.
+
+**Written on.** One day shows as a single date chip in the header; several show
+the range ("Feb 5 – Jun 25, 2026") and a chip per day (`writtenLabel`,
+`writtenChips`). Hovering a chip draws that day's ink black and the rest grey (the
+same path as the hover-to-reveal times: one class on the `<svg>` and `SittingInk`
+redrawing only that day's strokes); clicking opens that day in the Timeline through
+`navigateTo('timeline')` → `setTimelineRange` → `setActiveTab('dates')`, the passive
+route, so a collapsed panel stays collapsed. The days are `pageDayGroups()`, now
+built **once per page** in `PageSpreadView` and passed to both the ribbon and
+`SittingHover` (which used to build them itself), so chip, highlight and Timeline
+day agree.
+
+**Ink + text, the third content mode** (`'inktext'`; `'strokes'` and
+`'transcript'` keep their ids). View ▾ → Show offers Strokes | Transcript | Ink +
+text, and Times stays offered (`viewOptionsFor`: Times whenever ink is shown). A
+single page shows ink left and text right; a spread shows the text under each page.
+Hovering a line lights its ink, **only on pages whose links can be trusted**
+(`ink-text.js`):
+- *The link is the stored `lineId`, not a fresh yBounds match.* The spec asked for
+  `yBoundsToNcode` with the stored origin, but no origin is stored: `originNcodeY`
+  lives only in the in-memory transcription entry, and a page topped up in several
+  batches has several. The `lineId`s are what that exact conversion (real origin,
+  `LINE_MATCH_TOLERANCE_NCODE`, most-overlap wins) produced at save time, so on a
+  page matched by the fixed code they are the answer.
+- *Trustworthy = transcribed in or after Aug 2026, has links, and its links don't
+  carry the pre-fix signature.* Before the fix the save compared raw millimetre
+  yBounds with Ncode Y ± 5, so on those pages **every** linked stroke overlaps its
+  line's raw yBounds ± 5. Measured on the Oct 2026 corpus: exactly 100% on all 56
+  older pages with links, 4–67% on the 25 newer ones. A date alone is wrong both ways:
+  the fix reached the data on 2026-08-26 (P134/P135 that morning are old-style,
+  P136 is fixed), and a transcript edited in Book View gets a fresh
+  `lastTranscribed` while keeping its old links. The threshold is 90%; a wrong "no"
+  only loses the hover.
+- Older pages sit side by side with no linking and a one-line note saying why.
+
+While a transcript is edited in Ink + text the layout is not pinned (the page's ink
+is already beside its text); in Strokes and Transcript the `editingSide` /
+`slotA` / `slotB` pinning is unchanged. Changing mode still remounts the
+transcript pane through `setContentMode` → `guardNav`, as before. Page turns are
+off while editing in every mode.
+
+**Transcript empty state.** With MyScript keys: **Transcribe in Editor** (loads the
+page into the Editor through the guarded `loadRecordIntoEditor`; Transcribe in the
+capture bar does the rest) and **Type one**. Without keys it says where to add them
+(Settings → MyScript Configuration) and offers Type one. The button does not start
+the transcription itself: `ActionBar` transcribes the canvas's untranscribed strokes
+or the selection, which may include other pages already on the canvas, and a run
+spends quota.
+
+**Smaller components.** `BookViewer` 505 → 294 lines (home grid out to
+`LibraryHome`), `PageSpreadView` 405 → 220 (ink surface out to `PageInk`, header to
+`PageHeader`, edge arrows to `PageTurnButtons`), `TranscriptPane` 435 → 395 (display
+list and empty state out to `transcription/TranscriptLines`). The arrows now sit
+over the ink, so in the stacked Ink + text layout they never cover the transcript's
+Edit / Copy.
+
+**Verified on the real app** (scratch copy of the data, isolated profile; 49/49 walk
+steps): shared + / Fit on both pages; rotating one page turns only its group and the
+hover still hits its ink; ← / → (spread steps two, single one), Alt / Shift + →, →
+in Go to page do nothing; Go to 29, 999 (marked, stays), `p151B`, 152 → P152b, and in
+the volume book; chip hover lights 176 of 602 paths on P27, click lands on that day
+in the Timeline with Dates selected and a collapsed panel still collapsed; Ink + text
+on P170 (Oct 2026) lights each hovered line's ink, P101 (Jun 2026) shows the note
+and no linking; with a transcript edit open, ← / → and the edge arrows do nothing,
+while Go to page, header Timeline, page-header Load into Editor, a ribbon chip and
+the breadcrumb each ask once (Cancel stays with the edit, OK leaves and clears it);
+Paper toggle. `scrollWidth == innerWidth` at 1600, 1280, 1920 and 1200 in every
+mode, panel expanded and collapsed. **Performance** on Study Notes 2 P43 (2,364
+strokes): `pageDayGroups` + `buildHitIndex` 3 + 11–14 ms, built once per page in
+both versions; page open (click → paths settled, warm) median 137–145 ms before,
+128–142 ms after; hover response ~2 frames either way.
+
+**Rejected / deferred**
+- *A shared zoom factor for both pages.* Pages fit different boxes (paper vs ink),
+  so one number would leave one page mis-fitted; the buttons scale each page instead.
+- *Moving ‹ › into the toolbar.* The edge strips are the larger target and were
+  already there; the toolbar has Go to page and the keys.
+- *A separate toolbar row under the pane toolbar.* About 35 px of reading height for
+  controls that fit beside the breadcrumb.
+- *A slider for position.* Go to page also reaches suffixed pages by name.
+- *Ink → line (hover ink, highlight its line).* Ink hover already means "when was
+  this written"; one meaning per gesture.
+- *Starting MyScript from the empty state.* See above.
+- *Linking older pages by re-deriving the origin from their lines.* 37 of 97 pages
+  show several batches, and the old links are the wrong strokes anyway.
+
+**Limitations**
+- Even on trusted pages a link is per stroke: a tall stroke belongs to the line it
+  overlaps most, so hovering a line can light part of a neighbour's ink and miss
+  some of its own (visible on P170). That is the saved data, unchanged here.
+- In a spread at 1200 wide with the panel open, a page header with a date range
+  wraps to two rows, so the two pages' ink starts at different heights.
+- ← / → while a transcript is edited do nothing (no prompt): the spec says the keys
+  must not fire while editing, and the edge arrows were already hidden then.
+- The contents list still highlights only the left page of a spread.
+- Live pen, MyScript and offline import not exercised (no hardware or keys); the
+  "Transcribe in Editor" button was checked only in its no-keys form.
+
 ### C. Navigation spine, View menu, Timeline consolidation, contextual left panel (October 2026)
 
 **Three destinations instead of three tiers of modes.** The header switch is now
