@@ -23,7 +23,7 @@ App.svelte (Root)
 │   │       └── SearchResultCard (per-result import / open in the Library)
 │   ├── SavedPagesTab ("Pages", Editor — folder-backed page list: import, export, edit structure)
 │   └── DatesTab ("Dates", Timeline and Editor — range by capture date; load onto canvas in the Editor)
-│       └── ActivityGrid (weekday heat grid, drag to select a range)
+│       └── ActivityGrid (weekday heat grid, drag to select a range; Editor only — the Timeline has the strip)
 └── Canvas Section (destination from `$destination`, in App.svelte)
     ├── PaneToolbar (Library and Timeline only: breadcrumb + ViewMenu "View ▾")
     ├── StrokeCanvas (Editor — live capture/edit)
@@ -84,8 +84,8 @@ an edge to resize, across the strip to pick; set on release), the book filter an
 a quiet **Load range into Editor**. Cards show **Open page** and ⋯ (Whole page,
 Load sitting into Editor); a day's ⋯ holds Load day into Editor.
 
-The app opens on the **Timeline** with the **Dates** tab on the left (its
-activity grid scrolled to the newest week), showing the most recent day with ink
+The app opens on the **Timeline** with the **Dates** tab on the left (range
+fields and the day list; the heat grid shows only in the Editor's Dates tab), showing the most recent day with ink
 (`loadTimeline()` defaults an unset range to the index's last capture day), rather
 than an empty Editor canvas. Live pen ink switches the pane to the Editor
 (`pen-sdk.js` → `showEditorForLiveInk()`, once per stroke) unless the Library has

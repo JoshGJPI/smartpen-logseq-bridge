@@ -65,8 +65,10 @@ Transcripts · Pages · Dates. **Contents** (`LibraryContents`) lists notebooks 
 their pages from the scan records alone (`buildContents`): a dot per transcribed page,
 the open page highlighted, its notebook opened when the page changes; which notebooks
 are open is a session store, since the tab is unmounted when collapsed. In the
-Timeline the Dates tab keeps the heat grid, From / To, presets and the day list, and
-drops its tally, book filter and Load (said once in the feed head). The Books tab
+Timeline the Dates tab keeps From / To, presets and the day list, and drops its heat
+grid (Josh's call: the strip replaces it there), tally, book filter and Load (said
+once in the feed head). In the Editor, which has no strip, the Dates tab is unchanged,
+grid included. The Books tab
 moved unchanged to **Settings → Notebooks** (rename and volume routing verified there).
 `setActiveTab` ids are unchanged plus `'contents'`; an id outside the current set
 (including `'books'`) shows the set's first tab rather than being rewritten, so the
@@ -79,9 +81,9 @@ ink click's `setActiveTab('dates')` still lands on Dates once the Timeline is up
   Import / Import all, Export to graph, Edit structure and Reset transcript, which
   have no other home yet. It stays with the Editor (loading onto the canvas is an
   editing act), Contents takes its place beside the Library.
-- *Strip only, no heat grid in the panel.* The spec's open question. Kept the grid in
-  the Timeline's panel as well (the spec's "Timeline → grid + range controls"); the
-  strip is the in-feed control. Josh to decide.
+- *Heat grid in the Timeline's panel as well as the strip.* The spec's open question;
+  built first with both, then Josh chose strip only. The grid stays in the Editor's
+  Dates tab, where there is no strip.
 - *View options for the Editor.* None of them apply (it never draws paper).
 - *Setting the range on every pointer move while dragging the strip.* Each change
   rebuilds the feed skeleton and resets its scroll.
@@ -91,8 +93,8 @@ ink click's `setActiveTab('dates')` still lands on Dates once the Timeline is up
   in the Timeline.
 
 **Limitations**
-- The heat grid (panel) and Range ▾ / strip (feed) are two ways to set the range in
-  the Timeline, by choice for now (above).
+- In the Timeline the range can still be typed in two places: the panel's From / To and
+  presets, and Range ▾.
 - The breadcrumb's notebook crumb is not a link yet (the per-notebook page grid is
   package E). The contents list highlights the left page of a spread only.
 - At 1200 wide the per-page toolbar in a spread clips its "Load into Editor" button,

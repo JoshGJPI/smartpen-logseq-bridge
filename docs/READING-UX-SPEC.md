@@ -172,14 +172,13 @@ Each package is shippable alone and leaves `npm test` green. Do not combine pack
   (Load into Editor lives in the overflow); one range-level load as a quiet secondary button; summary shown
   once. Keep scroll-spy, `feedJumpRequest`, endless-scroll range growth, and the book filter working.
 - Open question for Josh before building: keep the Dates heat grid vertical in the left panel as well, or
-  strip only?
+  strip only? **Decided: strip only in the Timeline** (see As built).
 - Done when: no feature is lost (every action reachable), "Load into Editor" appears once per level at most
   and not as a primary button, jump/scroll-spy/filter still agree with the Editor loads, tests green.
 
 **As built (differences from the bullets above).**
-- Open question: the heat grid **stays** in the Timeline's left panel (with From/To, presets and the day list) and
-  the strip is added in the feed. Decision still Josh's; removing the grid later is a one-line change to
-  `CONTEXT_TABS` plus moving the day list.
+- Open question, decided by Josh (2026-10-19): **strip only** in the Timeline. The Timeline's Dates panel keeps
+  From/To, presets and the day list, without the heat grid; the Editor's Dates tab (no strip there) keeps it.
 - Navigation: `navigateTo(dest)` and `openPageInLibrary(book, pageId)` in `stores/viewer.js`, pure rule in
   `lib/navigation.js`. Also routed through it: the Book View ink click (was unguarded) and search-result Open (did
   not switch to Books from the Timeline).

@@ -51,7 +51,7 @@ When writing new tests follow the patterns in the existing files:
 ## Manual testing scenarios
 
 When making changes, also verify manually:
-- Navigation spine (v3.0 package C): the app opens on **Timeline** with Dates on the left. Header **Library | Timeline | Editor**; the left panel follows (Library → Contents · Transcripts, Timeline → Dates · Transcripts, Editor → Strokes · Transcripts · Pages · Dates) and the rail does too when collapsed. Library → open a page from **Contents** (● = transcribed; the open page is highlighted) → breadcrumb reads Library › notebook › P12–P13 → **Load into Editor**. Timeline: **Range ▾** presets and From/To, drag the strip's window (moves, keeps length), an edge (resizes), across the strip (new range); the Dates list's In view and the strip's red marker follow the scroll; a day's ⋯ → Load day loads exactly that day's stroke count, a card's ⋯ → Load sitting the card's count, **Load range into Editor** the summary's count; **Open page** lands on that page in the Library. Book filter **Only** one book → summary, strip, feed and Dates list all drop the others. Edit a transcript, then try to leave by the header (Timeline, Editor), the breadcrumb, View ▾ (Single, Strokes), another page in Contents and an ink click: each asks once; Cancel keeps you there with the edit, OK leaves and clears the Unsaved marker (the ink click lands on that day in the Timeline). With unsaved strokes, the Unsaved marker shows in all three and no route asks. View ▾ → Paper / Times; rotate a page. Settings → **Notebooks**: rename a notebook and change its capture volume (the destination folder updates). At 1280 and 1200 wide, `scrollWidth <= innerWidth` in all three destinations
+- Navigation spine (v3.0 package C): the app opens on **Timeline** with Dates on the left (no heat grid there; it shows in the Editor's Dates tab). Header **Library | Timeline | Editor**; the left panel follows (Library → Contents · Transcripts, Timeline → Dates · Transcripts, Editor → Strokes · Transcripts · Pages · Dates) and the rail does too when collapsed. Library → open a page from **Contents** (● = transcribed; the open page is highlighted) → breadcrumb reads Library › notebook › P12–P13 → **Load into Editor**. Timeline: **Range ▾** presets and From/To, drag the strip's window (moves, keeps length), an edge (resizes), across the strip (new range); the Dates list's In view and the strip's red marker follow the scroll; a day's ⋯ → Load day loads exactly that day's stroke count, a card's ⋯ → Load sitting the card's count, **Load range into Editor** the summary's count; **Open page** lands on that page in the Library. Book filter **Only** one book → summary, strip, feed and Dates list all drop the others. Edit a transcript, then try to leave by the header (Timeline, Editor), the breadcrumb, View ▾ (Single, Strokes), another page in Contents and an ink click: each asks once; Cancel keeps you there with the edit, OK leaves and clears the Unsaved marker (the ink click lands on that day in the Timeline). With unsaved strokes, the Unsaved marker shows in all three and no route asks. View ▾ → Paper / Times; rotate a page. Settings → **Notebooks**: rename a notebook and change its capture volume (the destination folder updates). At 1280 and 1200 wide, `scrollWidth <= innerWidth` in all three destinations
 - Left panel (v3.0 package B): collapse with the chevron and `[`; header search and canvas Ctrl+Shift+F each expand it (search input focused); a Book View ink click leaves it collapsed; `[` typed in an input does not collapse it; state survives reload; in the Editor at 1280 and 1200 wide, `document.documentElement.scrollWidth <= innerWidth` with the panel expanded and collapsed
 - Pen connection/disconnection flows
 - Offline sync from pen memory
@@ -121,7 +121,7 @@ When making changes, also verify manually:
   already on disk, so the `movedFrom` deletion has to fire). A batch spanning two
   physical volumes will mis-file half of it; that's expected, and reassignment is
   the remedy
-- **Dates tab** (v2.8): open Dates → the activity grid fills and the range
+- **Dates tab** (v2.8; in the Editor since package C): open Dates → the activity grid fills and the range
   defaults to the most recent capture day. Drag across cells and confirm the
   tallies and day list track the selection. Pick a range that includes a page
   written across two days (the amber note names how many such pages there are)
@@ -140,7 +140,7 @@ When making changes, also verify manually:
   and "N min later" between cards (within a day the cards run oldest to
   newest, whichever way the days are ordered). A meeting that turned a page is ONE card
   with a strip per page. Pick 30 days in the Dates tab and scroll: the day
-  heading pins, "In view" in the Dates list and the ring in the grid follow, days
+  heading pins, "In view" in the Dates list and the strip's red marker follow, days
   load ("Reading N pages…") as they approach and a fast fling past one shows its
   dashed placeholder. Keep scrolling past the last day: the next earlier days
   arrive without a jump and the Dates range's **From** moves back to match; at the

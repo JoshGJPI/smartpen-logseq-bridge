@@ -8,9 +8,9 @@
 
   The same range drives the Timeline feed. While the feed is showing (this tab
   is then the Timeline's own panel), the day list jumps it to a day and marks
-  the one at its top; the summary, book filter and Load live once, in the
-  feed's head, so this panel keeps the grid, the range and the day list
-  (package C). In the Editor it is the full tool: tally, filter, load onto the
+  the one at its top; the heat grid, summary, book filter and Load live once,
+  in the feed's head (the activity strip stands in for the grid), so this panel
+  keeps the range fields and the day list (package C). In the Editor it is the full tool: tally, filter, load onto the
   canvas.
 -->
 <script>
@@ -143,7 +143,11 @@
   {:else if $timelineLoading && !$timelineIndex}
     <p class="notice">Reading capture dates…</p>
   {:else}
-    <ActivityGrid days={$timelineDays} from={range.from} to={range.to} {inView} on:select={onGridSelect} />
+    <!-- Beside the Timeline the feed's activity strip is the picture of the range
+         (Josh, 2026-10-19: strip only); the Editor has no strip, so it keeps the grid. -->
+    {#if !$feedVisible}
+      <ActivityGrid days={$timelineDays} from={range.from} to={range.to} on:select={onGridSelect} />
+    {/if}
 
     <div class="range">
       <div class="field">
