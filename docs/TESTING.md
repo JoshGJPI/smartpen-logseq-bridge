@@ -148,6 +148,21 @@ When making changes, also verify manually:
   all drop the others, and a range load brings in only that book; **All** restores
 - Canvas pan/zoom/navigation
 - Page positioning and scaling
+- **Hover times** (v2.10): Book View → Books → open a page written on two or more
+  days. Hover ink: that day's ink goes black, the rest grey, and a label just outside
+  the top-right of that ink reads "Wed Sep 30, 2026 · 12:45–12:48 PM · Timeline ›";
+  writing from 9 AM and 4 PM of one day is one group. Blank paper shows nothing.
+  Drag to pan starting on ink: the page pans and nothing navigates. Click the ink:
+  the Timeline opens on that day and the Dates range is that one day. **Times** in
+  the Book View bar turns hovering off, and it stays off after a restart.
+- **Page rotation** (v2.10): use a copy of the data folder. In a Book View page
+  toolbar, ↻ turns the page to Landscape ↻, ↺ twice to Landscape ↺; the page lays
+  out landscape with its Neo paper turning with the ink, and `pages/_orientation.json`
+  gains `"<book>/<page>": 90` (or 270) while the PageDoc is unchanged. Hover times
+  still highlight and label the right ink on the turned page. The Timeline card's
+  strip is a horizontal slice of the upright page. In the Editor the same page shows
+  upright; box-select a word and only that word's strokes select; rotating from the
+  canvas toolbar doesn't mark anything unsaved. Two fast clicks of ↻ end at 180°.
 - **Books tab** (v2.7): on a book with two volumes, give each an unrelated name
   and confirm both survive a reload and appear throughout the app; confirm the
   destination folder next to the volume picker tracks the selection; set a book

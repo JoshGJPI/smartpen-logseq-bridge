@@ -155,7 +155,7 @@ All state is managed through Svelte stores located in `src/stores/`:
 **Page orientation (Unreleased):**
 - `orientation.js` — `pageOrientations` (`{ "<bookKey>/<pageId>": 90|180|270 }`, portrait by absence), `loadOrientations()` (called by `scanLocalPages()`; missing folder, missing or corrupt sidecar → every page portrait), `setPageRotation(book, pageId, rotation)` (optimistic, written at once to `<dataRoot>/pages/_orientation.json`; a failed write undoes only its own page). Display-only: never touches a PageDoc and never marks unsaved changes. UI: `components/viewer/OrientationControl.svelte` (↺ / picker / ↻) in the Book View page toolbar and the Editor canvas toolbar
 
-**Page backgrounds (v2.10 spike):**
+**Page backgrounds (spike, released in 2.8.0):**
 - `backgrounds.js` — `backgroundsEnabled` (localStorage; the **Paper** toggle), `installedBackgrounds` / `backgroundsAvailable` (gate the toggle), `resolvePageBackground()` (→ `{frame, url}` or null, never throws), `refreshBackgrounds()`. Read-only: the images are put there by `scripts/fetch-neo-backgrounds.mjs`. Used by Book View and the Timeline only — **never the Editor**
 
 **Point Editing (v2.5):**

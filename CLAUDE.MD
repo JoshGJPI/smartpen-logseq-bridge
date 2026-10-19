@@ -222,7 +222,7 @@ then looks broken when it isn't). Launch with `--disable-backgrounding-occluded-
 
 ## Known limitations and open items
 
-- **Page rotation** (Unreleased): live pen ink and transcription on a rotated page are verified by unit tests only (no
+- **Page rotation** (v2.10.0): live pen ink and transcription on a rotated page are verified by unit tests only (no
   pen or MyScript key in the Oct 2026 app check). Changing a rotation after transcribing misaligns the transcript
   preview's Y band until re-transcribed; a suffixed page on the canvas uses its integer page's rotation; pasted
   strokes, SVG export and Export to graph stay unturned.
@@ -237,7 +237,7 @@ then looks broken when it isn't). Launch with `--disable-backgrounding-occluded-
 - `PenInfo.svelte` is unreachable (only `Sidebar` imported it, and that was deleted).
 - Timeline: no transcripts on cards (stored `lineId`s are unreliable); `SESSION_GAP_MS` is a constant.
 - Date view shows one tile per page, filed under its first day in range.
-- **Neo page backgrounds are a spike** (books 388 and 3017 fetched; see [docs/CHANGELOG.md](docs/CHANGELOG.md) v2.10):
+- **Neo page backgrounds are a spike** (books 388 and 3017 fetched; see [docs/CHANGELOG.md](docs/CHANGELOG.md), "Neo page backgrounds"):
   no thumbnails, opacity control or export support; fetched by script only; images are Neo's, so keep
   `pages/_backgrounds/` and `docs/mockups/` out of commits.
 - **Planner (to look into later, Josh 2026-09-30).** Considering the 2027 Neo Smart Planner (the 2026 Pro is book

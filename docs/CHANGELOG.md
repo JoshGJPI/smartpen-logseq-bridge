@@ -6,7 +6,7 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
-## Unreleased
+## v2.10.0 — Book View hover times and page rotation (October 2026)
 
 ### Hover-to-reveal capture time in Book View (October 2026)
 
@@ -136,7 +136,7 @@ so it surfaced only in `npm run dev`. The fix is `scrollEl.scrollTo({ left })`, 
 call, which Svelte doesn't track. Found by bisecting a second Electron instance
 (`--user-data-dir` sidesteps the single-instance lock) against the real data folder.
 
-## v2.10 (spike) — Neo page backgrounds in Book View and the Timeline (September 2026)
+## Neo page backgrounds in Book View and the Timeline — spike, released in 2.8.0 (September 2026)
 
 **Neo's printed pages are drawn behind the strokes in the two read-only views, and
 deliberately not in the Editor.** A planner/notebook page is mostly its printed

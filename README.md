@@ -121,6 +121,15 @@ notes — and until now the only fix was deleting the whole stroke.
 - **From feed to Editor**: load one card, one day or the whole range into the Editor,
   or open a card's page in Books
 
+### Reading Pages in Book View (v2.10)
+- **Hover times**: hover any ink on a page and that day's writing turns black, the
+  rest grey, with the date and time it was written beside it. Click it to open that
+  day in the Timeline. **Times** in the Book View bar switches hovering off
+- **Page rotation**: a page written with the notebook turned sideways can be shown
+  upright — Landscape ↻, Landscape ↺ or Upside down — in Book View, the Timeline
+  and the Editor. Display only: your strokes are never rewritten, and the choice is
+  kept per page in `pages/_orientation.json`. Transcription sends the page upright
+
 ### Data Explorer & Search
 - **Five-Tab Interface**:
   - **Strokes**: Browse strokes by book and page with collapsible headers
@@ -432,6 +441,22 @@ everything to the notebooks you tick — **Only** narrows to one in a click. **L
 range into Editor** do the same for bigger spans. While the feed is showing, click a
 day in the Dates list to scroll to it; the day at the top of the feed is marked
 **In view**.
+
+#### Hover Times and Page Rotation
+
+In Book View → **Books**, open a page and hover the ink. All the writing from that day
+draws black, everything else on the page grey, and a label at its top-right gives the
+date and the first-to-last time that day. Click the ink to jump to that day in the
+Timeline (the Dates range becomes that one day). Drag to pan as usual; only a click
+without dragging opens the Timeline. Turn hovering off with **Times** in the Book
+View bar.
+
+If you wrote on a page with the notebook turned sideways, use ↺ / ↻ (or the picker)
+in the page's toolbar to show it upright. The setting is per page, takes effect at
+once and is not an unsaved change. It applies in Book View, the Timeline and the
+Editor, where selecting and editing work on the upright page. Strokes on disk keep
+their original coordinates; duplicated strokes, SVG export and Export to graph stay
+unturned.
 
 ### Canvas Navigation
 
@@ -985,6 +1010,8 @@ This will build and serve the app exactly as it will appear on GitHub Pages.
 - [x] Conflict resolution (overwrite/append)
 - [x] Storage tracking and sync indicators
 - [x] Load the canvas by capture date, with stroke-level filtering (Dates tab)
+- [x] Book View hover times, with click-through to the day's Timeline
+- [x] Page rotation for pages written sideways
 
 ### In Progress 🔄
 - [x] Electron desktop app conversion
@@ -1079,7 +1106,11 @@ For issues, questions, or feature requests:
 
 ## Version History
 
-- **2.9.0** (Current) - Opens on the Timeline at your most recent day with ink,
+- **2.10.0** (Current) - Book View hover times: hover ink to see the day it was
+  written, click to open that day in the Timeline; page rotation for pages written
+  with the notebook turned sideways (±90° or 180°, display only)
+
+- **2.9.0** - Opens on the Timeline at your most recent day with ink,
   with the Dates tab beside it; live pen ink switches to the Editor
 
 - **2.8.0** - Neo page backgrounds behind the ink in Book View and the Timeline;
