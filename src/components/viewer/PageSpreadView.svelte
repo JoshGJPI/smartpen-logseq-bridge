@@ -13,6 +13,9 @@
   import { frameToBounds } from '$lib/neo-backgrounds.js';
   import { getCachedPage } from '$lib/viewer/page-cache.js';
   import TranscriptPane from './TranscriptPane.svelte';
+  import OrientationControl from './OrientationControl.svelte';
+  import { pageOrientations } from '$stores/orientation.js';
+  import { rotationFor, rotateFrame, svgRotationTransform } from '$lib/page-orientation.js';
 
   /** store record: lightweight { book, page, pageId, strokeCount, ... } — NO strokes */
   export let record;
@@ -118,12 +121,25 @@
   $: pageKey = record ? `${record.book}:${pageId}` : '';
   $: title = `${bookAlias || `B${record?.book}`} — P${pageId}`;
 
+  // Display rotation for a page written with the notebook sideways. The strokes
+  // and paper keep their page coordinates; ONE transform on the content group
+  // turns them, within the page's own frame (the sheet, or the ink's box), so
+  // anything drawn inside that group turns with them. The svg itself takes the
+  // turned frame's size, so a landscape page lays out landscape.
+  $: rotation = record ? rotationFor($pageOrientations, record.book, pageId) : 0;
+  $: pageFrame = { x0: 0, y0: 0, x1: svgWidth, y1: svgHeight };
+  $: shownFrame = rotateFrame(pageFrame, rotation);
+  $: shownWidth = shownFrame.x1 - shownFrame.x0;
+  $: shownHeight = shownFrame.y1 - shownFrame.y0;
+  $: contentTransform = svgRotationTransform(rotation, pageFrame) || null;
+  $: rotation, refit();
+
   function fitContent() {
     if (!viewBounds || !containerEl) return;
     const cw = containerEl.clientWidth;
     const ch = containerEl.clientHeight;
-    const sw = (viewBounds.maxX - viewBounds.minX) * NCODE_SCALE + 20;
-    const sh = (viewBounds.maxY - viewBounds.minY) * NCODE_SCALE + 20;
+    const sw = shownWidth + 20;
+    const sh = shownHeight + 20;
     if (sw <= 0 || sh <= 0) return;
     zoom = Math.min(cw / sw, ch / sh) * 0.92;
     panX = (cw - sw * zoom) / 2;
@@ -181,6 +197,8 @@
         <button class="pv-btn" on:click={zoomIn} title="Zoom in">&#x2B;</button>
         <button class="pv-btn" on:click={fitContent} title="Fit page">Fit</button>
         <span class="pv-divider"></span>
+        <OrientationControl book={record.book} {pageId} />
+        <span class="pv-divider"></span>
       {/if}
       <button class="pv-btn load" on:click={() => onLoadIntoEditor()} title="Load this page into the Editor for editing">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -222,7 +240,8 @@
         aria-label="Page strokes — scroll to zoom, drag to pan"
       >
         <div class="pv-transform" style="transform: translate({panX}px, {panY}px) scale({zoom});">
-          <svg class:paper={!!bg} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {svgWidth.toFixed(2)} {svgHeight.toFixed(2)}" width={svgWidth.toFixed(2)} height={svgHeight.toFixed(2)}>
+          <svg class:paper={!!bg} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {shownWidth.toFixed(2)} {shownHeight.toFixed(2)}" width={shownWidth.toFixed(2)} height={shownHeight.toFixed(2)}>
+            <g transform={contentTransform}>
             {#if bg}
               <!-- The sheet is drawn 1:1 into the frame (Ncode units × NCODE_SCALE),
                    the same space the strokes are projected into below. -->
@@ -240,6 +259,7 @@
                 <path d={strokeToPathD(stroke, viewBounds)} stroke="#1a1a2e" stroke-width={DEFAULT_STROKE_WIDTH} fill="none" stroke-linecap="round" stroke-linejoin="round" />
               {/if}
             {/each}
+            </g>
           </svg>
         </div>
       </div>

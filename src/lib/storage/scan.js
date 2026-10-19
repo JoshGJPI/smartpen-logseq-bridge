@@ -20,6 +20,7 @@ import { registerBookIds, setBookAliases } from '$stores/book-aliases.js';
 import { dataRoot, dataFolderReady } from '$stores/settings.js';
 import { toBookKey, parseBookKey } from '$lib/volumes.js';
 import { listPages, getAliases } from './local-store.js';
+import { loadOrientations } from '$stores/orientation.js';
 
 /**
  * Convert a lightweight PageMeta → record shape consumed by PageCard / BookViewer.
@@ -100,6 +101,9 @@ export async function scanLocalPages() {
     } catch (aliasErr) {
       console.warn('Failed to load aliases:', aliasErr);
     }
+
+    // Page rotations (a small sidecar; never fails the scan).
+    await loadOrientations();
 
     // List all pages (lightweight metadata — no strokes loaded). This single
     // pass is the whole scan now; we no longer re-read every page with getPage.

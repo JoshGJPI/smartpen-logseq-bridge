@@ -60,6 +60,8 @@
   import { transcribeStrokes } from '$lib/myscript-api.js';
   // v2.0: sole save path is the local folder
   import { savePageToFolder, finalizePageMoves } from '$lib/storage/save-page.js';
+  import { pageOrientations } from '$stores/orientation.js';
+  import { rotationFor, rotateCanvasStrokes } from '$lib/page-orientation.js';
   import { dataRoot, dataFolderReady } from '$stores/settings.js';
   import { unsavedChanges } from '$stores';
   // Removed filtered-strokes import - now handled via user-controlled deselection
@@ -307,17 +309,26 @@
         try {
           log(`Transcribing ${pageData.untranscribedStrokes.length} new stroke(s) on Book ${book}, Page ${page}...`, 'info');
 
+          // A page written with the notebook sideways is sent turned upright
+          // (copies; the canvas keeps raw Ncode), or MyScript reads it as
+          // vertical scribble. Its yBounds then come back in that upright frame,
+          // so the turned copies are also what the batch origin is measured on,
+          // and the rotation rides on the transcription for the save-time
+          // stroke match (save-page.js strokesInTranscriptionFrame).
+          const rotation = rotationFor($pageOrientations, book, page);
+          const sentStrokes = rotateCanvasStrokes(pageData.untranscribedStrokes, rotation);
+
           // CRITICAL: Only send untranscribed strokes to MyScript
-          const result = await transcribeStrokes(pageData.untranscribedStrokes, appKey, hmacKey);
+          const result = await transcribeStrokes(sentStrokes, appKey, hmacKey);
 
           // Store transcription for this page
           // CRITICAL: Pass the actual transcribed strokes so we can track which strokes get blockUuid
           setPageTranscription(
             pageKey,
-            result,
+            rotation ? { ...result, rotation } : result,
             pageData.pageInfo,
             pageData.allStrokes.length,  // Total stroke count includes both transcribed and untranscribed
-            pageData.untranscribedStrokes  // NEW: The strokes that were actually sent to MyScript
+            sentStrokes  // The strokes that were actually sent to MyScript (turned, if the page is)
           );
 
           log(`✓ Book ${book}/Page ${page}: ${result.text?.length || 0} characters, ${result.lines?.length || 0} lines`, 'success');

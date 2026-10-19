@@ -638,6 +638,36 @@ describe('savePageToFolder — stroke→line matching across coordinate spaces',
     expect(strokeById('s1000').lineId).toBe('existing-line');
     expect(strokeById('s2000').lineId).toBe(writtenDoc().transcript.lines[1].id);
   });
+
+  it('matches a page sent rotated in the upright frame, without rewriting its points', async () => {
+    // Written with the notebook turned: each "line" is a column running down
+    // the page. Shown at 270° (lib/page-orientation.js, NOMINAL_FRAME 66 wide)
+    // upright y = 66 - x, so the column at x=40 is the top line (y 26) and the
+    // one at x=20 the next (y 46). The batch was sent turned, origin y 26.
+    const strokes = [
+      canvasStroke(1000, [[20, 30, 400], [20, 60, 400]]),
+      canvasStroke(2000, [[40, 30, 400], [40, 60, 400]]),
+    ];
+    await savePageToFolder({
+      book: 3017,
+      page: 42,
+      activeStrokes: strokes,
+      pageTranscription: {
+        rotation: 270,
+        originNcodeY: 26,
+        lines: [
+          { text: 'top line', yBounds: mmBounds(25.5, 26.5, 26) },
+          { text: 'next line', yBounds: mmBounds(45.5, 46.5, 26) },
+        ],
+      },
+    });
+
+    const [top, next] = writtenDoc().transcript.lines;
+    expect(strokeById('s2000').lineId).toBe(top.id);
+    expect(strokeById('s1000').lineId).toBe(next.id);
+    // Stored geometry is the page's, untouched.
+    expect(strokeById('s1000').points.map((p) => p.slice(0, 2))).toEqual([[20, 30], [20, 60]]);
+  });
 });
 
 describe('savePageToFolder — volume book keys', () => {

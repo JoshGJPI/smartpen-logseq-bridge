@@ -238,3 +238,31 @@ export async function setActiveVolume(ncodeBook, volume) {
   const res = await backend.setActiveVolume(requireRoot(), ncodeBook, volume);
   return unwrap(res, 'setActiveVolume');
 }
+
+/* ============================================================
+ *  Page orientation
+ * ============================================================ */
+
+/**
+ * The orientation sidecar, raw: `{ version, pages: { "<bookKey>/<pageId>": rotation } }`.
+ * Run it through `normalizeOrientations()` (lib/page-orientation.js) before use.
+ * An absent or unreadable file reads as `{ pages: {} }` — every page portrait.
+ */
+export async function getOrientation() {
+  const backend = getBackend();
+  const res = await backend.getOrientation(requireRoot());
+  return unwrap(res, 'getOrientation');
+}
+
+/**
+ * Record a page's display rotation (0 clears it). Display-only: never touches
+ * the PageDoc.
+ * @param {string} book  book key, "388" or "388v2"
+ * @param {string} pageId  "12" or "151b"
+ * @param {0|90|180|270} rotation
+ */
+export async function setOrientation(book, pageId, rotation) {
+  const backend = getBackend();
+  const res = await backend.setOrientation(requireRoot(), book, pageId, rotation);
+  return unwrap(res, 'setOrientation');
+}

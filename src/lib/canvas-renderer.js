@@ -32,6 +32,7 @@ import {
 import {
   BOOK_KEY_FRAGMENT, compareBookKeys, volumeBadge, ncodeBookOf
 } from './volumes.js';
+import { NOMINAL_FRAME, normalizeRotation, rotationMatrix, rotateBox } from './page-orientation.js';
 
 // Page keys are `S#/O#/B<bookKey>/P#`, where the book portion may carry a volume
 // suffix ("388v2"). Built from BOOK_KEY_FRAGMENT rather than a hand-written
@@ -71,6 +72,11 @@ export class CanvasRenderer {
     // stroke's dots are only a pixel or two apart.
     this.pointHandleRadius = 3;
     this.pointHandleHitRadius = 9;
+
+    // Per-page display rotation (stores/orientation.js), keyed "<bookKey>/<pageId>".
+    // Canvas strokes carry the integer page, so a letter-suffixed variant uses
+    // its integer page's entry — the canvas has already merged it onto that page.
+    this.pageRotations = {};
 
     // Per-page scale factors (non-destructive display scaling)
     this.pageScales = {}; // Map of pageKey -> scale factor
@@ -472,11 +478,17 @@ export class CanvasRenderer {
         });
       });
 
+      // A turned page is laid out by its upright box. A right-angle turn maps
+      // a box to a box, so turning the four sides is exact — no per-dot pass.
+      let bounds = { minX: pageMinX, minY: pageMinY, maxX: pageMaxX, maxY: pageMaxY };
+      const rotation = this.rotationForPageInfo(pageStrokes[0] && pageStrokes[0].pageInfo);
+      if (rotation && Number.isFinite(pageMinX)) bounds = rotateBox(bounds, rotation, NOMINAL_FRAME);
+
       return {
         pageKey,
-        bounds: { minX: pageMinX, minY: pageMinY, maxX: pageMaxX, maxY: pageMaxY },
-        width: pageMaxX - pageMinX,
-        height: pageMaxY - pageMinY
+        bounds,
+        width: bounds.maxX - bounds.minX,
+        height: bounds.maxY - bounds.minY
       };
     });
 
@@ -618,54 +630,121 @@ export class CanvasRenderer {
   }
   
   /**
-   * Convert ncode coordinates to screen coordinates with zoom, pan, page offset, and page scale
-   * @param {Object} dot - Dot with x, y coordinates
-   * @param {Object} pageInfo - Page information (section, owner, book, page) to determine offset
+   * Display rotation for a page, clockwise degrees (0 when none). See
+   * setPageRotations().
+   * @param {Object|null} pageInfo
+   * @returns {0|90|180|270}
    */
-  ncodeToScreen(dot, pageInfo = null) {
-    let x, y;
-    
-    // Get page offset if available
+  rotationForPageInfo(pageInfo) {
+    if (!pageInfo || pageInfo.book === undefined || pageInfo.page === undefined) return 0;
+    return this.pageRotations[`${pageInfo.book}/${pageInfo.page}`] || 0;
+  }
+
+  /**
+   * Replace the per-page display rotations (`{ "<bookKey>/<pageId>": rotation }`,
+   * from stores/orientation.js). Page layout depends on them, so the caller
+   * follows this with a full-reset render.
+   * @param {Object} map
+   */
+  setPageRotations(map) {
+    const next = {};
+    for (const [key, r] of Object.entries(map || {})) {
+      const n = normalizeRotation(r);
+      if (n) next[key] = n;
+    }
+    this.pageRotations = next;
+  }
+
+  /**
+   * The Ncode → screen transform for one page, as an affine
+   * `{a, b, c, d, e, f}`: `screenX = a·x + c·y + e`, `screenY = b·x + d·y + f`.
+   *
+   * For an unrotated page this is exactly
+   *   screenX = (dot.x - bounds.minX + offsetX) * scale * pageScale * zoom + panX
+   * and likewise for Y. A rotated page first turns the dot upright within
+   * NOMINAL_FRAME; its `bounds` (from calculateBounds) are in that upright frame,
+   * so the rest of the formula is unchanged. Resolved once per stroke, never per
+   * dot, by everything that projects a whole stroke.
+   *
+   * @param {Object|null} pageInfo
+   */
+  pageProjection(pageInfo = null) {
     let offsetX = 0;
     let offsetY = 0;
     let pageBounds = null;
     let pageKey = null;
-    
+
     if (pageInfo && this.pageOffsets.size > 0) {
       // Use full key format to match pages store
       pageKey = `S${pageInfo.section || 0}/O${pageInfo.owner || 0}/B${pageInfo.book}/P${pageInfo.page}`;
       const pageOffset = this.pageOffsets.get(pageKey);
-      
+
       if (pageOffset) {
         offsetX = pageOffset.offsetX;
         offsetY = pageOffset.offsetY;
         pageBounds = pageOffset.bounds;
       }
     }
-    
+
     // Get per-page scale factor (default: 1.0)
     const pageScale = pageKey ? this.getEffectiveScale(pageKey) : 1.0;
-    
+    const k = this.scale * pageScale * this.zoom;
+
     // Use simple scaling if:
     // 1. No bounds calculated yet (first strokes), OR
     // 2. Page offset not found (real-time strokes on new page)
-    if (this.bounds.minX === Infinity || (pageInfo && !pageBounds)) {
-      x = dot.x * this.scale * pageScale;
-      y = dot.y * this.scale * pageScale;
-    } else {
-      // Transform relative to page bounds (or global bounds if no page offset)
+    // Otherwise transform relative to page bounds (or global bounds if no page offset).
+    let tx = 0;
+    let ty = 0;
+    if (!(this.bounds.minX === Infinity || (pageInfo && !pageBounds))) {
       const bounds = pageBounds || this.bounds;
-      x = (dot.x - bounds.minX + offsetX) * this.scale * pageScale;
-      y = (dot.y - bounds.minY + offsetY) * this.scale * pageScale;
+      tx = offsetX - bounds.minX;
+      ty = offsetY - bounds.minY;
     }
-    
+
+    const rotation = this.rotationForPageInfo(pageInfo);
+    if (!rotation) {
+      return { a: k, b: 0, c: 0, d: k, e: tx * k + this.panX, f: ty * k + this.panY };
+    }
+    const [ra, rb, rc, rd, re, rf] = rotationMatrix(rotation, NOMINAL_FRAME);
     return {
-      x: x * this.zoom + this.panX,
-      y: y * this.zoom + this.panY,
+      a: ra * k, b: rb * k, c: rc * k, d: rd * k,
+      e: (re + tx) * k + this.panX,
+      f: (rf + ty) * k + this.panY
+    };
+  }
+
+  /**
+   * Convert ncode coordinates to screen coordinates with zoom, pan, page offset,
+   * page scale and page rotation. See pageProjection().
+   * @param {Object} dot - Dot with x, y coordinates
+   * @param {Object} pageInfo - Page information (section, owner, book, page) to determine offset
+   * @param {Object} [proj] - pageProjection(pageInfo), when the caller already has it
+   */
+  ncodeToScreen(dot, pageInfo = null, proj = null) {
+    const t = proj || this.pageProjection(pageInfo);
+    return {
+      x: t.a * dot.x + t.c * dot.y + t.e,
+      y: t.b * dot.x + t.d * dot.y + t.f,
       pressure: dot.f
     };
   }
-  
+
+  /**
+   * Screen → Ncode for a page: the inverse of ncodeToScreen, rotation included.
+   * @param {number} x
+   * @param {number} y
+   * @param {Object|null} pageInfo
+   * @returns {{x: number, y: number}}
+   */
+  screenToNcode(x, y, pageInfo = null) {
+    const t = this.pageProjection(pageInfo);
+    const det = t.a * t.d - t.b * t.c;
+    const dx = x - t.e;
+    const dy = y - t.f;
+    return { x: (t.d * dx - t.c * dy) / det, y: (t.a * dy - t.b * dx) / det };
+  }
+
   /**
    * Convert ncode to screen without page offset lookup
    * Used for pasted strokes that aren't attached to a page
@@ -708,10 +787,13 @@ export class CanvasRenderer {
    * bbox), which is O(1) versus O(dots) for actually drawing the stroke.
    * @returns {boolean} true if the stroke can be skipped this frame
    */
-  isStrokeOffscreen(stroke, dots, pageInfo) {
+  isStrokeOffscreen(stroke, dots, pageInfo, proj = null) {
     const nb = this.strokeNcodeBounds(stroke, dots);
-    const a = this.ncodeToScreen({ x: nb.minX, y: nb.minY, f: 0 }, pageInfo);
-    const b = this.ncodeToScreen({ x: nb.maxX, y: nb.maxY, f: 0 }, pageInfo);
+    // Opposite corners stay opposite under a right-angle turn, so min/max of
+    // the two projected corners is still the screen box.
+    const t = proj || this.pageProjection(pageInfo);
+    const a = this.ncodeToScreen({ x: nb.minX, y: nb.minY, f: 0 }, pageInfo, t);
+    const b = this.ncodeToScreen({ x: nb.maxX, y: nb.maxY, f: 0 }, pageInfo, t);
     const left = Math.min(a.x, b.x);
     const right = Math.max(a.x, b.x);
     const top = Math.min(a.y, b.y);
@@ -834,16 +916,28 @@ export class CanvasRenderer {
    * @param {Array} dots
    * @param {Object|null} pageInfo
    * @param {boolean} [direct] - use ncodeToScreenDirect (pasted strokes, no page)
+   * @param {Object} [proj] - pageProjection(pageInfo), when the caller already has it
    * @returns {{xs: Float64Array, ys: Float64Array}}
    */
-  projectDots(dots, pageInfo, direct = false) {
+  projectDots(dots, pageInfo, direct = false, proj = null) {
     const n = dots.length;
     const xs = new Float64Array(n);
     const ys = new Float64Array(n);
+    if (direct) {
+      for (let i = 0; i < n; i++) {
+        const s = this.ncodeToScreenDirect(dots[i]);
+        xs[i] = s.x;
+        ys[i] = s.y;
+      }
+      return { xs, ys };
+    }
+    // One transform per stroke (page offset, scale, zoom, pan and rotation
+    // folded together), applied to every dot.
+    const { a, b, c, d, e, f } = proj || this.pageProjection(pageInfo);
     for (let i = 0; i < n; i++) {
-      const s = direct ? this.ncodeToScreenDirect(dots[i]) : this.ncodeToScreen(dots[i], pageInfo);
-      xs[i] = s.x;
-      ys[i] = s.y;
+      const dot = dots[i];
+      xs[i] = a * dot.x + c * dot.y + e;
+      ys[i] = b * dot.x + d * dot.y + f;
     }
     return { xs, ys };
   }
@@ -860,12 +954,13 @@ export class CanvasRenderer {
     if (dots.length < 2) return;
 
     const pageInfo = stroke.pageInfo;
+    const proj = this.pageProjection(pageInfo);
 
     // Viewport culling: skip strokes whose screen bounding box is entirely
     // off-canvas. With many pages laid out in a grid, only a handful are visible
     // at typical edit zoom, so this avoids transforming/stroking the dots of the
     // ~95% that aren't on screen — the dominant per-frame cost.
-    if (this.isStrokeOffscreen(stroke, dots, pageInfo)) return;
+    if (this.isStrokeOffscreen(stroke, dots, pageInfo, proj)) return;
 
     // Determine color and style based on state
     let color, uniformWidth, opacity, dashed;
@@ -903,11 +998,11 @@ export class CanvasRenderer {
     // uneven stipple. Deleted and decorative strokes keep the uniform path so
     // their dashes stay readable; the dash is the more important signal there.
     if (stroke.sketch && !dashed) {
-      const { xs, ys } = this.projectDots(dots, pageInfo);
+      const { xs, ys } = this.projectDots(dots, pageInfo, false, proj);
       const pxPerMm = this.scale * this.pageScaleFor(pageInfo) * this.zoom;
       this.strokeVariableWidth(xs, ys, this.sketchWidths(stroke), pxPerMm, highlighted ? 1.6 : 1);
     } else {
-      const { xs, ys } = this.projectDots(dots, pageInfo);
+      const { xs, ys } = this.projectDots(dots, pageInfo, false, proj);
       this.strokeRun(xs, ys, 0, dots.length - 1, Math.max(0.5, uniformWidth * this.zoom));
     }
 
@@ -944,7 +1039,8 @@ export class CanvasRenderer {
     if (dots.length < 2) return;
 
     const pageInfo = stroke.pageInfo;
-    if (this.isStrokeOffscreen(stroke, dots, pageInfo)) return;
+    const proj = this.pageProjection(pageInfo);
+    if (this.isStrokeOffscreen(stroke, dots, pageInfo, proj)) return;
 
     this.ctx.strokeStyle = this.contextInkColor;
     this.ctx.globalAlpha = 1;
@@ -952,7 +1048,7 @@ export class CanvasRenderer {
     this.ctx.lineJoin = 'round';
     this.ctx.setLineDash([]);
 
-    const { xs, ys } = this.projectDots(dots, pageInfo);
+    const { xs, ys } = this.projectDots(dots, pageInfo, false, proj);
     this.strokeRun(xs, ys, 0, dots.length - 1, Math.max(0.5, this.handwritingWidth * this.zoom));
   }
 
@@ -1117,11 +1213,12 @@ export class CanvasRenderer {
     }
     
     const pageInfo = stroke.pageInfo;
+    const proj = this.pageProjection(pageInfo);
     let minX = Infinity, minY = Infinity;
     let maxX = -Infinity, maxY = -Infinity;
     
     dots.forEach(dot => {
-      const screen = this.ncodeToScreen(dot, pageInfo);
+      const screen = this.ncodeToScreen(dot, pageInfo, proj);
       minX = Math.min(minX, screen.x);
       minY = Math.min(minY, screen.y);
       maxX = Math.max(maxX, screen.x);
@@ -1178,9 +1275,10 @@ export class CanvasRenderer {
       const stroke = strokes[i];
       const dots = stroke.dotArray || stroke.dots || [];
       const pageInfo = stroke.pageInfo;
+      const proj = this.pageProjection(pageInfo);
       
       for (const dot of dots) {
-        const screenDot = this.ncodeToScreen(dot, pageInfo);
+        const screenDot = this.ncodeToScreen(dot, pageInfo, proj);
         const dx = screenDot.x - x;
         const dy = screenDot.y - y;
         const distance = Math.sqrt(dx * dx + dy * dy);
@@ -1247,8 +1345,9 @@ export class CanvasRenderer {
       const dots = stroke.dotArray || stroke.dots || [];
       const pageInfo = stroke.pageInfo;
       if (!this.isPageVisible(pageInfo)) continue;
+      const proj = this.pageProjection(pageInfo);
       for (let i = 0; i < dots.length; i++) {
-        const s = this.ncodeToScreen(dots[i], pageInfo);
+        const s = this.ncodeToScreen(dots[i], pageInfo, proj);
         if (s.x < -margin || s.x > this.viewWidth + margin) continue;
         if (s.y < -margin || s.y > this.viewHeight + margin) continue;
 
@@ -1301,8 +1400,9 @@ export class CanvasRenderer {
       const dots = stroke.dotArray || stroke.dots || [];
       const pageInfo = stroke.pageInfo;
       if (!this.isPageVisible(pageInfo)) continue;
+      const proj = this.pageProjection(pageInfo);
       for (let i = 0; i < dots.length; i++) {
-        const s = this.ncodeToScreen(dots[i], pageInfo);
+        const s = this.ncodeToScreen(dots[i], pageInfo, proj);
         const dx = s.x - x;
         const dy = s.y - y;
         const distance = Math.sqrt(dx * dx + dy * dy);
@@ -1329,8 +1429,9 @@ export class CanvasRenderer {
       const dots = stroke.dotArray || stroke.dots || [];
       const pageInfo = stroke.pageInfo;
       if (!this.isPageVisible(pageInfo)) continue;
+      const proj = this.pageProjection(pageInfo);
       for (let i = 0; i < dots.length; i++) {
-        const s = this.ncodeToScreen(dots[i], pageInfo);
+        const s = this.ncodeToScreen(dots[i], pageInfo, proj);
         if (s.x >= rect.left && s.x <= rect.right && s.y >= rect.top && s.y <= rect.bottom) {
           found.push({ strokeIndex, pointIndex: i });
         }

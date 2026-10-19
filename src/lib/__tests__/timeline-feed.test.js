@@ -198,6 +198,13 @@ describe('indexPageStrokes', () => {
     expect(idx.items[0].maxY).toBe(31);
   });
 
+  it('records each stroke\'s horizontal extent too, for pages shown turned', () => {
+    const s = { id: 's', startTime: 1, points: [[0, 0], [12, 50], [20, 52]] };
+    const item = indexPageStrokes({ strokes: [s] }).items[0];
+    expect(item.minX).toBe(12);
+    expect(item.maxX).toBe(20);
+  });
+
   it('does not let the origin dot stretch anything', () => {
     const s = { id: 's', startTime: 1, points: [[0, 0], [20, 50], [22, 52]] };
     expect(indexPageStrokes({ strokes: [s] }).items[0].minY).toBe(50);

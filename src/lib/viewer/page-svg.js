@@ -11,6 +11,7 @@
  */
 
 import { widthsForStrokeSeries, normalizeProfile } from '../sketch-width.js';
+import { isQuarterTurn, svgRotationTransform } from '../page-orientation.js';
 
 /** Ncode mm → screen-pixel scale factor (matches canvas-renderer.js). */
 export const NCODE_SCALE = 2.371;
@@ -160,9 +161,10 @@ export function strokeToWidthRuns(stroke, bounds, profile, scale = NCODE_SCALE) 
  * @param {number} [maxWidth]
  * @param {number} [maxHeight]
  * @param {string} [strokeColor]
+ * @param {number} [rotation] display rotation (lib/page-orientation.js), clockwise degrees
  * @returns {string} an `<svg>…</svg>` string (renders "Empty" when no strokes)
  */
-export function generateThumbnailSVG(strokes, maxWidth = 240, maxHeight = 200, strokeColor = '#1a1a2e') {
+export function generateThumbnailSVG(strokes, maxWidth = 240, maxHeight = 200, strokeColor = '#1a1a2e', rotation = 0) {
   const bounds = computeStrokeBounds(strokes);
   if (!bounds) {
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${maxWidth} ${maxHeight}" width="${maxWidth}" height="${maxHeight}"><text x="${maxWidth / 2}" y="${maxHeight / 2}" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#bbb">Empty</text></svg>`;
@@ -174,15 +176,24 @@ export function generateThumbnailSVG(strokes, maxWidth = 240, maxHeight = 200, s
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${maxWidth} ${maxHeight}" width="${maxWidth}" height="${maxHeight}"></svg>`;
   }
 
+  // A turned page fits by its turned size; the paths are drawn unturned and one
+  // group transform turns them within their own box.
+  const turned = isQuarterTurn(rotation);
+  const shownW = turned ? ncodeHeight : ncodeWidth;
+  const shownH = turned ? ncodeWidth : ncodeHeight;
+
   const padding = 4;
   const availW = maxWidth - padding * 2;
   const availH = maxHeight - padding * 2;
-  const scaleX = ncodeWidth > 0 ? availW / ncodeWidth : 1;
-  const scaleY = ncodeHeight > 0 ? availH / ncodeHeight : 1;
+  const scaleX = shownW > 0 ? availW / shownW : 1;
+  const scaleY = shownH > 0 ? availH / shownH : 1;
   const fitScale = Math.min(scaleX, scaleY);
 
-  const svgW = ncodeWidth * fitScale + padding * 2;
-  const svgH = ncodeHeight * fitScale + padding * 2;
+  const svgW = shownW * fitScale + padding * 2;
+  const svgH = shownH * fitScale + padding * 2;
+  const turn = svgRotationTransform(rotation, {
+    x0: padding, y0: padding, x1: padding + ncodeWidth * fitScale, y1: padding + ncodeHeight * fitScale
+  });
 
   let paths = '';
   for (const stroke of strokes) {
@@ -197,5 +208,6 @@ export function generateThumbnailSVG(strokes, maxWidth = 240, maxHeight = 200, s
     paths += `<path d="${d}" stroke="${strokeColor}" stroke-width="0.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
   }
 
+  if (turn) paths = `<g transform="${turn}">${paths}</g>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgW.toFixed(1)} ${svgH.toFixed(1)}" width="${maxWidth}" height="${maxHeight}" preserveAspectRatio="xMidYMid meet">${paths}</svg>`;
 }
