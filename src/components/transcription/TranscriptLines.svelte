@@ -7,6 +7,9 @@
   trusted (lib/viewer/ink-text.js), and each line then lights its ink on the
   page; on other pages `linkNote` explains why there is no linking.
 
+  Top- and second-level lines carry a copy button (shown on hover) that copies
+  that line and everything nested under it (`onCopyLine(index)`).
+
   Empty state: "Transcribe in Editor" only when MyScript is configured
   (transcribing is an Editor action: the button loads the page there, and the
   capture bar's Transcribe does the rest); otherwise it says where to add a key.
@@ -15,6 +18,10 @@
   import { hasMyScriptCredentials } from '$stores';
 
   export let lines = [];
+  /** (index) => void: copy that line and its children; null hides the buttons. */
+  export let onCopyLine = null;
+  /** Deepest indent level that gets a copy button (0 = top, 1 = second). */
+  const COPY_LEVELS = 1;
   /** (line|null) => void, or null when lines can't be linked to ink. */
   export let onHoverLine = null;
   /** Shown under the lines in Ink + text when linking is off. */
@@ -42,7 +49,7 @@
 
 {#if hasContent}
   <div class="tl" class:linked={!!onHoverLine} role="list" on:mouseleave={() => hover(null)}>
-    {#each lines as line (line.id)}
+    {#each lines as line, i (line.id)}
       <div
         role="listitem"
         class="tl-line"
@@ -52,6 +59,17 @@
       >
         <span class="tl-marker" class:todo={line.checked === false} class:done={line.checked === true}>{markerSymbol(line.checked)}</span>
         <span class="tl-text" class:done={line.checked === true}>{line.text}</span>
+        {#if onCopyLine && (line.indentLevel || 0) <= COPY_LEVELS && (line.text || '').trim()}
+          <button
+            type="button"
+            class="tl-copy"
+            on:click={() => onCopyLine(i)}
+            title="Copy this line and everything under it (LogSeq format)"
+            aria-label="Copy this line and everything under it"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>
+        {/if}
       </div>
     {/each}
     {#if linkNote}
@@ -95,7 +113,24 @@
   }
   .tl-marker.todo { color: #e07b00; }
   .tl-marker.done { color: #2e9e54; }
+  .tl-text { min-width: 0; }
   .tl-text.done { color: #999; text-decoration: line-through; }
+  /* Per-node copy: out of the way until the line is hovered or the button focused. */
+  .tl-copy {
+    flex-shrink: 0;
+    align-self: center;
+    display: flex;
+    padding: 3px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: #8a8fa3;
+    cursor: pointer;
+    opacity: 0;
+  }
+  .tl-line:hover .tl-copy,
+  .tl-copy:focus-visible { opacity: 1; }
+  .tl-copy:hover { background: #eef3ff; border-color: #c7d6fb; color: #4a7cf7; }
   .tl-note { margin: 14px 0 0; font-size: 12px; color: #999; line-height: 1.4; }
 
   .tl-empty {

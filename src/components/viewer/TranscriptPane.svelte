@@ -6,7 +6,9 @@
   Edit mode:    inline structured editor — edit text, Tab/Shift+Tab to
                 indent/outdent, click a checkbox to cycle (none → TODO → DONE),
                 Enter adds a line below, Backspace on an empty line deletes it.
-  Copy:         LogSeq-pasteable markdown (tab indents, - TODO/- DONE, properties
+  Copy all:     the whole transcript; each top- and second-level line also has
+                its own copy (that line and everything under it, subtreeLines).
+                Both as LogSeq-pasteable markdown (tab indents, - TODO/- DONE, properties
                 stripped) → clipboard.
 
   Edits persist to the PageDoc on disk via saveTranscriptLines(); dirty state is
@@ -15,7 +17,7 @@
 <script>
   import { tick, onDestroy } from 'svelte';
   import { log, markViewerDirtyPage, clearViewerDirtyPage } from '$stores';
-  import { linesToLogseqMarkdown } from '$lib/viewer/transcript-markdown.js';
+  import { linesToLogseqMarkdown, subtreeLines } from '$lib/viewer/transcript-markdown.js';
   import { saveTranscriptLines } from '$lib/viewer/save-transcript.js';
   import TranscriptLines from '../transcription/TranscriptLines.svelte';
 
@@ -111,18 +113,28 @@
     }
   }
 
-  async function copy() {
-    const md = linesToLogseqMarkdown(editing ? draft : lines);
+  async function writeClipboard(md, what) {
     if (!md) {
       log('Nothing to copy — transcript is empty', 'warning');
       return;
     }
     try {
       await navigator.clipboard.writeText(md);
-      log(`Copied transcript B${book}/P${page} to clipboard (LogSeq format)`, 'success');
+      log(`Copied ${what} to clipboard (LogSeq format)`, 'success');
     } catch {
       log('Failed to copy to clipboard', 'error');
     }
+  }
+
+  function copy() {
+    writeClipboard(linesToLogseqMarkdown(editing ? draft : lines), `transcript B${book}/P${page}`);
+  }
+
+  // One node and its children, e.g. a meeting's notes at the foot of a page.
+  function copyBranch(i) {
+    const branch = subtreeLines(lines, i);
+    const n = branch.filter((l) => (l.text || '').trim() !== '').length;
+    writeClipboard(linesToLogseqMarkdown(branch), `"${(lines[i].text || '').trim()}" (${n} line${n === 1 ? '' : 's'}) from B${book}/P${page}`);
   }
 
   /* ---- edit operations ---- */
@@ -235,11 +247,11 @@
           title="Delete the selected block"
         >🗑 Delete</button>
         <span class="tp-toolbar-divider"></span>
-        <button class="tp-btn" on:click={copy} title="Copy as LogSeq markdown">Copy</button>
+        <button class="tp-btn" on:click={copy} title="Copy the whole transcript as LogSeq markdown">Copy all</button>
         <button class="tp-btn primary" on:click={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
         <button class="tp-btn muted" on:click={cancel} disabled={saving}>Cancel</button>
       {:else}
-        <button class="tp-btn" on:click={copy} disabled={!hasContent} title="Copy as LogSeq markdown">Copy</button>
+        <button class="tp-btn" on:click={copy} disabled={!hasContent} title="Copy the whole transcript as LogSeq markdown">Copy all</button>
         <button class="tp-btn" on:click={startEdit} title="Edit transcript">Edit</button>
       {/if}
     </div>
@@ -270,7 +282,7 @@
         </div>
       {/each}
     {:else}
-      <TranscriptLines {lines} {onHoverLine} {linkNote} {onTranscribe} onAddTranscript={startEdit} />
+      <TranscriptLines {lines} onCopyLine={copyBranch} {onHoverLine} {linkNote} {onTranscribe} onAddTranscript={startEdit} />
     {/if}
   </div>
 </div>

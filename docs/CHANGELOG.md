@@ -11,6 +11,30 @@ CLAUDE.md (Invariants); the store and library map is in
 Reading-first UI plan: [READING-UX-SPEC.md](READING-UX-SPEC.md). Packages land on their
 own branches and are not released one by one; no storage or PageDoc change in any of them.
 
+### Copy one part of a transcript (October 2026)
+
+**Copy a node and what's under it, not only the whole page.** Josh's pages often
+end with a meeting's notes under their own heading line; copying them meant
+copying the page and deleting the rest in LogSeq. The Library transcript's
+toolbar button is now **Copy all** (same output as before), and every top- and
+second-level line has its own copy icon, shown on hover just after its text, which
+copies that line and every deeper line after it (`subtreeLines()` in
+`transcript-markdown.js`). The branch is re-based so it pastes as a top-level
+bullet with its children under it; TODO/DONE markers, tab indents and property
+stripping are the same as Copy all. Blank and property lines inside a branch don't
+end it. Verified on P170: the "10:00 5444-006 Rich update" icon copied that line
+and its four children; "Plan to demo…" (second level) copied itself and its two
+children at levels 0 and 1.
+
+**Rejected:** buttons on every level (deeper lines rarely stand alone and the icons
+crowd the list); icons always visible (they read as noise down a long transcript).
+
+**Limitations:** a branch is what the transcript's indentation says. Where a date
+line and the meeting under it were recognised as siblings (P170's "10/19/26" and
+"10:00 …"), copying the date copies only the date; Edit → indent fixes the
+structure. Per-node copy is in the read view only, not while editing, and not in
+the Editor's transcript views.
+
 ### D. Page reader: shared toolbar, position and jump, written-on ribbon, Ink + text (October 2026)
 
 **One toolbar over the spread instead of one per page.** Each page carried its own
