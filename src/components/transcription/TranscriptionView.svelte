@@ -17,7 +17,7 @@
     clearStrokeBlockUuids,
     getActiveStrokesForPageFromStore
   } from '$stores';
-  import { bookAliases } from '$stores';
+  import { bookAliases, viewerMode } from '$stores';
   // v2.0: folder-backed transcript edits
   import { getPage } from '$lib/storage/local-store.js';
   import { formatBookName, filterTranscriptionProperties } from '$utils/formatting.js';
@@ -169,7 +169,11 @@
     </div>
   {:else if !$hasPageTranscriptions}
     <div class="empty-state">
-      <p>Select strokes and click "Transcribe" to convert handwriting to text.</p>
+      {#if $viewerMode === 'book'}
+        <p>No new transcripts to review. Saved transcripts are read in Book View.</p>
+      {:else}
+        <p>Select strokes and click "Transcribe" to convert handwriting to text.</p>
+      {/if}
       <p class="hint">
         <a href="https://developer.myscript.com/" target="_blank" rel="noopener">
           Get MyScript API keys (free: 2,000 requests/month)

@@ -6,10 +6,11 @@ rules that must not be broken; this file is the map you look things up in.
 ## Component Hierarchy
 ```
 App.svelte (Root)
-├── Header
-│   ├── PenControls (Connect, Fetch, Transcribe)
-│   ├── ActionBar (Save to Folder, Clear, unsaved-changes dot)
-│   └── SettingsDropdown (MyScript, Data Folder, Graph Folder, Pen Memory,
+├── Header (one 44 px row: name, `nav` slot from App, search entry, Unsaved marker)
+│   ├── PenChip (pen state + battery; Connect / Disconnect)
+│   ├── ActionBar (capture bar: Fetch, Save, Delete, Undo, Clear, Transcribe; always
+│   │   mounted, `visible` from `lib/capture-bar.js`)
+│   └── SettingsDropdown (gear, warning dot when the data folder is not ready; MyScript, Data Folder, Graph Folder, Pen Memory,
 │       └── ActivityLogDialog (Troubleshooting → 🩺, filter by level + copy)
 ├── LeftPanel (one row of tabs — see "Left panel tabs" below)
 │   ├── StrokeList ("Strokes" — browse by book/page)
@@ -212,6 +213,8 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `stroke-storage.js` - Stroke ID generation, format conversion, bounds, dedupe, user JSON/MD exports
 - `point-edit.js` - Point-level stroke editing (pure): `detectStrayPoints()` (`origin` — at/near Ncode (0,0) or non-finite; `jump` — far from both neighbours, relative to the stroke's median spacing **and** past `MIN_JUMP_DISTANCE`, an absolute floor that keeps short flick strokes out of the results), `detectStrayPointsForStrokes()`, `removePointsFromStroke()` (identity- and force-preserving, re-tags `dotType`, drops the `_nb`/`_sw` caches, refuses to go below `MIN_STROKE_POINTS`), `pointKey`/`parsePointKey`/`groupPointKeys`, `formatPointCoords`
 - `sketch-width.js` - Pressure → line thickness mapping for sketch strokes (pure): profile normalisation/presets, `pressureToUnit`, `smoothSeries` (symmetric, spike attenuation), `limitSlew`, `widthsForPressures`, `widthsForStrokeSeries` (the single "no pressure data → flatWidth" rule), `profileKey` for width-cache tagging
+- `capture-bar.js` - `shouldShowCaptureBar()` (pure): Editor, pen connected, anything unsaved, or a transcription/transfer running
+- `plural.js` - `plural(n, one, many?)`, the noun that agrees with a count
 - `timeline.js` - **Capture dates** (pure). Interprets the index built in
   `main.cjs`. Two units that are NOT interchangeable: a **day key**
   (`"YYYY-MM-DD"`, a LOCAL calendar day — string comparison is the range test)

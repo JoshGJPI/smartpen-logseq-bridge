@@ -17,6 +17,7 @@
   import GraphFolderSettings from '../settings/GraphFolderSettings.svelte';
   import PenMemoryDialog from '../dialog/PenMemoryDialog.svelte';
   import { penConnected } from '$stores/pen.js';
+  import { dataFolderReady } from '$stores/settings.js';
 
   let isOpen = false;
   let showKeys = false;
@@ -88,12 +89,22 @@
 <svelte:window on:click={handleClickOutside} />
 
 <div class="settings-dropdown">
-  <button class="settings-btn" on:click|stopPropagation={toggleDropdown} title="Settings">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+  <!-- Icon only: the header is one slim row. The dot appears only when the data
+       folder is not ready, the one setting without which nothing can be read or
+       saved; its details are under Data Folder below. -->
+  <button
+    class="settings-btn"
+    on:click|stopPropagation={toggleDropdown}
+    title={$dataFolderReady ? 'Settings' : 'Settings — the data folder is not ready'}
+    aria-label="Settings"
+  >
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
       <circle cx="12" cy="12" r="3"/>
       <path d="M12 1v6m0 6v6m5.2-13.2l-4.2 4.2m0 6l4.2 4.2M23 12h-6m-6 0H1m13.2 5.2l-4.2-4.2m0-6l-4.2-4.2"/>
     </svg>
-    Settings
+    {#if !$dataFolderReady}
+      <span class="warn-dot" aria-hidden="true"></span>
+    {/if}
   </button>
   
   {#if isOpen}
@@ -242,25 +253,35 @@
   }
 
   .settings-btn {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 8px 16px;
-    border: none;
-    border-radius: 6px;
-    font-size: 0.875rem;
-    font-weight: 500;
+    justify-content: center;
+    width: 32px;
+    height: 30px;
+    border-radius: 7px;
     cursor: pointer;
-    transition: all 0.2s;
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    border: 1px solid var(--border);
+    transition: all 0.15s;
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid transparent;
   }
 
   .settings-btn:hover {
-    background: var(--bg-tertiary);
-    border-color: var(--accent);
-    transform: translateY(-1px);
+    background: var(--bg-secondary);
+    border-color: var(--border);
+    color: var(--text-primary);
+  }
+
+  .warn-dot {
+    position: absolute;
+    top: 3px;
+    right: 4px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--warning);
+    box-shadow: 0 0 6px rgba(251, 191, 36, 0.8);
   }
 
   .dropdown-panel {

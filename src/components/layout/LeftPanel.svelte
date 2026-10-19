@@ -69,7 +69,10 @@
   .left-panel {
     display: flex;
     flex-direction: column;
-    max-height: calc(100vh - 120px);
+    /* Fills the grid row (App.svelte pins it to minmax(0, 1fr)) instead of
+       guessing the header's height, which now changes with the capture bar. */
+    min-height: 0;
+    max-height: 100%;
     overflow: hidden;
     gap: 0;
     padding: 15px;
@@ -99,9 +102,11 @@
     margin-bottom: -2px;
   }
 
+  /* Selected = neutral text with a blue underline; the red accent is kept for
+     the one primary action on a screen. */
   .panel-tab.active {
-    color: var(--accent);
-    border-bottom-color: var(--accent);
+    color: var(--text-primary);
+    border-bottom-color: var(--selected-line);
   }
 
   .panel-tab:hover:not(.active) {
@@ -110,7 +115,7 @@
   }
 
   .tab-badge {
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     background: var(--accent);

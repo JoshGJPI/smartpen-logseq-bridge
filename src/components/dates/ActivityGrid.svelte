@@ -12,6 +12,7 @@
 <script>
   import { createEventDispatcher, tick } from 'svelte';
   import { dayKey, dayStart, addDays } from '$lib/timeline.js';
+  import { plural } from '$lib/plural.js';
 
   /** @type {Array<{day: string, strokes: number, pages: number}>} */
   export let days = [];
@@ -24,6 +25,10 @@
 
   let dragging = false;
   let anchor = null;
+
+  // Rows run Monday to Sunday (buildGrid backs up to a Monday); label every other
+  // one so the labels sit clear of each other at this cell size.
+  const WEEKDAY_LABELS = ['Mon', '', 'Wed', '', 'Fri', '', ''];
 
   // Five buckets, thresholds chosen against the reference corpus (median day
   // ~1,500 strokes, busiest ~6,400) so a typical day sits mid-ramp rather than
@@ -117,7 +122,7 @@
       weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
     }) || day;
     if (!entry) return `${label} — nothing captured`;
-    return `${label} — ${entry.strokes.toLocaleString()} strokes on ${entry.pages} page(s)`;
+    return `${label} — ${entry.strokes.toLocaleString()} ${plural(entry.strokes, 'stroke')} on ${entry.pages} ${plural(entry.pages, 'page')}`;
   }
 
   function startDrag(event, day) {
@@ -151,6 +156,13 @@
   {#if grid.weeks.length === 0}
     <p class="empty">No captured ink yet.</p>
   {:else}
+    <div class="grid-wrap">
+    <!-- Outside the scroller, so the labels stay put as the weeks scroll. -->
+    <div class="weekdays" aria-hidden="true">
+      {#each WEEKDAY_LABELS as label}
+        <span>{label}</span>
+      {/each}
+    </div>
     <div class="scroll" bind:this={scrollEl} on:scroll={onScroll}>
       <div class="inner">
         <div class="months">
@@ -184,6 +196,7 @@
         </div>
       </div>
     </div>
+    </div>
     <div class="legend">
       <span>Drag across days to select a range</span>
       <span class="ramp">
@@ -200,9 +213,51 @@
     gap: 6px;
   }
 
+  .grid-wrap {
+    display: flex;
+    gap: 6px;
+  }
+
+  .weekdays {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-top: 16px;        /* the months row (14px) plus its gap to the grid */
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+  }
+
+  .weekdays span {
+    height: 11px;
+    display: flex;
+    align-items: center;
+  }
+
   .scroll {
+    flex: 1;
+    min-width: 0;
     overflow-x: auto;
-    padding-bottom: 4px;
+    padding-bottom: 6px;
+  }
+
+  /* The default light scrollbar is the brightest thing in the dark panel. */
+  .scroll::-webkit-scrollbar {
+    height: 8px;
+  }
+
+  .scroll::-webkit-scrollbar-track {
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+  }
+
+  .scroll::-webkit-scrollbar-thumb {
+    background: #3a3a60;
+    border-radius: 4px;
+  }
+
+  .scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--selected-border);
   }
 
   .inner {
@@ -213,7 +268,8 @@
   .months {
     display: flex;
     height: 14px;
-    font-size: 0.62rem;
+    margin-bottom: 2px;
+    font-size: 0.75rem;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--text-secondary);
@@ -280,7 +336,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     color: var(--text-secondary);
   }
 

@@ -2,7 +2,7 @@
   StrokeList.svelte - List view of strokes grouped by book and page with collapsible headers
 -->
 <script>
-  import { strokes, strokeCount } from '$stores';
+  import { strokes, strokeCount, viewerMode } from '$stores';
   import { dataFolderReady } from '$stores/settings.js';
   import { selectionCount } from '$stores';
   import StrokeBookAccordion from './StrokeBookAccordion.svelte';
@@ -85,7 +85,12 @@
 <div class="stroke-list">
   {#if $strokeCount === 0}
     <p class="empty-message">
-      Connect pen and write to see strokes
+      {#if $viewerMode === 'book'}
+        Nothing is open for editing. Use “Load into Editor” in Book View, or load
+        a date range from the Dates tab, to work on pages here.
+      {:else}
+        Connect pen and write to see strokes
+      {/if}
     </p>
   {:else}
     <div class="list-header">

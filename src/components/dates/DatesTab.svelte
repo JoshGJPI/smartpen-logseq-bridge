@@ -28,6 +28,7 @@
   import { importDateRangeFromFolder, LARGE_LOAD_STROKES } from '$lib/storage/load-range.js';
   import { dayStart, addDays } from '$lib/timeline.js';
   import { formatBookName } from '$utils/formatting.js';
+  import { plural } from '$lib/plural.js';
 
   let loading = false;
   let progress = null;
@@ -171,16 +172,16 @@
     </div>
 
     <div class="tally">
-      <span><b>{summary.days}</b> days</span>
-      <span><b>{summary.pages}</b> pages</span>
-      <span><b>{fmt(summary.strokes)}</b> strokes</span>
+      <span><b>{summary.days}</b> {plural(summary.days, 'day')}</span>
+      <span><b>{summary.pages}</b> {plural(summary.pages, 'page')}</span>
+      <span><b>{fmt(summary.strokes)}</b> {plural(summary.strokes, 'stroke')}</span>
       <span class="tally-filter"><BookFilterMenu theme="dark" align="right" /></span>
     </div>
 
     {#if summary.partialPages > 0}
       <p class="context-note">
         <b>{summary.partialPages}</b> of these pages also hold ink outside the range.
-        Its {fmt(summary.contextStrokes)} strokes load as halftoned context —
+        Its {fmt(summary.contextStrokes)} {plural(summary.contextStrokes, 'stroke')} load as halftoned context —
         visible, but not selectable, savable or transcribable.
       </p>
     {/if}
@@ -196,7 +197,7 @@
         {#if loading}
           Loading…
         {:else if confirmingLarge}
-          Load {fmt(summary.strokes)} strokes anyway
+          Load {fmt(summary.strokes)} {plural(summary.strokes, 'stroke')} anyway
         {:else if summary.strokes === 0}
           Nothing in range
         {:else if $feedVisible}
@@ -233,7 +234,7 @@
 
     {#if $contextInkCount > 0}
       <p class="context-loaded">
-        {fmt($contextInkCount)} strokes shown as context.
+        {fmt($contextInkCount)} {plural($contextInkCount, 'stroke')} shown as context.
         <button type="button" class="link" on:click={clearContextInk}>Hide</button>
       </p>
     {/if}
@@ -250,19 +251,19 @@
             <button type="button" class="day-head jump" on:click={() => requestFeedJump(day.day)}
               title="Scroll the timeline to this day">
               <b>{longDate(day.day)}{#if inView === day.day}<span class="in-view-pill">In view</span>{/if}</b>
-              <span>{fmt(day.strokes)} strokes · {day.pages} pg</span>
+              <span>{fmt(day.strokes)} {plural(day.strokes, 'stroke')} · {day.pages} pg</span>
             </button>
           {:else}
             <div class="day-head">
               <b>{longDate(day.day)}</b>
-              <span>{fmt(day.strokes)} strokes · {day.pages} pg</span>
+              <span>{fmt(day.strokes)} {plural(day.strokes, 'stroke')} · {day.pages} pg</span>
             </div>
           {/if}
           <div class="chips">
             {#each day.entries as entry (entry.book + '/' + entry.pageId)}
               <span class="chip" class:partial={entry.spansOtherDays} title={entry.spansOtherDays
                 ? `${chipLabel(entry)} — ${fmt(entry.strokes)} of ${fmt(entry.totalStrokes)} strokes were written this day`
-                : `${chipLabel(entry)} — ${fmt(entry.strokes)} strokes`}>
+                : `${chipLabel(entry)} — ${fmt(entry.strokes)} ${plural(entry.strokes, 'stroke')}`}>
                 {chipLabel(entry)} <em>{fmt(entry.strokes)}</em>
               </span>
             {/each}
@@ -283,6 +284,26 @@
     min-height: 0;
     flex: 1;
     overflow-y: auto;
+    padding-right: 4px;
+  }
+
+  /* Match the heat grid's scrollbar rather than the default light one. */
+  .dates-tab::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .dates-tab::-webkit-scrollbar-track {
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+  }
+
+  .dates-tab::-webkit-scrollbar-thumb {
+    background: #3a3a60;
+    border-radius: 4px;
+  }
+
+  .dates-tab::-webkit-scrollbar-thumb:hover {
+    background: var(--selected-border);
   }
 
   .notice {
@@ -310,7 +331,7 @@
   }
 
   .field label {
-    font-size: 0.65rem;
+    font-size: 0.75rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--text-secondary);
@@ -456,7 +477,7 @@
 
   .hint {
     margin: 0;
-    font-size: 0.72rem;
+    font-size: 0.75rem;
     line-height: 1.45;
     color: var(--text-secondary);
     opacity: 0.85;
@@ -518,7 +539,7 @@
 
   .in-view-pill {
     margin-left: 8px;
-    font-size: 0.62rem;
+    font-size: 0.75rem;
     font-weight: 600;
     color: var(--bg-secondary);
     background: var(--text-primary);
@@ -539,7 +560,7 @@
   }
 
   .day-head span {
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
@@ -560,7 +581,7 @@
     border: 1px solid var(--border);
     border-radius: 11px;
     padding: 2px 8px;
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     color: var(--text-secondary);
   }
 

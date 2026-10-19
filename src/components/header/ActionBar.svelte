@@ -1,5 +1,10 @@
 <!--
-  ActionBar.svelte - Compact action buttons for header
+  ActionBar.svelte - The capture bar: Fetch Notes, Save, Delete, Undo, Clear, Transcribe.
+
+  Always mounted (it owns the save dialog, the progress popups and the in-flight
+  save / transcribe / import handlers); `visible` only decides whether the row of
+  buttons is drawn. Header computes it with lib/capture-bar.js. Connect and
+  Disconnect moved to the pen chip (PenChip.svelte).
 -->
 <script>
   import { 
@@ -56,7 +61,7 @@
     errorCount: 0,
     elapsedSeconds: 0
   });
-  import { connectPen, disconnectPen, fetchOfflineData, cancelOfflineTransfer } from '$lib/pen-sdk.js';
+  import { fetchOfflineData, cancelOfflineTransfer } from '$lib/pen-sdk.js';
   import { transcribeStrokes } from '$lib/myscript-api.js';
   // v2.0: sole save path is the local folder
   import { savePageToFolder, finalizePageMoves } from '$lib/storage/save-page.js';
@@ -72,7 +77,9 @@
     clearUnsavedChanges
   } from '$stores/storage.js';
   
-  let isConnecting = false;
+  /** Whether the bar's row is drawn. The dialog and popups' logic run regardless. */
+  export let visible = true;
+
   let isFetchingOffline = false;
   let isSaving = false;
   let showSaveConfirmDialog = false;
@@ -100,25 +107,6 @@
   
   // For selected strokes, count how many are untranscribed
   $: selectedUntranscribedCount = $hasSelection ? getUntranscribedStrokes($selectedStrokes).length : untranscribedCount;
-  
-  async function handleConnect() {
-    isConnecting = true;
-    try {
-      await connectPen();
-    } catch (error) {
-      log(`Connection failed: ${error.message}`, 'error');
-    } finally {
-      isConnecting = false;
-    }
-  }
-  
-  async function handleDisconnect() {
-    try {
-      await disconnectPen();
-    } catch (error) {
-      log(`Disconnect failed: ${error.message}`, 'error');
-    }
-  }
   
   async function handleFetchOffline() {
     isFetchingOffline = true;
@@ -593,7 +581,7 @@
   on:cancel={handleCancelSave}
 />
 
-<div class="action-bar">
+<div class="action-bar" class:hidden={!visible}>
   <!-- Transcription Progress Popup -->
   {#if $transcriptionProgress.active}
     <div class="transcription-popup">
@@ -662,35 +650,6 @@
     </div>
   {/if}
 
-  {#if !$penConnected}
-    <button 
-      class="action-btn connect-btn" 
-      on:click={handleConnect}
-      disabled={isConnecting}
-      title="Connect to SmartPen via Bluetooth"
-    >
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M12 2v20M17 7l-5 5 5 5M7 7l5 5-5 5"/>
-      </svg>
-      {#if isConnecting}
-        Connecting...
-      {:else}
-        Connect
-      {/if}
-    </button>
-  {:else}
-    <button 
-      class="action-btn disconnect-btn" 
-      on:click={handleDisconnect}
-      title="Disconnect from SmartPen"
-    >
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M18 6L6 18M6 6l12 12"/>
-      </svg>
-      Disconnect
-    </button>
-  {/if}
-  
   <button 
     class="action-btn"
     on:click={handleFetchOffline}
@@ -804,6 +763,11 @@
     gap: 8px;
     align-items: center;
     position: relative;
+    padding: 4px 0 10px;
+  }
+
+  .action-bar.hidden {
+    display: none;
   }
 
   .action-btn {
@@ -834,21 +798,6 @@
     cursor: not-allowed;
   }
 
-  .connect-btn {
-    background: var(--accent);
-    color: white;
-    border-color: var(--accent);
-  }
-
-  .connect-btn:hover:not(:disabled) {
-    background: var(--accent-hover);
-    border-color: var(--accent-hover);
-  }
-
-  .disconnect-btn {
-    background: var(--bg-tertiary);
-  }
-
   .transcribe-btn {
     background: var(--accent);
     color: white;
@@ -871,14 +820,14 @@
   }
   
   .save-btn {
-    background: var(--success);
+    background: var(--ok-solid);
     color: white;
-    border-color: var(--success);
+    border-color: var(--ok-solid);
   }
   
   .save-btn:hover:not(:disabled) {
-    background: #22c55e;
-    border-color: #22c55e;
+    background: var(--ok-solid-hover);
+    border-color: var(--ok-solid-hover);
   }
 
   .save-btn.dirty {
@@ -901,15 +850,16 @@
     50%      { box-shadow: 0 0 0 4px rgba(253, 224, 71, 0.25); }
   }
   
+  /* Dark red is for destruction only; the bright accent stays the primary action. */
   .delete-btn {
-    background: var(--error);
+    background: var(--destructive);
     color: white;
-    border-color: var(--error);
+    border-color: var(--destructive);
   }
   
   .delete-btn:hover:not(:disabled) {
-    background: #dc2626;
-    border-color: #dc2626;
+    background: var(--destructive-hover);
+    border-color: var(--destructive-hover);
   }
   
   .undo-btn:hover:not(:disabled) {
@@ -927,18 +877,6 @@
 
   .action-btn svg {
     flex-shrink: 0;
-  }
-
-  /* Responsive: hide text labels on smaller screens */
-  @media (max-width: 1400px) {
-    .action-btn {
-      padding: 8px 12px;
-      font-size: 0;
-    }
-    
-    .action-btn svg {
-      margin: 0;
-    }
   }
 
   /* Transcription Progress Popup */
@@ -1103,13 +1041,4 @@
     flex-shrink: 0;
   }
   
-  @media (max-width: 1400px) {
-    .transcription-status span {
-      display: none;
-    }
-    
-    .transcription-status {
-      padding: 8px;
-    }
-  }
 </style>

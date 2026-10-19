@@ -206,7 +206,24 @@
 </script>
 
 <div class="app">
-  <Header />
+  <Header>
+    <!-- Primary navigation. Lives here, not in Header, because switchView owns the
+         unsaved-transcript-edits guard. -->
+    <div slot="nav" class="view-switch" role="group" aria-label="Pane">
+      <button
+        class="view-switch-btn"
+        class:active={$viewerMode === 'editor'}
+        aria-pressed={$viewerMode === 'editor'}
+        on:click={() => switchView('editor')}
+      >Editor</button>
+      <button
+        class="view-switch-btn"
+        class:active={$viewerMode === 'book'}
+        aria-pressed={$viewerMode === 'book'}
+        on:click={() => switchView('book')}
+      >Book View</button>
+    </div>
+  </Header>
   
   <main class="main-grid">
     <!-- Left Panel: Data Explorer & Activity Log -->
@@ -214,36 +231,23 @@
     
     <!-- Right: Canvas or Book View -->
     <div class="canvas-section">
+      <!-- The Editor has its own toolbar, so this bar is Book View's alone. -->
+      {#if $viewerMode === 'book'}
       <div class="viewer-topbar">
-        <div class="view-switch">
+        <div class="vg-segment" role="group" aria-label="Book View mode">
           <button
-            class="view-switch-btn"
-            class:active={$viewerMode === 'editor'}
-            on:click={() => switchView('editor')}
-          >Editor</button>
+            class:active={$bookViewMode === 'books'}
+            aria-pressed={$bookViewMode === 'books'}
+            on:click={() => switchBookMode('books')}
+          >Books</button>
           <button
-            class="view-switch-btn"
-            class:active={$viewerMode === 'book'}
-            on:click={() => switchView('book')}
-          >Book View</button>
+            class:active={$bookViewMode === 'timeline'}
+            aria-pressed={$bookViewMode === 'timeline'}
+            on:click={() => switchBookMode('timeline')}
+          >Timeline</button>
         </div>
 
-        {#if $viewerMode === 'book'}
-          <div class="vg-segment" role="group" aria-label="Book View mode">
-            <button
-              class:active={$bookViewMode === 'books'}
-              aria-pressed={$bookViewMode === 'books'}
-              on:click={() => switchBookMode('books')}
-            >Books</button>
-            <button
-              class:active={$bookViewMode === 'timeline'}
-              aria-pressed={$bookViewMode === 'timeline'}
-              on:click={() => switchBookMode('timeline')}
-            >Timeline</button>
-          </div>
-        {/if}
-
-        {#if $viewerMode === 'book' && $backgroundsAvailable}
+        {#if $backgroundsAvailable}
           <!-- Printed pages behind the ink: for reading, so Book View and the
                Timeline only — the Editor never draws them. -->
           <div class="viewer-globals">
@@ -265,7 +269,7 @@
           </div>
         {/if}
 
-        {#if $viewerMode === 'book' && $bookViewMode === 'timeline'}
+        {#if $bookViewMode === 'timeline'}
           <div class="viewer-globals">
             <button
               class="vg-btn"
@@ -284,7 +288,7 @@
           </div>
         {/if}
 
-        {#if $viewerMode === 'book' && $bookViewMode === 'books' && bookViewerHasSelection}
+        {#if $bookViewMode === 'books' && bookViewerHasSelection}
           <div class="viewer-globals">
             <button class="vg-btn icon" on:click={() => bookViewer?.goHome()} title="Back to all pages">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -336,6 +340,7 @@
           </div>
         {/if}
       </div>
+      {/if}
 
       {#if $viewerMode === 'book' && $bookViewMode === 'timeline'}
         <TimelineFeed />
@@ -370,6 +375,17 @@
     --warning: #fbbf24;
     --error: #ef4444;
     --border: #2a2a4a;
+
+    /* Colour roles. The bright accent is the single primary action on a screen;
+       "on" / selected is neutral-raised with a blue underline; dark red is for
+       destruction only. */
+    --selected-bg: #262650;
+    --selected-border: #4a4a8a;
+    --selected-line: #5b8def;
+    --destructive: #7d2f3b;
+    --destructive-hover: #9b3a49;
+    --ok-solid: #2f7d4f;
+    --ok-solid-hover: #3a9560;
   }
 
   :global(*) {
@@ -398,6 +414,7 @@
   .main-grid {
     display: grid;
     grid-template-columns: 450px 1fr;
+    grid-template-rows: minmax(0, 1fr);
     gap: 20px;
     flex: 1;
     min-height: 0;
@@ -428,7 +445,7 @@
   }
 
   .view-switch-btn {
-    padding: 6px 16px;
+    padding: 4px 14px;
     border: none;
     border-radius: 6px;
     background: transparent;
@@ -444,8 +461,9 @@
   }
 
   .view-switch-btn.active {
-    background: var(--accent);
+    background: var(--selected-bg);
     color: white;
+    box-shadow: inset 0 -2px 0 var(--selected-line);
   }
 
   /* Book View global controls (shared header for both spread pages) */
@@ -480,9 +498,10 @@
   }
 
   .vg-btn.active {
-    background: var(--accent);
-    border-color: var(--accent);
+    background: var(--selected-bg);
+    border-color: var(--selected-border);
     color: white;
+    box-shadow: inset 0 -2px 0 var(--selected-line);
   }
 
   .vg-segment {
@@ -512,8 +531,9 @@
   }
 
   .vg-segment button.active {
-    background: var(--accent);
+    background: var(--selected-bg);
     color: white;
+    box-shadow: inset 0 -2px 0 var(--selected-line);
   }
 
   /* Responsive adjustments */

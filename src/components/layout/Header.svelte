@@ -1,196 +1,137 @@
 <!--
-  Header.svelte - Application header with status indicators, action buttons, and settings
+  Header.svelte - One slim bar: name, navigation, search, pen chip, settings.
+
+  The capture controls (Save, Undo, Delete, Clear, Transcribe, Fetch) live in
+  ActionBar, which sits under this bar and is shown only when there is capture
+  work to do (see lib/capture-bar.js). It stays mounted either way: it owns the
+  save dialog and the in-flight save/transcribe/import handlers.
+
+  The unsaved dot is here, not in ActionBar, so it is visible from every view
+  even with the capture bar hidden.
 -->
 <script>
-  import { penConnected, penAuthorized, penBattery, penInfo, penMemory } from '$stores';
-  import { dataFolderReady, dataFolderStatusText } from '$stores/settings.js';
+  import {
+    penConnected, unsavedChanges, viewerMode, viewerDirty,
+    isTranscribing, transferProgress, openTranscriptSearch
+  } from '$stores';
+  import { shouldShowCaptureBar } from '$lib/capture-bar.js';
   import ActionBar from '../header/ActionBar.svelte';
+  import PenChip from '../header/PenChip.svelte';
   import SettingsDropdown from '../header/SettingsDropdown.svelte';
-  
-  // Extract pen model name
-  $: penModel = $penInfo?.ModelName || $penInfo?.DeviceName || 'Pen';
-  $: batteryPercent = $penBattery ? $penBattery.replace('%', '') : '0';
-  $: memoryPercent = $penMemory ? $penMemory.replace('%', '') : '0';
+
+  $: hasUnsaved = $unsavedChanges || $viewerDirty;
+  $: showCaptureBar = shouldShowCaptureBar({
+    viewerMode: $viewerMode,
+    penConnected: $penConnected,
+    unsavedChanges: $unsavedChanges,
+    viewerDirty: $viewerDirty,
+    busy: $isTranscribing || $transferProgress.active
+  });
 </script>
 
 <header class="header">
-  <div class="header-left">
-    <h1 class="title">NeoSmartpen → <span class="accent">Stroke</span> Bridge</h1>
-    
-    <div class="status-bar">
-      <!-- Pen Status -->
-      <div class="status-indicator">
-        <div 
-          class="status-dot" 
-          class:connected={$penConnected && $penAuthorized}
-          class:connecting={$penConnected && !$penAuthorized}
-        ></div>
-        <span class="status-text">
-          {#if $penConnected && $penAuthorized}
-            Connected - {penModel}
-            {#if $penBattery || $penMemory}
-              <span class="pen-details">
-                ({#if $penBattery}<span class="detail-item" class:low-battery={parseInt(batteryPercent) < 20}>
-                  {batteryPercent}%
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon battery-icon">
-                    <rect x="2" y="6" width="18" height="12" rx="2" ry="2"/>
-                    <line x1="22" y1="10" x2="22" y2="14"/>
-                  </svg>
-                </span>{/if}{#if $penMemory}<span class="detail-item">
-                  {memoryPercent}%
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon memory-icon">
-                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-                  </svg>
-                </span>{/if})
-              </span>
-            {/if}
-          {:else if $penConnected}
-            Authorizing...
-          {:else}
-            Disconnected
-          {/if}
-        </span>
-      </div>
-      
-      <!-- Data Folder Status -->
-      <div class="status-indicator">
-        <div
-          class="status-dot"
-          class:connected={$dataFolderReady}
-        ></div>
-        <span class="status-text">{$dataFolderStatusText}</span>
-      </div>
-    </div>
-  </div>
-  
-  <div class="header-right">
-    <ActionBar />
+  <div class="header-row">
+    <h1 class="title">smartpen-bridge</h1>
+
+    <!-- Primary navigation, supplied by App.svelte (it owns the guarded switch). -->
+    <slot name="nav" />
+
+    <!-- Same search as Ctrl+Shift+F on the canvas: Transcripts → Search. -->
+    <button class="search-entry" on:click={openTranscriptSearch} title="Search transcribed pages">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      Search notes…
+    </button>
+
+    <span class="grow"></span>
+
+    {#if hasUnsaved}
+      <span
+        class="unsaved"
+        role="status"
+        title={$unsavedChanges && $viewerDirty
+          ? 'Unsaved strokes and transcript edits'
+          : $viewerDirty ? 'Unsaved transcript edits' : 'Unsaved changes on the canvas'}
+      >
+        <span class="unsaved-dot" aria-hidden="true"></span>
+        Unsaved
+      </span>
+    {/if}
+
+    <PenChip />
     <SettingsDropdown />
   </div>
+
+  <ActionBar visible={showCaptureBar} />
 </header>
 
 <style>
   .header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 20px 0;
+    flex-shrink: 0;
     border-bottom: 1px solid var(--border);
-    margin-bottom: 20px;
-    gap: 20px;
+    margin-bottom: 12px;
   }
 
-  .header-left {
+  .header-row {
     display: flex;
-    flex-direction: column;
-    gap: 10px;
+    align-items: center;
+    gap: 14px;
+    height: 44px;
+  }
+
+  .grow {
     flex: 1;
   }
 
-  .header-right {
-    display: flex;
-    gap: 12px;
-    align-items: center;
-  }
-
   .title {
-    font-size: 1.5rem;
+    font-size: 1.05rem;
     font-weight: 600;
+    white-space: nowrap;
   }
 
-  .accent {
-    color: var(--accent);
-  }
-
-  .status-bar {
-    display: flex;
-    gap: 20px;
+  .search-entry {
+    display: inline-flex;
     align-items: center;
-  }
-
-  .status-indicator {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 0.875rem;
-  }
-
-  .status-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: var(--text-secondary);
-    transition: all 0.3s ease;
-  }
-
-  .status-dot.connected {
-    background: var(--success);
-    box-shadow: 0 0 10px var(--success);
-  }
-
-  .status-dot.connecting {
-    background: var(--warning);
-    animation: pulse 1s infinite;
-  }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-  }
-
-  .status-text {
+    gap: 7px;
+    height: 30px;
+    min-width: 170px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: transparent;
     color: var(--text-secondary);
-    display: flex;
-    align-items: center;
-    gap: 4px;
+    font-size: 0.8125rem;
+    cursor: pointer;
+    transition: all 0.15s;
   }
 
-  .pen-details {
+  .search-entry:hover {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+  }
+
+  .unsaved {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    margin-left: 4px;
+    gap: 6px;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: #fde047;
+    white-space: nowrap;
   }
 
-  .detail-item {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    font-size: 0.85rem;
+  .unsaved-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #fde047;
+    box-shadow: 0 0 6px rgba(253, 224, 71, 0.75);
   }
 
-  .detail-item.low-battery {
-    color: var(--warning);
-  }
-
-  .icon {
-    flex-shrink: 0;
-    opacity: 0.7;
-  }
-
-  /* Responsive adjustments */
-  @media (max-width: 1400px) {
-    .header {
-      flex-wrap: wrap;
-    }
-    
-    .header-left {
-      flex: 0 0 100%;
-    }
-    
-    .header-right {
-      flex: 1;
-      justify-content: flex-end;
-    }
-  }
-
-  @media (max-width: 1200px) {
-    .title {
-      font-size: 1.3rem;
-    }
-    
-    .status-bar {
-      gap: 15px;
+  @media (max-width: 1100px) {
+    .search-entry {
+      min-width: 0;
     }
   }
 </style>

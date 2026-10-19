@@ -6,6 +6,73 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Unreleased (toward v3.0.0)
+
+Reading-first UI plan: [READING-UX-SPEC.md](READING-UX-SPEC.md). Packages land on their
+own branches and are not released one by one; no storage or PageDoc change in any of them.
+
+### A. Slim header, capture bar on demand, colour roles (October 2026)
+
+**The header is one 44 px row and the capture controls appear only when there is
+capture work.** At 1280×760 the old header was 169 px (three rows of mostly disabled
+icon buttons); it is now 45 px, which returns about 130 px of reading height there and
+about 75 px at 1600×950 (measured on the real app). The row holds the name
+("smartpen-bridge"), the Editor | Book View switch, a search entry, an **Unsaved** marker,
+the pen chip and a gear. Folder status text is gone from the header: Settings → Data
+Folder already showed it, and the gear gets a warning dot only when the data folder is
+not ready.
+
+**Capture bar condition** (`lib/capture-bar.js`, `shouldShowCaptureBar`): Editor
+showing, pen connected, anything unsaved (`unsavedChanges || viewerDirty`), or a
+transcription / offline transfer running. The last clause is not in the spec: the
+progress popups hang off the bar, so hiding it mid-job would hide the job.
+
+**Only the rendering moved.** `ActionBar` owns `SaveConfirmDialog`, the transcribe and
+transfer popups and the in-flight save / transcribe / fetch handlers, so wrapping it in
+`{#if}` would unmount them mid-operation. It stays mounted and takes one `visible` prop
+that toggles its button row's `display`; none of its save, transcribe, delete or undo
+logic changed. Connect / Disconnect left it for `PenChip.svelte` (same `connectPen` /
+`disconnectPen` calls). The unsaved marker lives in `Header`, not the bar, so it shows
+from every view with the bar hidden; the `viewerDirty` discard prompt (`switchView`
+stays in `App.svelte`, passed to the header through a `nav` slot) and the main-process
+close dialog are untouched. Live pen ink still goes through `showEditorForLiveInk()`,
+and a connected pen keeps the bar visible anyway.
+
+**Colour roles.** Selected / "on" is a neutral raised fill with a blue underline
+(`--selected-*`) on `.view-switch-btn`, `.vg-btn.active`, `.vg-segment .active` and
+`.panel-tab`; the bright accent is left for the one primary action (Connect, Transcribe,
+Load); dark red (`--destructive`) is for Delete only. Save went from the light green
+(white text on `#4ade80`, poor contrast) to `--ok-solid`.
+
+**Copy.** `plural()` (`lib/plural.js`) fixes "1 days" and the other count labels in the
+Dates tab and heat-grid tooltips. In Book View the Strokes and Transcripts tabs'
+empty states now point at loading pages / reading instead of "Connect pen and write".
+The heat grid gained Mon / Wed / Fri labels and dark scrollbars (the grid's and the Dates
+tab's), and labels in the Dates tab, heat grid and panel tab badge are at least 0.75 rem.
+
+**Rejected / deferred**
+- *Library | Timeline | Editor in the header.* That is package C's navigation spine;
+  A moves the existing Editor | Book View switch and leaves Books | Timeline and the other
+  per-view toggles in the pane bar (the bar is dropped in the Editor, which has its own
+  toolbar).
+- *Ctrl K and a real search field.* The search entry is a button into the existing
+  Transcripts → Search (what Ctrl+Shift+F does); the field and shortcut are package E.
+- *Hiding ActionBar with `{#if}` or `display: none` on a wrapper:* both drop the save
+  dialog or its handlers, as above.
+- *Fixing `max-height: calc(100vh - 120px)` on the left panel with a new constant:* the
+  header's height now varies with the capture bar, so the main grid row is pinned to
+  `minmax(0, 1fr)` and the panel fills it.
+
+**Limitations**
+- Pen battery shows in the chip but the pen-memory percentage no longer does (Settings →
+  Pen Memory still manages it).
+- Only reading surfaces got the 0.75 rem floor; Books tab, Settings and the Editor still
+  have smaller labels. Other `.active` accents (Transcripts Review | Search, timeline
+  feed buttons) still use the red accent.
+- Not exercised: live pen ink and Fetch Notes (no hardware), MyScript transcription (no
+  keys). The capture bar's pen condition is covered by the unit test only.
+- The Editor still overflows horizontally at 1280 wide, as before.
+
 ## v2.10.0 — Book View hover times and page rotation (October 2026)
 
 ### Hover-to-reveal capture time in Book View (October 2026)
