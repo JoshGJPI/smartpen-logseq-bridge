@@ -145,6 +145,9 @@ All state is managed through Svelte stores located in `src/stores/`:
   anything already live), `pruneContextInk()`, `removeContextInkForPage()`,
   `clearContextInk()`
 
+**Page orientation (Unreleased):**
+- `orientation.js` — `pageOrientations` (`{ "<bookKey>/<pageId>": 90|180|270 }`, portrait by absence), `loadOrientations()` (called by `scanLocalPages()`; missing folder, missing or corrupt sidecar → every page portrait), `setPageRotation(book, pageId, rotation)` (optimistic, written at once to `<dataRoot>/pages/_orientation.json`; a failed write undoes only its own page). Display-only: never touches a PageDoc and never marks unsaved changes. UI: `components/viewer/OrientationControl.svelte` (↺ / picker / ↻) in the Book View page toolbar and the Editor canvas toolbar
+
 **Page backgrounds (v2.10 spike):**
 - `backgrounds.js` — `backgroundsEnabled` (localStorage; the **Paper** toggle), `installedBackgrounds` / `backgroundsAvailable` (gate the toggle), `resolvePageBackground()` (→ `{frame, url}` or null, never throws), `refreshBackgrounds()`. Read-only: the images are put there by `scripts/fetch-neo-backgrounds.mjs`. Used by Book View and the Timeline only — **never the Editor**
 
@@ -214,6 +217,7 @@ All state is managed through Svelte stores located in `src/stores/`:
   `pagesOnDay`, and the book filter's `filterIndexByBooks()` (returns the same
   object when nothing is excluded) and `indexBooks()` (book-key order)
 - `neo-backgrounds.js` - **Neo printed pages** (pure; shared by the importer script, the store and tests). `parseNproj()`, `frameOfPageItem()` (rectangle inset by `crop_margin`, 72-dpi pt → Ncode via `PT_PER_NCODE` = 6.72), `summarizeNproj()` (one frame per book, `uniform`/`rotated` flags), `buildManifest()`/`normalizeManifest()` (a bad manifest means "no background", never a throw), `pageNumberOfId()`, `manifestCoversPage()`, `frameToBounds()` (the shape `computeStrokeBounds()` returns, so a view can fit the sheet instead of the ink)
+- `page-orientation.js` - **Page rotation** (pure). `ROTATIONS`, `normalizeRotation()` (anything unknown → 0), `rotateBy()`, `rotationLabel()`; sidecar keys `orientationKey()`/`parseOrientationKey()` (book part via `volumes.js`), `normalizeOrientations()`, `rotationFor()`; geometry within a paper FRAME: `rotateFrame()` (same top-left, w/h swapped), `rotationMatrix()` (`[a,b,c,d,e,f]`, SVG `matrix()` / Canvas `transform()` order, optional scale), `svgRotationTransform()` ('' for portrait), `rotatePoint()`/`unrotatePoint()`, `rotateBox()` (exact for right angles), `rotateStoredPoints()`/`rotateCanvasStrokes()` (copies, for MyScript and the transcript preview only). `NOMINAL_FRAME` is the sheet used where no paper is known (Editor, transcription), where only the translation depends on it
 - `transcript-search.js` - Full-text search across transcriptions
 - `timeline-feed.js` - **Timeline feed** (pure). `feedSkeleton()` (days with ink in a
   range, from the index alone, plus one `empty` entry per run of blank days between

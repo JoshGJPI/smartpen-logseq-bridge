@@ -788,6 +788,16 @@ async function writeOrientation(root, registry) {
 
 const ROTATIONS = [0, 90, 180, 270];
 
+// Rotation clicks arrive faster than a read-modify-write of the sidecar takes,
+// and two overlapping ones each read the file before the other wrote it, so
+// the first was lost. Every update goes through this one chain instead.
+let orientationChain = Promise.resolve();
+function withOrientationLock(fn) {
+  const run = orientationChain.then(fn, fn);
+  orientationChain = run.catch(() => {});
+  return run;
+}
+
 /** Wraps an IPC handler so thrown errors become `{ok:false, error}` responses. */
 function ipcSafe(fn) {
   return async (_event, ...args) => {
@@ -883,11 +893,13 @@ ipcMain.handle('storage:setOrientation', ipcSafe(async (root, book, page, rotati
   const key = `${requireBookKey(book)}/${requirePageId(page)}`;
   const r = Number(rotation);
   if (!ROTATIONS.includes(r)) throw new Error(`Invalid rotation: ${rotation}`);
-  const registry = await readOrientation(root);
-  if (r === 0) delete registry.pages[key];
-  else registry.pages[key] = r;
-  await writeOrientation(root, registry);
-  return registry;
+  return withOrientationLock(async () => {
+    const registry = await readOrientation(root);
+    if (r === 0) delete registry.pages[key];
+    else registry.pages[key] = r;
+    await writeOrientation(root, registry);
+    return registry;
+  });
 }));
 
 // ===== Page backgrounds — `<dataRoot>/pages/_backgrounds/<ncodeBook>/` =====

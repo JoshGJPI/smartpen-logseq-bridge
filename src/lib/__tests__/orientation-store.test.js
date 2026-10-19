@@ -62,6 +62,27 @@ describe('setPageRotation', () => {
     expect(get(pageOrientations)).toEqual({ '388/4': 90 });
   });
 
+  it('keeps both of two pages turned in quick succession', async () => {
+    // The first write replies with a file that predates the second click.
+    let release;
+    vi.mocked(setOrientation)
+      .mockImplementationOnce(() => new Promise((res) => { release = () => res({ version: 1, pages: { '390v2/2': 90 } }); }))
+      .mockResolvedValueOnce({ version: 1, pages: { '390v2/2': 90, '390v2/3': 270 } });
+    const a = setPageRotation('390v2', '2', 90);
+    const b = setPageRotation('390v2', '3', 270);
+    await b;
+    release();
+    await a;
+    expect(get(pageOrientations)).toEqual({ '390v2/2': 90, '390v2/3': 270 });
+  });
+
+  it('a failed write undoes only its own page', async () => {
+    pageOrientations.set({ '388/1': 90 });
+    vi.mocked(setOrientation).mockRejectedValue(new Error('disk full'));
+    await setPageRotation('388', '2', 180);
+    expect(get(pageOrientations)).toEqual({ '388/1': 90 });
+  });
+
   it('refuses keys that are not pages', async () => {
     expect(await setPageRotation('388v1', '4', 90)).toBe(false);
     expect(await setPageRotation('388', '../x', 90)).toBe(false);

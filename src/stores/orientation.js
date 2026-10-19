@@ -34,6 +34,13 @@ export async function loadOrientations() {
   }
 }
 
+function withEntry(map, key, rotation) {
+  const next = { ...map };
+  if (rotation) next[key] = rotation;
+  else delete next[key];
+  return next;
+}
+
 /**
  * Set a page's rotation and persist it. Applied to the store first so the views
  * turn at once; rolled back if the write fails.
@@ -50,20 +57,20 @@ export async function setPageRotation(book, pageId, rotation) {
     return false;
   }
   const r = normalizeRotation(rotation);
-  const before = get(pageOrientations);
-  if ((before[key] || 0) === r) return true;
+  const previous = get(pageOrientations)[key] || 0;
+  if (previous === r) return true;
 
-  const next = { ...before };
-  if (r === 0) delete next[key];
-  else next[key] = r;
-  pageOrientations.set(next);
+  pageOrientations.update((m) => withEntry(m, key, r));
 
+  // The store, not the write's reply, is the truth here: with two pages turned
+  // in quick succession the first reply predates the second click, and setting
+  // the store from it would briefly undo that click. A failed write undoes only
+  // its own page, and only if nothing has turned that page since.
   try {
-    const saved = await setOrientation(String(book), String(pageId), r);
-    pageOrientations.set(normalizeOrientations(saved));
+    await setOrientation(String(book), String(pageId), r);
     return true;
   } catch (err) {
-    pageOrientations.set(before);
+    pageOrientations.update((m) => ((m[key] || 0) === r ? withEntry(m, key, previous) : m));
     log(`Could not save page rotation: ${err?.message || err}`, 'error');
     return false;
   }

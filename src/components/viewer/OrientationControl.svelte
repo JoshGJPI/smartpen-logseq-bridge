@@ -9,6 +9,7 @@
   Editor toolbar doesn't reflow.
 -->
 <script>
+  import { get } from 'svelte/store';
   import { pageOrientations, setPageRotation } from '$stores/orientation.js';
   import { ROTATIONS, rotationFor, rotateBy, rotationLabel } from '$lib/page-orientation.js';
 
@@ -26,8 +27,10 @@
   $: rotation = enabled ? rotationFor($pageOrientations, book, pageId) : 0;
   $: where = enabled ? `B${book}/P${pageId}` : '';
 
+  // Steps from the store, not from `rotation`: a `$:` value updates only at the
+  // next flush, so two quick clicks would both start from the same angle.
   function turn(dir) {
-    if (enabled) setPageRotation(book, pageId, rotateBy(rotation, dir));
+    if (enabled) setPageRotation(book, pageId, rotateBy(rotationFor(get(pageOrientations), book, pageId), dir));
   }
 
   function pick(e) {
