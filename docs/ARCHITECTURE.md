@@ -12,7 +12,7 @@ App.svelte (Root)
 │   │   mounted, `visible` from `lib/capture-bar.js`)
 │   └── SettingsDropdown (gear, warning dot when the data folder is not ready; MyScript, Data Folder, Graph Folder, Pen Memory,
 │       └── ActivityLogDialog (Troubleshooting → 🩺, filter by level + copy)
-├── LeftPanel (one row of tabs — see "Left panel tabs" below)
+├── LeftPanel (one row of tabs — see "Left panel tabs" below; folds to a 48 px rail, `stores/left-panel.js`)
 │   ├── StrokeList ("Strokes" — browse by book/page)
 │   ├── TranscriptsPanel ("Transcripts")
 │   │   ├── TranscriptionView (Review — incoming MyScript results)
@@ -66,6 +66,8 @@ than an empty Editor canvas. Live pen ink switches the pane to the Editor
 (`pen-sdk.js` → `showEditorForLiveInk()`, once per stroke) unless Book View has
 unsaved transcript edits; then it stays put, logs a warning, and the strokes are
 still captured.
+
+**Collapsible left panel (v3.0 package B).** `leftPanelCollapsed` (`stores/left-panel.js`, localStorage, a missing, corrupt or blocked value means expanded) folds the panel to a 48 px rail: expand chevron, one icon per tab (click = `revealLeftPanel(tab)`), the Transcripts badge. `App.svelte` adds `panel-collapsed` to `.main-grid` (`48px 1fr`) and handles the `[` key (`isPanelToggleKey()` in `lib/left-panel.js`). Tab content is *not mounted* while collapsed. Callers that mean "show me the panel" use `revealLeftPanel()` (`ui.js`: `openTranscriptSearch`, `openTranscriptReview`, TimelineFeed "Change range"); passive callers keep `setActiveTab()` so a collapsed panel stays collapsed. `.app` gets `wide` in Book View, which lifts the 1600 px cap; the Editor keeps it.
 
 **Left panel tabs.** Tab *ids* are unchanged from the pre-v2.7 nested version
 (`'strokes'`, `'transcription'`, `'saved-pages'`, plus `'books'` and `'dates'`)
@@ -153,6 +155,9 @@ All state is managed through Svelte stores located in `src/stores/`:
   anything already live), `pruneContextInk()`, `removeContextInkForPage()`,
   `clearContextInk()`
 
+**Left panel collapse (Unreleased, v3.0 package B):**
+- `left-panel.js` — `leftPanelCollapsed`, `setLeftPanelCollapsed()`, `toggleLeftPanel()`, `expandLeftPanel()`, `collapseLeftPanel()`. localStorage key `smartpen-left-panel-collapsed`; every access in try/catch. `revealLeftPanel(tabId?)` and the `openTranscript*` helpers live in `ui.js`, built on `expandLeftPanel()`.
+
 **Page orientation (Unreleased):**
 - `orientation.js` — `pageOrientations` (`{ "<bookKey>/<pageId>": 90|180|270 }`, portrait by absence), `loadOrientations()` (called by `scanLocalPages()`; missing folder, missing or corrupt sidecar → every page portrait), `setPageRotation(book, pageId, rotation)` (optimistic, written at once to `<dataRoot>/pages/_orientation.json`; a failed write undoes only its own page). Display-only: never touches a PageDoc and never marks unsaved changes. UI: `components/viewer/OrientationControl.svelte` (↺ / picker / ↻) in the Book View page toolbar and the Editor canvas toolbar
 
@@ -215,6 +220,7 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `sketch-width.js` - Pressure → line thickness mapping for sketch strokes (pure): profile normalisation/presets, `pressureToUnit`, `smoothSeries` (symmetric, spike attenuation), `limitSlew`, `widthsForPressures`, `widthsForStrokeSeries` (the single "no pressure data → flatWidth" rule), `profileKey` for width-cache tagging
 - `capture-bar.js` - `shouldShowCaptureBar()` (pure): Editor, pen connected, anything unsaved, or a transcription/transfer running
 - `plural.js` - `plural(n, one, many?)`, the noun that agrees with a count
+- `left-panel.js` - pure helpers for the collapsible left panel: `parseCollapsed()` / `serializeCollapsed()`, `isTypingTarget()` (input, textarea, select, contenteditable), `isPanelToggleKey()` (bare `[`, no Ctrl/Alt/Meta, not typing, not IME)
 - `timeline.js` - **Capture dates** (pure). Interprets the index built in
   `main.cjs`. Two units that are NOT interchangeable: a **day key**
   (`"YYYY-MM-DD"`, a LOCAL calendar day — string comparison is the range test)

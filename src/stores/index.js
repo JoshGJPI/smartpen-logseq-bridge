@@ -223,12 +223,22 @@ export {
   clearLog,
   openActivityLogDialog,
   closeActivityLogDialog,
+  revealLeftPanel,
   openTranscriptSearch,
   openTranscriptReview,
   svgExportDialog,
   openSvgExportDialog,
   closeSvgExportDialog
 } from './ui.js';
+
+// Left panel collapse (reading-first package B)
+export {
+  leftPanelCollapsed,
+  setLeftPanelCollapsed,
+  toggleLeftPanel,
+  expandLeftPanel,
+  collapseLeftPanel
+} from './left-panel.js';
 
 // Storage
 export {

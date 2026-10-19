@@ -1,6 +1,6 @@
 # Reading-first UX: review and implementation spec
 
-Status: package A built and merged to `main` (2026-10-19); B–E proposed. Review dated 2026-10-19, against v2.10.0.
+Status: package A built and merged to `main` (2026-10-19); package B built on `claude/reading-ux-package-b`; C–E proposed. Review dated 2026-10-19, against v2.10.0.
 
 **Target release: v3.0.0.** Packages A–E together are the v3.0.0 milestone ("reading-first"). v3.0.0
 is the major bump because the app's frame and navigation change, not because data changes: **PageDoc
@@ -138,6 +138,23 @@ Each package is shippable alone and leaves `npm test` green. Do not combine pack
   focus); passive callers leave it collapsed; at 1280 and 1200 wide `document.documentElement.scrollWidth <= innerWidth`
   in the Editor with the panel both expanded and collapsed; unit tests for the collapse store (persistence,
   corrupt storage, reveal) and the typing-target check.
+
+**As built (differences from the bullets above).**
+- Callers: `openTranscriptSearch` is reached from the header search button and the canvas's
+  Ctrl+Shift+F only. The canvas's own search button is `CanvasSearch` (find a page on the
+  canvas, Ctrl+F) and does not touch the left panel, so it needs no reveal. `openTranscriptReview`
+  has no UI caller today; it reveals anyway.
+- `openTranscriptSearch()` is async: it expands the panel, sets tab and mode, awaits `tick()`
+  and only then bumps `transcriptSearchFocus`. Tab content is unmounted while collapsed, and
+  `TranscriptsPanel` reads the token at mount as its baseline, so a bump in the same tick as the
+  expansion would be lost.
+- Store `stores/left-panel.js`, helpers `lib/left-panel.js`; `revealLeftPanel` is in `ui.js`.
+  The old unused `sidebarCollapsed` in `ui.js` was left alone.
+- Editor overflow cause: the grid item `.canvas-section` had `min-width: auto`, and the canvas
+  toolbar's scroll container still contributes its full length to min-content. Fix is
+  `.canvas-section { min-width: 0 }` in `App.svelte`, not a change to the toolbar.
+- Tab padding 16 → 11 px so the collapse chevron shares the first row of the 450 px panel.
+- Collapsing does not widen the Timeline feed's cards past their own max width.
 
 ### C. Navigation spine + View menu + Timeline consolidation  (high impact, medium effort)
 - `App.svelte` (topbar), `viewer/TimelineFeed.svelte`, `dates/DatesTab.svelte`, `dates/ActivityGrid.svelte`,

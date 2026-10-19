@@ -2530,6 +2530,9 @@
     min-width: 0;
     overflow-x: auto;
     scrollbar-width: thin;
+    /* Dark track: the default is a white bar that read as a stray control now
+       that the row really scrolls at narrow widths. */
+    scrollbar-color: var(--border) transparent;
   }
 
   .tb-group {
