@@ -281,7 +281,7 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `canvas-renderer.js` - Canvas drawing engine for stroke visualization
 - `myscript-api.js` - MyScript API client for handwriting recognition (proxied via IPC in Electron)
 - `stroke-filter.js` - Decorative element detection (boxes, underlines)
-- `stroke-storage.js` - Stroke ID generation, format conversion, bounds, dedupe, user JSON/MD exports
+- `stroke-storage.js` - Stroke ID generation, format conversion, bounds, dedupe, user JSON/MD exports (the handwriting editor's import formats 1 and 4, [EDITOR-IMPORT-SPEC.md](EDITOR-IMPORT-SPEC.md))
 - `point-edit.js` - Point-level stroke editing (pure): `detectStrayPoints()` (`origin` — at/near Ncode (0,0) or non-finite; `jump` — far from both neighbours, relative to the stroke's median spacing **and** past `MIN_JUMP_DISTANCE`, an absolute floor that keeps short flick strokes out of the results), `detectStrayPointsForStrokes()`, `removePointsFromStroke()` (identity- and force-preserving, re-tags `dotType`, drops the `_nb`/`_sw` caches, refuses to go below `MIN_STROKE_POINTS`), `pointKey`/`parsePointKey`/`groupPointKeys`, `formatPointCoords`
 - `sketch-width.js` - Pressure → line thickness mapping for sketch strokes (pure): profile normalisation/presets, `pressureToUnit`, `smoothSeries` (symmetric, spike attenuation), `limitSlew`, `widthsForPressures`, `widthsForStrokeSeries` (the single "no pressure data → flatWidth" rule), `profileKey` for width-cache tagging
 - `capture-bar.js` - `shouldShowCaptureBar()` (pure): Editor, pen connected, anything unsaved, or a transcription/transfer running

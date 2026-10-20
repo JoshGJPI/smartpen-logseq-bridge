@@ -143,6 +143,7 @@ Documentation:
 | [docs/READING-UX-SPEC.md](docs/READING-UX-SPEC.md) | The v3.0.0 reading-first design |
 | [docs/VOLUMES-SPEC.md](docs/VOLUMES-SPEC.md) | Notebook volumes |
 | [docs/NEOSMARTPEN-SDK-USAGE.md](docs/NEOSMARTPEN-SDK-USAGE.md) | Pen SDK usage |
+| [docs/EDITOR-IMPORT-SPEC.md](docs/EDITOR-IMPORT-SPEC.md) | The handwriting editor's import formats, which the JSON / Markdown exports follow |
 
 ## Troubleshooting
 

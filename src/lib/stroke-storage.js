@@ -95,7 +95,7 @@ export function deduplicateStrokes(existingStrokes, newStrokes) {
 }
 
 /**
- * Build the JSON export payload (editor Format 1: { slug, strokes }).
+ * Build the JSON export payload (editor Format 1: { slug, strokes }; docs/EDITOR-IMPORT-SPEC.md).
  *
  * Produces a flat strokes array sorted by startTime. Points are [x, y] pairs.
  * Multi-page exports add a `pageGroup` field to each stroke so the editor can
@@ -142,7 +142,7 @@ export function buildJsonExportData(rawStrokes) {
 }
 
 /**
- * Build Markdown export payloads (editor Format 4: front-matter + json blocks).
+ * Build Markdown export payloads (editor Format 4: front-matter + json blocks; docs/EDITOR-IMPORT-SPEC.md).
  *
  * Generates one file per page. Each file contains LogSeq-style front matter
  * (book:: / page::), a metadata json block, and a single chunk block with all

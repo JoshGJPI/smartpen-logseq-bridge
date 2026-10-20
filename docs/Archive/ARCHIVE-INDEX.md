@@ -292,6 +292,17 @@ Transcription save workflow improvements:
 
 ### Earlier Implementations (2025)
 
+#### **2025-12-offline-import-debug-logs** ✅ COMPLETED
+Working notes from debugging multi-book offline import (pen memory), moved from the repo-root
+`debug-logs/` folder in October 2026:
+
+**Files**: `BATCH-MODE-OPTIMIZATION.md` (canvas reset per batch), `DEBUGGING-B390-ISSUE.md` (one book's
+strokes dropped), `FIX-APPLIED.md` (sequential transfers: the pen can't serve two books at once),
+`MULTI-BOOK-PARTIAL-DATA-FIX.md` (Dec 16, 2025: partial data across books)
+
+**Summary**: The resulting rules live in CLAUDE.md under "Pen and SDK" (offline import: per-page
+`OFFLINE_DATA_SEND_SUCCESS`, hold the promise until received ≥ expected, book-id mismatch).
+
 #### **2025-12-box-filtering** ✅ COMPLETED
 Stroke filtering and preprocessing:
 
@@ -378,7 +389,7 @@ the current PageDoc `transcript.lines[]` model instead.
 ### Archive Root
 - `svelte-migration-spec.md` - Svelte 4 migration plan (partially completed)
 - `VOIDED-implementation-summary-stroke-id-tracking.md` - Superseded approach
-- `Github-Pages-DEPLOYMENT.md` - Deployment guide
+- `Github-Pages-DEPLOYMENT.md` - Deployment guide (voided: the app needs Electron's storage; the workflow was removed in v3.0.0)
 
 ---
 

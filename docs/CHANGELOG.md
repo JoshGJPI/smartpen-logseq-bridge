@@ -71,12 +71,18 @@ the manual checklist in CLAUDE.md, ARCHITECTURE.md and TESTING.md; renamed folde
 LOCAL-STORAGE-PIVOT-SPEC and the SDK notes; QUICK-ARCHITECTURE-REFERENCE marked
 historical; the broken relative links (VOLUMES-SPEC, CHANGELOG and others) fixed.
 
+**Repository tidy-up (Josh's call).** `.github/workflows/deploy.yml` is gone: it published a
+GitHub Pages web build on every push to `main`, and the app cannot run outside Electron (storage
+is IPC). Deleting the workflow does not take down a Pages site that was already published; turn
+Pages off in the repository settings for that. The repo-root `debug-logs/` (Dec 2025 offline-import
+notes) moved to `docs/Archive/2025-12-offline-import-debug-logs/`, and `editor_import_spec.md`, the
+handwriting editor's import formats that the JSON / Markdown exports follow, is now
+`docs/EDITOR-IMPORT-SPEC.md`.
+
 **Rejected / deferred**
 - *Renaming `productName` / `appId` / the package name to smartpen-bridge.* Electron
   derives the profile folder from the app name, so an installed app would come up
   with no settings (no data folder) after the update. Needs a migration; left as is.
-- *Deleting `.github/workflows/deploy.yml`* (a GitHub Pages web build that cannot work
-  without Electron's storage): a CI change for Josh to decide.
 - *Wiring the Pen menu instead of removing it.* Web Bluetooth pairing needs a user
   gesture in the page, so a menu-triggered Connect would fail.
 - *Removing test-only helpers* (LogSeq-era `stroke-storage.js` functions,
