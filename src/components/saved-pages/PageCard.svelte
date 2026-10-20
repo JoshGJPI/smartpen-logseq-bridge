@@ -75,7 +75,7 @@
    */
   async function handleExportToGraph() {
     if (!$graphFolderReady) {
-      log('No LogSeq graph folder set — choose one in Settings → LogSeq Graph', 'warning');
+      log('No LogSeq graph folder set — choose one in Settings → Publish to LogSeq Graph', 'warning');
       return;
     }
 

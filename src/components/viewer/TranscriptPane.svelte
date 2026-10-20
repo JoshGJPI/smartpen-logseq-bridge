@@ -1,5 +1,5 @@
 <!--
-  TranscriptPane.svelte — view / edit / copy a page's transcript inside Book View.
+  TranscriptPane.svelte — view / edit / copy a page's transcript in the Library reader.
 
   Display mode: TranscriptLines (indented lines, TODO/DONE markers, the empty
                 state, and in Ink + text the line → ink hover).
@@ -29,7 +29,7 @@
   export let pageKey;
   /** (book, page, lines) => void — lets the parent update the store after save */
   export let onSaved = () => {};
-  /** (editing:boolean) => void — lets Book View show this page's strokes alongside while editing */
+  /** (editing:boolean) => void — lets the reader show this page's strokes alongside while editing */
   export let onEditingChange = () => {};
   /** Ink + text, trusted page: (line|null) => void. Passed on to TranscriptLines. */
   export let onHoverLine = null;

@@ -39,7 +39,7 @@ function revealLiveInk() {
   const outcome = showEditorForLiveInk();
   if (outcome === 'blocked') {
     if (!liveInkBlockedLogged) {
-      log('Pen ink is being captured — switch to the Editor to see it (unsaved transcript edits are open in Book View)', 'warning');
+      log('Pen ink is being captured — switch to the Editor to see it (unsaved transcript edits are open in the Library)', 'warning');
       liveInkBlockedLogged = true;
     }
   } else {

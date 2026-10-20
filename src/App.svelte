@@ -135,7 +135,7 @@
 
   onMount(() => {
     initializePenSDK();
-    log('Bridge initialized. Click "Connect Pen" to begin.', 'info');
+    log('smartpen-bridge ready. Click "Connect" in the header to pair the pen.', 'info');
 
     // Kick off data-folder availability check (non-blocking). Once the folder is
     // confirmed ready, preload the saved-pages metadata so the Saved Pages tab and

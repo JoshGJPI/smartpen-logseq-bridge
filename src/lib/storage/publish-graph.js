@@ -63,7 +63,7 @@ export function isGraphConfigured() {
 function requireGraphRoot() {
   const root = get(graphRoot);
   if (!root) {
-    throw new Error('No LogSeq graph folder configured — set one in Settings → LogSeq Graph.');
+    throw new Error('No LogSeq graph folder configured — set one in Settings → Publish to LogSeq Graph.');
   }
   return root;
 }

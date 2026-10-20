@@ -1,5 +1,5 @@
 <!--
-  TimelineFeed.svelte — Book View's Timeline mode: the Dates tab's range as one
+  TimelineFeed.svelte — the Timeline destination: the Dates tab's range as one
   scrolling column of ink, a card per sitting, newest first by default.
 
   Browsing here is read-only and cheap, so it follows the Dates range live —

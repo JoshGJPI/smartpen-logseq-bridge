@@ -170,7 +170,7 @@
   {:else if !$hasPageTranscriptions}
     <div class="empty-state">
       {#if $viewerMode === 'book'}
-        <p>No new transcripts to review. Saved transcripts are read in Book View.</p>
+        <p>No new transcripts to review. Saved transcripts are read in the Library.</p>
       {:else}
         <p>Select strokes and click "Transcribe" to convert handwriting to text.</p>
       {/if}

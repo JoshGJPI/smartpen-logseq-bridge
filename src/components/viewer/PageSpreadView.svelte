@@ -74,7 +74,7 @@
       doc = d;
       await tick();
     } catch (e) {
-      if (loadedKey === key) console.warn('Book View: failed to load page', key, e);
+      if (loadedKey === key) console.warn('Library: failed to load page', key, e);
     } finally {
       if (loadedKey === key) loadingDoc = false;
     }
