@@ -11,7 +11,7 @@ v1 (≤ 1.3.4) stored to LogSeq over HTTP; v2.0 replaced that. Design: [docs/LOC
 ## Commands
 
 ```bash
-npm run dev            # Vite dev server, localhost:3000
+npm run dev            # Vite dev server, localhost:3000 (opens the Electron window)
 npm run build          # production build
 npm test               # Vitest, single pass (happy-dom)
 npm run test:watch
@@ -26,7 +26,7 @@ electron/main.cjs, preload.cjs   all disk IO + MyScript proxy, exposed as window
 src/stores/        one store per concern (strokes, selection, pending-changes, viewer, timeline, volumes, ...)
 src/lib/           pure logic, no UI, testable without DOM
 src/lib/storage/   PageDoc layer: local-store (IPC facade), save-page, load-page, load-range, scan, page-changes, graph-export
-src/lib/viewer/    Book View helpers: SVG render, page cache, transcript markdown/save, feed loader
+src/lib/viewer/    reader helpers: SVG render, page cache, thumbnails, transcript markdown/save, feed loader
 src/components/    grouped by feature (canvas, dialog, header, viewer, dates, books, transcription, ...)
 ```
 
@@ -115,7 +115,11 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
 - **Transcript merge:** existing lines keep their order; new lines are sorted among themselves and appended;
   `checked` survives when text matches; dangling `lineId`s are scrubbed.
 - Deletions marked but unsaved have a 15-minute undo window.
-- Settings and display prefs → localStorage. Stroke and transcript data → PageDoc only.
+- Settings and display prefs → localStorage. Stroke and transcript data → PageDoc only. Read localStorage through
+  `lib/safe-storage.js` (or your own try/catch): a corrupt value read at module load must never stop the app starting.
+- **The reading views hold copies** (scan records, the reader's page cache, thumbnail SVGs, the capture-date index).
+  Anything that writes PageDocs outside the Library reader calls `refreshAfterSave(pages)` afterwards, and a data-folder
+  change calls `resetForDataFolder()` (`lib/storage/refresh.js`); otherwise they show stale data until Rescan.
 
 ### Book keys and volumes
 
@@ -160,9 +164,9 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   `originNcodeY`) before matching strokes to lines. `LINE_MATCH_TOLERANCE_NCODE = 1` deliberately matches
   `TranscriptStrokePreview`.
 - Pages transcribed before Aug 2026 mostly have wrong stroke `lineId`s (left alone; re-transcribing fixes a page).
-  The batch origin is never stored, so line → ink in Book View's Ink + text uses the stored `lineId`s, and only
+  The batch origin is never stored, so line → ink in the Library's Ink + text uses the stored `lineId`s, and only
   where `isTrustworthyTranscript()` (`lib/viewer/ink-text.js`) says the page was matched by the fixed code; a
-  date check alone is wrong (Book View edits bump `lastTranscribed`).
+  date check alone is wrong (Library transcript edits bump `lastTranscribed`).
 - MyScript only sees strokes that are loaded, so transcribing a partially loaded page covers those strokes only.
 - Free tier is 2,000 requests/month, HMAC-authenticated; process page by page.
 
@@ -189,10 +193,10 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   use the page selector.
 - **Page rotation is display-only** (`lib/page-orientation.js`): never rewrite stored points for it. Turn a page within
   its paper frame (Neo frame, or `NOMINAL_FRAME`), never its ink box, and apply it as ONE transform per page: an SVG
-  `<g transform>` in Book View / Timeline, the Editor's per-page `pageProjection()` affine. Every canvas Ncode↔screen
+  `<g transform>` in the Library / Timeline, the Editor's per-page `pageProjection()` affine. Every canvas Ncode↔screen
   mapping must go through `pageProjection()` / `ncodeToScreen()` / `screenToNcode()` so it follows the turn.
   Transcription sends turned copies and matches stored strokes in that frame (`strokesInTranscriptionFrame()`).
-- Neo page backgrounds are drawn only in the read-only views (Book View, Timeline), never in the Editor, whose
+- Neo page backgrounds are drawn only in the read-only views (Library, Timeline), never in the Editor, whose
   page bounds come from ink. `resolvePageBackground()` never throws: any failure means "no background". They are keyed
   by NCode book number (a volume shares its book's paper) and a suffixed page uses its integer page's image.
 
@@ -205,6 +209,10 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   (`el.scrollTo(...)`) or a local alias.
 - Business logic lives in `src/lib/` as pure functions with unit tests. Filesystem access is IPC only.
 - Long operations: try/catch, report to ActivityLog with `log()`, show progress.
+- Window-level keyboard shortcuts stand down while typing (`isTypingTarget`), mid-IME, when the key was already handled
+  (`defaultPrevented`) and under a modal (`modalOpen()`: anything with `aria-modal="true"`). A menu or dialog that
+  handles Escape calls `preventDefault()` so the reader / canvas behind it leaves the key alone.
+- Tracing goes through `debug()` (`lib/debug.js`), not `console.log`.
 - Before a major change, settle: which stores change, where it persists, rendering cost at 1,000+ strokes, and what
   happens when MyScript fails or the data folder is missing.
 
@@ -245,13 +253,19 @@ then looks broken when it isn't). Launch with `--disable-backgrounding-occluded-
 - LogSeq export: volume 2+ is refused (`requireGraphBook`); a stroke already exported keeps its pre-edit geometry
   (`mergeGraphStrokes()` lets the published copy win); the JPI Tools plugin's SVG generator needs matching
   pressure/sketch support.
-- `handleClearCanvas()` in `ActionBar.svelte` doesn't clear `selectedIndices`.
-- `PenInfo.svelte` is unreachable (only `Sidebar` imported it, and that was deleted).
+- `openTranscriptReview()` has no UI caller (kept: it reveals the panel, and is tested).
+- In the Timeline the range can be set in two places (Range ▾ and the Dates panel's From / To).
+- Some `.active` accents outside the reading surfaces (Transcripts Review | Search) still use the red accent.
+- Several components are over the ~300-line guideline (StrokeCanvas, ActionBar, TranscriptionEditorModal,
+  SaveConfirmDialog, TranscriptPane, BookViewer at 301, …); don't grow them, split when touching.
+- Global search covers transcribed text only; untranscribed pages are found by date or notebook.
+- Main-process and renderer tracing is behind `lib/debug.js` (`localStorage['smartpen-debug'] = '1'`, or the dev
+  server). Never log MyScript keys or the HMAC, not even fragments.
 - Timeline: no transcripts on cards (stored `lineId`s are unreliable); `SESSION_GAP_MS` is a constant.
-- Date view shows one tile per page, filed under its first day in range.
+- The Editor's Dates tab day list shows one tile per page, filed under its first day in range.
 - **Neo page backgrounds are a spike** (books 388 and 3017 fetched; see [docs/CHANGELOG.md](docs/CHANGELOG.md), "Neo page backgrounds"):
   no thumbnails, opacity control or export support; fetched by script only; images are Neo's, so keep
-  `pages/_backgrounds/` and `docs/mockups/` out of commits.
+  `pages/_backgrounds/` and any real-handwriting screenshots out of commits.
 - **Planner (to look into later, Josh 2026-09-30).** Considering the 2027 Neo Smart Planner (the 2026 Pro is book
   `3_1012_3207`, not imported). Its `.nproj` encodes each hourly slot as `ws_YYYYMMDDHH`, so a stroke → date/hour is a
   rectangle lookup. Calendar sync to Microsoft 365 would still need recognition (MyScript, batched), a confirm-before-create
@@ -264,12 +278,12 @@ then looks broken when it isn't). Launch with `--disable-backgrounding-occluded-
 | Doc | Read it for |
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Component tree, every store, every library, UI structure notes |
-| [docs/CHANGELOG.md](docs/CHANGELOG.md) | Why each feature is built the way it is; rejected alternatives; history to Apr 2026 |
+| [docs/CHANGELOG.md](docs/CHANGELOG.md) | Why each feature is built the way it is; rejected alternatives; history from v1 to v3.0.0 |
 | [docs/TESTING.md](docs/TESTING.md) | Test-file inventory and the manual test checklist |
 | [docs/LOCAL-STORAGE-PIVOT-SPEC.md](docs/LOCAL-STORAGE-PIVOT-SPEC.md) | Storage design; §12 records changes to `strokes[]` since v2.0 |
 | [docs/VOLUMES-SPEC.md](docs/VOLUMES-SPEC.md) | Notebook volumes: design and rejected alternatives |
-| [docs/READING-UX-SPEC.md](docs/READING-UX-SPEC.md) | **v3.0.0 plan (in progress):** reading-first UI/UX, packages A–E, with [mockups](docs/READING-UX-MOCKUPS.html) |
-| [docs/QUICK-ARCHITECTURE-REFERENCE.md](docs/QUICK-ARCHITECTURE-REFERENCE.md) | Canvas / pen / MyScript lookups (v1 era, mostly current) |
+| [docs/READING-UX-SPEC.md](docs/READING-UX-SPEC.md) | **v3.0.0** reading-first UI/UX, packages A–E (built), with [mockups](docs/READING-UX-MOCKUPS.html) |
+| [docs/QUICK-ARCHITECTURE-REFERENCE.md](docs/QUICK-ARCHITECTURE-REFERENCE.md) | Historical (v1 era): canvas / pen / MyScript notes; file paths in it are out of date |
 | [docs/NEOSMARTPEN-SDK-USAGE.md](docs/NEOSMARTPEN-SDK-USAGE.md) | Pen SDK usage |
 | [docs/Archive/ARCHIVE-INDEX.md](docs/Archive/ARCHIVE-INDEX.md) | Superseded planning and implementation docs |
 | [scripts/migrate-from-logseq.cjs](scripts/migrate-from-logseq.cjs) | One-shot v1 LogSeq → v2 PageDoc importer |

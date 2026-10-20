@@ -11,6 +11,85 @@ CLAUDE.md (Invariants); the store and library map is in
 Reading-first UI plan: [READING-UX-SPEC.md](READING-UX-SPEC.md). Packages land on their
 own branches and are not released one by one; no storage or PageDoc change in any of them.
 
+### Pre-release review: refresh after saves, safer keys and storage, cleanup (October 2026)
+
+A review of the whole app before the 3.0.0 bump found loose ends that predate the
+reading-first work but show more now that the Library and search keep their own
+copies of the data.
+
+**The reading views now follow writes made elsewhere.** The Library, its thumbnails,
+the global search and the Timeline read in-memory copies: the scan records, the
+reader's page cache, the thumbnail SVG cache and the capture-date index. Nothing
+refreshed them after an Editor save, so a new page was missing from the Library and a
+re-saved page kept its old ink in the reader until Rescan. Choosing a different data
+folder in Settings changed where pages were read from but left the old folder's
+notebooks, search index and dates on screen. `lib/storage/refresh.js`:
+`refreshAfterSave(pages)` (Editor Save and Create Page: drop those pages' cached
+docs and thumbnails, rescan, refresh dates; the scan is metadata-only and the index
+incremental) and `resetForDataFolder()` (clear everything from the old folder, then
+load the new one as boot does).
+
+**A corrupt preference can no longer stop the app starting.** `page-order.js` and
+`page-scale.js` ran `JSON.parse(localStorage…)` at module load, unguarded, so a
+corrupt value threw before anything rendered. They read through
+`lib/safe-storage.js` now (bad, wrong-shaped or blocked → defaults); the keys are
+unchanged.
+
+**Keyboard shortcuts stay out of text fields and dialogs.** The Editor canvas's
+window shortcuts did not check where you were typing: Ctrl+A in the canvas search or
+the transcript editor selected every stroke (and blocked the field's select-all),
+Delete / Backspace could delete pasted strokes or points, and Escape in a dialog also
+cleared the canvas's pasted selection. They now stand down while typing, mid-IME,
+when the key was already handled, and under a modal (`modalOpen()`: an element with
+`aria-modal="true"`, which the transcript editor, save, Create Page and SVG export
+dialogs now carry). `[`, Ctrl K and the reader's ← / → also stand down under a modal;
+menus and dialogs that close on Escape mark it handled, so it no longer also clears
+a search highlight. The transcript editor modal leaves Ctrl+A / Z / Y to its text
+fields.
+
+**Smaller fixes.** Clear canvas clears the stroke selection (stale indices would
+have selected whatever landed at those positions next). The Electron **Pen** menu is
+gone: Connect (Ctrl+B) and Fetch Offline Data (Ctrl+F) sent IPC messages nothing
+listened for, and its Ctrl+F shadowed the canvas's find. The main process no longer
+logs the MyScript request headers (the application key and HMAC in full) or key
+fragments. The window title and Help → About say smartpen-bridge; leftover "Book
+View" wording (Transcripts search's **Open in Library**, the Transcripts review empty
+state, a pen log line) and "Settings → LogSeq Graph" (the section is **Publish to
+LogSeq Graph**) are corrected; the Strokes tab's empty state no longer has a branch
+that could not show.
+
+**Cleanup.** Removed what nothing imported: `PenInfo`, `PenControls`,
+`TransferProgress`, `AnalysisView`, `SelectionInfo`, `CommandList`, `HierarchyTree`,
+`LineDisplay`, `stroke-analyzer.js`, `excalidraw-export.js`, `uuid/bridge-uuid.js`
+and the `clipboard` store, plus 47 store and utility exports with no caller (about
+2,400 lines). Console tracing in the pen SDK, MyScript client, canvas, stores and
+dialogs goes through `lib/debug.js`: on in the dev server, otherwise only with
+`localStorage['smartpen-debug'] = '1'`; warnings, errors and the Activity Log are
+unchanged. Docs: README rewritten for v3 (it still described the five-tab Book View
+app, GitHub Pages and the v1 LogSeq workflow); "Book View" wording, version lines and
+the manual checklist in CLAUDE.md, ARCHITECTURE.md and TESTING.md; renamed folders in
+LOCAL-STORAGE-PIVOT-SPEC and the SDK notes; QUICK-ARCHITECTURE-REFERENCE marked
+historical; the broken relative links (VOLUMES-SPEC, CHANGELOG and others) fixed.
+
+**Rejected / deferred**
+- *Renaming `productName` / `appId` / the package name to smartpen-bridge.* Electron
+  derives the profile folder from the app name, so an installed app would come up
+  with no settings (no data folder) after the update. Needs a migration; left as is.
+- *Deleting `.github/workflows/deploy.yml`* (a GitHub Pages web build that cannot work
+  without Electron's storage): a CI change for Josh to decide.
+- *Wiring the Pen menu instead of removing it.* Web Bluetooth pairing needs a user
+  gesture in the page, so a menu-triggered Connect would fail.
+- *Removing test-only helpers* (LogSeq-era `stroke-storage.js` functions,
+  `filterDecorativeStrokes`, `eachDay`, `openTranscriptReview`): kept with their tests.
+
+**Limitations**
+- An Editor save rescans the whole folder (metadata only, about a second on 306
+  pages); a scan already running is waited for, up to 5 s.
+- A thumbnail read in flight while its page is saved can still store the old ink
+  until the next save or Rescan.
+- Not exercised: live pen, MyScript and offline import (no hardware or keys); the
+  menu-accelerator removal was checked by reading the menu template.
+
 ### E. Library home + global search (October 2026)
 
 **The Library opens on your notebooks, not a list of names.** The home was an
@@ -308,7 +387,7 @@ both versions; page open (click → paths settled, warm) median 137–145 ms bef
   wraps to two rows, so the two pages' ink starts at different heights.
 - ← / → while a transcript is edited do nothing (no prompt): the spec says the keys
   must not fire while editing, and the edge arrows were already hidden then.
-- The contents list still highlights only the left page of a spread.
+- The contents list still highlights only the left page of a spread. *(Fixed in E.)*
 - Live pen, MyScript and offline import not exercised (no hardware or keys); the
   "Transcribe in Editor" button was checked only in its no-keys form.
 
@@ -397,9 +476,9 @@ ink click's `setActiveTab('dates')` still lands on Dates once the Timeline is up
 - In the Timeline the range can still be typed in two places: the panel's From / To and
   presets, and Range ▾.
 - The breadcrumb's notebook crumb is not a link yet (the per-notebook page grid is
-  package E). The contents list highlights the left page of a spread only.
+  package E). The contents list highlights the left page of a spread only. *(Both fixed in E.)*
 - At 1200 wide the per-page toolbar in a spread clips its "Load into Editor" button,
-  as on `main`; the shared spread toolbar is package D.
+  as on `main`; the shared spread toolbar is package D. *(Fixed in D.)*
 - `openTranscriptReview()` still has no UI caller.
 - Not exercised: live pen, MyScript and offline import (no hardware or keys).
 
@@ -1085,7 +1164,7 @@ for offline import (a batch spanning two volumes currently needs manual
 reassignment — promote this if it proves annoying), and the per-book selector in
 `BookSelectionDialog`.
 
-**See:** [docs/VOLUMES-SPEC.md](docs/VOLUMES-SPEC.md) — full design, plus the
+**See:** [docs/VOLUMES-SPEC.md](VOLUMES-SPEC.md) — full design, plus the
 rejected alternatives (arithmetic remap, decimal book ids, volume on the page
 suffix) and why each fails.
 
@@ -1517,7 +1596,7 @@ and view/edit/copy transcripts now that LogSeq is gone.
 - Trimmed `stroke-storage.js` of chunked-storage helpers
 - UI rebrand: "Save to LogSeq (Strokes)" → "Save (Strokes)" / "Save Changes" / "Save (Strokes + Text)"; status pill shows the data folder; "LogSeq DB" tab → "Saved Pages"
 
-**See:** [docs/LOCAL-STORAGE-PIVOT-SPEC.md](docs/LOCAL-STORAGE-PIVOT-SPEC.md) for the full design and phasing.
+**See:** [docs/LOCAL-STORAGE-PIVOT-SPEC.md](LOCAL-STORAGE-PIVOT-SPEC.md) for the full design and phasing.
 
 ## Before v2.0 (LogSeq era, through April 2026)
 

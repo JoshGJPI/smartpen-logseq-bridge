@@ -34,6 +34,8 @@ Existing test files (all in `src/lib/__tests__/`):
 | `search-query.test.js` | `lib/search-query.js` — month-name, ISO and numeric (month first) dates; no year = latest not after today (incl. Feb 29); today / yesterday across New Year; invalid dates stay words; a month alone, a bare number, job and proposal numbers are not dates; dates removed from the words; several dates deduped; `matchNotebooks` by name words, exact flag, book keys ("390", "B390", "390v2", never a digit prefix) |
 | `global-search.test.js` | `lib/global-search.js` — the index (transcribed pages only, properties dropped), `searchIndex` matches exactly what `searchPages` matches and ranks by words, whole words, recency; `runSearch` groups (words → pages with snippet; a date alone → Days first and every page written that day, untranscribed too; date + words; a day without ink; Day results read the index they are given; an exact notebook name → Notebooks first); `flattenResults`, `matchingLineId`, `bestLine`, escaped `snippetHtml`; `isSearchShortcut` (Ctrl/Cmd K; not bare, with Alt/Shift, in a field, contenteditable, mid-IME, handled, or while editing) |
 | `thumbs.test.js` | `lib/viewer/thumbs.js` — a page-cache doc used without a read, one read per page and rotation with concurrent asks shared, at most `concurrency` reads at once, SVG LRU eviction and `clear`, a failed read gives '' and the next ask retries |
+| `safe-storage.test.js` | `lib/safe-storage.js` — missing, corrupt and wrong-shaped values fall back, blocked storage never throws, strings stored as-is; `page-order` / `page-scale` load with corrupt values; `modalOpen` |
+| `refresh.test.js` | `lib/storage/refresh.js` — `refreshAfterSave` invalidates each saved page (cache and thumbnails) then rescans and reloads dates, does nothing without a data folder; `resetForDataFolder` clears scan, index, selection and notebook, then reloads volumes, scan, backgrounds and dates |
 | `library-store.test.js` | `openNotebookInLibrary` (closes the page, shows the grid in the Library; asks with edits, Cancel changes nothing, OK asks once), `readerFocus` (each request new), `librarySort` persistence and a throwing localStorage, `notebookCardList` / `notebookNames` / `globalSearchIndex` derived from the scan and index |
 | `ink-text.test.js` | `lib/viewer/ink-text.js` — `isTrustworthyTranscript` (fixed-code page trusted, pre-fix signature never, pre-fix page with a fresh `lastTranscribed` still not, before `TRUST_SINCE` not, no links / lines / date / doc, unusable yBounds and dangling links ignored), `strokesByLine` |
 | `timeline-range.test.js` | `lib/timeline-range.js` — `rangePreset` (latest ignores the range, anchors on an in-ink range end, else the last day; null without ink), `dayOffset` across EU and US DST changes, `stripLayout` (every calendar day, bucketing with a short last column, single day, no ink, bad column count), `dayAtFraction` / `windowFraction` (clamping, clipping a range past the ink, wholly outside → null), `moveWindow` (keeps length, stops at both ends, over-long range pins), `resizeWindow` (ends never cross) |
@@ -42,7 +44,7 @@ Existing test files (all in `src/lib/__tests__/`):
 | `orientation-store.test.js` | `stores/orientation.js` — load normalises; missing folder / garbage sidecar → portrait; set applies at once and persists by book key + page id; portrait clears; failed write rolls back only its own page; two pages turned in quick succession both kept (mocks `local-store.js`) |
 | `canvas-renderer-rotation.test.js` | Editor projection — unrotated pages follow the CLAUDE.md formula exactly and ignore other pages' rotations; at 90/180/270 the layout box is the turned box and `screenToNcode` inverts `ncodeToScreen`; page box holds the turned ink; sideways writing reads left to right; `hitTest` and `findStrokesInRect` pick the stroke drawn there; culling uses the turned box |
 | `volumes.test.js` | `src/lib/volumes.js` — `makeBookKey`/`parseBookKey` round-trip, canonical-form rejection (`"388v1"`, `"388v0"`, `"0388"`, `"388v02"`), `compareBookKeys` ordering (`"388"` < `"388v2"` < `"3880"` — the case naive string sort gets wrong), `withVolume`, `bookDirName`/`parseBookDirName`, the disk↔memory `pageInfo` boundary (volume 1 omitted), display helpers, `BOOK_KEY_FRAGMENT` matching |
-| `viewer-store.test.js` | `stores/viewer.js` — startup view (Book View → Timeline), `showEditorForLiveInk` (switches from Book View, no-op in the Editor, held back by unsaved transcript edits, switches once they clear) |
+| `viewer-store.test.js` | `stores/viewer.js` — startup view (the Timeline), `showEditorForLiveInk` (switches from the Library or Timeline, no-op in the Editor, held back by unsaved transcript edits, switches once they clear) |
 | `volumes-store.test.js` | `stores/volumes.js` (`activeVolumeFor`, `applyActiveVolume` including its idempotency, `volumesForBook`) and reassignment in `stores/strokes.js` — identity/geometry/sketch preserved, `blockUuid` cleared, first origin kept across a double move, `getMovedAwayStrokeIdsForPage` (the copy→move fix), `clearMovedFromMarkers` no-op pre-check |
 | `pending-changes.test.js` | `computePendingChangesMap` — additions vs. the on-disk stroke-state index, explicit deletions, page separation/`isSaved`, missing `pageInfo`; sketch-flag **modifications** (flag on, flag off, absent-vs-false, matching flag, new-and-flagged counted once as an addition, unknown page, deleted stroke excluded, mixed page, modification-only page enters the map); geometry **edits** (fewer points than stored, self-clearing when counts agree, silent on unknown stored count, edited-and-reflagged counted once as an edit, new stroke stays an addition, deleted stroke excluded, edit-only page enters the map, all four categories side by side); `adjustDeletionsAfterRemoval` (shift, marks before the hole untouched, marks on removed strokes dropped, interleaved removals, Set input, empty/null no-op, no renumber collision, undo history cleared) |
 | `page-changes.test.js` | `computePageChangesFolder` — the SaveConfirmDialog's own diff against the PageDoc on disk: additions, `strokeModifications` (both directions, absent-vs-false, new-and-flagged once), `strokeEdits` (point-count difference, self-clearing, `strokeTotal` unmoved, edited-and-reflagged once, new stroke stays an addition, error fallback, all four categories side by side), deletions + `strokeTotal` arithmetic, error fallback, transcription new/changed (mocks `getPage`) |
@@ -63,7 +65,7 @@ When making changes, also verify manually:
 - Library home + global search (v3.0 package E), on a copy of the data folder: Library (with no page open, or via the breadcrumb's Library) shows a card per notebook; spot-check one card's first–last written against the Timeline; Study Notes 3 has a **Vol 2** badge. Each sort chip reorders and is remembered after reload. Open a page, go back: **Recent pages** shows it. A card opens the notebook's page grid (date badges, ✓); from an open page the breadcrumb's notebook name does too. In Study Notes 1's grid: P127a, P151b, P151c, P152b in order; Go to page `151b`, `152` (→ P152b), `999` (red, stays). Scrolling the grid draws thumbnails as they come into view. **Ctrl K** from the Library, Timeline and Editor focuses the header field; not while typing in Go to page or with a transcript in edit mode. "Rich update" → Enter opens JPI Dotted P170 with that line's ink lit (Ink + text: the line is marked and in view); Esc clears. "obsolete" → P101 opens with nothing lit. Shift+Enter on a page result loads it into the Editor. "Oct 14" → the Day result → Timeline on that day, Dates selected. "Study Notes 3" → the Notebook result first → its grid; "B390" → Study Notes 1. Edit a transcript, then pick another page's result, Shift+Enter and a Day: each asks once; Cancel stays. Ctrl+F and Ctrl+Shift+F in the Editor still focus the canvas find and Transcripts → Search. The contents list highlights both pages of a spread. At 1280 and 1200, `scrollWidth <= innerWidth` on the home, a grid and with results open, panel expanded and collapsed
 - Transcript copy: Library → a transcribed page → Transcript (or Ink + text). The toolbar says **Copy all** and copies the whole transcript as before. Hover a top- or second-level line: a copy icon appears after its text; it copies that line and everything nested under it, pasting into LogSeq as a top-level bullet with its children. Third-level lines have no icon
 - Page reader (v3.0 package D): Library → Contents → JPI Ruled P26: crumb "P26–P27 of 13"; + / − / Fit in the pane toolbar change **both** pages; ↻ on one page's corner turns only that page and hover times still hit its ink (↺ back). ← / → turn (two pages in a spread, one in Single); nothing with Alt/Shift held, typing in Go to page, or with a transcript open for editing. Go to page: 29, 999 (field turns red, stays), `151b` and `152` (→ P152b) in Study Notes 1, a page in Study Notes 3 (volume). P27's header shows "Feb 5 – Jun 25, 2026" and two chips: hover one → only that day's ink is black; click → Timeline on that day with Dates selected (collapse the panel first: it stays collapsed). View ▾ → Ink + text: single = ink left, text right; spread = text under each page; JPI Dotted P170 (Oct 2026): hovering a line lights its ink; P101 (Jun 2026): a note and no linking. Edit a transcript, then Go to page, header Timeline, a page's Load into Editor icon, a ribbon chip and the breadcrumb Library: each asks once; Cancel keeps the edit, OK leaves. A page with no transcript: without MyScript keys it says where to add them; with keys, Transcribe in Editor loads the page there. At 1200 nothing clips (the old per-page toolbar cut off Load into Editor) and `scrollWidth <= innerWidth` panel expanded and collapsed
-- Left panel (v3.0 package B): collapse with the chevron and `[`; header search and canvas Ctrl+Shift+F each expand it (search input focused); a Book View ink click leaves it collapsed; `[` typed in an input does not collapse it; state survives reload; in the Editor at 1280 and 1200 wide, `document.documentElement.scrollWidth <= innerWidth` with the panel expanded and collapsed
+- Left panel (v3.0 package B): collapse with the chevron and `[`; the header search results' "Browse every transcript in Transcripts → Search" and canvas Ctrl+Shift+F each expand it (search input focused); a Library ink click leaves it collapsed; `[` typed in an input does not collapse it; state survives reload; in the Editor at 1280 and 1200 wide, `document.documentElement.scrollWidth <= innerWidth` with the panel expanded and collapsed
 - Pen connection/disconnection flows
 - Offline sync from pen memory
 - Real-time stroke capture
@@ -71,8 +73,9 @@ When making changes, also verify manually:
 - Duplication and dragging strokes
 - Page creation from duplicates
 - Transcription with MyScript
-- Save to data folder (Saved Pages tab refreshes, file timestamps update)
-- Re-import a saved page from the Saved Pages tab (Import Strokes greys out while
+- Save to data folder (file timestamps update; the Library, its thumbnails, search and the Timeline show the saved
+  ink without a Rescan, and a brand-new page appears in the Library)
+- Re-import a saved page from the Pages tab (Import Strokes greys out while
   that page is loaded, re-enables after Clear)
 - Clear the canvas, then import a page with **fewer** strokes than were cleared —
   pages must lay out side by side without needing Reset Layout
@@ -94,7 +97,7 @@ When making changes, also verify manually:
   round-trip. **Unmark Sketch** returns it to a uniform line. Settings → **Sketch
   Style**: presets and each slider update the live preview *and* the canvas
   immediately; check a page saved before this feature renders at one flat width
-  rather than a hairline. Confirm the same taper appears in Book View and in an
+  rather than a hairline. Confirm the same taper appears in the Library and in an
   SVG export, and that a duplicated (pasted) sketch stroke keeps it
 - Sketch flag reported as a change: save a page, then mark one of its strokes as a
   sketch **without** drawing anything new — the page label gains its `*`, and Save
@@ -126,7 +129,7 @@ When making changes, also verify manually:
   checkbox disabled, and a "Moving: →N strokes" tile. Save, Clear, re-import both
   volumes — the stroke must appear in **exactly one**. Select every stroke on a
   transcribed page and move it: the transcript follows and the emptied source
-  file disappears from Saved Pages. **Still to test:** offline import from pen
+  file disappears from the Pages tab and the Library. **Still to test:** offline import from pen
   memory — a multi-book batch imports completely, strokes land in the active
   volume, and reassignment works on *imported* strokes (the case with a copy
   already on disk, so the `movedFrom` deletion has to fire). A batch spanning two
@@ -150,29 +153,29 @@ When making changes, also verify manually:
   range, newest day on top, a card per sitting with its start time on the rail
   and "N min later" between cards (within a day the cards run oldest to
   newest, whichever way the days are ordered). A meeting that turned a page is ONE card
-  with a strip per page. Pick 30 days in the Dates tab and scroll: the day
+  with a strip per page. Pick 30 days (Range ▾ or the Dates tab) and scroll: the day
   heading pins, "In view" in the Dates list and the strip's red marker follow, days
   load ("Reading N pages…") as they approach and a fast fling past one shows its
   dashed placeholder. Keep scrolling past the last day: the next earlier days
   arrive without a jump and the Dates range's **From** moves back to match; at the
   first day with ink the footer says so. A part whose ink is at the top and
-  bottom of a page (two ticks) shows two strips with a dashed cut. **Whole page**
-  expands with the band tinted; **Strip** collapses. **Load into Editor** on a
-  card brings only that sitting live (every page of it) and the rest grey, fitted
+  bottom of a page (two ticks) shows two strips with a dashed cut. ⋯ → **Whole page**
+  expands with the band tinted; ⋯ → **Show only this sitting** collapses. ⋯ → **Load sitting
+  into Editor** brings only that sitting live (every page of it) and the rest grey, fitted
   and centred (try a page you once dragged), with no `*` on the page label.
-  **Open page** lands in Books on that page. **Newest first ⇄ Oldest first**
-  flips days *and* cards. **Books filter** (feed header or Dates tab): **Only**
-  one book → both buttons read "1 of N books", tallies, grid, day list and feed
+  **Open page** lands in the Library on that page. **Newest first ⇄ Oldest first**
+  flips days *and* cards (View ▾ in the Timeline). **All books ▾** (feed head): **Only**
+  one book → it reads "1 of N books", tallies, grid, day list and feed
   all drop the others, and a range load brings in only that book; **All** restores
 - Canvas pan/zoom/navigation
 - Page positioning and scaling
-- **Hover times** (v2.10): Book View → Books → open a page written on two or more
+- **Hover times** (v2.10): Library → open a page written on two or more
   days. Hover ink: that day's ink goes black, the rest grey, and a label just outside
   the top-right of that ink reads "Wed Sep 30, 2026 · 12:45–12:48 PM · Timeline ›";
   writing from 9 AM and 4 PM of one day is one group. Blank paper shows nothing.
   Drag to pan starting on ink: the page pans and nothing navigates. Click the ink:
-  the Timeline opens on that day and the Dates range is that one day. **Times** in
-  the Book View bar turns hovering off, and it stays off after a restart.
+  the Timeline opens on that day and the Dates range is that one day. View ▾ →
+  **Times** turns hovering off, and it stays off after a restart.
 - **Page rotation** (v2.10): use a copy of the data folder. On a Library page's
   corner control (its toolbar before v3.0 D), ↻ turns the page to Landscape ↻, ↺ twice to Landscape ↺; the page lays
   out landscape with its Neo paper turning with the ink, and `pages/_orientation.json`
@@ -181,11 +184,11 @@ When making changes, also verify manually:
   strip is a horizontal slice of the upright page. In the Editor the same page shows
   upright; box-select a word and only that word's strokes select; rotating from the
   canvas toolbar doesn't mark anything unsaved. Two fast clicks of ↻ end at 180°.
-- **Books tab** (v2.7): on a book with two volumes, give each an unrelated name
+- **Settings → Notebooks** (the Books tab before v3.0): on a book with two volumes, give each an unrelated name
   and confirm both survive a reload and appear throughout the app; confirm the
   destination folder next to the volume picker tracks the selection; set a book
   to a volume with no pages and confirm the row appears and can be named
-- **Canvas search** (v2.7): load several pages → type in the header search →
+- **Canvas search** (v2.7): load several pages → type in the canvas panel's search (beside Deselect) →
   results rank name matches above text matches; picking one pans to it. Hide a
   page with the Filter control, then find it — it must be revealed *and* centred.
   Switch to 📝 Text and confirm matches are highlighted amber on the page itself
@@ -201,4 +204,10 @@ When making changes, also verify manually:
   close it; level filters disable when a level is empty; Copy puts the filtered
   entries on the clipboard oldest-first
 - Unsaved-changes indicator + window-close prompt
-- Browser compatibility (Electron Chromium only — pure web build is out of scope in v2.0)
+- Pre-release (v3.0.0) checks: Settings → Data Folder → pick a different folder: the Library, search and Timeline
+  show the new folder at once. Corrupt `localStorage['pagePositions']` / `['pageScales']` (e.g. `{x`) and reload: the
+  app starts. In the Editor, type in the canvas search and press Ctrl+A / Backspace: only the field changes (no
+  stroke selection, no deletion). With the transcript editor modal or the save dialog open, `[`, Ctrl K and ←/→ do
+  nothing behind it. Clear canvas leaves no selection. There is no Pen menu; Help → About says smartpen-bridge.
+  The main-process console shows no MyScript key or HMAC after a transcription
+- Browser compatibility (Electron Chromium only; there is no web build)

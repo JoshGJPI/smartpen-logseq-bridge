@@ -24,7 +24,7 @@ notebooks emit the same `book` id and the same `page` numbers, so page 12 of the
 second notebook merges into `pages/B388/P12.json` alongside page 12 of the first.
 
 Nothing is destroyed — `savePageToFolder()` is append-only and dedupes by
-`s{startTime}` ([save-page.js:282](src/lib/storage/save-page.js:282)), and stroke
+`s{startTime}` ([save-page.js:282](../src/lib/storage/save-page.js:282)), and stroke
 ids are timestamps that never collide. But the two notebooks' strokes are drawn on
 top of each other in one page, permanently interleaved, and re-transcribing the
 merged page produces nonsense.
@@ -69,7 +69,7 @@ Rev 1's stated reason for rejecting the suffix — "`book` becomes a string,
 rippling through ~30 key-construction sites" — was **wrong, and backwards**. Those
 30 sites are template literals (`` `B${pageInfo.book}/P${pageInfo.page}` ``), and a
 template literal interpolates a string exactly as happily as a number. They are
-the part that *doesn't* break. [strokes.js:21](src/stores/strokes.js:21), the
+the part that *doesn't* break. [strokes.js:21](../src/stores/strokes.js:21), the
 canonical page-key producer, needs zero changes.
 
 What breaks is a smaller, enumerable set — arithmetic/coercion on `book`, and
@@ -78,7 +78,7 @@ regexes parsing keys with `\d+` (§4).
 ### 2.2 Delimiter: `v`
 
 The LogSeq graph asset name already uses `-` as its field separator
-([graph-index.js:37](src/lib/storage/graph-index.js:37)):
+([graph-index.js:37](../src/lib/storage/graph-index.js:37)):
 `smartpen-B{book}-P{pageId}.json`. `smartpen-B388-2-P12.json` is ambiguous to
 parse, and that filename is a cross-repo contract with the JPI Tools plugin.
 `smartpen-B388v2-P12.json` splits cleanly.
@@ -100,13 +100,13 @@ letter suffix: `B388v2/P151b` — volume 2, page variant b, no confusion.
 uses. Therefore:
 
 - Every existing file stays valid and unmodified.
-- `validatePageDoc()` ([page-doc.js:194](src/lib/storage/page-doc.js:194)) requires
+- `validatePageDoc()` ([page-doc.js:194](../src/lib/storage/page-doc.js:194)) requires
   `typeof pageInfo.book === 'number'` — **unchanged**, still satisfied.
 - `PAGE_DOC_VERSION` stays `"2.0"`. Bumping it would make `validatePageDoc` reject
   every file on disk, same reasoning as the sketch-flag addition.
 
 Identity comes from the **directory name**, not `pageInfo` — the convention
-[graph-index.js:15-19](src/lib/storage/graph-index.js:15) already documents for
+[graph-index.js:15-19](../src/lib/storage/graph-index.js:15) already documents for
 the page suffix.
 
 ### 3.2 Why not a decimal (`388.2`)
@@ -150,11 +150,11 @@ loudly, across data you can verify at a glance.
 
 **Consistency makes the failures loud and early.** That's worth more here than
 containment — especially in a codebase that already carries two live
-silent-type-mismatch bugs ([PageCard.svelte:53](src/components/saved-pages/PageCard.svelte:53),
+silent-type-mismatch bugs ([PageCard.svelte:53](../src/components/saved-pages/PageCard.svelte:53),
 the alias key-type inconsistency in §7.6).
 
 There's supporting precedent: **`pageId` is already a string throughout the app**
-([scan.js:38](src/lib/storage/scan.js:38) does `String(meta.pageId)`), keying
+([scan.js:38](../src/lib/storage/scan.js:38) does `String(meta.pageId)`), keying
 `page-cache.js`, `BookViewer`, and `viewer.js`. "Identity field that's a string"
 is an established, working pattern here.
 
@@ -238,15 +238,15 @@ Neither throws. All of them need a volume-2 fixture to surface.
 
 | Site | Pattern | Consequence if missed |
 |---|---|---|
-| [main.cjs:378](electron/main.cjs:378) | `^B(\d+)$` | No match → volume-2 directories invisible to the scan; **pages simply don't appear** |
-| [pending-changes.js:243](src/stores/pending-changes.js:243) | `^B(\d+)\/P(\d+)$` | No match → lazy `onDiskStrokeIds` backfill never fires; **every volume-2 stroke reports as a new addition on every save, forever** |
-| [strokes.js:41](src/stores/strokes.js:41) | `/B(\d+)\/P(\d+)/` | No match → volume-2 pages dropped from `canvasPageKeys`; "Import Strokes" never greys out |
-| [canvas-renderer.js:351-352](src/lib/canvas-renderer.js:351) | `/B(\d+)\/P(\d+)/` | **New in rev 3.** No match → the comparator hits `if (!matchA \|\| !matchB) return 0` ([:354](src/lib/canvas-renderer.js:354)) and returns 0 against *everything*, so volume-2 pages get arbitrary left-to-right canvas layout order |
-| [canvas-renderer.js:1321](src/lib/canvas-renderer.js:1321) | `/B(\d+)\/P(\d+)/` | No match → page label and the unsaved `*` marker blank out |
-| [canvas-renderer.js:1292](src/lib/canvas-renderer.js:1292) | `/B(\d+)/` | **Partial match** → returns `388` for `B388v2`. Gives both volumes the same border colour, which §7.7 happens to want — but by accident. Make it deliberate |
-| [canvas-renderer.js:1382](src/lib/canvas-renderer.js:1382) | `/B(\d+)/` | **Partial match** → same, for the corner handles |
-| [PageSelector.svelte:50](src/components/canvas/PageSelector.svelte:50) | `/S(\d+)\/O(\d+)\/B(\d+)\/P(\d+)/` | No match → volume-2 pages missing from the canvas page filter |
-| [migrate-from-logseq.cjs:282](scripts/migrate-from-logseq.cjs:282) | `___B(\d+)___` | Low priority — one-shot v1 importer, and v1 data predates volumes |
+| [main.cjs:378](../electron/main.cjs:378) | `^B(\d+)$` | No match → volume-2 directories invisible to the scan; **pages simply don't appear** |
+| [pending-changes.js:243](../src/stores/pending-changes.js:243) | `^B(\d+)\/P(\d+)$` | No match → lazy `onDiskStrokeIds` backfill never fires; **every volume-2 stroke reports as a new addition on every save, forever** |
+| [strokes.js:41](../src/stores/strokes.js:41) | `/B(\d+)\/P(\d+)/` | No match → volume-2 pages dropped from `canvasPageKeys`; "Import Strokes" never greys out |
+| [canvas-renderer.js:351-352](../src/lib/canvas-renderer.js:351) | `/B(\d+)\/P(\d+)/` | **New in rev 3.** No match → the comparator hits `if (!matchA \|\| !matchB) return 0` ([:354](../src/lib/canvas-renderer.js:354)) and returns 0 against *everything*, so volume-2 pages get arbitrary left-to-right canvas layout order |
+| [canvas-renderer.js:1321](../src/lib/canvas-renderer.js:1321) | `/B(\d+)\/P(\d+)/` | No match → page label and the unsaved `*` marker blank out |
+| [canvas-renderer.js:1292](../src/lib/canvas-renderer.js:1292) | `/B(\d+)/` | **Partial match** → returns `388` for `B388v2`. Gives both volumes the same border colour, which §7.7 happens to want — but by accident. Make it deliberate |
+| [canvas-renderer.js:1382](../src/lib/canvas-renderer.js:1382) | `/B(\d+)/` | **Partial match** → same, for the corner handles |
+| [PageSelector.svelte:50](../src/components/canvas/PageSelector.svelte:50) | `/S(\d+)\/O(\d+)\/B(\d+)\/P(\d+)/` | No match → volume-2 pages missing from the canvas page filter |
+| [migrate-from-logseq.cjs:282](../scripts/migrate-from-logseq.cjs:282) | `___B(\d+)___` | Low priority — one-shot v1 importer, and v1 data predates volumes |
 
 **Treat this table as a starting point, not a complete inventory.** It was
 compiled by grep; the Phase 1 sweep should re-run it and add a lint rule or a
@@ -259,14 +259,14 @@ immediately rather than lying in wait.
 
 | Site | Fix |
 |---|---|
-| [main.cjs:380](electron/main.cjs:380) `parseInt` from dir name | return the book key |
-| [main.cjs:424](electron/main.cjs:424) sort `a.book - b.book` | `compareBookKeys` |
-| [saved-pages.js:43](src/stores/saved-pages.js:43) `.map(Number).sort()` | `compareBookKeys` |
-| [local-store.js:130-141](src/lib/storage/local-store.js:130) alias keys → `Number` | **pass through unchanged** — §7.6 |
-| [BookAliasManager.svelte:12](src/components/settings/BookAliasManager.svelte:12) numeric sort + `setAlias(Number(bookId))` | book keys + `compareBookKeys` |
-| [CreatePageDialog.svelte:88](src/components/dialog/CreatePageDialog.svelte:88) `parseInt` on book | validate against the grammar; add a volume picker |
-| [graph-index.js:66](src/lib/storage/graph-index.js:66) `Number(book)` | §4.4 |
-| [main.cjs:598](electron/main.cjs:598) `requireGraphBook` / `Number.isFinite` | §4.4 |
+| [main.cjs:380](../electron/main.cjs:380) `parseInt` from dir name | return the book key |
+| [main.cjs:424](../electron/main.cjs:424) sort `a.book - b.book` | `compareBookKeys` |
+| [saved-pages.js:43](../src/stores/saved-pages.js:43) `.map(Number).sort()` | `compareBookKeys` |
+| [local-store.js:130-141](../src/lib/storage/local-store.js:130) alias keys → `Number` | **pass through unchanged** — §7.6 |
+| [BookAliasManager.svelte:12](../src/components/books/BooksTab.svelte:12) numeric sort + `setAlias(Number(bookId))` | book keys + `compareBookKeys` |
+| [CreatePageDialog.svelte:88](../src/components/dialog/CreatePageDialog.svelte:88) `parseInt` on book | validate against the grammar; add a volume picker |
+| [graph-index.js:66](../src/lib/storage/graph-index.js:66) `Number(book)` | §4.4 |
+| [main.cjs:598](../electron/main.cjs:598) `requireGraphBook` / `Number.isFinite` | §4.4 |
 
 ### 4.4 The LogSeq graph — cross-repo, and safely blocked today
 
@@ -297,24 +297,24 @@ Active volume is persisted per NCode book and shown in a header control
 Going back is: switch to Vol 1, write, switch back. That's requirement 4.
 
 Applied at the two funnels in `src/stores/strokes.js` —
-[`addStroke()`](src/stores/strokes.js:60) and
-[`addOfflineStrokes()`](src/stores/strokes.js:86) — which already run
+[`addStroke()`](../src/stores/strokes.js:60) and
+[`addOfflineStrokes()`](../src/stores/strokes.js:86) — which already run
 `registerBookId`/`registerBookIds` and sit exactly on the transport/data-model
 boundary.
 
 **Do not apply it upstream in `pen-sdk.js`.** `normalizeBookId()` returns a String
 compared against `pendingOfflineTransfer` for transfer matching
-([pen-sdk.js:1170](src/lib/pen-sdk.js:1170)), the pen-memory list keys on
-`S{n}/O{n}/B{bookId}` ([:808](src/lib/pen-sdk.js:808)), deletion groups on
-`{Section}_{Owner}` ([:632](src/lib/pen-sdk.js:632)). Protocol concerns on the raw
+([pen-sdk.js:1170](../src/lib/pen-sdk.js:1170)), the pen-memory list keys on
+`S{n}/O{n}/B{bookId}` ([:808](../src/lib/pen-sdk.js:808)), deletion groups on
+`{Section}_{Owner}` ([:632](../src/lib/pen-sdk.js:632)). Protocol concerns on the raw
 NCode id, and multi-book offline import has a documented history of subtle bugs
 there (the April 2026 fixes).
 
 ### 5.2 Live preview needs the same treatment — easy to miss
 
-`canvasRenderer.addDot(dot)` ([pen-sdk.js:356](src/lib/pen-sdk.js:356),
-[:1115](src/lib/pen-sdk.js:1115)) and
-[`currentPageInfo.set()`](src/lib/pen-sdk.js:354) render the **raw** dot. Without
+`canvasRenderer.addDot(dot)` ([pen-sdk.js:356](../src/lib/pen-sdk.js:356),
+[:1115](../src/lib/pen-sdk.js:1115)) and
+[`currentPageInfo.set()`](../src/lib/pen-sdk.js:354) render the **raw** dot. Without
 a matching remap, live ink appears in page group `B388/P12` while the finalized
 stroke lands in `B388v2/P12` — two page borders, ink that jumps on pen-up.
 Invisible in review, immediately obvious in use.
@@ -327,7 +327,7 @@ Friday. A single volume choice for the batch mis-files half of them.
 1. **Timestamp routing** (`windows` in the registry) — automatic and correct for
    anything captured after the app learned about Vol 2.
 2. **Per-book selector in `BookSelectionDialog`**
-   ([:115](src/components/dialog/BookSelectionDialog.svelte:115)) — it already
+   ([:115](../src/components/dialog/BookSelectionDialog.svelte:115)) — it already
    lists each pen book with its page count and blocks on confirmation *before* any
    stroke transfers. Natural UI slot, but one choice per batch.
 3. **Canvas reassignment (§6)** — the safety net.
@@ -394,7 +394,7 @@ it does let us skip building a separate page-move tool. Two things it doesn't do
 on its own:
 
 **The transcript stays behind.** Transcript lines live in `doc.transcript.lines`,
-not on strokes ([save-page.js:340](src/lib/storage/save-page.js:340) carries
+not on strokes ([save-page.js:340](../src/lib/storage/save-page.js:340) carries
 `existing.transcript` forward untouched). Move all the strokes and you get ink in
 Vol 2, recognised text still in Vol 1, and `lineId`s cleared (§6.1) so nothing
 links them. You'd have to re-transcribe.
@@ -448,20 +448,20 @@ it. §6.2. Don't ship the reassign UI without the deletion half.
 directly under Vol 1 in the Saved Pages accordion and the Book View home grid.
 
 **7.6 — The alias key-type bug becomes fatal.** `getAliases()`
-([local-store.js:130-141](src/lib/storage/local-store.js:130)) normalizes keys to
+([local-store.js:130-141](../src/lib/storage/local-store.js:130)) normalizes keys to
 **numbers** on read while `main.cjs:547` writes **strings** — which is why
 `publish-graph.js:131` hedges with `aliasMap[String(book)] ?? aliasMap[book]`.
 `Number("388v2")` is `NaN`, so volume-2 aliases would be silently destroyed on
 every scan. **Prerequisite for §3.4's "names come free."**
 
 **7.7 — Book colours diverge.** `getBookColor()`
-([formatting.js:40](src/utils/formatting.js:40)) hashes the book id, so Vol 1 and
+([formatting.js:40](../src/utils/formatting.js:40)) hashes the book id, so Vol 1 and
 Vol 2 get unrelated colours. Hash `ncodeBook` for hue, vary lightness by volume, so
 volumes read as siblings.
 
 **7.8 — Book View page-turn stops at volume boundaries (correct, free).**
 Navigation is index-based within one flat per-book array
-([BookViewer.svelte:68-79](src/components/viewer/BookViewer.svelte:68)). Distinct
+([BookViewer.svelte:68-79](../src/components/viewer/BookViewer.svelte:68)). Distinct
 book keys means turning pages never crosses volumes. Noted so nobody "fixes" it —
 and note §9 would destroy this property.
 
@@ -473,13 +473,13 @@ header, on the canvas page label, and in `SaveConfirmDialog` rows — the last m
 before commitment.
 
 **7.11 — The existing page-suffix bug gets more visible.**
-[PageCard.svelte:53](src/components/saved-pages/PageCard.svelte:53) compares
+[PageCard.svelte:53](../src/components/saved-pages/PageCard.svelte:53) compares
 `B{book}/P{page}` against the `pageId`-keyed canvas set, so a `P151b` card tracks
 `P151`. Volumes don't cause it, but combining volumes and page suffixes surfaces it
 more often. Worth fixing independently.
 
 **7.12 — Global dedupe by `startTime`.** `loadStrokesFromStorage`
-([strokes.js:329-333](src/stores/strokes.js:329)) dedupes across the whole canvas
+([strokes.js:329-333](../src/stores/strokes.js:329)) dedupes across the whole canvas
 by timestamp, not by page. Two volumes loaded together is fine (different sessions,
 different timestamps), but it's the one identity check that's page-blind.
 
@@ -528,9 +528,9 @@ Your other idea: leave the book number alone and append the volume to the *page*
 **It doesn't avoid the type change — it relocates it to a worse field.** The
 letter-suffix mechanism lives *only* in the storage layer: filenames and `scan.js`
 records. `pageInfo.page` is **always an integer** — that's why
-[graph-index.js:15-19](src/lib/storage/graph-index.js:15) has to state that
+[graph-index.js:15-19](../src/lib/storage/graph-index.js:15) has to state that
 identity comes from the filename and never from `pageInfo`, and why
-[graph-index.js:70](src/lib/storage/graph-index.js:70) strips the suffix to
+[graph-index.js:70](../src/lib/storage/graph-index.js:70) strips the suffix to
 recover the number. So the canvas page key `S3/O1012/B388/P12` is identical for
 both volumes and **they still collide in memory.** Making it work means
 `pageInfo.page` becomes a string — and `page` is used numerically in *more* places
@@ -544,7 +544,7 @@ its own name. "Show me everything in Volume 2" becomes a scan of every page's
 suffix.
 
 **It breaks reading order.** Pages sort by page number
-([saved-pages.js:34-37](src/stores/saved-pages.js:34)), so Volume 2's pages
+([saved-pages.js:34-37](../src/stores/saved-pages.js:34)), so Volume 2's pages
 interleave with Volume 1's, and Book View page-turn would run P12 → P12v2 → P13,
 jumping between physical notebooks mid-read. §7.8's boundary property — which the
 book-key design gets for free — is destroyed.
