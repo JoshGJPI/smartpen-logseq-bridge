@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-**smartpen-bridge** (v2.x, formerly `smartpen-logseq-bridge`) is an Electron desktop app that captures
+**smartpen-bridge** (v3.x, formerly `smartpen-logseq-bridge`) is an Electron desktop app that captures
 NeoSmartpen (Lamy Safari) strokes over Web Bluetooth, runs MyScript handwriting recognition, and saves
 plain JSON to a user-chosen folder: `<dataRoot>/pages/B###/P##.json`, one "PageDoc" per pen page.
 v1 (≤ 1.3.4) stored to LogSeq over HTTP; v2.0 replaced that. Design: [docs/LOCAL-STORAGE-PIVOT-SPEC.md](docs/LOCAL-STORAGE-PIVOT-SPEC.md).

@@ -171,7 +171,7 @@ show fewer pages.
 
 ## Version history
 
-- **3.0.0** - Reading first: Library | Timeline | Editor; Library home with notebook
+- **3.0.0** (Current) - Reading first: Library | Timeline | Editor; Library home with notebook
   cards and page grids; page reader with shared toolbar, Go to page, written-on
   ribbon and Ink + text; Timeline range menu and activity strip; global search
   (Ctrl K); slim header, capture bar on demand, collapsible left panel. No data

@@ -6,10 +6,12 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
-## Unreleased (toward v3.0.0)
+## v3.0.0 — Reading first (October 2026)
 
-Reading-first UI plan: [READING-UX-SPEC.md](READING-UX-SPEC.md). Packages land on their
-own branches and are not released one by one; no storage or PageDoc change in any of them.
+Reading-first UI: [READING-UX-SPEC.md](READING-UX-SPEC.md), packages A–E plus a pre-release
+review. The app's frame and navigation changed (Library | Timeline | Editor, Library home,
+page reader, global search); data did not: PageDoc stays `"2.0"`, sidecar files and storage
+are untouched, and existing data folders open unchanged.
 
 ### Pre-release review: refresh after saves, safer keys and storage, cleanup (October 2026)
 

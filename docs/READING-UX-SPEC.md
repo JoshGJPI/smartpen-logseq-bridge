@@ -1,7 +1,7 @@
 # Reading-first UX: review and implementation spec
 
-Status: packages A–E built and merged to `main` (A–D 2026-10-19, E and the pre-release fixes
-2026-10-20); next is the "Bump to 3.0.0" commit. Review dated 2026-10-19, against v2.10.0.
+Status: **released in v3.0.0** (2026-10-20). Packages A–E and the pre-release fixes are on
+`main` (A–D merged 2026-10-19, E 2026-10-20). Review dated 2026-10-19, against v2.10.0.
 
 **Target release: v3.0.0.** Packages A–E together are the v3.0.0 milestone ("reading-first"). v3.0.0
 is the major bump because the app's frame and navigation change, not because data changes: **PageDoc
