@@ -199,10 +199,10 @@
 
 <svelte:window on:keydown={handleGlobalKeydown} />
 
-<!-- `wide` lifts the 1600 px cap while reading (Book View: Books and Timeline) so
-     a big monitor enlarges the reading surface. The Editor keeps the cap: its
-     canvas is sized from ink bounds and a stretched toolbar is worse. -->
-<div class="app" class:wide={$destination !== 'editor'}>
+<!-- Full window width in every destination (v3.0.0): the Library, the Timeline
+     and the Editor all use a big monitor, and switching between them no longer
+     changes the frame's width. The canvas follows its pane (ResizeObserver). -->
+<div class="app">
   <Header>
     <!-- Primary navigation: the three destinations. navigateTo (stores/viewer.js)
          asks before dropping unsaved transcript edits, for this and every other
@@ -315,13 +315,8 @@
     display: flex;
     flex-direction: column;
     height: 100vh;
-    max-width: 1600px;
     margin: 0 auto;
     padding: 0 20px;
-  }
-
-  .app.wide {
-    max-width: none;
   }
 
   .main-grid {

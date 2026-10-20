@@ -71,6 +71,13 @@ the manual checklist in CLAUDE.md, ARCHITECTURE.md and TESTING.md; renamed folde
 LOCAL-STORAGE-PIVOT-SPEC and the SDK notes; QUICK-ARCHITECTURE-REFERENCE marked
 historical; the broken relative links (VOLUMES-SPEC, CHANGELOG and others) fixed.
 
+**The Editor is full width too (Josh's call).** Package B lifted the 1600 px cap for the
+Library and the Timeline only, so switching to the Editor pulled the frame in on a wide
+monitor. The cap is gone everywhere: `.app` has no max width and no `wide` class. The
+canvas follows its pane through the existing `ResizeObserver` (zoom and view kept, as
+when the left panel toggles); the canvas toolbar keeps its scroll-inside-the-pane
+behaviour from B, so a wider pane only shows more of it.
+
 **Repository tidy-up (Josh's call).** `.github/workflows/deploy.yml` is gone: it published a
 GitHub Pages web build on every push to `main`, and the app cannot run outside Electron (storage
 is IPC). Deleting the workflow does not take down a Pages site that was already published; turn
@@ -93,8 +100,10 @@ handwriting editor's import formats that the JSON / Markdown exports follow, is 
   pages); a scan already running is waited for, up to 5 s.
 - A thumbnail read in flight while its page is saved can still store the old ink
   until the next save or Rescan.
-- Not exercised: live pen, MyScript and offline import (no hardware or keys); the
-  menu-accelerator removal was checked by reading the menu template.
+- Checked on hardware by Josh (2026-10-20): loading saved notes from the pen, MyScript
+  transcription, live capture and saving. Not yet on hardware: a rotated page with the
+  pen or MyScript, and offline import into a second volume. The menu-accelerator removal
+  was checked by reading the menu template.
 
 ### E. Library home + global search (October 2026)
 
@@ -510,7 +519,7 @@ as its baseline, so the token is bumped one `tick()` *after* the panel is expand
 Bumping it at once would be swallowed, and the search input would not be focused.
 
 **Width cap.** `.app` gets a `wide` class in Book View (Books and Timeline) that lifts the
-1600 px cap, driven by `$viewerMode`, not a media query. The Editor keeps 1600: its canvas is
+1600 px cap, driven by `$viewerMode`, not a media query. *(Pre-release: the cap is gone in the Editor too.)* The Editor keeps 1600: its canvas is
 sized from ink bounds and a stretched toolbar is worse. At 1920 the Book View pane is
 1410 px (was 1090).
 
@@ -538,7 +547,7 @@ canvas bitmap to the pane (1048 → 1450 px wide at 1600) with zoom (291%) and t
 - *Narrowing the Editor problem by collapsing the panel on small windows.* Hides the
   overflow for one layout and leaves it for the other.
 - *A transition on collapse.* The canvas would redraw at every intermediate width.
-- *Lifting the cap in the Editor too.*
+- *Lifting the cap in the Editor too.* (Reversed before 3.0.0, Josh's call: see the pre-release entry.)
 
 **Limitations**
 - The Timeline feed has its own inner max width, so collapsing at wide sizes adds margin

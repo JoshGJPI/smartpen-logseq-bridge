@@ -258,6 +258,7 @@ Each package is shippable alone and leaves `npm test` green. Do not combine pack
 - D's leftover fixed: the contents list highlights both pages of a spread. The breadcrumb's notebook crumb is a
   link to the grid.
 - Ctrl+F and Ctrl+Shift+F stay the Editor canvas's keys (they always were); Ctrl K works in every destination.
+- Pre-release (Josh, 2026-10-20): B's 1600 px cap for the Editor is lifted; every destination fills the window.
 
 ## How to verify each package
 
