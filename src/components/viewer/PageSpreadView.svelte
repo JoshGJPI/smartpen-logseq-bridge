@@ -13,10 +13,13 @@
   Ink + text links a hovered line to its ink only on pages whose stroke
   lineIds can be trusted (lib/viewer/ink-text.js); other pages sit side by
   side without linking. Nothing here writes lineIds or touches the merge.
+  A global search hit (`readerFocus`) lights its matching line's ink and marks
+  the line, on trusted pages only; elsewhere the page just opens.
 -->
 <script>
   import { tick } from 'svelte';
-  import { setTimelineRange, navigateTo, setActiveTab } from '$stores';
+  import { setTimelineRange, navigateTo, setActiveTab, readerFocus } from '$stores';
+  import { matchingLineId } from '$lib/global-search.js';
   import { getCachedPage } from '$lib/viewer/page-cache.js';
   import { pageDayGroups } from '$lib/viewer/page-sittings.js';
   import { isTrustworthyTranscript, strokesByLine } from '$lib/viewer/ink-text.js';
@@ -71,7 +74,7 @@
       doc = d;
       await tick();
     } catch (e) {
-      if (loadedKey === key) console.warn('Book View: failed to load page', key, e);
+      if (loadedKey === key) console.warn('Library: failed to load page', key, e);
     } finally {
       if (loadedKey === key) loadingDoc = false;
     }
@@ -105,6 +108,12 @@
     ? 'Lines aren’t linked to ink on this page: its transcript predates the Aug 2026 line matching. Re-transcribing links it.'
     : '';
   $: if (!linkable) lineHighlight = null;
+
+  // A search hit on this page: its line, where the page's links are trusted.
+  $: focus = $readerFocus && record && $readerFocus.book === String(record.book) && $readerFocus.pageId === pageId ? $readerFocus : null;
+  $: focusLineId = focus && doc && isTrustworthyTranscript(doc) ? matchingLineId(lines, focus.tokens) : null;
+  $: focusInk = focusLineId ? strokesByLine(strokes, lines).get(focusLineId) : null;
+  $: focusHighlight = focusInk && focusInk.length ? { strokes: focusInk } : null;
 
   function hoverLine(line) {
     const list = line && lineInk ? lineInk.get(line.id) : null;
@@ -153,7 +162,7 @@
             {pageId}
             {strokes}
             {dayModel}
-            highlight={dayHighlight || lineHighlight}
+            highlight={dayHighlight || lineHighlight || focusHighlight}
             onOpenDay={openTimelineDay}
           />
         {/if}
@@ -170,6 +179,7 @@
           {onEditingChange}
           onHoverLine={linkable ? hoverLine : null}
           {linkNote}
+          {focusLineId}
           onTranscribe={doc && strokes.length ? onLoadIntoEditor : null}
         />
       </div>

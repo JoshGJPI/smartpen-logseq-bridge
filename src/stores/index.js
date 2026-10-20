@@ -33,7 +33,6 @@ export {
 export {
   contextInk,
   contextInkCount,
-  hasContextInk,
   contextInkPageKeys,
   addContextInk,
   pruneContextInk,
@@ -54,7 +53,6 @@ export {
   canvasPageOrder,
   loadTimeline,
   setTimelineRange,
-  shiftTimelineRange,
   setCanvasPageOrder,
   // Book filter (shared by the Dates tab and the Timeline feed)
   timelineExcludedBooks,
@@ -72,7 +70,6 @@ export {
   pointEditPointCount,
   selectedPoints,
   selectedPointCount,
-  hasSelectedPoints,
   strayPoints,
   strayPointKeys,
   MAX_POINT_EDIT_STROKES,
@@ -113,8 +110,7 @@ export {
   sketchProfileSummary,
   applySketchPreset,
   updateSketchProfile,
-  resetSketchProfile,
-  getSketchProfile
+  resetSketchProfile
 } from './sketch.js';
 
 // Selection
@@ -125,13 +121,11 @@ export {
   selectionCount,
   hasSelection,
   selectStroke,
-  selectRange,
   selectAll,
   clearSelection,
   handleStrokeClick,
   selectFromBox,
   deselectIndices,
-  selectIndices,
   adjustSelectionAfterDeletion
 } from './selection.js';
 
@@ -141,9 +135,7 @@ export {
   penAuthorized,
   penInfo,
   penController,
-  penReady,
   penBattery,
-  penMemory,
   transferProgress,
   transferPercent,
   setPenConnected,
@@ -160,15 +152,7 @@ export {
   pageTranscriptions,
   selectedPagesForImport,
   isTranscribing,
-  transcribedText,
-  transcribedLines,
-  detectedCommands,
-  transcriptionSummary,
-  lineMetrics,
-  transcribedWords,
   hasTranscription,
-  transcriptionSourcePages,
-  transcriptionByPage,
   pageTranscriptionsArray,
   pageTranscriptionCount,
   hasPageTranscriptions,
@@ -207,9 +191,7 @@ export {
 export {
   activeTab,
   panelTab,
-  sidebarCollapsed,
   canvasZoom,
-  showLineGuides,
   showFilteredStrokes,
   logMessages,
   transcriptsMode,
@@ -217,9 +199,7 @@ export {
   showActivityLogDialog,
   log,
   setActiveTab,
-  toggleSidebar,
   setCanvasZoom,
-  toggleLineGuides,
   toggleFilteredStrokes,
   clearLog,
   openActivityLogDialog,
@@ -247,13 +227,9 @@ export {
 export {
   storageStatus,
   storageStats,
-  storageStatusMessage,
-  hasSavedPages,
   setStorageSaving,
   recordSuccessfulSave,
   recordStorageError,
-  clearStorageStatus,
-  isPageSaved,
   // v2.0 unsaved-changes indicator
   unsavedChanges,
   markUnsavedChanges,
@@ -264,9 +240,7 @@ export {
 export {
   filteredStrokes,
   filterStats,
-  setFilteredStrokes,
-  clearFilteredStrokes,
-  getFilteredStrokeByIndex
+  setFilteredStrokes
 } from './filtered-strokes.js';
 
 // Saved Pages (data-folder index)
@@ -279,7 +253,7 @@ export {
   setSavedPages,
   setScanning,
   clearSavedPages,
-  updatePageSyncStatus
+  applyTranscriptToRecord
 } from './saved-pages.js';
 
 // Viewer (Book View pane)
@@ -289,7 +263,6 @@ export {
   recentViews,
   viewerSelection,
   setViewerMode,
-  toggleViewerMode,
   markViewerDirtyPage,
   clearViewerDirtyPage,
   clearAllViewerDirty,
@@ -301,7 +274,6 @@ export {
   setBookViewMode,
   feedOrder,
   setFeedOrder,
-  toggleFeedOrder,
   sittingHoverEnabled,
   toggleSittingHover,
   feedVisible,
@@ -311,21 +283,40 @@ export {
   // Navigation spine (reading-first package C)
   destination,
   navigateTo,
-  openPageInLibrary
+  openPageInLibrary,
+  // Library home + global search (reading-first package E)
+  libraryNotebook,
+  openNotebookInLibrary,
+  transcriptEditing,
+  readerPages,
+  readerFocus,
+  focusReaderLine,
+  clearReaderFocus
 } from './viewer.js';
+
+// Library home + global search (reading-first package E)
+export {
+  librarySort,
+  setLibrarySort,
+  libraryPageDates,
+  notebookCardList,
+  globalSearchIndex,
+  searchRecords,
+  searchDates,
+  notebookNames,
+  ensureTimelineLoaded
+} from './library.js';
 
 // Book Aliases
 export {
   bookAliases,
   knownBookIds,
-  booksWithoutAliases,
   setBookAliases,
   setBookAlias,
   removeBookAlias,
   getBookAlias,
   registerBookId,
-  registerBookIds,
-  clearBookAliases
+  registerBookIds
 } from './book-aliases.js';
 
 // Page Positions (Spatial Layout)
@@ -334,10 +325,7 @@ export {
   useCustomPositions,
   setPagePosition,
   movePageBy,
-  getPagePosition,
-  resetPagePositions,
-  clearPagePositions,
-  autoArrangePages
+  clearPagePositions
 } from './page-order.js';
 
 // Pending Changes (Deletions & Undo)
@@ -351,14 +339,11 @@ export {
   markStrokesDeleted,
   undoLastDeletion,
   clearDeletedIndices,
-  isStrokeDeleted,
   getActiveStrokesForPage,
   getDeletedStrokeIdsForPage,
-  getPendingChangesSummary,
   // On-disk stroke-id index (powers the additions diff without holding strokes resident)
   onDiskStrokeIds,
-  noteOnDiskStrokeIds,
-  forgetOnDiskStrokeIds
+  noteOnDiskStrokeIds
 } from './pending-changes.js';
 
 // Page Scales (Per-Page Resize)
@@ -368,25 +353,15 @@ export {
   setPageScale,
   getPageScale,
   resetPageScale,
-  resetAllPageScales,
-  hasCustomScale
+  resetAllPageScales
 } from './page-scale.js';
 
-// Clipboard
-export {
-  clipboardStrokes,
-  hasClipboardContent,
-  copyToClipboard,
-  clearClipboard
-} from './clipboard.js';
 
 // Pasted Strokes
 export {
   pastedStrokes,
   pastedSelection,
   pastedCount,
-  selectedPastedStrokes,
-  hasPastedSelection,
   duplicateStrokes,
   movePastedStrokes,
   deleteSelectedPasted,

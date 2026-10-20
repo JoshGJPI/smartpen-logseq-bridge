@@ -1,1163 +1,197 @@
-# NeoSmartpen → Stroke Bridge
+# smartpen-bridge
 
-A desktop Electron app for capturing, transcribing, and managing handwritten notes from NeoSmartpen (Lamy Safari) devices. Strokes and transcriptions are saved as plain JSON files in a user-chosen local folder.
+A Windows desktop app (Electron) for reading, finding and editing your handwritten
+notes from a NeoSmartpen (Lamy Safari). It captures strokes from the pen over
+Bluetooth, transcribes them with MyScript, and keeps every page as a plain JSON file
+in a folder you choose: `<data folder>/pages/B###/P##.json`.
 
-> **v2.0 (May 2026):** Replaced LogSeq as the storage backend with local JSON files. See [docs/LOCAL-STORAGE-PIVOT-SPEC.md](docs/LOCAL-STORAGE-PIVOT-SPEC.md). The repo name still says `smartpen-logseq-bridge` for git-history continuity; the product is now just the Smartpen Bridge.
+> **v3.0.0 (October 2026): reading first.** The app opens on your writing, not on an
+> empty canvas. Three destinations, **Library**, **Timeline** and **Editor**, replace
+> the old Book View / Books / Timeline modes; the Library opens on your notebooks;
+> a header search (Ctrl K) finds pages by text, date or notebook. Your data folder
+> opens unchanged: PageDoc files stay at version `"2.0"`. The repository is still
+> called `smartpen-logseq-bridge` for history's sake; v1 stored notes in LogSeq, v2
+> moved them to the local folder.
 
-## Quick Start
+## Quick start
 
-1. **Build the desktop app** (`npm install && npm run electron:build:win`) or run it directly with `npm run dev`
-2. Open Settings → **Data Folder**, pick a folder (e.g. `Documents/stroke-data`)
-3. Click **Connect Pen** and pair your Lamy smartpen via Bluetooth
-4. Write on Ncode paper and watch strokes appear on canvas in real-time
-5. Click **Save** — your strokes land at `<dataRoot>/pages/B###/P##.json`
-6. (Optional) For transcription, add your own MyScript API keys in Settings (free tier: 2,000 requests/month)
+1. Build the installer (`npm install && npm run electron:build:win`, output in
+   `release/`) or run from source (`npm install && npm run dev`).
+2. Settings (gear) → **Data Folder** → Browse, and pick a folder, e.g.
+   `Documents/stroke-data`. An existing folder from v2 works as it is.
+3. Click **Connect** in the header and pair your pen in the Bluetooth dialog.
+4. Write. Live ink switches to the **Editor**; click **Save** when done.
+5. Optional: add your MyScript keys (Settings → MyScript Configuration) to
+   transcribe handwriting. The free tier allows 2,000 requests a month.
 
-## ✨ Key Features
+## Finding your way around
 
-### Real-Time Pen Integration
-- **Bluetooth Connection**: Direct connection to NeoSmartpen via Web Bluetooth API
-- **Live Stroke Capture**: See strokes appear on canvas as you write on Ncode paper
-- **Offline Sync**: Download notes stored in pen memory with progress tracking
-- **Multi-Page Support**: Automatic page detection and organization
-- **Battery & Memory Monitoring**: Real-time status updates
+The header holds the three destinations, the search field, an **Unsaved** marker
+when anything is unsaved, the pen chip (state, battery, Connect) and Settings. The
+capture bar (Save, Undo, Delete, Clear, Transcribe, Fetch Notes) appears only when
+there is capture work: in the Editor, with the pen connected, or with unsaved work.
+The left panel follows the destination and folds to a rail with the chevron or `[`.
 
-### Advanced Stroke Manipulation
-- **Duplicate Strokes** (Ctrl+D): Copy selected strokes with automatic positioning
-- **Drag & Drop**: Move duplicated strokes freely across canvas
-- **Box Selection**: Powerful selection with multiple modes (replace/add/remove)
-  - Plain drag: Replace selection
-  - Ctrl+drag: Add to selection
-  - Shift+drag: Remove from selection
-- **Individual Selection**: Ctrl/Shift+click to toggle individual strokes
-- **Smart Filtering**: Automatically detect and filter decorative elements (boxes, underlines, circles)
-- **Point-Level Editing**: Delete individual bad points from a stroke without losing the rest (see below)
-- **Undo System**: Revert deletions with full undo support
+### Library: read your notebooks
+- **Home**: a card per notebook, with a fan of its most recently written pages, page
+  count, when it was written, a **Vol 2** badge for a second volume, and how much is
+  transcribed. Sort by Recently written, Name or Most pages. **Recent pages** shows
+  what you last opened.
+- **A notebook**: every page as a thumbnail, with the day it was written and ✓ when
+  transcribed. **Go to page** takes `42`, `P42` or `151b`.
+- **Reading a page**: a two-page spread or a single page, as **Strokes**,
+  **Transcript** or **Ink + text** (View ▾). Zoom and Fit act on both pages; ← / →
+  turn pages. The header says when each page was written; hover a day chip to light
+  that day's ink, click it to open that day in the Timeline. With **Times** on
+  (View ▾), hovering ink shows when it was written.
+- **Transcripts**: edit in place (Tab / Shift+Tab indent), **Copy all** as LogSeq
+  markdown, or copy one line and everything under it.
+- **Rotate** a page written sideways with the control on its corner (display only).
+- **Load into Editor** (the pencil in a page's header) puts the page on the canvas.
+- The **Contents** tab in the left panel lists every notebook and page.
 
-### Point-Level Editing (v2.5)
+### Timeline: read by date
+The writing in a date range as one scrolling feed, a card per sitting (writing with
+no pause longer than 20 minutes). **Range ▾** picks the span (Latest day, 1, 7 or 30
+days, or From / To); the activity strip under it shows every day with ink and lets
+you drag the range. **All books ▾** filters notebooks. **Open page** opens a card's
+page in the Library; ⋯ loads a sitting, a day or the whole range into the Editor.
 
-The pen occasionally records a single dot at the corner of the page. Because the
-canvas joins consecutive dots, one bad dot draws a long line straight through your
-notes — and until now the only fix was deleting the whole stroke.
+### Editor: capture and edit
+The live canvas. Strokes from the pen, Fetch Notes (pen memory), pages loaded from
+the **Pages** or **Dates** tab, or a Library / Timeline load all land here.
+- Select: drag a box (Ctrl adds, Shift removes), Ctrl/Shift+click single strokes,
+  Ctrl+A for everything visible.
+- Duplicate (Ctrl+D), drag duplicates, and **Create page** from them.
+- Delete strokes (marked until Save; 15-minute undo), **Edit Points** to remove a
+  single stray point, **Decorative** to filter boxes and underlines.
+- Pan with Alt+drag, zoom with Ctrl+scroll; drag page labels to move pages and
+  corner handles to resize them (display only).
+- **Transcribe** selected strokes or the whole canvas with MyScript; review the
+  result in the Transcripts tab.
+- **Save** writes each page atomically and append-only: only strokes you deleted are
+  removed from disk, and new strokes are de-duplicated by id. The save dialog shows
+  exactly what changes per page.
+- Export: SVG, JSON or Markdown, and **Export to LogSeq** (see below).
 
-- **Edit Points mode**: select a stroke, click **📍 Edit Points**, and every recorded
-  point becomes a clickable handle
-- **Suspect points highlighted**: points at the page origin (or wildly out of line
-  with their neighbours) show in amber, with a side panel listing each one's
-  coordinates
-- **Click to locate**: click a listed point and the canvas centres on it — useful
-  when the stray sits in a far corner at low zoom
-- **Delete one or all**: click a handle (or drag a box over several) and press
-  **Del**, or use **Delete all** to clear every suspect point at once
-- **The rest of the stroke is untouched**: your handwriting keeps its shape, its
-  transcript line, and — for sketch strokes — its pressure-based line thickness
-- **Reported as its own save status**: edited strokes appear in the save dialog as
-  **Editing / ✎N edited**, separate from added and deleted strokes, with a warning
-  that saving rewrites the stored point data (this is the one place the app
-  overwrites captured pen data, so it says so plainly)
+### Search
+- **Header field / Ctrl K** (any destination): words in transcripts, dates (`Oct 14`,
+  `2026-10-14`, `10/14`, `yesterday`) and notebook names. Results are grouped Pages /
+  Notebooks / Days. **Enter** opens the page in the Library (and lights the matching
+  line where the page's line links are reliable), a notebook's pages, or a day in
+  the Timeline; **Shift+Enter** loads a page into the Editor; **Esc** closes.
+- **Transcripts → Search** in the left panel (Ctrl+Shift+F in the Editor) lists every
+  transcribed page with Import and Open buttons.
+- **Ctrl+F** in the Editor finds a page that is already on the canvas and pans to it.
 
-### Intelligent Page Management
-- **Custom Page Positioning**: Drag page labels to reposition pages anywhere on canvas
-- **Page Scaling**: Resize pages 25-500% with corner handle dragging
-  - Free resize: Plain drag
-  - Aspect ratio locked: Shift+drag
-- **Multi-Page Filtering**: Show/hide specific pages with page selector
-- **Automatic Layout**: Smart default positioning with reset capability
-- **Page-Locked Strokes**: Original strokes stay with their pages during repositioning
+### Notebooks and volumes
+Settings → **Notebooks** names each notebook and, when two physical notebooks share
+an NCode book id, says which volume new writing goes to. A volume is its own
+notebook everywhere (folder `B388v2`).
 
-### Handwriting Recognition (MyScript)
-- **Page-by-Page Transcription**: Process strokes with progress tracking
-- **Selective Processing**: Transcribe only selected strokes or specific pages
-- **Line Detection**: Intelligent line grouping based on MyScript analysis
-- **Hierarchy Analysis**: Automatic indentation detection for nested structure
-- **Command Recognition**: Extract inline commands like `[page: Meeting Notes]`
-- **Source of truth**: Transcriptions are stored alongside their strokes in each `pages/B###/P##.json` file
+### Export to LogSeq (optional)
+Settings → **Publish to LogSeq Graph** → choose your graph folder (the JPI Tools
+plugin, v1.9.66+, renders the sketches). **Export to LogSeq** in the Editor
+publishes only the strokes you select, adds to what the page already has, and never
+includes the transcript. LogSeq does not need to be running.
 
-### Local-Folder Storage (v2.0)
-- **One JSON file per pen page**: `<dataRoot>/pages/B{book}/P{page}.json` — readable, diff-friendly, no database required
-- **Atomic writes**: `.tmp` + rename + fsync — no half-written files even on crash
-- **Hybrid pretty/compact serializer**: document shell pretty-printed; each stroke inlined onto one line. ~40% the size of full pretty-print, still scannable
-- **Browse, import, re-edit**: the Saved Pages tab shows everything in your data folder, organized by book
-- **Atomic append-only save**: explicit deletions only; new strokes deduplicated by ID; transcript merged by Y-bounds overlap with checkbox preservation
-- **Unsaved-changes indicator**: amber dot on the Save button when the canvas has changes; window-close confirmation if you try to leave dirty
-- **Book aliases**: custom naming per notebook volume (Books tab), stored in `<dataRoot>/pages/_aliases.json`
-- **Capture-date index**: `<dataRoot>/pages/_timeline.json` — a cache of which days each page holds ink from, so the Dates tab doesn't re-read every file. Safe to delete; it rebuilds itself
+## Data folder
 
-### Publish Sketches to LogSeq (v2.3)
-- **Selective**: publish only the strokes you select — sketches go to the graph, private notes stay out
-- **Additive**: each export adds to what that page already has, so a page accumulates sketches over time; re-exporting the same strokes is a no-op
-- **Transcript-free**: recognised text is never written to the graph
-- **No LogSeq runtime needed**: writes JPI Tools plugin assets straight to the graph folder, for rendering via `{{renderer :smartpen-sketch, …}}`
-- **Whole-page backfill**: publish an entire saved page from the Saved Pages tab
+```
+<data folder>/pages/
+  B3017/P42.json        one PageDoc per pen page (P151b.json: a variant page)
+  B388v2/P1.json        volume 2 of NCode book 388
+  _aliases.json         notebook names
+  _volumes.json         active volume per NCode book
+  _orientation.json     page rotations (display only)
+  _timeline.json        capture-date index (a cache; safe to delete)
+```
 
-### Advanced Canvas Features
-- **Pan & Zoom**: Alt+drag to pan, Ctrl+scroll to zoom
-- **Text View Mode**: Toggle between stroke view and transcribed text
-- **Export Options**: Save as SVG, JSON, or MD; publish to LogSeq
-- **Visual Feedback**: Color-coded borders for different books/pages
-- **Selection Indicators**: Clear visual feedback for selected elements
-- **Hover Cursors**: Contextual cursors for different interactions
+Writes are atomic (`.tmp`, rename, fsync). Settings and display preferences live in
+the app's local storage; strokes and transcripts live only in the PageDocs. The
+format is in [docs/LOCAL-STORAGE-PIVOT-SPEC.md](docs/LOCAL-STORAGE-PIVOT-SPEC.md) and
+[CLAUDE.md](CLAUDE.md). A v1 LogSeq export can be imported with
+`node scripts/migrate-from-logseq.cjs <folder-of-md-files> <data folder>`.
 
-### Browse by Date (v2.6)
-- **Load a day, a week, or any span**: pick a range and every stroke you wrote in it
-  comes onto the canvas — across notebooks, not one book at a time
-- **Filtered by stroke, not by page**: most pages hold more than one day's writing, so
-  a page-level filter would drag in unrelated notes. Only the range's ink is loaded
-- **Context ink**: the rest of each page still draws, halftoned, so the day's writing
-  sits where it belongs on the page. It can't be selected, saved or transcribed
-- **Laid out by day**: pages arrange one row per day, each labelled with its date
-- **Activity grid**: a weekday heat grid of every capture day; drag across it to select
-- **Timeline feed**: Book View → **Timeline** shows the same range as one scrolling
-  column of ink, newest first — a card for each sitting, with its time and length.
-  A sitting is writing with no pause longer than 20 minutes, so a long meeting stays
-  one card even when it turns a page; each page it touched gets its own strip.
-  Strips show just the band of the page you wrote in (blank paper cut out); click
-  one to see the whole page, with everything else on it in grey
-- **Endless scroll + lazy loading**: keep scrolling and earlier days arrive on their
-  own. The feed is laid out from the capture-date index and reads each day's pages
-  only as you scroll near them, so a month of ink stays quick
-- **Book filter**: choose which notebooks count — the grid, the tallies, the feed and
-  any load into the Editor all follow the same choice
-- **From feed to Editor**: load one card, one day or the whole range into the Editor,
-  or open a card's page in Books
-
-### Reading Pages in Book View (v2.10)
-- **Hover times**: hover any ink on a page and that day's writing turns black, the
-  rest grey, with the date and time it was written beside it. Click it to open that
-  day in the Timeline. **Times** in the Book View bar switches hovering off
-- **Page rotation**: a page written with the notebook turned sideways can be shown
-  upright — Landscape ↻, Landscape ↺ or Upside down — in Book View, the Timeline
-  and the Editor. Display only: your strokes are never rewritten, and the choice is
-  kept per page in `pages/_orientation.json`. Transcription sends the page upright
-
-### Data Explorer & Search
-- **Five-Tab Interface**:
-  - **Strokes**: Browse strokes by book and page with collapsible headers
-  - **Transcripts**: *Review* incoming transcriptions, or *Search* everything already saved
-  - **Pages**: Explore saved pages with lazy import
-  - **Books**: Name your notebooks and choose which volume new strokes are saved to
-  - **Dates**: Load the canvas by when you wrote, rather than by which notebook
-- **Two searches**: the canvas header finds a page among those currently loaded and pans
-  to it (Ctrl+F); Transcripts → Search covers every saved page on disk (Ctrl+Shift+F)
-- **Activity Log**: Settings → Troubleshooting, filterable by level with one-click copy
-- **Storage Stats**: Track saved pages and sync status
-
-### Professional Workflow Support
-- **Create New Pages**: Convert duplicated strokes to new pages in your data folder
-- **Coordinate Normalization**: Automatic anchor point calculation
-- **Batch Operations**: Process multiple pages efficiently
-- **Persistent Settings**: MyScript keys, data/graph folders, UI state
-- **Error Recovery**: Graceful handling of connection issues
-- **Progress Tracking**: Visual feedback for long operations
-
-## Prerequisites
-
-### For Using the Live Demo
-1. **Chrome or Edge browser** (Firefox doesn't support Web Bluetooth)
-2. **HTTPS connection** (provided automatically by GitHub Pages)
-3. **NeoSmartpen** with Bluetooth capability (Lamy Safari / NWP-F80 tested)
-4. **Ncode paper** for the pen to track positions
-5. **LogSeq graph folder** (optional, only to publish sketches — no running LogSeq needed)
-6. **MyScript Developer Account** for handwriting recognition (free tier: 2,000 requests/month)
-
-### For Local Development
-1. **Chrome or Edge browser** (Firefox doesn't support Web Bluetooth)
-2. **Node.js 18+** installed
-3. All of the above items from "Using the Live Demo"
-
-## Setup
-
-### Option 1: Use the Live Demo (Recommended for Most Users)
-
-Simply visit the demo URL in Chrome or Edge. No installation required!
-
-Skip to **Step 3** below to configure MyScript API keys.
-
-### Option 2: Run Locally
-
-#### 1. Install Dependencies
+## Development
 
 ```bash
-cd smartpen-logseq-bridge
 npm install
+npm run dev              # Vite dev server on localhost:3000; opens the Electron window on it
+npm run build            # production build into dist/, which Electron loads
+npx electron .           # run the desktop app from dist/
+npm test                 # Vitest, single pass
+npm run electron:build   # Windows installer into release/
 ```
 
-#### 2. Start the Development Server
-
-```bash
-npm run dev
-```
-
-This opens the app at `http://localhost:3000` (configured in vite.config.js)
-
-> **Note:** Local development must use `localhost` (not `127.0.0.1`) for Web Bluetooth to work properly.
-
-### 3. Configure MyScript API
-
-1. Create an account at [MyScript Developer](https://developer.myscript.com/)
-2. Create a new application
-3. Copy your **Application Key** and **HMAC Key**
-4. Click the **⚙️ Settings** dropdown in the app header
-5. Enter your keys in the **MyScript Settings** section
-6. Click **Test Keys** to verify
-
-### 4. Set a LogSeq Graph Folder (Optional)
-
-Only needed if you want to publish sketches to LogSeq. Requires the JPI Tools
-plugin (v1.9.66+) installed in that graph.
-
-1. Click **⚙️ Settings** > **LogSeq Graph**
-2. **Browse…** to your graph's root folder (the one containing `assets/`)
-3. Confirm the status dot turns green
-
-No LogSeq HTTP API, developer mode, or running LogSeq instance is required —
-the bridge writes plugin assets straight to disk. (v1 used the HTTP API; that
-was removed in v2.0.)
-
-### 5. Connect Your Pen
-
-1. Turn on your Lamy smartpen
-2. Click **Connect Pen** in the bridge app
-3. Select your pen from the Bluetooth dialog
-4. If prompted, enter your pen's password (4 digits)
-5. Wait for authorization confirmation
-
-## Usage Guide
-
-### Basic Workflow
-
-#### 1. Capture Strokes
-
-**Real-time Writing:**
-- Write on Ncode paper with pen connected
-- Strokes appear instantly on canvas
-- Multiple pages detected automatically
-- Pages shown with colored borders and labels (e.g., "B3017 / P42")
-
-**Offline Sync:**
-- Click **Fetch Stored Notes** to download from pen memory
-- Progress bar shows transfer status
-- All pages loaded onto canvas automatically
-
-#### 2. Select & Filter
-
-**Box Selection:**
-- Drag to create selection rectangle
-- All intersecting strokes are selected
-- Hold Ctrl to add to selection
-- Hold Shift to toggle selection
-
-**Page Filtering:**
-- Use Page Selector dropdown to choose visible pages
-- Select multiple pages (Ctrl+click)
-- "Select All" / "Deselect All" buttons
-- Filtered view shows only selected pages
-
-**Smart Filtering:**
-- Click **🎨 Deselect Decorative** to filter boxes, underlines, circles
-- Automatic detection of non-text elements
-- Helps focus on actual content
-
-#### 3. Transcribe
-
-**MyScript Transcription:**
-1. Select strokes to transcribe (or leave all selected for full page)
-2. Click **Transcribe** button
-3. Progress modal shows page-by-page status
-4. Results appear in the **Transcripts** tab (Review)
-5. Hierarchy and indentation automatically detected
-
-**View Results:**
-- Switch to the **Transcripts** tab in the left panel
-- Expand page cards to see transcribed text
-- View hierarchy with indentation
-- Check detected commands
-
-#### 4. Manipulate Strokes
-
-**Duplicate & Arrange:**
-1. Select strokes you want to work with
-2. Press Ctrl+D (or click **🔄 Duplicate**)
-3. Duplicated strokes appear in green with slight offset
-4. Drag duplicated strokes to reposition
-5. Box select multiple duplicates to move as group
-
-**Create New Pages:**
-1. Select duplicated strokes you want to save
-2. Click **📄 Save as Page (N)**
-3. Dialog shows autocomplete for book/page numbers
-4. Enter book and page numbers
-5. Handle conflicts (overwrite or append if page exists)
-6. Converted strokes appear as regular page
-7. Remaining duplicates stay for further work
-
-#### 5. Page Management
-
-**Reposition Pages:**
-- Drag the "B#/P#" label to move entire page
-- Custom positions saved and persist across sessions
-- Click **📐 Reset Layout** to return to automatic arrangement
-
-**Resize Pages:**
-- Drag corner handle at bottom-right of page border
-- Plain drag: Free resize
-- Shift+drag: Maintain aspect ratio
-- Scale shown in page label (e.g., "150%")
-- Click **📏 Reset Sizes** to return to 100%
-- Top-left corner stays anchored during resize
-
-#### 6. Save to LogSeq
-
-**Selective Saving:**
-- **With selection**: Only saves pages containing selected strokes
-- **Without selection**: Saves all visible pages
-
-**Process:**
-1. Ensure LogSeq is connected (green indicator)
-2. Click **Save to LogSeq** in header
-3. Confirmation dialog shows pages to be saved
-4. Activity log shows progress
-5. Storage status updated with success count
-
-**What Gets Saved:**
-- Raw stroke data (for later re-import)
-- Transcribed text (if available)
-- Hierarchical structure with indentation
-- Page metadata (book, page, timestamps)
-
-### Advanced Features
-
-#### LogSeq Database Integration
-
-**Scan Database:**
-1. Connect to LogSeq
-2. Click **Refresh** in the **Saved Pages** tab
-3. Scanner finds all smartpen pages
-4. View organized by book with page counts
-
-**Import Pages:**
-- Click **Lazy Import** on any page card
-- Imports strokes without re-transcription
-- Preserves existing transcription text
-- View imported strokes on canvas
-
-**Search Transcripts:**
-1. Left panel → **Transcripts** tab → **Search** (or Ctrl+Shift+F)
-2. Enter a search term
-3. Results show matching text with context
-4. **Import strokes** loads the page onto the canvas; **Open in Book View** just reads it
-
-**Find a page already on the canvas:**
-1. Type in the search box beside **Deselect** in the canvas header (or Ctrl+F)
-2. Matches on notebook name, page number, and transcript text — loaded pages only
-3. Click a result to pan to that page (a page hidden by the Filter is revealed first)
-4. In **📝 Text** view, matching words are highlighted on the page itself
-
-**Remove one page from the canvas:**
-- Hover a page in the **Filter** control at the bottom of the canvas and click **✕**
-- The checkbox hides a page; the ✕ unloads it entirely
-- Your saved file is not touched — re-import the page any time. If the page holds
-  unsaved work, you are told exactly what would be discarded first
-
-#### Fixing Stray Points
-
-When a stroke has a line shooting off to the corner of the page, one recorded point
-is bad — usually the first one, sitting at the page origin.
-
-1. Click the stroke to select it (or box-select the area around it)
-2. Click **📍 Edit Points** in the canvas header
-3. Every point of the selected stroke(s) appears as a handle. Suspect points are
-   **amber**; the panel at the top-left lists them with their coordinates — a stray
-   reads `0.00, 0.00`
-4. Either:
-   - Click **Delete all** in the panel to remove every suspect point, or
-   - Click the handle you want (Ctrl+click to add more, or drag a box over several)
-     and press **Del**
-5. The line to the corner disappears and the page border shrinks back to your real
-   content
-6. **Save** — the dialog shows the page with **✎ N edited** and an amber **Editing**
-   total. Confirm to write it; the removed points are gone for good
-
-**Notes:**
-- Click a listed point to centre the canvas on it — handy when the stray is off in a
-  corner and you're zoomed out
-- **Esc** clears the point selection; a second **Esc** leaves the mode
-- A stroke can't be reduced below two points (there'd be no line left to draw). If
-  you try, the app says so and leaves the stroke alone — delete the whole stroke
-  instead
-- Point editing works on the strokes you have selected, so the stroke selection is
-  locked while the mode is on. Leave the mode to select something else
-- Already published a stroke to LogSeq before fixing it? The graph keeps the old
-  version — re-exporting won't overwrite it
-
-#### Text View Mode
-
-**Toggle Views:**
-- Click **📝 Show Text** in canvas header
-- Displays transcribed text within page boundaries
-- Combines MyScript and LogSeq transcriptions
-- Click **✏️ Show Strokes** to return to stroke view
-
-**Requirements:**
-- Pages must have transcription data
-- Either from MyScript or LogSeq imports
-- Warning shown if no transcriptions available
-
-#### Naming Notebooks (Books tab)
-
-**Custom Naming:**
-1. Left panel → **Books** tab
-2. Click **✎** beside a volume and type a name
-3. Names appear throughout the UI. Example: "3017" → "Meeting Notes"
-
-Each **volume** of a book is named separately, so two identical notebooks sharing
-one NCode id can be called completely different things — "Site Visits" and
-"Load Calcs". A volume with no name inherits the parent book's with a volume
-suffix until you give it one, and a volume can be named before you write in it.
-
-#### Browsing by Date
-
-1. Left panel → **Dates** tab
-2. Drag across the activity grid, or type a range into **From** / **To**
-3. Check the tallies, then **Load onto canvas**
-
-The panel warns when the range includes pages that also hold ink from other days —
-those arrive with their remaining strokes drawn in grey. Loading **adds** to the
-canvas rather than replacing it, so use **Clear** first if you want only the range.
-Untick **Order canvas by date** to go back to notebook order.
-
-Transcribing while a date-filtered page is loaded covers the loaded strokes only;
-the app warns when that's about to happen.
-
-**To read a range rather than edit it**, click **View as timeline** (or Book View →
-**Timeline**). The feed follows whatever range the Dates tab has selected, newest
-day first — the top-bar toggle switches to oldest first. Scroll past the end and the
-range grows to take in the next few days with ink. Each card is one sitting (no pause
-over 20 minutes), with a strip for each page it touched: **Whole page** (or a click
-on the ink) shows the page around a strip, **Open page** jumps to it in Books, and
-**Load into Editor** brings just that sitting onto the canvas with the rest of each
-page in grey. **All books ▾** (in the feed header or the Dates tab) limits
-everything to the notebooks you tick — **Only** narrows to one in a click. **Load day into Editor** and **Load
-range into Editor** do the same for bigger spans. While the feed is showing, click a
-day in the Dates list to scroll to it; the day at the top of the feed is marked
-**In view**.
-
-#### Hover Times and Page Rotation
-
-In Book View → **Books**, open a page and hover the ink. All the writing from that day
-draws black, everything else on the page grey, and a label at its top-right gives the
-date and the first-to-last time that day. Click the ink to jump to that day in the
-Timeline (the Dates range becomes that one day). Drag to pan as usual; only a click
-without dragging opens the Timeline. Turn hovering off with **Times** in the Book
-View bar.
-
-If you wrote on a page with the notebook turned sideways, use ↺ / ↻ (or the picker)
-in the page's toolbar to show it upright. The setting is per page, takes effect at
-once and is not an unsaved change. It applies in Book View, the Timeline and the
-Editor, where selecting and editing work on the upright page. Strokes on disk keep
-their original coordinates; duplicated strokes, SVG export and Export to graph stay
-unturned.
-
-### Canvas Navigation
-
-**Mouse Controls:**
-- **Alt+drag** or **Middle-click drag**: Pan canvas
-- **Ctrl+scroll**: Zoom in/out
-- **Scroll**: Pan vertically/horizontally
-- **Fit button**: Auto-fit all strokes in view
-- **Reset button**: Return to default view (100% zoom)
-
-**Keyboard Shortcuts:**
-- **Ctrl+A** (Cmd+A): Select all visible strokes
-- **Ctrl+D** (Cmd+D): Duplicate selected strokes
-- **Delete**: Delete selected duplicated strokes
-- **Escape**: Cancel box selection, clear duplicated selection, or cancel resize
-
-**In Edit Points mode:**
-- **Click**: Select a point handle · **Ctrl+click**: add · **Shift+click**: remove
-- **Drag**: Box-select points (Ctrl+drag to add, Shift+drag to remove)
-- **Delete** / **Backspace**: Delete the selected points
-- **Escape**: Clear the point selection; press again to leave the mode
-
-**Selection Modes:**
-- **Click**: Select single stroke (replace selection)
-- **Ctrl+click**: Toggle individual stroke
-- **Shift+click**: Remove stroke from selection
-- **Drag**: Box select (replace)
-- **Ctrl+drag**: Box select (add)
-- **Shift+drag**: Box select (toggle)
-
-### Export Options
-
-**SVG Export:**
-- Click **SVG** button in canvas controls
-- Exports visible strokes as scalable vector graphics
-- Preserves all stroke details
-- Perfect for archiving or sharing
-
-**JSON Export:**
-- Click **JSON** button in canvas controls
-- Exports raw stroke data
-- Includes all metadata and dot arrays
-- For programmatic analysis or backup
-
-**Export to LogSeq (⇪ LogSeq):**
-- Publishes strokes into your LogSeq graph as JPI Tools plugin assets, so
-  sketches render in LogSeq via `{{renderer :smartpen-sketch, …}}`
-- Select strokes first to publish just those; with nothing selected, publishes
-  the visible page. `⇪ LogSeq` on a Saved Pages card publishes that whole page
-- **Additive** — each export adds to what that page already has in the graph, so
-  you can publish sketches one at a time. Re-exporting the same strokes changes
-  nothing
-- **Never includes transcript text** — only the strokes you chose
-- Your data folder stays the complete notebook; the graph gets only what you send
-- Which region a given sketch renders is chosen in LogSeq (the plugin's
-  Visualizer emits the bounds), not here
-
-## Data Structure
-
-### Stroke Format
-```javascript
-{
-  pageInfo: {
-    section: number,      // Ncode section
-    owner: number,        // Ncode owner
-    book: number,         // Notebook ID
-    page: number          // Page number
-  },
-  startTime: number,      // Unix timestamp (ms)
-  endTime: number,        // Unix timestamp (ms)
-  dotArray: [
-    { 
-      x: number,          // Ncode X coordinate
-      y: number,          // Ncode Y coordinate  
-      f: number,          // Pressure (force)
-      timestamp: number   // Dot timestamp (ms)
-    }
-  ]
-}
-```
-
-### Transcription Result
-```javascript
-{
-  text: "Full transcribed text with\nline breaks",
-  strokeCount: number,
-  pageInfo: { section, owner, book, page },
-  lines: [
-    {
-      text: "Line content",
-      indentLevel: 0,        // 0, 1, 2, etc.
-      parent: null,          // Index of parent line
-      children: [1, 2],      // Indices of child lines
-      x: 10.5,               // Leftmost position
-      baseline: 25.3,        // Y position
-      words: [...]           // Word-level data
-    }
-  ],
-  commands: [
-    { 
-      command: "page", 
-      value: "Meeting Notes", 
-      lineIndex: 0 
-    }
-  ]
-}
-```
-
-### LogSeq Storage Format (v1, removed in v2.0)
-
-> **Note:** v2.0 replaced this format with one JSON file per page on disk. See [docs/LOCAL-STORAGE-PIVOT-SPEC.md §3](docs/LOCAL-STORAGE-PIVOT-SPEC.md) for the current PageDoc shape. The block below is retained for historical context.
-
-```
-smartpen/B3017/P42
-  properties::
-    book:: 3017
-    page:: 42
-    section:: 3
-    owner:: 1012
-    timestamp:: 2024-12-22T10:30:00Z
-    stroke-count:: 247
-  
-  transcription:: This is the transcribed text
-  with multiple lines and proper indentation
-  preserving the hierarchy from handwriting
-  
-  stroke-data:: [JSON array of stroke objects]
-```
-
-## Architecture
-
-> **Note:** The diagrams and module lists in this section describe v1 (LogSeq-backed). The v2.0 storage layer lives in `src/lib/storage/` instead of `logseq-*.js`; the rest is largely unchanged. See [CLAUDE.md](CLAUDE.md) and [docs/LOCAL-STORAGE-PIVOT-SPEC.md](docs/LOCAL-STORAGE-PIVOT-SPEC.md) for the current state.
-
-### System Overview
-```
-┌──────────────┐     BLE      ┌─────────────────┐     HTTP      ┌──────────────┐
-│  NeoSmartpen │ ───────────► │  Bridge App     │ ────────────► │   LogSeq     │
-│  (Lamy F80)  │              │  (Svelte 4)     │               │   HTTP API   │
-└──────────────┘              │   ┌──────────┐  │               └──────────────┘
-                              │   │ MyScript │  │                       │
-                              │   │ Cloud API│  │                       │
-                              │   └──────────┘  │                       │
-                              └─────────────────┘                       │
-                                      ▲                                  │
-                                      └──────────────────────────────────┘
-                                            Database Scanner
-```
-
-### Component Architecture
-```
-App.svelte (Root)
-├── Header
-│   ├── PenControls (Connect, Fetch, Transcribe)
-│   ├── ActionBar (Save, Clear, unsaved-changes dot)
-│   └── SettingsDropdown (MyScript, Data Folder, Graph Folder, Pen Memory,
-│                         Troubleshooting → Activity Log)
-├── LeftPanel (Strokes · Transcripts · Pages · Books)
-│   ├── StrokeList (Browse by book/page)
-│   ├── TranscriptsPanel (Review incoming · Search saved)
-│   ├── SavedPagesTab (Saved-page browser)
-│   └── BooksTab (Per-notebook names + volume routing)
-└── Canvas Section (Editor ⇄ Book View)
-    ├── StrokeCanvas (Editor)
-    │   ├── Canvas Renderer (Drawing engine)
-    │   ├── CanvasSearch (Find a loaded page)
-    │   ├── CanvasControls (Zoom, fit, reset view)
-    │   ├── PageSelector (Multi-page filtering + per-page unload)
-    │   ├── SketchStylePopover (Pressure → thickness)
-    │   └── FilteredStrokesPanel (Decorative strokes)
-    └── BookViewer (Read/edit saved pages as a book)
-```
-
-### State Management (Svelte Stores)
-
-**Core Data:**
-- `strokes` - All captured strokes
-- `pages` - Page organization map
-- `selection` - Selected stroke indices
-- `clipboard` - Copied strokes
-- `pastedStrokes` - Duplicated/pasted strokes
-
-**Transcription:**
-- `lastTranscription` - Most recent MyScript result
-- `pageTranscriptions` - Per-page transcription cache
-- `transcriptionByPage` - Organized transcription data
-
-**LogSeq:**
-- `savedPages` - Scanned saved-page index
-- `storage` - Save status tracking
-- `bookAliases` - Custom book names
-
-**UI State:**
-- `activeTab` - Current data explorer tab
-- `canvasZoom` - Zoom level
-- `pagePositions` - Custom page layout
-- `pageScales` - Per-page scaling factors
-- `logMessages` - Activity log entries
-
-**Advanced:**
-- `filteredStrokes` - Decorative elements
-- `pendingChanges` - Undo system
-- `deletedIndices` - Soft-delete tracking
-
-## Project Structure
-
-```
-smartpen-logseq-bridge/
-├── index.html              # Entry HTML
-├── src/
-│   ├── App.svelte          # Root Svelte component
-│   ├── main-svelte.js      # Application entry point
-│   │
-│   ├── components/         # Svelte 4 components
-│   │   ├── books/          # Notebook identity
-│   │   │   └── BooksTab.svelte          # Names + volume routing per book
-│   │   ├── canvas/         # Canvas and rendering
-│   │   │   ├── StrokeCanvas.svelte
-│   │   │   ├── CanvasControls.svelte    # Zoom / Fit / Reset View
-│   │   │   ├── CanvasSearch.svelte      # Find a loaded page
-│   │   │   ├── PageSelector.svelte      # Page filter + per-page unload
-│   │   │   ├── PointEditPanel.svelte
-│   │   │   └── SketchStylePopover.svelte
-│   │   ├── dialog/         # Modal dialogs
-│   │   │   ├── ActivityLogDialog.svelte
-│   │   │   ├── BluetoothDevicePicker.svelte
-│   │   │   ├── BookSelectionDialog.svelte
-│   │   │   ├── CreatePageDialog.svelte
-│   │   │   ├── ExportSvgDialog.svelte
-│   │   │   ├── PenMemoryDialog.svelte
-│   │   │   ├── SaveConfirmDialog.svelte
-│   │   │   └── TranscriptionEditorModal.svelte
-│   │   ├── header/         # Top bar components
-│   │   │   ├── ActionBar.svelte
-│   │   │   └── SettingsDropdown.svelte
-│   │   ├── layout/         # App layout
-│   │   │   ├── Header.svelte
-│   │   │   └── LeftPanel.svelte
-│   │   ├── pen/            # Pen controls
-│   │   │   ├── PenControls.svelte
-│   │   │   ├── PenInfo.svelte
-│   │   │   └── TransferProgress.svelte
-│   │   ├── saved-pages/    # Saved-page browser
-│   │   │   ├── SavedPagesTab.svelte
-│   │   │   ├── SavedPagesHeader.svelte
-│   │   │   ├── BookAccordion.svelte
-│   │   │   ├── PageCard.svelte
-│   │   │   └── TranscriptionPreview.svelte
-│   │   ├── settings/       # Configuration
-│   │   │   ├── DataFolderSettings.svelte
-│   │   │   ├── GraphFolderSettings.svelte
-│   │   │   └── SketchStyleSettings.svelte
-│   │   ├── strokes/        # Stroke browser
-│   │   │   ├── StrokeList.svelte
-│   │   │   ├── StrokeBookAccordion.svelte
-│   │   │   ├── StrokePageCard.svelte
-│   │   │   ├── StrokeItem.svelte
-│   │   │   ├── SelectionInfo.svelte
-│   │   │   ├── FilterSettings.svelte
-│   │   │   ├── FilteredStrokesPanel.svelte
-│   │   │   └── AnalysisView.svelte
-│   │   ├── transcription/  # Transcription review + search
-│   │   │   ├── TranscriptsPanel.svelte  # Review / Search switch
-│   │   │   ├── TranscriptionView.svelte
-│   │   │   ├── TranscriptSearch.svelte
-│   │   │   ├── SearchResultCard.svelte
-│   │   │   ├── HierarchyTree.svelte
-│   │   │   ├── LineDisplay.svelte
-│   │   │   └── CommandList.svelte
-│   │   └── viewer/         # Book View
-│   │       ├── BookViewer.svelte
-│   │       ├── PageSpreadView.svelte
-│   │       └── TranscriptPane.svelte
-│   │
-│   ├── stores/             # Svelte stores (state)
-│   │   ├── strokes.js      # Stroke data
-│   │   ├── canvas.js       # Unload a page from the canvas (index-safe)
-│   │   ├── selection.js    # Selection state
-│   │   ├── point-edit.js   # Point-handle editing mode
-│   │   ├── sketch.js       # Pressure → thickness profile
-│   │   ├── pen.js          # Pen connection
-│   │   ├── transcription.js # Transcription results
-│   │   ├── settings.js     # Persisted settings
-│   │   ├── ui.js           # UI state, tabs, dialogs
-│   │   ├── viewer.js       # Book View pane state
-│   │   ├── storage.js      # Save status + unsaved-changes flag
-│   │   ├── saved-pages.js  # Saved-page scan results
-│   │   ├── book-aliases.js # Book name mappings
-│   │   ├── volumes.js      # Capture routing per physical notebook
-│   │   ├── clipboard.js    # Copy/paste
-│   │   ├── pasted-strokes.js  # Duplicated strokes
-│   │   ├── page-order.js      # Custom page positions
-│   │   ├── page-scale.js      # Page scaling
-│   │   ├── filtered-strokes.js # Decorative filtering
-│   │   └── pending-changes.js  # Dirty-state diff + undo
-│   │
-│   ├── lib/                # Business logic
-│   │   ├── pen-sdk.js         # NeoSmartpen SDK wrapper
-│   │   ├── canvas-renderer.js # Canvas drawing engine
-│   │   ├── myscript-api.js    # MyScript API client
-│   │   ├── volumes.js         # Book keys ("388" / "388v2")
-│   │   ├── point-edit.js      # Stray-point detection + removal
-│   │   ├── sketch-width.js    # Pressure → line thickness
-│   │   ├── stroke-analyzer.js # Shape detection
-│   │   ├── stroke-filter.js   # Decorative detection
-│   │   ├── stroke-storage.js  # Storage utilities
-│   │   ├── transcript-search.js # Search engine
-│   │   ├── storage/           # PageDoc read/write + LogSeq export
-│   │   └── viewer/            # Book View SVG, cache, markdown
-│   │
-│   └── utils/              # Helpers
-│       └── formatting.js   # Book/page names, text formatting
-│
-├── electron/               # Electron desktop app wrapper
-│
-├── docs/                   # Documentation
-│   ├── app-specification.md
-│   ├── TRANSCRIPT-STORAGE-SPEC.md
-│   ├── bridge-uuid-system.md
-│   ├── bullet-journal-spec.md
-│   ├── logseq-markup-converter-spec.md
-│   ├── temporal-data-specification.md
-│   ├── implementation-logs/
-│   ├── proposals/
-│   └── Archive/            # Archived implementation docs
-│
-├── package.json
-├── vite.config.js
-└── README.md
-```
-
-## Documentation
-
-- **[App Specification](docs/app-specification.md)**: Complete technical documentation of the system architecture, data flows, and APIs.
-
-- **[Transcript Storage Spec](docs/TRANSCRIPT-STORAGE-SPEC.md)**: v3.0 transcript storage system architecture, data flows, and known issues.
-
-- **[Bridge UUID System](docs/bridge-uuid-system.md)**: Custom UUID system for stroke-to-block tracking.
-
-- **[Bullet Journal Detection](docs/bullet-journal-spec.md)**: Specification for future bullet journal symbol detection (checkboxes, circles, dashes).
-
-- **[Temporal Data](docs/temporal-data-specification.md)**: Specification for leveraging temporal metadata for advanced analysis.
-
-- **[LogSeq Markup Converter](docs/logseq-markup-converter-spec.md)**: Specification for markup conversion between formats.
-
-- **[Archive Index](docs/Archive/ARCHIVE-INDEX.md)**: Index of all archived implementation documentation.
+Stack: Svelte 4, Vite, Electron, web_pen_sdk (NeoSmartpen Web SDK), MyScript Cloud
+API (proxied through the main process), Canvas and SVG. Web Bluetooth needs Chromium,
+which Electron provides.
+
+Debug tracing (pen messages, recognition dumps, render steps) is off by default. In
+DevTools run `localStorage.setItem('smartpen-debug', '1')` and reload; errors and
+the Activity Log (Settings → Troubleshooting) are always on.
+
+Documentation:
+
+| Doc | For |
+|---|---|
+| [CLAUDE.md](CLAUDE.md) | Rules that must not be broken (storage, book keys, dates, rendering) |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Component tree, stores, libraries |
+| [docs/CHANGELOG.md](docs/CHANGELOG.md) | Why each feature is built the way it is |
+| [docs/TESTING.md](docs/TESTING.md) | Test inventory and the manual checklist |
+| [docs/READING-UX-SPEC.md](docs/READING-UX-SPEC.md) | The v3.0.0 reading-first design |
+| [docs/VOLUMES-SPEC.md](docs/VOLUMES-SPEC.md) | Notebook volumes |
+| [docs/NEOSMARTPEN-SDK-USAGE.md](docs/NEOSMARTPEN-SDK-USAGE.md) | Pen SDK usage |
+| [docs/EDITOR-IMPORT-SPEC.md](docs/EDITOR-IMPORT-SPEC.md) | The handwriting editor's import formats, which the JSON / Markdown exports follow |
 
 ## Troubleshooting
 
-### Connection Issues
+**The pen won't connect.** Check Bluetooth is on, turn the pen off and on, make sure
+no other app (Neo's phone app) holds the pen, or remove it from Windows Bluetooth
+devices and pair again. A low battery can cause timeouts.
 
-**"Cannot connect to pen"**
-- Ensure Bluetooth is enabled on your computer
-- Turn the pen off and on again
-- Use Chrome or Edge (not Firefox)
-- Check that no other app is connected to the pen
-- Try removing the pen from Bluetooth devices and re-pairing
+**Ink doesn't appear.** Use Ncode paper and check the pen chip says connected. Ink
+written while a Library transcript edit is unsaved is still captured; switch to the
+Editor to see it.
 
-**"Connection timeout"**
-- Pen may be in low battery mode
-- Check battery level in pen info display
-- Move closer to computer (within 10 meters)
-- Avoid obstacles between pen and computer
+**"Folder: not set" or "Folder: missing".** Settings → Data Folder → Browse, or
+Verify after moving the folder. Choosing a different folder reloads the Library,
+search and Timeline from it.
 
-### Data Folder
+**A page or notebook is missing from the Library.** Click **Rescan** on the Library
+home. Saves made in the app refresh it automatically.
 
-**"Folder: not set" or "Folder: missing"**
-- Open Settings → Data Folder → Browse, pick a folder. The app will write `pages/B###/P##.json` files into it.
-- If you've moved the folder, click **Verify** in Settings to re-check.
+**MyScript fails.** Check both keys in Settings → MyScript Configuration (Test
+Keys), that the application is active and has Text recognition, and the monthly
+quota. Transcribe fewer strokes at a time if a page returns nothing.
 
-**Migrating from a v1 LogSeq export**
-- Run: `node scripts/migrate-from-logseq.cjs <folder-of-md-files> "C:\path\to\your\data-folder"`
-- The script is idempotent and never touches the source `.md` files.
+**The canvas is slow.** Above about 2,000 strokes per page, use the page selector to
+show fewer pages.
 
-### LogSeq Integration (v1, removed)
+## Version history
 
-> **Note:** v2.0 dropped LogSeq integration entirely. The items below are kept as historical reference for users coming from v1. None of these settings exist in v2.0.
-
-**"Cannot connect to LogSeq"**
-- Verify LogSeq is running
-- Check that HTTP API is enabled in LogSeq settings
-- Confirm the port (default: 12315)
-- If using a token, ensure it's entered correctly in settings
-- Try clicking "Test Connection" to diagnose
-
-**"Pages not appearing in database"**
-- Click "Refresh" in the Saved Pages tab to re-scan
-- Check that pages exist under `smartpen/` namespace
-- Verify pages have `stroke-data` property
-- Scanner looks for format: `smartpen/B###/P##`
-
-### MyScript Issues
-
-**"MyScript authentication failed"**
-- Verify Application Key and HMAC Key are correct
-- Check that your MyScript application is activated
-- Ensure Text recognition is enabled in MyScript dashboard
-- Free tier allows 2,000 requests/month (check quota)
-- Click "Test Keys" to verify credentials
-
-**"Transcription returns no text"**
-- Ensure strokes form readable writing
-- Check that strokes are not too small
-- Try transcribing fewer strokes at once
-- MyScript requires minimum stroke density
-
-### Canvas Issues
-
-**"No strokes appear after writing"**
-- Make sure you're using Ncode paper
-- Check the pen tip is working (LED should blink while writing)
-- Verify pen is connected (green indicator)
-- Try fetching offline data to test connection
-- Check that page filter includes the page you wrote on
-
-**"Box selection not working"**
-- Make sure you drag at least 5 pixels (small movements are treated as clicks)
-- Use Alt+drag for panning, not plain drag
-- Ctrl/Shift+drag modifies selection instead of replacing
-
-**"Page positioning seems wrong"**
-- Click "Reset Layout" to return to automatic positioning
-- Custom positions are saved - clear them if needed
-- Check that you're not accidentally dragging page labels
-
-**"Strokes appear in wrong location"**
-- This can happen when pen data has incorrect section/owner
-- Try importing from LogSeq which fuzzy-matches by book/page
-- Check that Ncode paper matches pen's notebook configuration
-
-### Performance Issues
-
-**"Canvas is slow with many strokes"**
-- Use page filtering to show only relevant pages
-- Clear old strokes you no longer need
-- Export and archive completed notes
-- Browser may struggle with >2000 strokes visible
-
-**"Transcription takes too long"**
-- Processing is page-by-page, so multiple pages take time
-- MyScript API has rate limits
-- Network latency affects performance
-- Consider transcribing selected strokes only
-
-### Data Issues
-
-**"Duplicate strokes appearing"**
-- This can happen if same strokes imported multiple times
-- Use LogSeq scanner to check what's already saved
-- Clear strokes and re-import if needed
-- Check activity log for double-save operations
-
-**"Lost my work after refresh"**
-- Strokes are not persisted unless saved to LogSeq
-- MyScript transcriptions are cached but may expire
-- Custom page positions and scales are saved to localStorage
-- Always save to LogSeq for permanent storage
-
-## Deployment
-
-### Deploy to GitHub Pages
-
-The app is configured for automatic deployment to GitHub Pages using GitHub Actions.
-
-#### Initial Setup
-
-1. **Push your repository to GitHub** (if not already done):
-   ```bash
-   git add .
-   git commit -m "Add GitHub Pages deployment"
-   git push origin main
-   ```
-
-2. **Enable GitHub Pages in repository settings**:
-   - Go to your repository on GitHub
-   - Navigate to **Settings** → **Pages**
-   - Under "Source", select **GitHub Actions** (not "Deploy from a branch")
-   - Save the changes
-
-3. **Wait for deployment** (2-3 minutes):
-   - Go to the **Actions** tab in your repository
-   - Watch the "Deploy to GitHub Pages" workflow run
-   - Once complete, your app will be live!
-
-4. **Access your deployed app**:
-   - Visit `https://yourusername.github.io/smartpen-logseq-bridge/`
-   - Replace `yourusername` with your actual GitHub username
-
-#### Automatic Updates
-
-After the initial setup, every push to the `main` branch will automatically trigger a new deployment. No manual intervention needed!
-
-#### Manual Deployment
-
-You can also manually trigger a deployment:
-- Go to **Actions** tab in your repository
-- Select the "Deploy to GitHub Pages" workflow
-- Click **Run workflow**
-- Choose the branch (usually `main`)
-- Click **Run workflow**
-
-#### Local Preview of Production Build
-
-Before deploying, you can test the production build locally:
-
-```bash
-npm run build
-npm run preview
-```
-
-This will build and serve the app exactly as it will appear on GitHub Pages.
-
-### Important Notes for GitHub Pages Deployment
-
-- **HTTPS is automatic**: GitHub Pages provides HTTPS by default, which is required for Web Bluetooth
-- **Base path is configured**: The app is configured to work at `/smartpen-logseq-bridge/` path
-- **LogSeq must be local**: Users will need LogSeq running locally with HTTP API enabled
-- **MyScript keys**: Users should use their own MyScript API keys for production use
-- **Browser requirements**: Only Chrome and Edge support Web Bluetooth
-
-## Development Roadmap
-
-### Completed ✅
-- [x] Pen connection and real-time capture
-- [x] Offline note sync with progress tracking
-- [x] Handwriting transcription (MyScript)
-- [x] Line detection with hierarchy
-- [x] Indentation analysis
-- [x] LogSeq HTTP API integration
-- [x] Complete Svelte 4 migration
-- [x] Box selection with multiple modes (replace/add/toggle)
-- [x] Individual stroke toggle selection
-- [x] Keyboard shortcuts (Ctrl+A, Ctrl+D, Delete, Escape)
-- [x] Pan and zoom controls
-- [x] Selective transcription (selected strokes only)
-- [x] Selective LogSeq saving (selected pages only)
-- [x] Real-time transcription progress modal
-- [x] Multi-page canvas visualization with colored borders
-- [x] Page-organized stroke browser with collapsible headers
-- [x] Drag page labels to reposition pages
-- [x] Drag corner handles to resize pages (with aspect ratio lock)
-- [x] Duplicate strokes (Ctrl+D)
-- [x] Create new pages from duplicated strokes
-- [x] LogSeq database scanner and browser
-- [x] Import pages from LogSeq with transcriptions
-- [x] Full-text search across transcribed pages
-- [x] Text view mode (toggle between strokes and text)
-- [x] Book aliases for custom naming
-- [x] Decorative stroke detection and filtering
-- [x] Activity log with real-time feedback
-- [x] Undo system for deletions
-- [x] Conflict resolution (overwrite/append)
-- [x] Storage tracking and sync indicators
-- [x] Load the canvas by capture date, with stroke-level filtering (Dates tab)
-- [x] Book View hover times, with click-through to the day's Timeline
-- [x] Page rotation for pages written sideways
-
-### In Progress 🔄
-- [x] Electron desktop app conversion
-- [ ] Bullet journal symbol detection (`☐`, `○`, `–`)
-- [ ] State detection for tasks (complete/migrated/cancelled)
-
-### Planned 📋
-- [ ] Further temporal features (session detection, writing analytics, playback)
-- [ ] Enhanced command processing (`[project:]`, `[sketch:]`)
-- [ ] Custom Ncode paper templates
-- [ ] Selection history (undo/redo for selections)
-- [ ] Lasso/freehand selection
-- [ ] Smart selection (by time, properties)
-- [ ] Export to PDF with proper formatting
-- [ ] Collaborative features (share pages)
-- [ ] Mobile app version
-- [ ] Cloud backup for strokes
-
-## Tech Stack
-
-- **Frontend Framework**: Svelte 4 (reactive components)
-- **Build Tool**: Vite (fast development and optimized builds)
-- **Pen Integration**: web_pen_sdk (NeoSmartpen Web SDK)
-- **Handwriting Recognition**: MyScript Cloud API
-- **Knowledge Management**: LogSeq HTTP API
-- **Browser APIs**: Web Bluetooth API, Canvas API
-- **State Management**: Svelte stores (writable, derived, custom)
-- **Storage**: LocalStorage (settings, layout, cache)
-
-## Browser Compatibility
-
-| Feature | Chrome | Edge | Firefox | Safari |
-|---------|--------|------|---------|--------|
-| Web Bluetooth | ✅ | ✅ | ❌ | ❌ |
-| Canvas Rendering | ✅ | ✅ | ✅ | ✅ |
-| LocalStorage | ✅ | ✅ | ✅ | ✅ |
-| HTTPS Required | ✅ | ✅ | N/A | N/A |
-
-**Recommendation**: Use Chrome or Edge for full functionality. Firefox and Safari do not support Web Bluetooth API.
-
-## Performance Characteristics
-
-- **Real-time capture**: <50ms latency per stroke
-- **Offline sync**: ~200 strokes/second transfer rate
-- **Transcription**: ~5-10 seconds per page (MyScript API)
-- **LogSeq save**: ~1 second per page (local HTTP)
-- **Canvas render**: 60 FPS with up to 1000 visible strokes
-- **Database scan**: ~100 pages/second
-- **Memory usage**: ~50-100MB typical, scales with stroke count
-
-## License
-
-MIT
+- **3.0.0** - Reading first: Library | Timeline | Editor; Library home with notebook
+  cards and page grids; page reader with shared toolbar, Go to page, written-on
+  ribbon and Ink + text; Timeline range menu and activity strip; global search
+  (Ctrl K); slim header, capture bar on demand, collapsible left panel. No data
+  format change.
+- **2.10.0** - Hover times in Book View; page rotation for pages written sideways
+- **2.9.0** - Opens on the Timeline at your most recent day with ink
+- **2.8.0** - Neo page backgrounds behind the ink; Timeline order
+- **2.7.0** - Book View Timeline: the Dates range as a scrolling feed of sittings
+- **2.6.0** - Load the canvas by capture date with stroke-level filtering
+- **2.3.0** - Export to LogSeq: manual, selective, additive
+- **2.2.0** - Book View transcript editor
+- **2.1.0** - Book View: saved pages as spreads, Load into Editor
+- **2.0.0** - LogSeq → local-folder storage (PageDoc JSON files)
+- **0.3.0** - Electron desktop app
+- **0.2.0** - Svelte 4, stroke manipulation, LogSeq database integration
+- **0.1.0** - Pen connection, capture, MyScript transcription
 
 ## Credits
 
-- [NeoSmartpen Web SDK](https://github.com/NeoSmartpen/WEB-SDK2.0) - Pen communication
-- [MyScript](https://www.myscript.com/) - Handwriting recognition
-- [LogSeq](https://logseq.com/) - Knowledge management platform
-- [Svelte](https://svelte.dev/) - UI framework
-- [Vite](https://vitejs.dev/) - Build tooling
-
-## Contributing
-
-This is an actively developed project for integrating handwritten notes into LogSeq-based workflows. Contributions, bug reports, and feature suggestions are welcome!
-
-### How to Contribute
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Commit your changes (`git commit -m 'Add amazing feature'`)
-5. Push to the branch (`git push origin feature/amazing-feature`)
-6. Open a Pull Request
-
-### Development Guidelines
-
-- Follow existing code style and patterns
-- Use Svelte stores for state management
-- Keep components focused and single-purpose
-- Add comments for complex logic
-- Update documentation for user-facing changes
-- Test with real pen hardware when possible
-
-## Support
-
-For issues, questions, or feature requests:
-- Open an issue on GitHub
-- Check existing documentation in `/docs`
-- Review troubleshooting section above
-- Consult MyScript and LogSeq documentation for integration issues
-
-## Version History
-
-- **2.10.0** (Current) - Book View hover times: hover ink to see the day it was
-  written, click to open that day in the Timeline; page rotation for pages written
-  with the notebook turned sideways (±90° or 180°, display only)
-
-- **2.9.0** - Opens on the Timeline at your most recent day with ink,
-  with the Dates tab beside it; live pen ink switches to the Editor
-
-- **2.8.0** - Neo page backgrounds behind the ink in Book View and the Timeline;
-  Timeline days newest first, entries oldest first within a day
-
-- **2.7.0** - Book View timeline: the Dates range as a scrolling feed of
-  sittings, with endless scroll and a shared book filter
-
-- **2.6.0** - Browse by date: load the canvas by capture date with
-  stroke-level filtering and halftoned context ink
-
-- **2.3.0** - Export to LogSeq: manual, selective, additive stroke
-  publishing (replaced auto-publish-on-save); transcript never exported
-
-- **2.2.0** - Book View transcript editor: re-transcribe ordering fix, line
-  reordering, strokes-alongside-editing
-
-- **2.1.0** - Book View: read saved pages as side-by-side spreads, inline
-  transcript editing, Load into Editor
-
-- **2.0.0** - LogSeq → local-folder storage pivot (PageDoc JSON files)
-
-- **0.3.0** - Electron desktop app + transcript improvements
-  - Electron desktop app conversion
-  - Transcript data loss fixes (Y-bounds, blockUuid preservation)
-  - Hierarchical block creation order fix
-  - BlockUUID assignment bug fix
-  - Transcript storage v3.0 architecture
-
-- **0.2.0** - Major feature release
-  - Complete Svelte 4 migration
-  - Advanced stroke manipulation (duplicate, drag, create pages)
-  - LogSeq database integration (scan, search, import)
-  - Page positioning and scaling
-  - Text view mode
-  - Book aliases
-  - Decorative stroke filtering
-  - Undo system
-  - Enhanced UI with activity log
-
-- **0.1.0** - Initial release
-  - Basic pen connection
-  - Real-time and offline capture
-  - MyScript transcription
-  - Simple LogSeq integration
-  - Canvas with basic selection
-
----
-
-**Made with ❤️ for note-takers who value both handwriting and digital organization**
+[NeoSmartpen Web SDK](https://github.com/NeoSmartpen/WEB-SDK2.0) ·
+[MyScript](https://www.myscript.com/) · [Svelte](https://svelte.dev/) ·
+[Vite](https://vitejs.dev/) · [Electron](https://www.electronjs.org/).
+Developed by Josh Gannon.

@@ -63,7 +63,7 @@
   <div class="dialog-backdrop" on:click={handleCancel}></div>
 
   <!-- Dialog -->
-  <div class="dialog">
+  <div class="dialog" role="dialog" aria-modal="true" aria-label="Export SVG">
     <div class="dialog-header">
       <h2>Export SVG</h2>
       <button class="close-btn" on:click={handleCancel} title="Cancel">&times;</button>

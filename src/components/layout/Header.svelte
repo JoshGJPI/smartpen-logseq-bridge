@@ -12,12 +12,13 @@
 <script>
   import {
     penConnected, unsavedChanges, viewerMode, viewerDirty,
-    isTranscribing, transferProgress, openTranscriptSearch
+    isTranscribing, transferProgress
   } from '$stores';
   import { shouldShowCaptureBar } from '$lib/capture-bar.js';
   import ActionBar from '../header/ActionBar.svelte';
   import PenChip from '../header/PenChip.svelte';
   import SettingsDropdown from '../header/SettingsDropdown.svelte';
+  import SearchField from './SearchField.svelte';
 
   $: hasUnsaved = $unsavedChanges || $viewerDirty;
   $: showCaptureBar = shouldShowCaptureBar({
@@ -36,13 +37,8 @@
     <!-- Primary navigation, supplied by App.svelte (it owns the guarded switch). -->
     <slot name="nav" />
 
-    <!-- Same search as Ctrl+Shift+F on the canvas: Transcripts → Search. -->
-    <button class="search-entry" on:click={openTranscriptSearch} title="Search transcribed pages">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-        <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-      </svg>
-      Search notes…
-    </button>
+    <!-- Global search: words, dates, notebooks; Ctrl K from anywhere. -->
+    <SearchField />
 
     <span class="grow"></span>
 
@@ -90,27 +86,6 @@
     white-space: nowrap;
   }
 
-  .search-entry {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    height: 30px;
-    min-width: 170px;
-    padding: 0 12px;
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    background: transparent;
-    color: var(--text-secondary);
-    font-size: 0.8125rem;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-
-  .search-entry:hover {
-    color: var(--text-primary);
-    border-color: var(--text-secondary);
-  }
-
   .unsaved {
     display: inline-flex;
     align-items: center;
@@ -129,9 +104,4 @@
     box-shadow: 0 0 6px rgba(253, 224, 71, 0.75);
   }
 
-  @media (max-width: 1100px) {
-    .search-entry {
-      min-width: 0;
-    }
-  }
 </style>

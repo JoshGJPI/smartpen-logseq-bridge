@@ -55,6 +55,7 @@
   // Handle Escape key
   function handleKeyDown(event) {
     if (event.key === 'Escape' && isOpen && status !== 'connecting') {
+      event.preventDefault();
       handleCancel();
     }
   }

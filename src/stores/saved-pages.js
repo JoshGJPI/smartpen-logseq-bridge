@@ -10,6 +10,7 @@
  */
 import { writable, derived } from 'svelte/store';
 import { compareBookKeys } from '../lib/volumes.js';
+import { invalidatePage } from '../lib/viewer/page-cache.js';
 
 // Page metadata records, one per PageDoc file found by the scanner
 export const savedPages = writable([]);
@@ -73,22 +74,24 @@ export function clearSavedPages() {
 }
 
 /**
- * Update a specific page's sync status
- * @param {number} book - Book ID
- * @param {number} page - Page number
- * @param {string} status - Sync status ('clean' | 'unsaved')
- *
- * Note: 'in-canvas' is NOT set here — whether a page's strokes are loaded is
- * derived from the strokes store (`canvasPageKeys`) so the badge follows the
- * canvas. Stamping it onto the record left it latched after a canvas Clear.
+ * Reflect a transcript saved in the Library reader back into its scan record:
+ * lightweight fields only (no strokes or PageDoc residency), and drop the
+ * page's cached doc so a re-view reads the fresh transcript. The global search
+ * index is derived from this store, so it picks the new text up too.
+ * @param {string} book  book key
+ * @param {string} pageId  unique-within-book id (incl. suffix)
+ * @param {Array<{text?: string, indentLevel?: number}>} lines
  */
-export function updatePageSyncStatus(book, page, status) {
-  savedPages.update(pages => {
-    return pages.map(p => {
-      if (p.book === book && p.page === page) {
-        return { ...p, syncStatus: status };
-      }
-      return p;
-    });
-  });
+export function applyTranscriptToRecord(book, pageId, lines) {
+  const transcriptionText = lines.length
+    ? lines.map((l) => '  '.repeat(l.indentLevel || 0) + (l.text || '')).join('\n')
+    : null;
+  savedPages.update((pages) =>
+    pages.map((p) => {
+      const id = p.pageId != null ? String(p.pageId) : String(p.page);
+      if (p.book !== book || id !== String(pageId)) return p;
+      return { ...p, transcriptionText, transcribed: !!transcriptionText, transcriptLineCount: lines.length };
+    })
+  );
+  invalidatePage(book, pageId);
 }

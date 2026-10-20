@@ -238,7 +238,7 @@
   <div class="dialog-backdrop" on:click={handleCancel}></div>
   
   <!-- Dialog -->
-  <div class="dialog">
+  <div class="dialog" role="dialog" aria-modal="true" aria-label="Confirm save">
     <div class="dialog-header">
       <h2>💾 Confirm Save</h2>
       <button class="close-btn" on:click={handleCancel} title="Cancel">✕</button>

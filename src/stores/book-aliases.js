@@ -16,16 +16,6 @@ export const bookAliases = writable({});
 export const knownBookIds = writable(new Set());
 
 /**
- * Derived store: Books without aliases
- */
-export const booksWithoutAliases = derived(
-  [knownBookIds, bookAliases],
-  ([$known, $aliases]) => {
-    return Array.from($known).filter(bookId => !$aliases[bookId]);
-  }
-);
-
-/**
  * Set book aliases (typically loaded from _aliases.json)
  * @param {Object} aliases - Map of bookId to alias
  */
@@ -93,9 +83,3 @@ export function registerBookIds(bookIds) {
   });
 }
 
-/**
- * Clear all book aliases
- */
-export function clearBookAliases() {
-  bookAliases.set({});
-}

@@ -48,6 +48,7 @@
   function onKey(e) {
     if (open && e.key === 'Escape') {
       open = false;
+      e.preventDefault();
       btnEl?.focus();
     }
   }

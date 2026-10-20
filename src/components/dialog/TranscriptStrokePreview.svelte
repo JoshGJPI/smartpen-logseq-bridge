@@ -10,7 +10,7 @@
   Stroke source, in order:
     1. the canvas (`strokes` store) — the page being transcribed is normally
        loaded there, and this is the copy the user is editing;
-    2. the PageDoc on disk (via the Book View LRU) — for a saved page opened
+    2. the PageDoc on disk (via the reader's LRU page cache) — for a saved page opened
        from the Pages tab that isn't on the canvas.
   Both are normalised to the storage shape `{ id, points, sketch, lineId }` so
   the existing `page-svg` helpers render them unchanged.

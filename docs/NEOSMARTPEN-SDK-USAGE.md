@@ -63,7 +63,7 @@ Canvas renderer draws in real-time
 
 ### Offline Sync Flow
 ```
-User clicks "Fetch Offline"
+User clicks "Fetch Notes" (capture bar)
   ↓
 controller.RequestOfflineNoteList()
   ↓
@@ -245,10 +245,11 @@ Enable browser console to see detailed transfer progress, timing information, an
 
 ## Related Files
 
-- `src/lib/pen-sdk.js` - Main SDK wrapper (967 lines)
+- `src/lib/pen-sdk.js` - Main SDK wrapper
 - `src/stores/pen.js` - Pen connection state and transfer progress
 - `src/stores/strokes.js` - Stroke data management
-- `src/components/header/PenControls.svelte` - UI for connect/fetch/disconnect
+- `src/components/header/PenChip.svelte` - Connect / Disconnect, pen state and battery (header)
+- `src/components/header/ActionBar.svelte` - Fetch Notes and the transfer progress (capture bar)
 
 ## External Resources
 

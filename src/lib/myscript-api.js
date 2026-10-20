@@ -2,6 +2,7 @@
  * MyScript Cloud API Integration
  * Handles handwriting recognition via MyScript's REST API
  */
+import { debug } from './debug.js';
 
 const MYSCRIPT_API_URL = 'https://cloud.myscript.com/api/v4.0/iink/batch';
 
@@ -86,7 +87,7 @@ export function batchOriginY(strokes) {
  */
 function hasElectronBridge() {
   const available = typeof window !== 'undefined' && window.electronAPI && window.electronAPI.myscriptApiCall;
-  console.log('[MyScript] Electron bridge available:', available);
+  debug('[MyScript] Electron bridge available:', available);
   return available;
 }
 
@@ -94,10 +95,10 @@ function hasElectronBridge() {
  * Make MyScript API call via Electron main process (preserves header casing)
  */
 async function callViaElectron(appKey, hmacKey, body) {
-  console.log('[MyScript] Calling via Electron IPC bridge');
-  console.log('[MyScript] appKey length:', appKey?.length, 'hmacKey length:', hmacKey?.length, 'body length:', body?.length);
+  debug('[MyScript] Calling via Electron IPC bridge');
+  debug('[MyScript] appKey length:', appKey?.length, 'hmacKey length:', hmacKey?.length, 'body length:', body?.length);
   const result = await window.electronAPI.myscriptApiCall(appKey, hmacKey, body);
-  console.log('[MyScript] IPC result:', { status: result.status, bodyLength: result.body?.length });
+  debug('[MyScript] IPC result:', { status: result.status, bodyLength: result.body?.length });
   return result;
 }
 
@@ -242,25 +243,25 @@ function normalizeTranscript(text) {
  * Exported for unit testing.
  */
 export function parseMyScriptResponse(response) {
-  console.log('MyScript response:', response);
+  debug('MyScript response:', response);
   
   // MyScript returns the text with \n line breaks - TRUST THIS!
   const text = response.label || '';
   const words = response.words || [];
   
-  console.log('Text:', text);
-  console.log('Words count:', words.length);
+  debug('Text:', text);
+  debug('Words count:', words.length);
   
   // Filter words to only those with valid bounding boxes
   const wordsWithBounds = words.filter(w => w && w['bounding-box'] && 
     typeof w['bounding-box'].x === 'number' && 
     typeof w['bounding-box'].y === 'number');
   
-  console.log('Words with valid bounding boxes:', wordsWithBounds.length);
+  debug('Words with valid bounding boxes:', wordsWithBounds.length);
   
   // Split by MyScript's line breaks
   const labelLines = text.split('\n').filter(l => l.trim());
-  console.log('Label lines:', labelLines);
+  debug('Label lines:', labelLines);
   
   // Build lines with word data
   const lines = [];
@@ -375,11 +376,11 @@ export function parseMyScriptResponse(response) {
     }
     // If no valid neighbors at all, bounds stay 0-0 (line will be excluded by filter)
     if (lines[i].yBounds.minY !== 0 || lines[i].yBounds.maxY !== 0) {
-      console.log(`Interpolated Y-bounds for line ${i} ("${lines[i].text.substring(0, 30)}..."): ${lines[i].yBounds.minY.toFixed(1)}-${lines[i].yBounds.maxY.toFixed(1)}`);
+      debug(`Interpolated Y-bounds for line ${i} ("${lines[i].text.substring(0, 30)}..."): ${lines[i].yBounds.minY.toFixed(1)}-${lines[i].yBounds.maxY.toFixed(1)}`);
     }
   }
 
-  console.log('Parsed lines:', lines);
+  debug('Parsed lines:', lines);
   
   // Calculate indentation
   if (lines.length > 0) {
@@ -397,8 +398,8 @@ export function parseMyScriptResponse(response) {
     // Ensure indent unit is reasonable (minimum 5 pixels to avoid division issues)
     const indentUnit = Math.max(medianHeight * 0.75, 5);
     
-    console.log('Base X:', baseX, 'Indent unit:', indentUnit);
-    console.log('X positions:', xPositions);
+    debug('Base X:', baseX, 'Indent unit:', indentUnit);
+    debug('X positions:', xPositions);
     
     // Cluster X positions into indent levels
     // Group positions that are within indentUnit/2 of each other
@@ -425,12 +426,12 @@ export function parseMyScriptResponse(response) {
       });
     });
     
-    console.log('Indent levels:', indentLevels);
-    console.log('Level map:', levelMap);
+    debug('Indent levels:', indentLevels);
+    debug('Level map:', levelMap);
     
     lines.forEach(line => {
       line.indentLevel = levelMap.get(line.x) || 0;
-      console.log(`Line "${line.text}" - X: ${line.x}, Level: ${line.indentLevel}`);
+      debug(`Line "${line.text}" - X: ${line.x}, Level: ${line.indentLevel}`);
     });
     
     // Build hierarchy
@@ -483,8 +484,8 @@ export function parseMyScriptResponse(response) {
     }
   });
   
-  console.log('Final lines:', lines);
-  console.log('Commands:', commands);
+  debug('Final lines:', lines);
+  debug('Commands:', commands);
   
   return {
     text,

@@ -207,7 +207,7 @@ Removed in v2.0.0: `logseqHost`, `logseqToken`, `logseqConnected`, `logseqStatus
 **Visible changes shipped in v2.0:**
 - Settings dropdown: LogSeq Host / Token fields removed; added **Data Folder** field with Browse, Verify, and Open-in-Explorer buttons.
 - Header status pill: `LogSeq: Connected` → `Folder: stroke-data` (showing the basename of `dataRoot`).
-- Tab renamed: "LogSeq DB" → "Saved Pages". Same layout (book accordions with page cards), data sourced from `listPages()`.
+- Tab renamed: "LogSeq DB" → "Saved Pages" (later "Pages", Editor only, since v3.0). Same layout (book accordions with page cards), data sourced from `listPages()`.
 - Save button: "Save to LogSeq" → context-aware label — "Save Changes" when there are pending changes, "Save (Strokes + Text)" when a transcription is queued, "Save (Strokes)" otherwise. Hover title: "Save strokes and transcription to the data folder."
 - **Unsaved-changes indicator:** amber dot pulses next to the Save button when the canvas has changes that haven't been flushed to disk. Window-close hook prompts confirmation when dirty.
 
@@ -279,7 +279,7 @@ The user's actual migration:
 | **3 — Default switch** | ActionBar, Data Explorer, transcript-updater point at file store. Unsaved-changes indicator wired up. | ✅ Shipped |
 | **4 — Cleanup** | Deleted `logseq-api.js`, `logseq-scanner.js`, `logseq-import.js`, `transcript-updater.js`, LogSeq stores, LogSeq settings UI. Tests rewritten. | ✅ Shipped |
 
-All four phases shipped in v2.0.0 (2026-05-28). The `components/logseq-db/` folder was *not* renamed (low value churn); the tab it renders is now labeled "Saved Pages".
+All four phases shipped in v2.0.0 (2026-05-28). The `components/logseq-db/` folder was *not* renamed at the time; it has since become `components/saved-pages/` (and the tab "Pages").
 
 ---
 
@@ -288,8 +288,8 @@ All four phases shipped in v2.0.0 (2026-05-28). The `components/logseq-db/` fold
 - `src/lib/logseq-api.js`
 - `src/lib/logseq-scanner.js`
 - `src/lib/logseq-import.js`
-- `src/stores/logseqPages.js` — **kept** under the old name (semantically a "saved pages index"; rename was low-value churn)
-- `src/components/logseq-db/` — **kept** under the old name; the rendered tab is now labeled "Saved Pages"
+- `src/stores/logseqPages.js` — kept under the old name in v2.0; renamed `stores/saved-pages.js` in v2.3
+- `src/components/logseq-db/` — kept under the old name in v2.0; now `components/saved-pages/`
 - `src/components/settings/LogseqSettings.svelte` — deleted
 - `src/components/transcription/LogseqPreview.svelte` — deleted
 - `src/lib/__tests__/logseq-api.test.js`, `transcript-updater.test.js` — deleted

@@ -5,6 +5,7 @@
 <script>
   import { dataRoot, dataFolderReady, dataFolderStatusText, setDataFolderStatus, log } from '$stores';
   import { pickFolder, isAvailable, openInExplorer } from '$lib/storage/local-store.js';
+  import { resetForDataFolder } from '$lib/storage/refresh.js';
 
   let isChecking = false;
 
@@ -18,8 +19,11 @@
     try {
       const picked = await pickFolder();
       if (!picked) return;
+      const changed = picked !== $dataRoot;
       $dataRoot = picked;
       await handleVerify();
+      // Everything read from the old folder (pages, thumbnails, dates) goes.
+      if (changed) await resetForDataFolder();
     } catch (err) {
       log(`Folder picker failed: ${err.message}`, 'error');
     }

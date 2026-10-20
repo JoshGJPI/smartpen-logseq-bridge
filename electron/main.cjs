@@ -195,17 +195,13 @@ function myscriptRequest(appKey, hmac, body) {
       }
     };
 
-    console.log('[MyScript] Request headers:', JSON.stringify(options.headers, null, 2));
-    console.log('[MyScript] Body length:', body.length, 'bytes');
-
+    // Never log the headers: they carry the application key and the HMAC.
     const req = https.request(options, (res) => {
-      console.log('[MyScript] Response status:', res.statusCode);
-      console.log('[MyScript] Response headers:', JSON.stringify(res.headers, null, 2));
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
         if (res.statusCode !== 200) {
-          console.log('[MyScript] Error response body:', data);
+          console.warn('[MyScript] HTTP', res.statusCode, data.slice(0, 500));
         }
         resolve({ status: res.statusCode, body: data });
       });
@@ -225,19 +221,10 @@ ipcMain.handle('myscript-api-call', async (_event, { appKey, hmacKey, body }) =>
   const cleanAppKey = (appKey || '').trim();
   const cleanHmacKey = (hmacKey || '').trim();
 
-  console.log('[MyScript] === API Call via IPC ===');
-  console.log('[MyScript] appKey:', cleanAppKey ? `${cleanAppKey.substring(0, 8)}...${cleanAppKey.substring(cleanAppKey.length - 4)}` : '(empty)');
-  console.log('[MyScript] appKey trimmed:', appKey !== cleanAppKey ? `YES (was ${appKey.length} chars, now ${cleanAppKey.length})` : 'no (clean)');
-  console.log('[MyScript] hmacKey:', cleanHmacKey ? `${cleanHmacKey.substring(0, 4)}...${cleanHmacKey.substring(cleanHmacKey.length - 4)} (${cleanHmacKey.length} chars)` : '(empty)');
-  console.log('[MyScript] hmacKey trimmed:', hmacKey !== cleanHmacKey ? `YES (was ${hmacKey.length} chars, now ${cleanHmacKey.length})` : 'no (clean)');
-  console.log('[MyScript] body length:', body ? body.length : 0);
+  // No key material in the logs, not even fragments.
   try {
     const hmac = generateHmac(cleanAppKey, cleanHmacKey, body);
-    console.log('[MyScript] Generated HMAC:', hmac.substring(0, 16) + '...' + hmac.substring(hmac.length - 16));
-    console.log('[MyScript] HMAC length:', hmac.length, '(expected: 128 hex chars)');
-    const result = await myscriptRequest(cleanAppKey, hmac, body);
-    console.log('[MyScript] Result status:', result.status);
-    return result;
+    return await myscriptRequest(cleanAppKey, hmac, body);
   } catch (err) {
     console.error('[MyScript] IPC handler error:', err.message);
     return { status: 0, body: err.message };
@@ -1129,37 +1116,17 @@ function createMenu() {
       ]
     },
     {
-      label: 'Pen',
-      submenu: [
-        {
-          label: 'Connect to Smartpen',
-          accelerator: 'CmdOrCtrl+B',
-          click: () => {
-            // Trigger connection via IPC or web event
-            mainWindow.webContents.send('trigger-pen-connect');
-          }
-        },
-        {
-          label: 'Fetch Offline Data',
-          accelerator: 'CmdOrCtrl+F',
-          click: () => {
-            mainWindow.webContents.send('trigger-pen-fetch');
-          }
-        }
-      ]
-    },
-    {
       label: 'Help',
       submenu: [
         {
-          label: 'About Smartpen-LogSeq Bridge',
+          label: 'About smartpen-bridge',
           click: () => {
             const { dialog } = require('electron');
             dialog.showMessageBox(mainWindow, {
               type: 'info',
               title: 'About',
-              message: 'Smartpen-LogSeq Bridge',
-              detail: `Version: ${app.getVersion()}\n\nA desktop application for connecting NeoSmartpen (Lamy Safari) devices to LogSeq.\n\nDeveloped by Josh Gannon`,
+              message: 'smartpen-bridge',
+              detail: `Version: ${app.getVersion()}\n\nCaptures NeoSmartpen (Lamy Safari) handwriting, transcribes it with MyScript, and keeps your notebooks as plain JSON files in a folder you choose.\n\nDeveloped by Josh Gannon`,
               buttons: ['OK']
             });
           }

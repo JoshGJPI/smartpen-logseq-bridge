@@ -1,5 +1,5 @@
 <!--
-  SittingHover.svelte — Book View's hover-to-reveal capture time.
+  SittingHover.svelte — the Library reader's hover-to-reveal capture time.
 
   Sits over one page's SVG (inside PageInk's .pi-canvas). Hovering ink
   finds the day it was written (lib/viewer/page-sittings.js) and reports it

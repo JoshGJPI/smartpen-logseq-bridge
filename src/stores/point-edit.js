@@ -75,8 +75,6 @@ export const strayPointKeys = derived(strayPoints, $strays =>
 );
 
 export const selectedPointCount = derived(selectedPoints, $sel => $sel.size);
-export const hasSelectedPoints = derived(selectedPoints, $sel => $sel.size > 0);
-
 /* -----------------------------------------------------------------
  *  Mode
  * ----------------------------------------------------------------- */

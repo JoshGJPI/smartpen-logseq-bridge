@@ -4,28 +4,19 @@
  * Persists to localStorage so layout survives page refreshes
  */
 import { writable, get } from 'svelte/store';
+import { readJson, readString, write, remove, isPlainObject } from '../lib/safe-storage.js';
 
-// Load saved positions from localStorage
-const savedPositions = localStorage.getItem('pagePositions');
-
-// Map of pageKey -> {x, y} positions in Ncode space
-export const pagePositions = writable(
-  savedPositions ? JSON.parse(savedPositions) : {}
-);
+// Map of pageKey -> {x, y} positions in Ncode space. A missing, corrupt or
+// blocked value means "no custom positions"; it must never stop the app loading.
+export const pagePositions = writable(readJson('pagePositions', {}, isPlainObject));
 
 // Flag to indicate if custom positioning is active
-export const useCustomPositions = writable(
-  localStorage.getItem('useCustomPositions') === 'true'
-);
+export const useCustomPositions = writable(readString('useCustomPositions') === 'true');
 
 // Subscribe to changes and persist to localStorage
-pagePositions.subscribe(positions => {
-  localStorage.setItem('pagePositions', JSON.stringify(positions));
-});
+pagePositions.subscribe(positions => write('pagePositions', positions));
 
-useCustomPositions.subscribe(value => {
-  localStorage.setItem('useCustomPositions', value.toString());
-});
+useCustomPositions.subscribe(value => write('useCustomPositions', String(value)));
 
 /**
  * Set position for a specific page
@@ -62,52 +53,12 @@ export function movePageBy(pageKey, deltaX, deltaY) {
 }
 
 /**
- * Get position for a specific page
- * @param {string} pageKey - Page identifier
- * @returns {{x: number, y: number}|null} Position or null if not set
- */
-export function getPagePosition(pageKey) {
-  const positions = get(pagePositions);
-  return positions[pageKey] || null;
-}
-
-/**
- * Reset to automatic horizontal layout
- */
-export function resetPagePositions() {
-  useCustomPositions.set(false);
-  // Keep the positions data but disable custom positioning
-}
-
-/**
  * Clear all custom positioning data
  */
 export function clearPagePositions() {
   pagePositions.set({});
   useCustomPositions.set(false);
-  localStorage.removeItem('pagePositions');
-  localStorage.removeItem('useCustomPositions');
+  remove('pagePositions');
+  remove('useCustomPositions');
 }
 
-/**
- * Auto-arrange pages in a grid layout
- * @param {Array<string>} pageKeys - Array of page keys to arrange
- * @param {number} columns - Number of columns (default: 3)
- * @param {number} spacing - Spacing between pages in Ncode units (default: 1000)
- */
-export function autoArrangePages(pageKeys, columns = 3, spacing = 1000) {
-  const positions = {};
-  
-  pageKeys.forEach((pageKey, index) => {
-    const col = index % columns;
-    const row = Math.floor(index / columns);
-    
-    positions[pageKey] = {
-      x: col * spacing,
-      y: row * spacing
-    };
-  });
-  
-  pagePositions.set(positions);
-  useCustomPositions.set(true);
-}

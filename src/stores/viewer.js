@@ -27,10 +27,6 @@ export function setViewerMode(mode) {
   viewerMode.set(mode === 'book' ? 'book' : 'editor');
 }
 
-export function toggleViewerMode() {
-  viewerMode.update(m => (m === 'book' ? 'editor' : 'book'));
-}
-
 /* ============================================================
  *  Unsaved transcript-edit tracking (per page)
  * ============================================================ */
@@ -201,14 +197,6 @@ export function setFeedOrder(order) {
   feedOrder.set(next);
 }
 
-export function toggleFeedOrder() {
-  feedOrder.update((o) => {
-    const next = o === 'oldest' ? 'newest' : 'oldest';
-    persistChoice(FEED_ORDER_KEY, next);
-    return next;
-  });
-}
-
 /**
  * Book View's hover highlight: hovering ink shows its sitting in ink, the rest
  * of the page grey, with the sitting's date and time. On unless switched off.
@@ -302,4 +290,56 @@ export const feedJumpRequest = writable({ day: null, n: 0 });
 
 export function requestFeedJump(day) {
   feedJumpRequest.update((r) => ({ day, n: r.n + 1 }));
+}
+
+/* ============================================================
+ *  Library home + global search (reading-first package E)
+ *  Session-only: none of these is persisted.
+ * ============================================================ */
+
+/**
+ * The notebook whose page grid the Library shows when no page is open, or
+ * null for the home (notebook cards). A book key: a volume is its own notebook.
+ */
+export const libraryNotebook = writable(null);
+
+/**
+ * Show one notebook's page grid in the Library (a card, a Notebook search
+ * result). Leaving an open page with unsaved transcript edits asks first.
+ * @returns {'cancelled'|'opened'}
+ */
+export function openNotebookInLibrary(book, { confirm = windowConfirm } = {}) {
+  if (get(viewerSelection) && get(viewerDirty)) {
+    if (!confirm(DISCARD_PROMPT)) return 'cancelled';
+    clearAllViewerDirty();
+  }
+  clearViewerSelection();
+  libraryNotebook.set(book == null ? null : String(book));
+  navigateTo('library', { confirm });
+  return 'opened';
+}
+
+/** True while a Library transcript is in edit mode (Ctrl K stays out of it). */
+export const transcriptEditing = writable(false);
+
+/**
+ * Page ids the reader is showing in the open book: one, or both pages of a
+ * spread. The contents list highlights them all.
+ */
+export const readerPages = writable([]);
+
+/**
+ * A search hit the reader should point at: { book, pageId, tokens, n }. The
+ * open page lights the matching line only where its links are trustworthy
+ * (ink-text.js); `n` changes on every request, so re-opening the same hit
+ * shows it again.
+ */
+export const readerFocus = writable(null);
+
+export function focusReaderLine(book, pageId, tokens) {
+  readerFocus.update((f) => ({ book: String(book), pageId: String(pageId), tokens: [...(tokens || [])], n: (f ? f.n : 0) + 1 }));
+}
+
+export function clearReaderFocus() {
+  readerFocus.set(null);
 }

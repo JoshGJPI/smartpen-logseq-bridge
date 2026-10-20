@@ -27,9 +27,6 @@ export const volumeRegistry = writable({ version: 1, active: {} });
 /** Just the routing map, for components. */
 export const activeVolumes = derived(volumeRegistry, ($r) => $r.active || {});
 
-/** True when any book has been given a second volume — gates the UI. */
-export const hasVolumes = derived(activeVolumes, ($a) => Object.keys($a).length > 0);
-
 /**
  * The volume new strokes from this NCode book route to. Defaults to 1.
  * @param {number|string} ncodeBook

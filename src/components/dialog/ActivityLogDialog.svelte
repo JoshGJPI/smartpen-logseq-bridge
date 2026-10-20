@@ -66,6 +66,7 @@
 
   function handleKeyDown(event) {
     if (event.key === 'Escape' && $showActivityLogDialog) {
+      event.preventDefault();
       closeActivityLogDialog();
     }
   }

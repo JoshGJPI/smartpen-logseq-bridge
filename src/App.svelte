@@ -30,7 +30,7 @@
   import { unsavedChanges, viewerDirty, destination, navigateTo } from '$stores';
   import { DESTINATIONS, DESTINATION_LABELS } from '$lib/navigation.js';
   import { leftPanelCollapsed, toggleLeftPanel } from '$stores';
-  import { isPanelToggleKey } from '$lib/left-panel.js';
+  import { isPanelToggleKey, modalOpen } from '$lib/left-panel.js';
   import { refreshBackgrounds } from '$stores';
   import { isAvailable as folderIsAvailable } from '$lib/storage/local-store.js';
   import { scanLocalPages } from '$lib/storage/scan.js';
@@ -123,18 +123,19 @@
   let bookViewerSpread = true;
   let bookViewerHasSelection = false;
   let bookViewerZoom = '';
+  let bookViewerOpenBook = null;
 
   // `[` folds the left panel to its rail and back. isPanelToggleKey keeps it out
   // of text fields and modifier chords.
   function handleGlobalKeydown(e) {
-    if (!isPanelToggleKey(e)) return;
+    if (!isPanelToggleKey(e) || modalOpen()) return;
     e.preventDefault();
     toggleLeftPanel();
   }
 
   onMount(() => {
     initializePenSDK();
-    log('Bridge initialized. Click "Connect Pen" to begin.', 'info');
+    log('smartpen-bridge ready. Click "Connect" in the header to pair the pen.', 'info');
 
     // Kick off data-folder availability check (non-blocking). Once the folder is
     // confirmed ready, preload the saved-pages metadata so the Saved Pages tab and
@@ -231,13 +232,16 @@
           contentMode={bookViewerContentMode}
           spread={bookViewerSpread}
           hasSelection={bookViewerHasSelection}
+          openBook={bookViewerOpenBook}
           onHome={() => bookViewer?.goHome()}
+          onNotebook={(book) => bookViewer?.openNotebook(book)}
           onContent={(mode) => bookViewer?.setContentMode(mode)}
           onToggleSpread={() => bookViewer?.toggleSpread()}
         >
-          {#if $destination === 'library' && bookViewerHasSelection}
+          <!-- An open page, or a notebook's page grid (Go to page only: no ink, no zoom). -->
+          {#if $destination === 'library' && bookViewerOpenBook != null}
             <SpreadToolbar
-              zoomLabel={bookViewerZoom}
+              zoomLabel={bookViewerHasSelection ? bookViewerZoom : ''}
               onZoom={(op) => bookViewer?.zoomAll(op)}
               onGoTo={(text) => bookViewer?.goToPage(text) ?? false}
             />
@@ -254,6 +258,7 @@
           bind:twoPageMode={bookViewerSpread}
           bind:hasSelection={bookViewerHasSelection}
           bind:zoomLabel={bookViewerZoom}
+          bind:openBook={bookViewerOpenBook}
         />
       {:else}
         <StrokeCanvas />

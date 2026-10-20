@@ -2,6 +2,7 @@
  * Strokes Store - Manages stroke data from the pen
  * Svelte 4 writable and derived stores
  */
+import { debug } from '../lib/debug.js';
 import { writable, derived, get } from 'svelte/store';
 import { registerBookId, registerBookIds } from './book-aliases.js';
 import { markUnsavedChanges } from './storage.js';
@@ -479,50 +480,11 @@ export function clearMovedFromMarkers(book, page) {
 }
 
 /**
- * Load strokes from storage format into the store
- * Used when loading a saved page - restores lineId associations
- * @param {Array} storedStrokes - Strokes from storage (with blockUuid)
- * @param {Object} pageInfo - Page info to attach
- */
-export function loadStrokesFromStorage(storedStrokes, pageInfo) {
-  if (!storedStrokes || storedStrokes.length === 0) return;
-  
-  // Register book ID
-  if (pageInfo?.book) {
-    registerBookId(pageInfo.book);
-  }
-  
-  // Convert from storage format (restores blockUuid, sketch flag, pressure)
-  const fullStrokes = storedStrokes.map(stored => ({
-    pageInfo: pageInfo,
-    startTime: stored.startTime,
-    endTime: stored.endTime,
-    blockUuid: stored.blockUuid || null,
-    sketch: !!stored.sketch,
-    dotArray: stored.points.map(([x, y, timestamp, f]) => ({
-      x,
-      y,
-      // Captured force when the tuple carries it; else the historical constant,
-      // which downstream reads as "no real pressure data".
-      f: typeof f === 'number' ? f : 512,
-      timestamp
-    }))
-  }));
-  
-  // Add to store (avoiding duplicates by startTime)
-  strokes.update(existing => {
-    const existingIds = new Set(existing.map(s => s.startTime));
-    const newStrokes = fullStrokes.filter(s => !existingIds.has(s.startTime));
-    return [...existing, ...newStrokes];
-  });
-}
-
-/**
  * Update blockUuid for specific strokes
  * @param {Map<string, string>} strokeToBlockMap - Map of stroke startTime -> blockUuid
  */
 export function updateStrokeBlockUuids(strokeToBlockMap) {
-  console.log(`[updateStrokeBlockUuids] Updating strokes with ${strokeToBlockMap.size} mappings`);
+  debug(`[updateStrokeBlockUuids] Updating strokes with ${strokeToBlockMap.size} mappings`);
 
   let updatedCount = 0;
   let skippedCount = 0;
@@ -533,7 +495,7 @@ export function updateStrokeBlockUuids(strokeToBlockMap) {
       if (blockUuid !== undefined) {
         updatedCount++;
         if (updatedCount <= 3) {
-          console.log(`  ✓ Updated stroke ${stroke.startTime}: blockUuid = ${blockUuid.substring(0, 8)}...`);
+          debug(`  ✓ Updated stroke ${stroke.startTime}: blockUuid = ${blockUuid.substring(0, 8)}...`);
         }
         return { ...stroke, blockUuid };
       }
@@ -541,7 +503,7 @@ export function updateStrokeBlockUuids(strokeToBlockMap) {
       return stroke;
     });
 
-    console.log(`[updateStrokeBlockUuids] Complete: ${updatedCount} updated, ${skippedCount} skipped`);
+    debug(`[updateStrokeBlockUuids] Complete: ${updatedCount} updated, ${skippedCount} skipped`);
     return result;
   });
 }
@@ -553,20 +515,6 @@ export function updateStrokeBlockUuids(strokeToBlockMap) {
  */
 export function getUntranscribedStrokes(strokeList) {
   return strokeList.filter(stroke => !stroke.blockUuid);
-}
-
-/**
- * Get strokes assigned to a specific block
- * @param {string} blockUuid - Block UUID to search for
- * @returns {Array} Strokes belonging to this block
- */
-export function getStrokesForBlock(blockUuid) {
-  let result = [];
-  const unsubscribe = strokes.subscribe(allStrokes => {
-    result = allStrokes.filter(s => s.blockUuid === blockUuid);
-  });
-  unsubscribe();
-  return result;
 }
 
 /**
@@ -636,48 +584,6 @@ export function getStrokesInYRange(strokeList, yRange, tolerance = 5) {
       dot.y >= (yRange.minY - tolerance) && dot.y <= (yRange.maxY + tolerance)
     );
   });
-}
-
-/**
- * Partition strokes by transcription status
- * Returns strokes grouped by whether they have a blockUuid assigned
- * @param {Array} strokeList - Strokes to partition
- * @returns {Object} { transcribed: Array, untranscribed: Array }
- */
-export function partitionStrokesByTranscriptionStatus(strokeList) {
-  const transcribed = [];
-  const untranscribed = [];
-
-  for (const stroke of strokeList) {
-    if (stroke.blockUuid) {
-      transcribed.push(stroke);
-    } else {
-      untranscribed.push(stroke);
-    }
-  }
-
-  return { transcribed, untranscribed };
-}
-
-/**
- * Get strokes for a specific page that haven't been transcribed
- * Filters by book/page and excludes strokes with blockUuid
- * @param {number} book - Book ID
- * @param {number} page - Page number
- * @returns {Array} Untranscribed strokes for the page
- */
-export function getUntranscribedStrokesForPage(book, page) {
-  let result = [];
-  const unsubscribe = strokes.subscribe(allStrokes => {
-    result = allStrokes.filter(s =>
-      s.pageInfo?.book === book &&
-      s.pageInfo?.page === page &&
-      !s.blockUuid &&
-      !s.deleted
-    );
-  });
-  unsubscribe();
-  return result;
 }
 
 /**

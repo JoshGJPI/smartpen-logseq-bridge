@@ -8,6 +8,7 @@
  * removed in v2.0; PageDoc files in `<dataRoot>/pages/B###/P##.json` are the
  * single source of truth now.
  */
+import { debug } from './debug.js';
 
 /**
  * Generate unique stroke ID from timestamp
@@ -32,7 +33,7 @@ export function generateStrokeId(stroke) {
  */
 export function convertToStorageFormat(strokes) {
   const withBlockUuid = strokes.filter(s => s.blockUuid).length;
-  console.log(`[convertToStorageFormat] Converting ${strokes.length} strokes (${withBlockUuid} have blockUuid)`);
+  debug(`[convertToStorageFormat] Converting ${strokes.length} strokes (${withBlockUuid} have blockUuid)`);
 
   return strokes.map(stroke => {
     const stored = {
@@ -94,7 +95,7 @@ export function deduplicateStrokes(existingStrokes, newStrokes) {
 }
 
 /**
- * Build the JSON export payload (editor Format 1: { slug, strokes }).
+ * Build the JSON export payload (editor Format 1: { slug, strokes }; docs/EDITOR-IMPORT-SPEC.md).
  *
  * Produces a flat strokes array sorted by startTime. Points are [x, y] pairs.
  * Multi-page exports add a `pageGroup` field to each stroke so the editor can
@@ -141,7 +142,7 @@ export function buildJsonExportData(rawStrokes) {
 }
 
 /**
- * Build Markdown export payloads (editor Format 4: front-matter + json blocks).
+ * Build Markdown export payloads (editor Format 4: front-matter + json blocks; docs/EDITOR-IMPORT-SPEC.md).
  *
  * Generates one file per page. Each file contains LogSeq-style front matter
  * (book:: / page::), a metadata json block, and a single chunk block with all
@@ -186,29 +187,6 @@ export function buildMdExportData(rawStrokes) {
 
     return { content, filename: `B${book}_P${page}_strokes.md` };
   });
-}
-
-/**
- * Build transcription storage object
- * @param {Object} transcription - Transcription result from MyScript
- * @param {number} strokeCount - Number of strokes transcribed
- * @returns {Object} Transcription storage object for LogSeq
- */
-export function buildTranscriptionStorageObject(transcription, strokeCount) {
-  return {
-    version: "1.0",
-    transcribedAt: Date.now(),
-    engine: "myscript",
-    engineVersion: "2.0",
-    text: transcription.text || "",
-    lines: transcription.lines || [],
-    commands: transcription.commands || [],
-    metadata: {
-      strokeCount: strokeCount,
-      confidence: transcription.confidence || 0,
-      processingTime: transcription.processingTime || 0
-    }
-  };
 }
 
 /**

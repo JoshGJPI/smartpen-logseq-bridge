@@ -59,11 +59,3 @@ export function serializePageDoc(doc) {
   return headWithComma + '\n' + strokesBlock + '\n}\n';
 }
 
-/**
- * Parse — just JSON.parse. Exposed for symmetry / easy mock in tests.
- * @param {string} text
- * @returns {any}
- */
-export function deserializePageDoc(text) {
-  return JSON.parse(text);
-}

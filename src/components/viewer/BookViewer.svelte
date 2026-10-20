@@ -1,6 +1,7 @@
 <!--
-  BookViewer.svelte — the Library pane: the home grid (LibraryHome) when no
-  page is open, otherwise the reader: one page, or a two-page spread.
+  BookViewer.svelte — the Library pane: the home (LibraryHome, notebook cards)
+  or one notebook's page grid (NotebookPages, `libraryNotebook`) when no page
+  is open, otherwise the reader: one page, or a two-page spread.
 
   The shared spread toolbar (SpreadToolbar, in the pane toolbar) drives both
   pages through zoomAll() and goToPage(); ←/→ turn pages (pageTurnKey: never
@@ -13,9 +14,9 @@
   fields) and the page's cached doc is invalidated.
 -->
 <script>
+  import { onDestroy } from 'svelte';
   import { get } from 'svelte/store';
   import {
-    savedPages,
     pagesByBook,
     bookAliases,
     recordRecentView,
@@ -24,14 +25,19 @@
     viewerSelection,
     setViewerSelection,
     clearViewerSelection,
-    navigateTo,
+    libraryNotebook,
+    transcriptEditing,
+    readerPages,
+    clearReaderFocus,
+    applyTranscriptToRecord,
   } from '$stores';
   import { formatBookName } from '$utils/formatting.js';
-  import { importStrokesFromFolder } from '$lib/storage/load-page.js';
-  import { getCachedPage, invalidatePage } from '$lib/viewer/page-cache.js';
+  import { loadPageIntoEditor } from '$lib/viewer/load-into-editor.js';
   import { DISCARD_PROMPT } from '$lib/navigation.js';
   import { pageIdOf as idOf, resolveGoToPage, turnTarget, pageTurnKey, zoomText } from '$lib/viewer/page-reader.js';
+  import { modalOpen } from '$lib/left-panel.js';
   import LibraryHome from './LibraryHome.svelte';
+  import NotebookPages from './NotebookPages.svelte';
   import PageSpreadView from './PageSpreadView.svelte';
 
   // Shared viewer state, bound by App.svelte so the pane toolbar (breadcrumb,
@@ -40,6 +46,7 @@
   export let twoPageMode = true;      // default to a two-page spread
   export let hasSelection = false;    // true when a page is open (not the home grid)
   export let zoomLabel = '';          // out: "62%", or "62% · 58%" when the pages differ
+  export let openBook = null;         // out: the book key of the open page or page grid, else null
 
   // Selection is persisted in the viewer store so the Library reopens the last
   // page(s) you were viewing when you come back from the Editor (or reload).
@@ -59,6 +66,9 @@
     twoPageMode && currentIndex >= 0 && currentIndex + 1 < currentBookPages.length
       ? currentBookPages[currentIndex + 1]
       : null;
+  // No page open: one notebook's page grid, if it still has pages, else the home.
+  $: gridBook = !leftRecord && $libraryNotebook && ($pagesByBook[$libraryNotebook] || []).length ? $libraryNotebook : null;
+  $: openBook = leftRecord ? selectedBook : gridBook;
   $: hasPrev = turnTarget(currentIndex, currentBookPages.length, 'prev', twoPageMode) >= 0;
   $: hasNext = turnTarget(currentIndex, currentBookPages.length, 'next', twoPageMode) >= 0;
 
@@ -85,6 +95,14 @@
   // Companion strokes pane is forced visible during editing even in single mode.
   $: showSlotB = pinEdit || twoPageMode;
   $: canTurn = !editingRecord;
+  $: transcriptEditing.set(editingSide != null);
+  // Which pages are on screen, for the contents list's highlight.
+  $: readerPages.set(slotA && !pinEdit ? [idOf(slotA.record), ...(showSlotB && slotB ? [idOf(slotB.record)] : [])]
+    : editingRecord ? [idOf(editingRecord)] : []);
+  onDestroy(() => {
+    transcriptEditing.set(false);
+    readerPages.set([]);
+  });
 
   // A page opened from outside (contents list, feed card, search) changes the
   // selection without openIndex(); its prompt already ran, so just drop the
@@ -118,6 +136,7 @@
   function openRecord(record) {
     if (!record || !guardNav()) return;
     editingSide = null;
+    clearReaderFocus();
     setViewerSelection(record.book, idOf(record));
     recordRecentView(record.book, idOf(record));
   }
@@ -130,18 +149,20 @@
   // ←/→ turn pages. pageTurnKey keeps them out of text fields, modifier chords
   // and an open transcript editor.
   function onKey(e) {
-    if (!leftRecord) return;
+    if (!leftRecord || modalOpen()) return;
+    if (e.key === 'Escape' && !e.defaultPrevented) clearReaderFocus();
     const dir = pageTurnKey(e, { editing: editingSide != null });
     if (!dir || turnTarget(currentIndex, currentBookPages.length, dir, twoPageMode) < 0) return;
     e.preventDefault();
     turn(dir);
   }
 
-  /** "Go to page…": false when the entry names no page in this notebook. */
+  /** "Go to page…" in the open spread or page grid: false when no such page. */
   export function goToPage(text) {
-    const i = resolveGoToPage(text, currentBookPages);
+    const pages = leftRecord ? currentBookPages : gridBook ? $pagesByBook[gridBook] : [];
+    const i = resolveGoToPage(text, pages);
     if (i < 0) return false;
-    if (i !== currentIndex) openRecord(currentBookPages[i]);
+    if (!leftRecord || i !== currentIndex) openRecord(pages[i]);
     return true;
   }
 
@@ -157,20 +178,21 @@
   export function goHome() {
     if (!guardNav()) return;
     editingSide = null;
+    libraryNotebook.set(null);
     clearViewerSelection();
   }
 
-  // Load a single page into the live editor canvas and switch to the Editor
-  // view. Strokes are appended (deduped by id), matching the existing "Import
-  // Strokes" behaviour — non-destructive to anything already on the canvas.
-  async function loadRecordIntoEditor(record) {
-    if (!record || !guardNav()) return;
-    // Reuse the cached doc if present (the page is open in the spread) to
-    // avoid a second disk read; importStrokesFromFolder lazily loads otherwise.
-    const pageDoc = await getCachedPage(record.book, idOf(record));
-    await importStrokesFromFolder({ ...record, pageDoc });
-    navigateTo('editor');
+  /** A notebook's page grid (a card, the breadcrumb's notebook crumb). */
+  export function openNotebook(book) {
+    if (!guardNav()) return;
+    editingSide = null;
+    libraryNotebook.set(String(book));
+    clearViewerSelection();
   }
+
+  // Load a page onto the Editor canvas (appended, deduped) and show the
+  // Editor: the shared guarded path, lib/viewer/load-into-editor.js.
+  const loadRecordIntoEditor = (record) => loadPageIntoEditor(record);
 
   export function setContentMode(mode) {
     if (mode === contentMode) return;
@@ -185,33 +207,19 @@
     twoPageMode = !twoPageMode;
   }
 
-  // Reflect a saved transcript back into the store record — lightweight fields
-  // only (no strokes/pageDoc residency) — and drop the cached doc so a re-view
-  // re-reads the fresh transcript. `pageId` is the unique-within-book id.
-  function applyTranscriptToStore(book, pageId, lines) {
-    const transcriptionText = lines.length
-      ? lines.map((l) => '  '.repeat(l.indentLevel || 0) + (l.text || '')).join('\n')
-      : null;
-    savedPages.update((pages) =>
-      pages.map((p) => {
-        if (p.book !== book || idOf(p) !== String(pageId)) return p;
-        return {
-          ...p,
-          transcriptionText,
-          transcribed: !!transcriptionText,
-          transcriptLineCount: lines.length,
-        };
-      })
-    );
-    invalidatePage(book, pageId);
-  }
+  // A saved transcript is reflected into the scan record (and the page's
+  // cached doc dropped) by applyTranscriptToRecord in stores/saved-pages.js.
 </script>
 
 <svelte:window on:keydown={onKey} />
 
 <div class="book-viewer">
   {#if !leftRecord}
-    <LibraryHome onOpen={openRecord} />
+    {#if gridBook}
+      <NotebookPages book={gridBook} onOpen={openRecord} />
+    {:else}
+      <LibraryHome onOpen={openRecord} onOpenNotebook={openNotebook} />
+    {/if}
   {:else}
     <div class="bv-body" class:spread={showSlotB}>
       {#key `${slotA.record.book}:${idOf(slotA.record)}`}
@@ -227,7 +235,7 @@
             hasNext={canTurn && !twoPageMode && hasNext}
             onPrev={canTurn ? () => turn('prev') : null}
             onNext={canTurn && !twoPageMode ? () => turn('next') : null}
-            onTranscriptSaved={applyTranscriptToStore}
+            onTranscriptSaved={applyTranscriptToRecord}
             onLoadIntoEditor={() => loadRecordIntoEditor(slotA.record)}
             onEditingChange={(e) => reportEditing('left', e)}
           />
@@ -250,7 +258,7 @@
                 hasNext={canTurn && hasNext}
                 onPrev={null}
                 onNext={canTurn ? () => turn('next') : null}
-                onTranscriptSaved={applyTranscriptToStore}
+                onTranscriptSaved={applyTranscriptToRecord}
                 onLoadIntoEditor={() => loadRecordIntoEditor(slotB.record)}
                 onEditingChange={(e) => reportEditing('right', e)}
               />

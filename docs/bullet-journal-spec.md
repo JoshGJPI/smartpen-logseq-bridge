@@ -5,7 +5,7 @@
 **Last Updated:** January 2026  
 **Related Documents:** 
 - [App Specification](./app-specification.md)
-- [Line Detection Algorithm](./line-detection-algorithm.md)
+- Line Detection Algorithm (not written)
 
 ---
 

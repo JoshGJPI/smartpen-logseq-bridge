@@ -3,6 +3,8 @@
   v3.1: Existing transcript lines are editable; changes saved by UUID
 -->
 <script>
+  import { debug } from '$lib/debug.js';
+  import { isTypingTarget } from '$lib/left-panel.js';
   import { createEventDispatcher } from 'svelte';
   import { reassignStrokes, getStrokesSnapshot, updateStrokeBlockUuids, getStrokesInYRange } from '$stores/strokes.js';
   import TranscriptStrokePreview from './TranscriptStrokePreview.svelte';
@@ -343,7 +345,7 @@
 
     for (const line of editedLines) {
       if (line.blocksToDelete && line.blocksToDelete.length > 0 && line.blockUuid) {
-        console.log(`Processing merge: ${line.blocksToDelete.length} blocks to delete, survivor: ${line.blockUuid}`);
+        debug(`Processing merge: ${line.blocksToDelete.length} blocks to delete, survivor: ${line.blockUuid}`);
 
         for (const deletedBlockUuid of line.blocksToDelete) {
           if (deletedBlockUuid !== line.blockUuid) {
@@ -373,14 +375,14 @@
     for (const { deletedBlockUuid, survivingBlockUuid } of mergedBlockPairs) {
       const count = reassignStrokes(deletedBlockUuid, survivingBlockUuid);
       if (count > 0) {
-        console.log(`Reassigned ${count} strokes from ${deletedBlockUuid} to ${survivingBlockUuid}`);
+        debug(`Reassigned ${count} strokes from ${deletedBlockUuid} to ${survivingBlockUuid}`);
       }
     }
 
     // Handle splits
     const splitBlocks = editedLines.filter(line => line.syncStatus === 'new' && line.yBounds);
     for (const splitBlock of splitBlocks) {
-      console.log(`Split block detected at Y: ${splitBlock.yBounds.minY}-${splitBlock.yBounds.maxY}`);
+      debug(`Split block detected at Y: ${splitBlock.yBounds.minY}-${splitBlock.yBounds.maxY}`);
     }
 
     dispatch('save', {
@@ -401,6 +403,8 @@
   // Handle keyboard shortcuts
   function handleKeydown(event) {
     if (!visible) return;
+    // In a line's text field, select-all and undo/redo are the field's own.
+    if (isTypingTarget(event.target) && (event.ctrlKey || event.metaKey) && ['a', 'z', 'y'].includes(event.key.toLowerCase())) return;
 
     if (event.ctrlKey || event.metaKey) {
       if (event.key === 'z' && !event.shiftKey) {
@@ -471,7 +475,7 @@
 
 {#if visible}
 <div class="modal-backdrop" on:click={handleClose}>
-  <div class="modal-container" on:click|stopPropagation>
+  <div class="modal-container" role="dialog" aria-modal="true" aria-label="Edit transcription" on:click|stopPropagation>
     <div class="modal-header">
       <h2>Edit Transcription &mdash; B{book}/P{page}</h2>
       <div class="header-stats">

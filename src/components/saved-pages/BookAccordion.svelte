@@ -2,6 +2,7 @@
   BookAccordion.svelte - Collapsible book section with pages
 -->
 <script>
+  import { debug } from '$lib/debug.js';
   import { bookAliases } from '$stores';
   import { formatBookName, getBookColor } from '$utils/formatting.js';
   import { importStrokesFromFolder } from '$lib/storage/load-page.js';
@@ -61,7 +62,7 @@
     importingAll = false;
     importProgress = { current: 0, total: 0, currentPage: 0, totalPages: 0 };
     
-    console.log(`Import complete: ${successCount} successful, ${failCount} failed`);
+    debug(`Import complete: ${successCount} successful, ${failCount} failed`);
   }
 </script>
 

@@ -52,29 +52,6 @@ export function selectStroke(index, multi = false) {
 }
 
 /**
- * Select a range of strokes (Shift+click behavior)
- * @param {number} fromIndex - Start of range
- * @param {number} toIndex - End of range
- * @param {boolean} addToExisting - Whether to add to existing selection
- */
-export function selectRange(fromIndex, toIndex, addToExisting = false) {
-  const start = Math.min(fromIndex, toIndex);
-  const end = Math.max(fromIndex, toIndex);
-  
-  selectedIndices.update(sel => {
-    const newSel = addToExisting ? new Set(sel) : new Set();
-    for (let i = start; i <= end; i++) {
-      newSel.add(i);
-    }
-    return newSel;
-  });
-  
-  // The range end becomes the new anchor, so a follow-up Shift+click extends
-  // from where this range stopped.
-  lastSelectedIndex.set(toIndex);
-}
-
-/**
  * Select all strokes
  * @param {number} count - Total number of strokes
  */
@@ -166,18 +143,6 @@ export function deselectIndices(indices) {
 }
 
 /**
- * Add specific indices to selection
- * @param {number[]} indices - Array of stroke indices to select
- */
-export function selectIndices(indices) {
-  selectedIndices.update(sel => {
-    const newSel = new Set(sel);
-    indices.forEach(i => newSel.add(i));
-    return newSel;
-  });
-}
-
-/**
  * Adjust selection indices after strokes are deleted
  * When strokes are removed, all indices after them shift down
  * @param {number[]} removedIndices - Sorted array of removed indices
@@ -229,26 +194,3 @@ export function adjustSelectionAfterDeletion(removedIndices) {
   });
 }
 
-/**
- * Get the Ncode bounding box of currently selected strokes.
- * Returns { minX, minY, maxX, maxY } or null if no selection.
- */
-export function getSelectedBounds() {
-  const indices = get(selectedIndices);
-  const allStrokes = get(strokes);
-  if (indices.size === 0) return null;
-
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const i of indices) {
-    const stroke = allStrokes[i];
-    if (!stroke || !stroke.dotArray) continue;
-    for (const dot of stroke.dotArray) {
-      if (dot.x < minX) minX = dot.x;
-      if (dot.y < minY) minY = dot.y;
-      if (dot.x > maxX) maxX = dot.x;
-      if (dot.y > maxY) maxY = dot.y;
-    }
-  }
-  if (minX === Infinity) return null;
-  return { minX, minY, maxX, maxY };
-}

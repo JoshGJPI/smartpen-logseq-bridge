@@ -29,6 +29,16 @@
   export let onAddTranscript = () => {};
   /** Loads the page into the Editor to transcribe it; null hides the button. */
   export let onTranscribe = null;
+  /** A global search hit's line on a trusted page: marked and scrolled to. */
+  export let focusId = null;
+
+  // After layout settles (the page's ink fits in the same frame), so the line
+  // lands mid-pane rather than where it was before the pane had its height.
+  function scrollTo(el, on) {
+    const go = (now) => now && setTimeout(() => el.isConnected && el.scrollIntoView({ block: 'center' }), 120);
+    go(on);
+    return { update: go };
+  }
 
   let hotId = null;
 
@@ -54,6 +64,8 @@
         role="listitem"
         class="tl-line"
         class:hot={hotId === line.id}
+        class:focus={focusId === line.id}
+        use:scrollTo={focusId === line.id}
         style="padding-left: {(line.indentLevel || 0) * 1.5}rem"
         on:mouseenter={() => hover(line)}
       >
@@ -104,6 +116,7 @@
   }
   .linked .tl-line { cursor: default; }
   .linked .tl-line.hot { background: #eef3ff; }
+  .tl-line.focus { background: #fff6d6; box-shadow: inset 3px 0 0 #e0b400; }
   .tl-marker {
     flex-shrink: 0;
     color: #bbb;

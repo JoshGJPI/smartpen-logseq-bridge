@@ -11,6 +11,241 @@ CLAUDE.md (Invariants); the store and library map is in
 Reading-first UI plan: [READING-UX-SPEC.md](READING-UX-SPEC.md). Packages land on their
 own branches and are not released one by one; no storage or PageDoc change in any of them.
 
+### Pre-release review: refresh after saves, safer keys and storage, cleanup (October 2026)
+
+A review of the whole app before the 3.0.0 bump found loose ends that predate the
+reading-first work but show more now that the Library and search keep their own
+copies of the data.
+
+**The reading views now follow writes made elsewhere.** The Library, its thumbnails,
+the global search and the Timeline read in-memory copies: the scan records, the
+reader's page cache, the thumbnail SVG cache and the capture-date index. Nothing
+refreshed them after an Editor save, so a new page was missing from the Library and a
+re-saved page kept its old ink in the reader until Rescan. Choosing a different data
+folder in Settings changed where pages were read from but left the old folder's
+notebooks, search index and dates on screen. `lib/storage/refresh.js`:
+`refreshAfterSave(pages)` (Editor Save and Create Page: drop those pages' cached
+docs and thumbnails, rescan, refresh dates; the scan is metadata-only and the index
+incremental) and `resetForDataFolder()` (clear everything from the old folder, then
+load the new one as boot does).
+
+**A corrupt preference can no longer stop the app starting.** `page-order.js` and
+`page-scale.js` ran `JSON.parse(localStorage…)` at module load, unguarded, so a
+corrupt value threw before anything rendered. They read through
+`lib/safe-storage.js` now (bad, wrong-shaped or blocked → defaults); the keys are
+unchanged.
+
+**Keyboard shortcuts stay out of text fields and dialogs.** The Editor canvas's
+window shortcuts did not check where you were typing: Ctrl+A in the canvas search or
+the transcript editor selected every stroke (and blocked the field's select-all),
+Delete / Backspace could delete pasted strokes or points, and Escape in a dialog also
+cleared the canvas's pasted selection. They now stand down while typing, mid-IME,
+when the key was already handled, and under a modal (`modalOpen()`: an element with
+`aria-modal="true"`, which the transcript editor, save, Create Page and SVG export
+dialogs now carry). `[`, Ctrl K and the reader's ← / → also stand down under a modal;
+menus and dialogs that close on Escape mark it handled, so it no longer also clears
+a search highlight. The transcript editor modal leaves Ctrl+A / Z / Y to its text
+fields.
+
+**Smaller fixes.** Clear canvas clears the stroke selection (stale indices would
+have selected whatever landed at those positions next). The Electron **Pen** menu is
+gone: Connect (Ctrl+B) and Fetch Offline Data (Ctrl+F) sent IPC messages nothing
+listened for, and its Ctrl+F shadowed the canvas's find. The main process no longer
+logs the MyScript request headers (the application key and HMAC in full) or key
+fragments. The window title and Help → About say smartpen-bridge; leftover "Book
+View" wording (Transcripts search's **Open in Library**, the Transcripts review empty
+state, a pen log line) and "Settings → LogSeq Graph" (the section is **Publish to
+LogSeq Graph**) are corrected; the Strokes tab's empty state no longer has a branch
+that could not show.
+
+**Cleanup.** Removed what nothing imported: `PenInfo`, `PenControls`,
+`TransferProgress`, `AnalysisView`, `SelectionInfo`, `CommandList`, `HierarchyTree`,
+`LineDisplay`, `stroke-analyzer.js`, `excalidraw-export.js`, `uuid/bridge-uuid.js`
+and the `clipboard` store, plus 47 store and utility exports with no caller (about
+2,400 lines). Console tracing in the pen SDK, MyScript client, canvas, stores and
+dialogs goes through `lib/debug.js`: on in the dev server, otherwise only with
+`localStorage['smartpen-debug'] = '1'`; warnings, errors and the Activity Log are
+unchanged. Docs: README rewritten for v3 (it still described the five-tab Book View
+app, GitHub Pages and the v1 LogSeq workflow); "Book View" wording, version lines and
+the manual checklist in CLAUDE.md, ARCHITECTURE.md and TESTING.md; renamed folders in
+LOCAL-STORAGE-PIVOT-SPEC and the SDK notes; QUICK-ARCHITECTURE-REFERENCE marked
+historical; the broken relative links (VOLUMES-SPEC, CHANGELOG and others) fixed.
+
+**Repository tidy-up (Josh's call).** `.github/workflows/deploy.yml` is gone: it published a
+GitHub Pages web build on every push to `main`, and the app cannot run outside Electron (storage
+is IPC). Deleting the workflow does not take down a Pages site that was already published; turn
+Pages off in the repository settings for that. The repo-root `debug-logs/` (Dec 2025 offline-import
+notes) moved to `docs/Archive/2025-12-offline-import-debug-logs/`, and `editor_import_spec.md`, the
+handwriting editor's import formats that the JSON / Markdown exports follow, is now
+`docs/EDITOR-IMPORT-SPEC.md`.
+
+**Rejected / deferred**
+- *Renaming `productName` / `appId` / the package name to smartpen-bridge.* Electron
+  derives the profile folder from the app name, so an installed app would come up
+  with no settings (no data folder) after the update. Needs a migration; left as is.
+- *Wiring the Pen menu instead of removing it.* Web Bluetooth pairing needs a user
+  gesture in the page, so a menu-triggered Connect would fail.
+- *Removing test-only helpers* (LogSeq-era `stroke-storage.js` functions,
+  `filterDecorativeStrokes`, `eachDay`, `openTranscriptReview`): kept with their tests.
+
+**Limitations**
+- An Editor save rescans the whole folder (metadata only, about a second on 306
+  pages); a scan already running is waited for, up to 5 s.
+- A thumbnail read in flight while its page is saved can still store the old ink
+  until the next save or Rescan.
+- Not exercised: live pen, MyScript and offline import (no hardware or keys); the
+  menu-accelerator removal was checked by reading the menu template.
+
+### E. Library home + global search (October 2026)
+
+**The Library opens on your notebooks, not a list of names.** The home was an
+accordion of book names (collapsed, so nothing showed until you expanded one, and
+expanding read every page in it). It is now one **card per notebook**
+(`NotebookCard`): a fan of its three most recently written pages, the name, a
+**Vol 2** badge on a volume, page count, "last written 3 days ago", the first–last
+written range and a **transcribed** bar. Every number comes from what is already in
+memory (`lib/library-home.js`): page count and the `transcribed` flag from the
+metadata-only scan, dates from the capture-date index (stroke `startTime`, local
+days; never `metadata.lastUpdated`). No page is read for a number. **Sort chips**:
+Recently written (notebooks with no dated ink last), Name (numeric-aware, so "Notes
+9" before "Notes 10"), Most pages; the choice is a per-viewer convenience in
+localStorage (`smartpen-library-sort`, every access in try/catch, anything unknown
+means Recently written). A **Recent pages** row shows the pages last opened in the
+reader (`recentViews`, which already existed) when there are any. The empty,
+scanning and no-data-folder states talk about reading ("No notebooks to read yet",
+"Choose the folder your pages are saved in…").
+
+**A notebook opens to its pages** (`NotebookPages`): a thumbnail per page with its
+first written day ("Feb 4", "+1" when written on more days) and ✓ when transcribed,
+in scan order, so P151b and P151c follow P151 and P152b stands in for a missing
+P152. A volume ("390v2", Study Notes 3) is its own notebook with its own pages.
+**Go to page** is the pane toolbar's field, as in the reader (`resolveGoToPage`
+against that notebook's records). The breadcrumb's **notebook crumb is now a link**
+to this grid (left over from C and D); "Library" goes back to the cards. Which
+notebook is open is the session store `libraryNotebook`, not persisted.
+
+**Thumbnails without disturbing the reader.** The old home rendered thumbnails
+through the reader's 6-entry page cache, so expanding a notebook read every page in
+it and pushed the spread you had just left out of the cache. Thumbnails now go
+through `lib/viewer/thumbs.js`: a doc the page cache already holds is used without
+being bumped (`peekCachedPage`); otherwise the page is read directly, the small SVG
+is built and the doc dropped at once; only SVG strings are kept (LRU, 150); at
+most two reads run at a time. `PageThumb` asks only when it scrolls into view
+(IntersectionObserver, 150 px margin). Measured on the scratch copy (getPage IPC
+calls counted in the main process): the home reads **19 pages**, the fans of the 7
+cards, and nothing else; opening Study Notes 1 (111 pages) reads **30** (was **111**
+at once, through the page cache), 55 after jumping to the end of the grid.
+
+**Global search in the header** (`SearchField`, `SearchResults`). The "Search
+notes…" button that opened Transcripts → Search is now a field, and **Ctrl K**
+focuses it from any destination. A query can hold:
+- *words*, matched exactly as Transcripts → Search matches them (each query word
+  as part of any word on the page, ranked by how many match), then whole-word
+  matches, then the most recently written;
+- *dates*: "Oct 14", "October 14th", "14 Oct 2025", "2026-10-14", "10/14",
+  "10/14/26", "today", "yesterday" (`lib/search-query.js`). Numbers are month
+  first, as Josh writes them; a date with no year is its latest occurrence on or
+  before today; a month alone ("may") or a bare number stays a word;
+- *notebook names or keys*: every word found in the name, or "390" / "B390" /
+  "390v2" exactly.
+
+Results are grouped **Pages / Notebooks / Days** with the group the query is most
+clearly about first (Days for a date alone, Notebooks for an exact name, else
+Pages). A page row has a lazy thumbnail, notebook and page, when it was written, and
+its best-matching line with the words marked. A date alone lists every page written
+that day, transcribed or not; a date with words keeps only that day's pages.
+↑ / ↓ choose; **Enter** opens; **Shift+Enter** loads a page into the Editor;
+**Esc** closes; the footer still opens Transcripts → Search for browsing.
+
+**Where each result goes, through the existing routes.**
+- *Page*, Enter: `openPageInLibrary`, so the discard prompt is asked as for every
+  other route. On a page whose links are trustworthy (`isTrustworthyTranscript`)
+  the reader lights the matching line's ink, the rest grey, through the same
+  highlight path as the Ink + text hover, and in Transcript or Ink + text marks
+  the line and scrolls it into view (`readerFocus` in `stores/viewer.js`,
+  `matchingLineId` against the doc the reader has loaded anyway). On older pages
+  the page just opens. Esc or turning the page clears it.
+- *Page*, Shift+Enter: `lib/viewer/load-into-editor.js`, the guarded load the
+  reader's page header already used, moved out of `BookViewer` so both share it
+  (it also reuses a cached doc without bumping the cache).
+- *Notebook*: `openNotebookInLibrary`, its page grid.
+- *Day*: `navigateTo('timeline')` → `setTimelineRange(day, day)` →
+  `setActiveTab('dates')`, the written-on chip's passive route, so a collapsed panel
+  stays collapsed.
+
+**Ctrl K's rule** (`isSearchShortcut`, built on `isTypingTarget`): Ctrl or Cmd + K,
+never with Alt or Shift, never in a text field (Go to page, the transcript editor's
+inputs, another search), never mid-IME, never when already handled, and never while
+a Library transcript is in edit mode (`transcriptEditing`, set by `BookViewer`).
+**Ctrl+F** (find a page on the canvas) and **Ctrl+Shift+F** (Transcripts → Search)
+are the Editor canvas's own keys and are unchanged. The View ▾ menu's Escape is now
+marked handled, so closing it does not also clear a search highlight.
+
+**Search cost.** `searchPages` re-tokenized every transcript on every query. The
+header search uses an index built once per scan (`buildSearchIndex`, a derived store
+on `savedPages`, so a saved transcript edit updates it), and a keystroke only scans
+prepared strings. Over the full corpus (306 pages, 117 transcribed), typing
+"concrete beam" one letter at a time: **7–9 ms per keystroke before, 0.3–1.9 ms
+after**; building the index takes 17 ms per scan; a date query 0.1 ms. In the app,
+last keystroke → results painted: 146–188 ms before (Transcripts → Search, 200 ms
+debounce), 57–130 ms after (120 ms debounce). While typing "Rich update" only the 7
+visible result thumbnails were read.
+
+**Smaller fixes.** The Contents list highlights **both pages** of a spread
+(`readerPages`, set by `BookViewer`), not only the left (left over from D). The
+transcript-to-record reflection moved from `BookViewer` to `saved-pages.js`
+`applyTranscriptToRecord`, which keeps `BookViewer` at ~300 lines.
+
+**Verified on the real app** (scratch copy of the data, isolated profile, 1600×950,
+1280×760, 1920×1080, 1200×800): card numbers match the raw stroke times (Study Notes
+3 "Oct 14 – Oct 16, 2026", JPI Ruled "Dec 16, 2025 – Oct 1, 2026", JPI Dotted "Dec 9,
+2025 – Oct 19, 2026") and the Timeline (Oct 14 lists Study Notes 3 P1 and JPI
+Dotted P170); each chip sorts and is remembered; a card and the breadcrumb crumb
+open the grid; Go to page `151b`, `152` (→ P152b) and `999` (marked, stays) in
+Study Notes 1, `5` in Study Notes 3; "Rich update" → Enter opens JPI Dotted P170
+with that line's ink lit (Strokes) and the line marked and in view (Ink + text),
+Esc clears; "obsolete" → P101 (Jun 2026) opens with nothing lit; Shift+Enter
+loads P101 into the Editor; "Oct 14" → Day → the Timeline on Oct 14 with Dates
+selected; "Study Notes 3" → Notebook first → its grid; "B390" → Study Notes 1;
+Ctrl K focuses the field from the Library and the Editor, and does nothing in Go to
+page or with a transcript in edit mode; Ctrl+F and Ctrl+Shift+F still focus the
+canvas find and Transcripts → Search; with an edited transcript, Enter on another
+page's result, Shift+Enter and a Day result each ask once (Cancel stays with the
+edit, OK leaves and clears Unsaved). `scrollWidth == innerWidth` on the home, a grid
+and with results open at 1280 and 1200, panel expanded and collapsed; the results
+list ends at x = 1001 at every size. Regression: Contents → P26, ← / →, the page
+header's Load into Editor (no extra read), the Timeline feed.
+
+**Rejected / deferred**
+- *A modal command palette.* The field is where people look for search, and the
+  results drop under it; a modal would hide the page you are searching from.
+- *Reading pages to fill the cards* (a real first line, word counts). The scan and
+  the capture-date index already answer everything a card shows.
+- *Thumbnails through the page cache with a bigger cache.* It would still evict the
+  spread on a large notebook, and keep whole docs resident for a 240 px picture.
+- *The Timeline's book filter on the cards.* Leaving a notebook out of the Timeline
+  should not blank its Library card, so cards read the unfiltered index; Day results
+  read the filtered one so they agree with the Timeline they open.
+- *Matching the reader's line by yBounds.* Same reason as D: no stored batch
+  origin; the stored `lineId`s on trusted pages are the answer.
+- *Searching untranscribed pages' ink.* There is no text to search; dates reach them.
+- *A separate "Go to page" in the grid.* The pane toolbar's field is where it is in
+  the reader.
+
+**Limitations**
+- Only transcribed text is searched; an untranscribed page is found by date or by
+  opening its notebook.
+- "10/19" in a query is read as a date, so the words around it search that day's
+  pages only, not text containing "10/19".
+- Even on trusted pages a line's link is per stroke (as in D), so a lit line can
+  include part of a neighbour's ink.
+- The search field keeps its last query after a result opens (Ctrl K selects it).
+- Thumbnails are blank until read, ignore Paper, and a notebook's first visit reads
+  pages as you scroll (later visits use the SVG cache, 150 entries).
+- The Recent pages row lists only pages opened in the reader (`recentViews`, 8).
+- `BookViewer` is at 301 lines.
+- Live pen, MyScript and offline import not exercised (no hardware or keys).
+
 ### Copy one part of a transcript (October 2026)
 
 **Copy a node and what's under it, not only the whole page.** Josh's pages often
@@ -158,7 +393,7 @@ both versions; page open (click → paths settled, warm) median 137–145 ms bef
   wraps to two rows, so the two pages' ink starts at different heights.
 - ← / → while a transcript is edited do nothing (no prompt): the spec says the keys
   must not fire while editing, and the edge arrows were already hidden then.
-- The contents list still highlights only the left page of a spread.
+- The contents list still highlights only the left page of a spread. *(Fixed in E.)*
 - Live pen, MyScript and offline import not exercised (no hardware or keys); the
   "Transcribe in Editor" button was checked only in its no-keys form.
 
@@ -247,9 +482,9 @@ ink click's `setActiveTab('dates')` still lands on Dates once the Timeline is up
 - In the Timeline the range can still be typed in two places: the panel's From / To and
   presets, and Range ▾.
 - The breadcrumb's notebook crumb is not a link yet (the per-notebook page grid is
-  package E). The contents list highlights the left page of a spread only.
+  package E). The contents list highlights the left page of a spread only. *(Both fixed in E.)*
 - At 1200 wide the per-page toolbar in a spread clips its "Load into Editor" button,
-  as on `main`; the shared spread toolbar is package D.
+  as on `main`; the shared spread toolbar is package D. *(Fixed in D.)*
 - `openTranscriptReview()` still has no UI caller.
 - Not exercised: live pen, MyScript and offline import (no hardware or keys).
 
@@ -935,7 +1170,7 @@ for offline import (a batch spanning two volumes currently needs manual
 reassignment — promote this if it proves annoying), and the per-book selector in
 `BookSelectionDialog`.
 
-**See:** [docs/VOLUMES-SPEC.md](docs/VOLUMES-SPEC.md) — full design, plus the
+**See:** [docs/VOLUMES-SPEC.md](VOLUMES-SPEC.md) — full design, plus the
 rejected alternatives (arithmetic remap, decimal book ids, volume on the page
 suffix) and why each fails.
 
@@ -1367,7 +1602,7 @@ and view/edit/copy transcripts now that LogSeq is gone.
 - Trimmed `stroke-storage.js` of chunked-storage helpers
 - UI rebrand: "Save to LogSeq (Strokes)" → "Save (Strokes)" / "Save Changes" / "Save (Strokes + Text)"; status pill shows the data folder; "LogSeq DB" tab → "Saved Pages"
 
-**See:** [docs/LOCAL-STORAGE-PIVOT-SPEC.md](docs/LOCAL-STORAGE-PIVOT-SPEC.md) for the full design and phasing.
+**See:** [docs/LOCAL-STORAGE-PIVOT-SPEC.md](LOCAL-STORAGE-PIVOT-SPEC.md) for the full design and phasing.
 
 ## Before v2.0 (LogSeq era, through April 2026)
 

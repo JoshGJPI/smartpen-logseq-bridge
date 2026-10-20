@@ -76,9 +76,9 @@
       class="act-btn"
       on:click={() => dispatch('open')}
       disabled={busy}
-      title="Open this page in Book View"
+      title="Open this page in the Library"
     >
-      Open in Book View
+      Open in Library
     </button>
   </div>
 </div>
