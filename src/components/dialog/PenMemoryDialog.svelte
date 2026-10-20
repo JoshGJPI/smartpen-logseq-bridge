@@ -140,6 +140,7 @@
   
   function handleKeyDown(event) {
     if (event.key === 'Escape' && state === 'selection') {
+      event.preventDefault();
       handleClose();
     }
   }

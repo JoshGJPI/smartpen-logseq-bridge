@@ -11,6 +11,7 @@
   import { toBookKey, compareBookKeys } from '$lib/volumes.js';
   import { getPage } from '$lib/storage/local-store.js';
   import { savePageToFolder } from '$lib/storage/save-page.js';
+  import { refreshAfterSave } from '$lib/storage/refresh.js';
 
   export let isOpen = false;
   
@@ -210,6 +211,7 @@
       }
 
       log(`${mode === 'append' ? 'Appended to' : 'Created'} page B${book}/P${page} with ${newStrokes.length} strokes`, 'success');
+      refreshAfterSave([{ book, page }]);
       
       // Add only the NEW strokes to main strokes store so they appear on canvas
       addOfflineStrokes(strokesToAddToLocalStore);
@@ -226,7 +228,6 @@
       }
       
       // Close dialog automatically after successful save
-      console.log('✅ Save successful, closing dialog');
       close();
       
     } catch (err) {
@@ -240,6 +241,7 @@
   
   function handleKeyDown(event) {
     if (event.key === 'Escape' && !isSaving) {
+      event.preventDefault();
       close();
     }
   }
@@ -249,7 +251,7 @@
 
 {#if isOpen}
   <div class="dialog-overlay" on:click={close}>
-    <div class="dialog" on:click|stopPropagation>
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="Create page" on:click|stopPropagation>
       <div class="dialog-header">
         <h3>Create New Page</h3>
         {#if !isSaving}

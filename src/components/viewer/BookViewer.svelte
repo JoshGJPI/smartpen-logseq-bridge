@@ -35,6 +35,7 @@
   import { loadPageIntoEditor } from '$lib/viewer/load-into-editor.js';
   import { DISCARD_PROMPT } from '$lib/navigation.js';
   import { pageIdOf as idOf, resolveGoToPage, turnTarget, pageTurnKey, zoomText } from '$lib/viewer/page-reader.js';
+  import { modalOpen } from '$lib/left-panel.js';
   import LibraryHome from './LibraryHome.svelte';
   import NotebookPages from './NotebookPages.svelte';
   import PageSpreadView from './PageSpreadView.svelte';
@@ -148,7 +149,7 @@
   // ←/→ turn pages. pageTurnKey keeps them out of text fields, modifier chords
   // and an open transcript editor.
   function onKey(e) {
-    if (!leftRecord) return;
+    if (!leftRecord || modalOpen()) return;
     if (e.key === 'Escape' && !e.defaultPrevented) clearReaderFocus();
     const dir = pageTurnKey(e, { editing: editingSide != null });
     if (!dir || turnTarget(currentIndex, currentBookPages.length, dir, twoPageMode) < 0) return;

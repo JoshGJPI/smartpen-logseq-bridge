@@ -3,6 +3,7 @@
   v3.1: Existing transcript lines are editable; changes saved by UUID
 -->
 <script>
+  import { isTypingTarget } from '$lib/left-panel.js';
   import { createEventDispatcher } from 'svelte';
   import { reassignStrokes, getStrokesSnapshot, updateStrokeBlockUuids, getStrokesInYRange } from '$stores/strokes.js';
   import TranscriptStrokePreview from './TranscriptStrokePreview.svelte';
@@ -401,6 +402,8 @@
   // Handle keyboard shortcuts
   function handleKeydown(event) {
     if (!visible) return;
+    // In a line's text field, select-all and undo/redo are the field's own.
+    if (isTypingTarget(event.target) && (event.ctrlKey || event.metaKey) && ['a', 'z', 'y'].includes(event.key.toLowerCase())) return;
 
     if (event.ctrlKey || event.metaKey) {
       if (event.key === 'z' && !event.shiftKey) {
@@ -471,7 +474,7 @@
 
 {#if visible}
 <div class="modal-backdrop" on:click={handleClose}>
-  <div class="modal-container" on:click|stopPropagation>
+  <div class="modal-container" role="dialog" aria-modal="true" aria-label="Edit transcription" on:click|stopPropagation>
     <div class="modal-header">
       <h2>Edit Transcription &mdash; B{book}/P{page}</h2>
       <div class="header-stats">

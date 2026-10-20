@@ -3,15 +3,12 @@
  * Non-destructive: scales only affect rendering, not original stroke data
  */
 import { writable, derived, get } from 'svelte/store';
-
-// Load saved scales from localStorage
-const savedScales = localStorage.getItem('pageScales');
+import { readJson, write, remove, isPlainObject } from '../lib/safe-storage.js';
 
 // Map of pageKey -> scale factor (default: 1.0)
-// Scale range: 0.25 (25%) to 5.0 (500%)
-export const pageScales = writable(
-  savedScales ? JSON.parse(savedScales) : {}
-);
+// Scale range: 0.25 (25%) to 5.0 (500%). A missing, corrupt or blocked value
+// means "no custom scales"; it must never stop the app loading.
+export const pageScales = writable(readJson('pageScales', {}, isPlainObject));
 
 // Flag to indicate if any pages have custom scales
 export const hasScaledPages = derived(
@@ -20,9 +17,7 @@ export const hasScaledPages = derived(
 );
 
 // Subscribe to changes and persist to localStorage
-pageScales.subscribe(scales => {
-  localStorage.setItem('pageScales', JSON.stringify(scales));
-});
+pageScales.subscribe(scales => write('pageScales', scales));
 
 /**
  * Set scale for a specific page
@@ -65,7 +60,7 @@ export function resetPageScale(pageKey) {
  */
 export function resetAllPageScales() {
   pageScales.set({});
-  localStorage.removeItem('pageScales');
+  remove('pageScales');
 }
 
 /**

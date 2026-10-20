@@ -35,7 +35,7 @@
   }
 
   function onWindowKey(event) {
-    if (open && event.key === 'Escape') open = false;
+    if (open && event.key === 'Escape') { open = false; event.preventDefault(); }
   }
 </script>
 

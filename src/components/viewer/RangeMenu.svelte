@@ -41,7 +41,7 @@
   }
 
   function onKey(e) {
-    if (open && e.key === 'Escape') open = false;
+    if (open && e.key === 'Escape') { open = false; e.preventDefault(); }
   }
 </script>
 

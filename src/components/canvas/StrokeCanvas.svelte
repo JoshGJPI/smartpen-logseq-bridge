@@ -18,6 +18,7 @@
   import { bookAliases } from '$stores';
   import { formatBookName, filterTranscriptionProperties } from '$utils/formatting.js';
   import { openTranscriptSearch, openSvgExportDialog } from '$stores';
+  import { isTypingTarget, modalOpen } from '$lib/left-panel.js';
   import { hasSelection } from '$stores/selection.js';
   import { sketchProfile, sketchProfileSummary, sketchStrokeCount, markStrokesAsSketch, unmarkStrokesAsSketch } from '$stores';
   import { reassignVolume } from '$stores/strokes.js';
@@ -223,6 +224,9 @@
     
     // Keyboard shortcuts
     const handleKeyDown = (e) => {
+      // A modal dialog owns the keyboard while it is open.
+      if (modalOpen()) return;
+
       // Ctrl+F — find a page on the canvas. Shift adds "across everything
       // saved", which is the left panel's Transcripts → Search. Checked before
       // the mode-specific handling below: find is never what those keys mean.
@@ -232,6 +236,11 @@
         else canvasSearch?.focus();
         return;
       }
+
+      // Everything below is a canvas action: never while typing in a field
+      // (Ctrl+A, Delete and Backspace belong to the field), mid-IME, or when
+      // something else (a menu's Escape) already handled the key.
+      if (e.defaultPrevented || e.isComposing || isTypingTarget(e.target)) return;
 
       // Point-edit mode owns Escape and Delete while it is active: it is a modal
       // sub-state of the canvas, and its point selection is the thing on screen

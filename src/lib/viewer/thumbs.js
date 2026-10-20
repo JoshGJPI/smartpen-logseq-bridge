@@ -99,12 +99,18 @@ export function createThumbLoader({ read, peek = () => null, render, maxEntries 
     return svgs.get(keyOf(book, pageId, rotation)) ?? null;
   }
 
+  /** Forget one page's thumbnails, every rotation (the page was re-saved). */
+  function invalidate(book, pageId) {
+    const prefix = `${book}/${pageId}@`;
+    for (const k of [...svgs.keys()]) if (k.startsWith(prefix)) svgs.delete(k);
+  }
+
   /** Forget every thumbnail (rescan, data-folder change). */
   function clear() {
     svgs.clear();
   }
 
-  return { get, peekSvg, clear, stats, size: () => svgs.size };
+  return { get, peekSvg, invalidate, clear, stats, size: () => svgs.size };
 }
 
 /** The app's loader: 240×180 thumbnails, read through local-store. */

@@ -4,28 +4,19 @@
  * Persists to localStorage so layout survives page refreshes
  */
 import { writable, get } from 'svelte/store';
+import { readJson, readString, write, remove, isPlainObject } from '../lib/safe-storage.js';
 
-// Load saved positions from localStorage
-const savedPositions = localStorage.getItem('pagePositions');
-
-// Map of pageKey -> {x, y} positions in Ncode space
-export const pagePositions = writable(
-  savedPositions ? JSON.parse(savedPositions) : {}
-);
+// Map of pageKey -> {x, y} positions in Ncode space. A missing, corrupt or
+// blocked value means "no custom positions"; it must never stop the app loading.
+export const pagePositions = writable(readJson('pagePositions', {}, isPlainObject));
 
 // Flag to indicate if custom positioning is active
-export const useCustomPositions = writable(
-  localStorage.getItem('useCustomPositions') === 'true'
-);
+export const useCustomPositions = writable(readString('useCustomPositions') === 'true');
 
 // Subscribe to changes and persist to localStorage
-pagePositions.subscribe(positions => {
-  localStorage.setItem('pagePositions', JSON.stringify(positions));
-});
+pagePositions.subscribe(positions => write('pagePositions', positions));
 
-useCustomPositions.subscribe(value => {
-  localStorage.setItem('useCustomPositions', value.toString());
-});
+useCustomPositions.subscribe(value => write('useCustomPositions', String(value)));
 
 /**
  * Set position for a specific page
@@ -85,8 +76,8 @@ export function resetPagePositions() {
 export function clearPagePositions() {
   pagePositions.set({});
   useCustomPositions.set(false);
-  localStorage.removeItem('pagePositions');
-  localStorage.removeItem('useCustomPositions');
+  remove('pagePositions');
+  remove('useCustomPositions');
 }
 
 /**

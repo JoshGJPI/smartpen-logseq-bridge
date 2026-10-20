@@ -29,6 +29,7 @@
   import { parseSearchQuery } from '$lib/search-query.js';
   import { runSearch, flattenResults, isSearchShortcut } from '$lib/global-search.js';
   import { loadPageIntoEditor } from '$lib/viewer/load-into-editor.js';
+  import { modalOpen } from '$lib/left-panel.js';
   import SearchResults from './SearchResults.svelte';
 
   const DEBOUNCE_MS = 120;
@@ -64,7 +65,7 @@
   onDestroy(() => clearTimeout(timer));
 
   function onWindowKey(e) {
-    if (!isSearchShortcut(e, { editing: $transcriptEditing })) return;
+    if (!isSearchShortcut(e, { editing: $transcriptEditing }) || modalOpen()) return;
     e.preventDefault();
     input.focus();
     input.select();

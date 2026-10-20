@@ -30,7 +30,7 @@
   import { unsavedChanges, viewerDirty, destination, navigateTo } from '$stores';
   import { DESTINATIONS, DESTINATION_LABELS } from '$lib/navigation.js';
   import { leftPanelCollapsed, toggleLeftPanel } from '$stores';
-  import { isPanelToggleKey } from '$lib/left-panel.js';
+  import { isPanelToggleKey, modalOpen } from '$lib/left-panel.js';
   import { refreshBackgrounds } from '$stores';
   import { isAvailable as folderIsAvailable } from '$lib/storage/local-store.js';
   import { scanLocalPages } from '$lib/storage/scan.js';
@@ -128,7 +128,7 @@
   // `[` folds the left panel to its rail and back. isPanelToggleKey keeps it out
   // of text fields and modifier chords.
   function handleGlobalKeydown(e) {
-    if (!isPanelToggleKey(e)) return;
+    if (!isPanelToggleKey(e) || modalOpen()) return;
     e.preventDefault();
     toggleLeftPanel();
   }

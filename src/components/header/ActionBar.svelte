@@ -65,6 +65,7 @@
   import { transcribeStrokes } from '$lib/myscript-api.js';
   // v2.0: sole save path is the local folder
   import { savePageToFolder, finalizePageMoves } from '$lib/storage/save-page.js';
+  import { refreshAfterSave } from '$lib/storage/refresh.js';
   import { pageOrientations } from '$stores/orientation.js';
   import { rotationFor, rotateCanvasStrokes } from '$lib/page-orientation.js';
   import { dataRoot, dataFolderReady } from '$stores/settings.js';
@@ -121,6 +122,10 @@
   
   function handleClearCanvas() {
     clearStrokes();
+    // Selection indices point into the strokes array, which is now empty; a
+    // stale set would select whatever lands at those positions next (and keeps
+    // point-edit mode, which follows the selection, from exiting).
+    clearSelection();
     clearDeletedIndices();
     // Context ink is drawn for pages that are on the canvas; with the canvas
     // empty it would be the only thing left, which is not a state the user can
@@ -432,6 +437,8 @@
 
       // Completed moves, for the post-save transcript carry / ghost-file cleanup.
       const completedMoves = [];
+      // Pages written, so the Library, search and Timeline can catch up.
+      const writtenPages = [];
 
       // Save each page
       for (const [key, pageData] of pagesToSave) {
@@ -472,6 +479,7 @@
 
           if (result.success) {
             recordSuccessfulSave(`B${book}/P${page}`, result);
+            writtenPages.push({ book, page });
 
             // The edited strokes' points are now on disk, so the intent markers
             // have done their job. Not gated on `result.edited`: a stroke that was
@@ -557,6 +565,11 @@
       }
       if (errorCount > 0) {
         log(`Failed to save ${errorCount} page(s)`, 'error');
+      }
+      // The reading views hold their own copies (scan, page cache, thumbnails,
+      // capture dates); refresh them in the background.
+      if (writtenPages.length || completedMoves.length) {
+        refreshAfterSave([...writtenPages, ...completedMoves.map((m) => ({ book: m.fromBook, page: m.fromPage }))]);
       }
 
       // Reconcile the unsaved-changes indicator after a clean save.

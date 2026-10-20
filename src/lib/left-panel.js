@@ -43,6 +43,16 @@ export function isTypingTarget(el) {
 }
 
 /**
+ * True while a modal dialog is on screen (any element with aria-modal="true").
+ * Window-level shortcuts stand down then: the dialog owns the keyboard, and a
+ * key acting on the page behind it would change what the dialog is about.
+ * @param {Document} [doc]
+ */
+export function modalOpen(doc = typeof document !== 'undefined' ? document : null) {
+  return !!(doc && doc.querySelector('[aria-modal="true"]'));
+}
+
+/**
  * Is this keydown the "toggle the left panel" shortcut (`[`)?
  * Never while typing, never with Ctrl/Alt/Meta (Ctrl+[ is outdent in the
  * transcript editor, and Alt/Meta combos belong to the OS), never mid-IME, and
