@@ -185,18 +185,6 @@ export function setTimelineRange(from, to) {
   timelineRange.set(a <= b ? { from: a, to: b } : { from: b, to: a });
 }
 
-/** Extend the range to include one more day (drag-select across the grid). */
-export function extendTimelineRange(anchor, day) {
-  setTimelineRange(anchor, day);
-}
-
-/** Shift the whole range by n days, keeping its length. */
-export function shiftTimelineRange(n) {
-  const { from, to } = get(timelineRange);
-  if (!from || !to) return;
-  setTimelineRange(addDays(from, n), addDays(to, n));
-}
-
 export function setCanvasPageOrder(mode) {
   canvasPageOrder.set(mode === 'date' ? 'date' : 'book');
 }

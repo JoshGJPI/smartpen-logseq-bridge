@@ -1,7 +1,7 @@
 <!--
   FilterSettings.svelte - Adjust decorative stroke detection thresholds
   Optional component for advanced users to fine-tune the detection algorithm
-  Used by the "Deselect Decorative" button in SelectionInfo
+  Shown from FilteredStrokesPanel (the canvas's Decorative panel)
 -->
 <script>
   import { config } from '$lib/stroke-filter.js';

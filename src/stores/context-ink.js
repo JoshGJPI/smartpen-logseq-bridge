@@ -30,8 +30,6 @@ export const contextInk = writable([]);
 
 export const contextInkCount = derived(contextInk, $ink => $ink.length);
 
-export const hasContextInk = derived(contextInk, $ink => $ink.length > 0);
-
 /** Page keys ("B{book}/P{page}") that currently have context ink. */
 export const contextInkPageKeys = derived(contextInk, $ink => {
   const keys = new Set();

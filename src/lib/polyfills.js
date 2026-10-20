@@ -16,4 +16,3 @@ if (typeof window !== 'undefined') {
 // Make process globally available
 globalThis.process = process;
 
-console.log('Polyfills loaded (Buffer, process)');

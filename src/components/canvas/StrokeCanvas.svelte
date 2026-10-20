@@ -2,6 +2,7 @@
   StrokeCanvas.svelte - Main canvas wrapper with controls
 -->
 <script>
+  import { debug } from '$lib/debug.js';
   import { onMount, onDestroy, tick } from 'svelte';
   import { strokes, strokeCount, pages, clearStrokes, batchMode } from '$stores';
   import { selectedIndices, selectedStrokes, handleStrokeClick, clearSelection, selectAll, selectionCount, selectFromBox } from '$stores';
@@ -331,7 +332,7 @@
     wasBatchMode = $batchMode;
     
     if (batchModeJustEnded && renderer && visibleStrokes.length > 0) {
-      console.log('🎨 Batch mode ended - forcing canvas update with', visibleStrokes.length, 'strokes');
+      debug('🎨 Batch mode ended - forcing canvas update with', visibleStrokes.length, 'strokes');
       // Schedule the update to happen after this reactive block completes
       setTimeout(() => {
         renderStrokes(true);
@@ -364,7 +365,7 @@
       liveWritingViewSet = false;
       renderStrokes(true);
     } else if (strokesAdded) {
-      console.log('📊 Strokes changed:', previousStrokeCount, '->', currentCount);
+      debug('📊 Strokes changed:', previousStrokeCount, '->', currentCount);
       // Full reset when new strokes added
       renderStrokes(true);
 
@@ -434,7 +435,7 @@
   $: {
     const currentSelection = selectedPages.size > 0 ? Array.from(selectedPages).sort().join(',') : '';
     if (renderer && previousPageSelection !== null && currentSelection !== previousPageSelection && !$batchMode) {
-      console.log('📄 Page filter changed, re-rendering', visibleStrokes.length, 'strokes');
+      debug('📄 Page filter changed, re-rendering', visibleStrokes.length, 'strokes');
       // Update renderer with visible page keys
       renderer.setVisiblePageKeys(selectedPages);
       // Use false to avoid recalculating bounds/zoom - just redraw with current view
@@ -1869,11 +1870,11 @@
     const visibleTranscriptions = getVisibleTranscriptions();
     const overlays = [];
 
-    console.log('📝 Rendering transcribed text for', visibleTranscriptions.length, 'pages');
+    debug('📝 Rendering transcribed text for', visibleTranscriptions.length, 'pages');
 
     visibleTranscriptions.forEach(pageData => {
       if (!pageData.text || !pageData.text.trim()) {
-        console.log('  ⚠️ No text for', pageData.pageKey);
+        debug('  ⚠️ No text for', pageData.pageKey);
         return;
       }
       
@@ -1881,7 +1882,7 @@
       const filteredText = filterTranscriptionProperties(pageData.text);
       
       if (!filteredText || !filteredText.trim()) {
-        console.log('  ⚠️ No text after filtering properties for', pageData.pageKey);
+        debug('  ⚠️ No text after filtering properties for', pageData.pageKey);
         return;
       }
       
@@ -1901,11 +1902,11 @@
       }
       
       if (!matchingPageKey) {
-        console.log('  ❌ No matching page in renderer for B', book, 'P', page);
+        debug('  ❌ No matching page in renderer for B', book, 'P', page);
         return;
       }
       
-      console.log('  ✅ Rendering text for', matchingPageKey, '(', filteredText.length, 'chars )');
+      debug('  ✅ Rendering text for', matchingPageKey, '(', filteredText.length, 'chars )');
 
       // Render filtered text inside the page boundaries using the correct pageKey.
       // The canvas-search term is marked wherever it appears, so a text-view

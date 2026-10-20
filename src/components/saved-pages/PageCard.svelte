@@ -5,6 +5,7 @@
   with a collapsible transcript section beneath it (only when transcript data exists).
 -->
 <script>
+  import { debug } from '$lib/debug.js';
   // Folder-backed Data Explorer
   import { importStrokesFromFolder } from '$lib/storage/load-page.js';
   import { getPage } from '$lib/storage/local-store.js';
@@ -60,7 +61,7 @@
       const result = await importStrokesFromFolder(page, (current, total) => {
         importProgress = { current, total };
       });
-      console.log('Import complete:', result);
+      debug('Import complete:', result);
     } finally {
       importing = false;
       importProgress = { current: 0, total: 0 };

@@ -27,10 +27,6 @@ export function setViewerMode(mode) {
   viewerMode.set(mode === 'book' ? 'book' : 'editor');
 }
 
-export function toggleViewerMode() {
-  viewerMode.update(m => (m === 'book' ? 'editor' : 'book'));
-}
-
 /* ============================================================
  *  Unsaved transcript-edit tracking (per page)
  * ============================================================ */
@@ -199,14 +195,6 @@ export function setFeedOrder(order) {
   const next = order === 'oldest' ? 'oldest' : 'newest';
   persistChoice(FEED_ORDER_KEY, next);
   feedOrder.set(next);
-}
-
-export function toggleFeedOrder() {
-  feedOrder.update((o) => {
-    const next = o === 'oldest' ? 'newest' : 'oldest';
-    persistChoice(FEED_ORDER_KEY, next);
-    return next;
-  });
 }
 
 /**

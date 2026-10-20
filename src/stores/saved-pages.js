@@ -74,27 +74,6 @@ export function clearSavedPages() {
 }
 
 /**
- * Update a specific page's sync status
- * @param {number} book - Book ID
- * @param {number} page - Page number
- * @param {string} status - Sync status ('clean' | 'unsaved')
- *
- * Note: 'in-canvas' is NOT set here — whether a page's strokes are loaded is
- * derived from the strokes store (`canvasPageKeys`) so the badge follows the
- * canvas. Stamping it onto the record left it latched after a canvas Clear.
- */
-export function updatePageSyncStatus(book, page, status) {
-  savedPages.update(pages => {
-    return pages.map(p => {
-      if (p.book === book && p.page === page) {
-        return { ...p, syncStatus: status };
-      }
-      return p;
-    });
-  });
-}
-
-/**
  * Reflect a transcript saved in the Library reader back into its scan record:
  * lightweight fields only (no strokes or PageDoc residency), and drop the
  * page's cached doc so a re-view reads the fresh transcript. The global search

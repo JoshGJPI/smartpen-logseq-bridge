@@ -63,12 +63,3 @@ export function resetAllPageScales() {
   remove('pageScales');
 }
 
-/**
- * Check if a specific page has a custom scale
- * @param {string} pageKey - Page identifier
- * @returns {boolean} True if page has non-default scale
- */
-export function hasCustomScale(pageKey) {
-  const scale = get(pageScales)[pageKey];
-  return scale !== undefined && scale !== 1.0;
-}

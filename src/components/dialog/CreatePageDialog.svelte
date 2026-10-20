@@ -2,6 +2,7 @@
   CreatePageDialog.svelte - Dialog for creating a new page from duplicated strokes
 -->
 <script>
+  import { debug } from '$lib/debug.js';
   import { pastedStrokes, pastedSelection, getPastedAsNewPage, clearPastedStrokes } from '$stores';
   import { addOfflineStrokes } from '$stores';
   import { log } from '$stores';
@@ -133,7 +134,7 @@
       const indicesToConvert = hasSelection ? $pastedSelection : null;
       const newStrokes = getPastedAsNewPage(book, page, indicesToConvert);
       
-      console.log('💾 Saving', newStrokes.length, 'strokes as B', book, '/P', page, `(${mode})`);
+      debug('💾 Saving', newStrokes.length, 'strokes as B', book, '/P', page, `(${mode})`);
       
       // Prepare strokes for the folder save and the local store
       let strokesToSave = newStrokes;
@@ -144,7 +145,7 @@
         const existingDoc = await getPage(book, page);
         const existingData = existingDoc ? { strokes: existingDoc.strokes, pageInfo: existingDoc.pageInfo } : null;
         if (existingData && existingData.strokes && existingData.strokes.length > 0) {
-          console.log('📎 Appending to', existingData.strokes.length, 'existing strokes');
+          debug('📎 Appending to', existingData.strokes.length, 'existing strokes');
           
           // Convert stored format back to full format
           const existingFullFormat = existingData.strokes.map(s => 
@@ -160,7 +161,7 @@
               }
             }
           }
-          console.log('📄 Existing strokes bottom Y:', maxExistingY.toFixed(2));
+          debug('📄 Existing strokes bottom Y:', maxExistingY.toFixed(2));
           
           // Find the top-most Y coordinate in new strokes
           let minNewY = Infinity;
@@ -171,12 +172,12 @@
               }
             }
           }
-          console.log('🆕 New strokes top Y:', minNewY.toFixed(2));
+          debug('🆕 New strokes top Y:', minNewY.toFixed(2));
           
           // Calculate vertical offset with spacing (5 Ncode units for small gap)
           const spacing = 5; // Vertical gap between existing and new strokes
           const yOffset = maxExistingY - minNewY + spacing;
-          console.log('⬇️ Applying Y offset:', yOffset.toFixed(2), 'to new strokes');
+          debug('⬇️ Applying Y offset:', yOffset.toFixed(2), 'to new strokes');
           
           // Apply vertical offset to new strokes
           const offsetNewStrokes = newStrokes.map(stroke => ({
@@ -189,11 +190,11 @@
           
           // For the file: save COMBINED (existing + new with offset)
           strokesToSave = [...existingFullFormat, ...offsetNewStrokes];
-          console.log('📦 Total strokes to save:', strokesToSave.length);
+          debug('📦 Total strokes to save:', strokesToSave.length);
           
           // For local store: only add the NEW strokes (with offset)
           strokesToAddToLocalStore = offsetNewStrokes;
-          console.log('💾 Adding', strokesToAddToLocalStore.length, 'new strokes to local store');
+          debug('💾 Adding', strokesToAddToLocalStore.length, 'new strokes to local store');
         }
       }
       

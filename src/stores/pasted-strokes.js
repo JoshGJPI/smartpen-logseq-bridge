@@ -2,6 +2,7 @@
  * Pasted Strokes Store - Manages pasted strokes that are movable on canvas
  * These strokes are independent from original page-locked strokes
  */
+import { debug } from '../lib/debug.js';
 import { writable, derived, get } from 'svelte/store';
 
 /**
@@ -24,23 +25,6 @@ export const pastedCount = derived(
 );
 
 /**
- * Selected pasted strokes
- */
-export const selectedPastedStrokes = derived(
-  [pastedStrokes, pastedSelection],
-  ([$strokes, $selection]) =>
-    Array.from($selection).map(i => $strokes[i]).filter(Boolean)
-);
-
-/**
- * Whether any pasted strokes are selected
- */
-export const hasPastedSelection = derived(
-  pastedSelection,
-  $selection => $selection.size > 0
-);
-
-/**
  * Duplicate selected strokes (copy + paste in one action)
  * @param {Array} strokes - Strokes to duplicate
  * @param {Object} initialOffset - Starting position offset {x, y} in Ncode units
@@ -54,14 +38,14 @@ export function duplicateStrokes(strokes, initialOffset = { x: 50, y: 50 }) {
   // Log timestamp generation for first duplicated stroke
   if (normalized.length > 0) {
     const first = normalized[0];
-    console.log('🆔 Generated unique timestamps for duplicated strokes:');
-    console.log(`   First stroke: ${first.startTime} → ${first.endTime} (duration: ${first.endTime - first.startTime}ms)`);
-    console.log(`   First dot: ${first.dotArray[0].timestamp}, Last dot: ${first.dotArray[first.dotArray.length - 1].timestamp}`);
+    debug('🆔 Generated unique timestamps for duplicated strokes:');
+    debug(`   First stroke: ${first.startTime} → ${first.endTime} (duration: ${first.endTime - first.startTime}ms)`);
+    debug(`   First dot: ${first.dotArray[0].timestamp}, Last dot: ${first.dotArray[first.dotArray.length - 1].timestamp}`);
   }
   
   pastedStrokes.update(existing => {
     const updated = [...existing, ...normalized];
-    console.log('🔄 Duplicated', normalized.length, 'strokes (total pasted:', updated.length, ')');
+    debug('🔄 Duplicated', normalized.length, 'strokes (total pasted:', updated.length, ')');
     return updated;
   });
   
@@ -106,7 +90,7 @@ export function deleteSelectedPasted() {
   
   pastedStrokes.update(strokes => {
     const filtered = strokes.filter((_, index) => !selection.has(index));
-    console.log('🗑️ Deleted', deletedCount, 'pasted strokes (', filtered.length, 'remaining)');
+    debug('🗑️ Deleted', deletedCount, 'pasted strokes (', filtered.length, 'remaining)');
     return filtered;
   });
   
@@ -122,7 +106,7 @@ export function clearPastedStrokes() {
   pastedStrokes.set([]);
   pastedSelection.set(new Set());
   if (count > 0) {
-    console.log('🗑️ Cleared all', count, 'pasted strokes');
+    debug('🗑️ Cleared all', count, 'pasted strokes');
   }
 }
 
@@ -170,7 +154,7 @@ export function getPastedAsNewPage(book, page, selectedIndices = null) {
   
   if (strokesToConvert.length === 0) return [];
   
-  console.log('📄 Formatting', strokesToConvert.length, 'pasted strokes as B', book, '/P', page);
+  debug('📄 Formatting', strokesToConvert.length, 'pasted strokes as B', book, '/P', page);
   
   // First pass: apply offsets to get actual positions
   const strokesWithOffsets = strokesToConvert.map(stroke => ({
@@ -199,7 +183,7 @@ export function getPastedAsNewPage(book, page, selectedIndices = null) {
     anchorY = 0;
   }
   
-  console.log('  📍 Anchor point:', anchorX.toFixed(2), anchorY.toFixed(2));
+  debug('  📍 Anchor point:', anchorX.toFixed(2), anchorY.toFixed(2));
   
   // Second pass: normalize coordinates relative to anchor point
   return strokesWithOffsets.map(stroke => ({

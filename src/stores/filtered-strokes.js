@@ -41,23 +41,3 @@ export function setFilteredStrokes(decorative) {
   filteredStrokes.set(decorative);
 }
 
-/**
- * Clear the filtered strokes
- */
-export function clearFilteredStrokes() {
-  filteredStrokes.set([]);
-}
-
-/**
- * Get a specific filtered stroke by index
- * @param {number} index - Original stroke index
- * @returns {Object|null} Filtered stroke object or null
- */
-export function getFilteredStrokeByIndex(index) {
-  let result = null;
-  filteredStrokes.update(strokes => {
-    result = strokes.find(fs => fs.index === index);
-    return strokes;
-  });
-  return result;
-}

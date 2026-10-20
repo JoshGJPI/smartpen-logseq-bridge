@@ -18,68 +18,10 @@ export const selectedPagesForImport = writable(new Set());
 // Is transcription in progress?
 export const isTranscribing = writable(false);
 
-// Derived: Transcribed text
-export const transcribedText = derived(
-  lastTranscription, 
-  $t => $t?.text || ''
-);
-
-// Derived: Transcribed lines with hierarchy
-export const transcribedLines = derived(
-  lastTranscription, 
-  $t => $t?.lines || []
-);
-
-// Derived: Detected commands (TODO, DEADLINE, etc.)
-export const detectedCommands = derived(
-  lastTranscription, 
-  $t => $t?.commands || []
-);
-
-// Derived: Summary stats
-export const transcriptionSummary = derived(
-  lastTranscription,
-  $t => $t?.summary || null
-);
-
-// Derived: Line metrics
-export const lineMetrics = derived(
-  lastTranscription,
-  $t => $t?.lineMetrics || null
-);
-
-// Derived: Words with bounding boxes
-export const transcribedWords = derived(
-  lastTranscription,
-  $t => $t?.words || []
-);
-
 // Derived: Has transcription data
 export const hasTranscription = derived(
   lastTranscription,
   $t => $t !== null
-);
-
-// Derived: Pages/Books info from transcription source strokes (from pageTranscriptions)
-export const transcriptionSourcePages = derived(
-  pageTranscriptions,
-  $pt => {
-    const pages = [];
-    $pt.forEach((transcription, pageKey) => {
-      pages.push({
-        key: pageKey,
-        ...transcription.pageInfo,
-        strokeCount: transcription.strokeCount
-      });
-    });
-    return pages;
-  }
-);
-
-// Derived: Transcription grouped by page (new structure)
-export const transcriptionByPage = derived(
-  pageTranscriptions,
-  $pt => $pt
 );
 
 // Derived: List of page transcriptions as array for easier iteration

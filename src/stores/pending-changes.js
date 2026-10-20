@@ -129,15 +129,6 @@ export function adjustDeletionsAfterRemoval(removedIndices) {
 }
 
 /**
- * Check if a stroke is marked as deleted
- * @param {number} index - Stroke index
- * @returns {boolean} True if deleted
- */
-export function isStrokeDeleted(index) {
-  return get(deletedIndices).has(index);
-}
-
-/**
  * Get count of deleted strokes
  */
 export const deletedCount = derived(
@@ -238,17 +229,6 @@ export function noteOnDiskStrokeIds(book, page, strokeArray) {
     return next;
   });
   fetchingPages.delete(key);
-}
-
-/** Forget a page's cached on-disk state (e.g. when it leaves the canvas). */
-export function forgetOnDiskStrokeIds(book, page) {
-  const key = `B${book}/P${page}`;
-  onDiskStrokeIds.update((m) => {
-    if (!m.has(key)) return m;
-    const next = new Map(m);
-    next.delete(key);
-    return next;
-  });
 }
 
 const BACKFILL_PAGE_KEY_RE = new RegExp(`^B(${BOOK_KEY_FRAGMENT})\\/P(\\d+)$`);
@@ -530,47 +510,6 @@ export function getDeletedStrokeIdsForPage(book, page) {
   });
 
   return deletedIds;
-}
-
-/**
- * Get summary of pending changes (for display)
- * @returns {Object} Summary with counts
- */
-export function getPendingChangesSummary() {
-  const $pendingChanges = get(pendingChanges);
-  
-  let totalAdditions = 0;
-  let totalEdits = 0;
-  let totalModifications = 0;
-  let totalDeletions = 0;
-  let totalMoves = 0;
-  let pagesWithChanges = 0;
-
-  for (const [_, pageChanges] of $pendingChanges) {
-    const moves = pageChanges.moves?.length || 0;
-    if (pageChanges.additions.length > 0 ||
-        pageChanges.edits.length > 0 ||
-        pageChanges.modifications.length > 0 ||
-        pageChanges.deletions.length > 0 ||
-        moves > 0) {
-      pagesWithChanges++;
-      totalAdditions += pageChanges.additions.length;
-      totalEdits += pageChanges.edits.length;
-      totalModifications += pageChanges.modifications.length;
-      totalDeletions += pageChanges.deletions.length;
-      totalMoves += moves;
-    }
-  }
-
-  return {
-    totalAdditions,
-    totalEdits,
-    totalModifications,
-    totalDeletions,
-    totalMoves,
-    pagesWithChanges,
-    changes: $pendingChanges
-  };
 }
 
 /**

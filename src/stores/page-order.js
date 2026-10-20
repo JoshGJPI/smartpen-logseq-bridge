@@ -53,24 +53,6 @@ export function movePageBy(pageKey, deltaX, deltaY) {
 }
 
 /**
- * Get position for a specific page
- * @param {string} pageKey - Page identifier
- * @returns {{x: number, y: number}|null} Position or null if not set
- */
-export function getPagePosition(pageKey) {
-  const positions = get(pagePositions);
-  return positions[pageKey] || null;
-}
-
-/**
- * Reset to automatic horizontal layout
- */
-export function resetPagePositions() {
-  useCustomPositions.set(false);
-  // Keep the positions data but disable custom positioning
-}
-
-/**
  * Clear all custom positioning data
  */
 export function clearPagePositions() {
@@ -80,25 +62,3 @@ export function clearPagePositions() {
   remove('useCustomPositions');
 }
 
-/**
- * Auto-arrange pages in a grid layout
- * @param {Array<string>} pageKeys - Array of page keys to arrange
- * @param {number} columns - Number of columns (default: 3)
- * @param {number} spacing - Spacing between pages in Ncode units (default: 1000)
- */
-export function autoArrangePages(pageKeys, columns = 3, spacing = 1000) {
-  const positions = {};
-  
-  pageKeys.forEach((pageKey, index) => {
-    const col = index % columns;
-    const row = Math.floor(index / columns);
-    
-    positions[pageKey] = {
-      x: col * spacing,
-      y: row * spacing
-    };
-  });
-  
-  pagePositions.set(positions);
-  useCustomPositions.set(true);
-}

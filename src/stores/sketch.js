@@ -122,10 +122,3 @@ export function resetSketchProfile() {
   sketchPresetName.set('');
 }
 
-/**
- * Current profile (one-time read), for non-reactive callers.
- * @returns {import('$lib/sketch-width.js').SketchProfile}
- */
-export function getSketchProfile() {
-  return get(sketchProfile);
-}

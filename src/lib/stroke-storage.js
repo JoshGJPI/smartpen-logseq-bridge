@@ -8,6 +8,7 @@
  * removed in v2.0; PageDoc files in `<dataRoot>/pages/B###/P##.json` are the
  * single source of truth now.
  */
+import { debug } from './debug.js';
 
 /**
  * Generate unique stroke ID from timestamp
@@ -32,7 +33,7 @@ export function generateStrokeId(stroke) {
  */
 export function convertToStorageFormat(strokes) {
   const withBlockUuid = strokes.filter(s => s.blockUuid).length;
-  console.log(`[convertToStorageFormat] Converting ${strokes.length} strokes (${withBlockUuid} have blockUuid)`);
+  debug(`[convertToStorageFormat] Converting ${strokes.length} strokes (${withBlockUuid} have blockUuid)`);
 
   return strokes.map(stroke => {
     const stored = {
@@ -186,29 +187,6 @@ export function buildMdExportData(rawStrokes) {
 
     return { content, filename: `B${book}_P${page}_strokes.md` };
   });
-}
-
-/**
- * Build transcription storage object
- * @param {Object} transcription - Transcription result from MyScript
- * @param {number} strokeCount - Number of strokes transcribed
- * @returns {Object} Transcription storage object for LogSeq
- */
-export function buildTranscriptionStorageObject(transcription, strokeCount) {
-  return {
-    version: "1.0",
-    transcribedAt: Date.now(),
-    engine: "myscript",
-    engineVersion: "2.0",
-    text: transcription.text || "",
-    lines: transcription.lines || [],
-    commands: transcription.commands || [],
-    metadata: {
-      strokeCount: strokeCount,
-      confidence: transcription.confidence || 0,
-      processingTime: transcription.processingTime || 0
-    }
-  };
 }
 
 /**

@@ -3,6 +3,7 @@
  * Wraps the web_pen_sdk and updates Svelte stores
  */
 
+import { debug } from './debug.js';
 import { PenHelper, PenMessageType } from 'web_pen_sdk';
 import { 
   addStroke, 
@@ -77,14 +78,6 @@ export function initializePenSDK() {
   };
 
   log('Pen SDK initialized', 'info');
-}
-
-/**
- * Set canvas renderer for real-time drawing
- * @param {Object} renderer - CanvasRenderer instance
- */
-export function setCanvasRenderer(renderer) {
-  canvasRenderer = renderer;
 }
 
 // Flag to suppress SDK callbacks after a timeout-forced disconnect
@@ -408,7 +401,7 @@ function processMessage(mac, type, args) {
   };
   
   const typeName = messageTypeNames[type] || `UNKNOWN(${type})`;
-  console.log(`Pen message [${typeName}]:`, { mac, type, args });
+  debug(`Pen message [${typeName}]:`, { mac, type, args });
   
   switch (type) {
     case PenMessageType.PEN_CONNECTION_SUCCESS:
@@ -440,7 +433,7 @@ function processMessage(mac, type, args) {
       break;
       
     case PenMessageType.OFFLINE_DATA_SEND_START:
-      console.log('%c🚀 OFFLINE_DATA_SEND_START received', 'background: #4CAF50; color: white; padding: 2px 6px; border-radius: 3px;');
+      debug('%c🚀 OFFLINE_DATA_SEND_START received', 'background: #4CAF50; color: white; padding: 2px 6px; border-radius: 3px;');
       log('Receiving offline data...', 'info');
       break;
       
@@ -448,13 +441,13 @@ function processMessage(mac, type, args) {
       lastStatusPercentage = args; // cumulative % — used to estimate total stroke count
       // Only log every 25% to reduce noise
       if (args % 25 < 5 || args > 95) {
-        console.log(`📊 Progress: ${Math.round(args)}%`);
+        debug(`📊 Progress: ${Math.round(args)}%`);
       }
       log(`Offline sync: ${Math.round(args)}%`, 'info');
       break;
       
     case PenMessageType.OFFLINE_DATA_SEND_SUCCESS:
-      console.log('%c✅ OFFLINE_DATA_SEND_SUCCESS - Processing data...', 'background: #2196F3; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold;');
+      debug('%c✅ OFFLINE_DATA_SEND_SUCCESS - Processing data...', 'background: #2196F3; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold;');
       // handleOfflineDataReceived returns false on book ID mismatch — in that case
       // we leave the resolver live so the correct book's data can still resolve it.
       if (handleOfflineDataReceived(args) && offlineTransferResolver) {
@@ -468,7 +461,7 @@ function processMessage(mac, type, args) {
       break;
 
     case PenMessageType.OFFLINE_DATA_SEND_FAILURE:
-      console.log('%c❌ OFFLINE_DATA_SEND_FAILURE', 'background: #f44336; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold;');
+      debug('%c❌ OFFLINE_DATA_SEND_FAILURE', 'background: #f44336; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold;');
       log('Failed to receive offline data', 'error');
       // Resolve the pending transfer with failure so we can move to the next book
       if (offlineTransferResolver) {
@@ -483,25 +476,25 @@ function processMessage(mac, type, args) {
       break;
 
     case 165: // OFFLINE_DATA_DELETE_RESPONSE
-      console.log('%c🗑️ OFFLINE_DATA_DELETE_RESPONSE received', 'background: #f59e0b; color: white; padding: 2px 6px; border-radius: 3px;', args);
+      debug('%c🗑️ OFFLINE_DATA_DELETE_RESPONSE received', 'background: #f59e0b; color: white; padding: 2px 6px; border-radius: 3px;', args);
       handleOfflineDeleteResponse(args);
       break;
     
     case 26: // AVAILABLE_NOTE_RESPONSE - confirmation that note set was configured
       if (args?.Result) {
-        console.log('Note set configured successfully');
+        debug('Note set configured successfully');
       }
       break;
     
     case 18: // PEN_SETTING_CHANGE_RESPONSE - confirmation of setting change (e.g., hover enable)
       if (args?.result) {
-        console.log('Pen setting updated:', args.SettingType);
+        debug('Pen setting updated:', args.SettingType);
       }
       break;
       
     default:
       // Log unknown events for debugging
-      console.log(`Unknown pen event ${type}:`, args);
+      debug(`Unknown pen event ${type}:`, args);
   }
 }
 
@@ -608,7 +601,7 @@ const TRANSFER_CONFIG = {
  */
 export function cancelOfflineTransfer() {
   if (pendingOfflineTransfer && offlineTransferResolver) {
-    console.log('%c❌ Transfer cancelled by user', 'background: #f44336; color: white; padding: 2px 6px; border-radius: 3px;');
+    debug('%c❌ Transfer cancelled by user', 'background: #f44336; color: white; padding: 2px 6px; border-radius: 3px;');
     transferCancelled = true;
     const resolver = offlineTransferResolver;
     offlineTransferResolver = null;
@@ -640,9 +633,9 @@ export async function deleteBooksFromPen(books) {
     return { success: true, deletedBooks: [] };
   }
 
-  console.log('%c🗑️ DELETION MODE ACTIVATED',
+  debug('%c🗑️ DELETION MODE ACTIVATED',
     'background: #f59e0b; color: white; padding: 3px 8px; border-radius: 3px; font-weight: bold; font-size: 14px;');
-  console.log(`📋 Books to delete: ${books.length}`);
+  debug(`📋 Books to delete: ${books.length}`);
 
   log(`🗑️ Deleting ${books.length} book(s) from pen memory...`, 'warning');
 
@@ -667,7 +660,7 @@ export async function deleteBooksFromPen(books) {
     for (const [groupKey, group] of Object.entries(groups)) {
       const noteIds = group.books.map(b => b.Note);
 
-      console.log(`%c🗑️ Deleting ${noteIds.length} book(s) from S${group.section}/O${group.owner}: [${noteIds.join(', ')}]`,
+      debug(`%c🗑️ Deleting ${noteIds.length} book(s) from S${group.section}/O${group.owner}: [${noteIds.join(', ')}]`,
         'color: #f59e0b; font-weight: bold;');
       log(`🗑️ Deleting ${noteIds.length} book(s) from Section ${group.section}...`, 'info');
 
@@ -687,18 +680,18 @@ export async function deleteBooksFromPen(books) {
         });
 
         // Use RequestOfflineDelete - direct deletion without re-downloading
-        console.log(`[Deletion] Calling RequestOfflineDelete(${group.section}, ${group.owner}, [${noteIds.join(', ')}])`);
+        debug(`[Deletion] Calling RequestOfflineDelete(${group.section}, ${group.owner}, [${noteIds.join(', ')}])`);
         controller.RequestOfflineDelete(group.section, group.owner, noteIds);
 
         // Wait for response
         const deleteResponse = await deletionComplete;
 
-        console.log(`[Deletion] Response received:`, deleteResponse);
+        debug(`[Deletion] Response received:`, deleteResponse);
 
         // Mark all books in this group as deleted
         group.books.forEach(book => {
           const bookId = normalizeBookId(book.Note);
-          console.log(`✅ Book ${bookId} deleted from pen`);
+          debug(`✅ Book ${bookId} deleted from pen`);
           log(`✅ Book ${bookId} deleted`, 'success');
           results.deletedBooks.push(book);
         });
@@ -725,13 +718,13 @@ export async function deleteBooksFromPen(books) {
     }
 
   } finally {
-    console.log('%c🗑️ DELETION MODE DEACTIVATED',
+    debug('%c🗑️ DELETION MODE DEACTIVATED',
       'background: #10b981; color: white; padding: 3px 8px; border-radius: 3px; font-weight: bold;');
   }
 
   // Log final results
   if (results.success) {
-    console.log(`✅ Successfully deleted ${results.deletedBooks.length} books from pen`);
+    debug(`✅ Successfully deleted ${results.deletedBooks.length} books from pen`);
     log(`✅ Successfully deleted ${results.deletedBooks.length} books from pen memory`, 'success');
   } else {
     console.warn(`⚠️ Deleted ${results.deletedBooks.length} books, ${results.failedBooks.length} failed`);
@@ -758,13 +751,13 @@ function normalizeBookId(bookId) {
  * This tells us the pen is ready to send data (we don't rely on stroke count)
  */
 function handleOfflineDataResponse(args) {
-  console.log('%c📋 OFFLINE_DATA_RESPONSE received', 'background: #9C27B0; color: white; padding: 2px 6px; border-radius: 3px;', args);
+  debug('%c📋 OFFLINE_DATA_RESPONSE received', 'background: #9C27B0; color: white; padding: 2px 6px; border-radius: 3px;', args);
   
   if (pendingOfflineTransfer) {
     const strokeCount = args?.stroke;
     const byteCount = args?.bytes;
     
-    console.log(`📊 Book ${pendingOfflineTransfer}: Pen reports ${strokeCount || 0} strokes (${byteCount || 'unknown'} bytes)`);
+    debug(`📊 Book ${pendingOfflineTransfer}: Pen reports ${strokeCount || 0} strokes (${byteCount || 'unknown'} bytes)`);
 
     // Store expected count so handleOfflineDataReceived knows when all chunks arrived.
     // The pen sends one OFFLINE_DATA_SEND_SUCCESS per page, so we must accumulate.
@@ -779,7 +772,7 @@ function handleOfflineDataResponse(args) {
 
     // If stroke count is 0, resolve immediately
     if (strokeCount === 0) {
-      console.log(`📋 Book ${pendingOfflineTransfer} has 0 strokes - resolving immediately`);
+      debug(`📋 Book ${pendingOfflineTransfer} has 0 strokes - resolving immediately`);
       if (offlineTransferResolver) {
         const resolver = offlineTransferResolver;
         offlineTransferResolver = null;
@@ -796,10 +789,10 @@ function handleOfflineDataResponse(args) {
  * This confirms the pen has deleted the requested offline data
  */
 function handleOfflineDeleteResponse(args) {
-  console.log('[Deletion] Delete response args:', args);
+  debug('[Deletion] Delete response args:', args);
 
   if (pendingDeletionResolver) {
-    console.log('[Deletion] Resolving pending deletion promise');
+    debug('[Deletion] Resolving pending deletion promise');
     pendingDeletionResolver(args);
   } else {
     console.warn('[Deletion] Received delete response but no pending resolver');
@@ -807,12 +800,12 @@ function handleOfflineDeleteResponse(args) {
 }
 
 async function handleOfflineNoteList(noteList) {
-  console.log('%c===== OFFLINE NOTE LIST RECEIVED =====', 'background: #222; color: #bada55; font-size: 14px; padding: 4px;');
-  console.log('📚 Note list:', noteList);
+  debug('%c===== OFFLINE NOTE LIST RECEIVED =====', 'background: #222; color: #bada55; font-size: 14px; padding: 4px;');
+  debug('📚 Note list:', noteList);
   
   // NEW: Check if this is for deletion dialog
   if (window.__pendingNoteListResolver) {
-    console.log('📋 Routing note list to deletion dialog');
+    debug('📋 Routing note list to deletion dialog');
     window.__pendingNoteListResolver(noteList);
     window.__pendingNoteListResolver = null;
     return;
@@ -835,7 +828,7 @@ async function handleOfflineNoteList(noteList) {
     return `S${n.Section}/O${n.Owner}/B${bookId}`;
   }).join(', ');
   
-  console.log('📚 Note details with types:', noteList.map(n => ({
+  debug('📚 Note details with types:', noteList.map(n => ({
     Section: n.Section,
     Owner: n.Owner,
     Note: n.Note,
@@ -848,12 +841,12 @@ async function handleOfflineNoteList(noteList) {
   try {
     selectedBooks = await openBookSelectionDialog(noteList);
   } catch (error) {
-    console.log('❌ Download cancelled by user');
+    debug('❌ Download cancelled by user');
     return;
   }
   
   if (selectedBooks && selectedBooks.length > 0 && controller) {
-    console.log('%c📥 Requesting offline data sequentially (waiting for each to complete)...', 'color: #4CAF50; font-weight: bold;');
+    debug('%c📥 Requesting offline data sequentially (waiting for each to complete)...', 'color: #4CAF50; font-weight: bold;');
     
     // Initialize transfer progress
     transferCancelled = false;
@@ -884,7 +877,7 @@ async function handleOfflineNoteList(noteList) {
     for (let i = 0; i < selectedBooks.length; i++) {
       // Check for cancellation
       if (transferCancelled) {
-        console.log('❌ Transfer cancelled - stopping');
+        debug('❌ Transfer cancelled - stopping');
         log('Transfer cancelled', 'warning');
         break;
       }
@@ -892,7 +885,7 @@ async function handleOfflineNoteList(noteList) {
       const note = selectedBooks[i];
       const normalizedBookId = normalizeBookId(note.Note);
       
-      console.log(`%c📖 Requesting note ${i + 1}/${selectedBooks.length}: S${note.Section}/O${note.Owner}/B${normalizedBookId}`, 'color: #2196F3; font-weight: bold;', {
+      debug(`%c📖 Requesting note ${i + 1}/${selectedBooks.length}: S${note.Section}/O${note.Owner}/B${normalizedBookId}`, 'color: #2196F3; font-weight: bold;', {
         Section: note.Section,
         Owner: note.Owner,
         Book: note.Note,
@@ -923,7 +916,7 @@ async function handleOfflineNoteList(noteList) {
         
         // Enable batch mode to pause canvas updates during import
         startBatchMode();
-        console.log(`📊 Batch mode enabled for book ${normalizedBookId}`);
+        debug(`📊 Batch mode enabled for book ${normalizedBookId}`);
         
         // Only use idle detection - no global timeout!
         // Transfer completes when no new data for IDLE_TIMEOUT_MS
@@ -945,12 +938,12 @@ async function handleOfflineNoteList(noteList) {
             // Log progress periodically (every 2-3 seconds of idle)
             if (idleTime > 2000 && idleTime < 3000) {
               const elapsed = Math.round((Date.now() - transferStartTime) / 1000);
-              console.log(`📊 Transfer status: ${receivedStrokesTotal} strokes, ${elapsed}s elapsed, idle ${Math.round(idleTime/1000)}s`);
+              debug(`📊 Transfer status: ${receivedStrokesTotal} strokes, ${elapsed}s elapsed, idle ${Math.round(idleTime/1000)}s`);
             }
             
             if (idleTime > TRANSFER_CONFIG.IDLE_TIMEOUT_MS) {
               const elapsed = Math.round((Date.now() - transferStartTime) / 1000);
-              console.log(`📋 No new data for ${Math.round(idleTime/1000)}s - book transfer complete`);
+              debug(`📋 No new data for ${Math.round(idleTime/1000)}s - book transfer complete`);
               clearInterval(idleCheckInterval);
               resolve({ idleTimeout: true });
             }
@@ -972,27 +965,27 @@ async function handleOfflineNoteList(noteList) {
         const result = await transferComplete;
         
         if (result?.cancelled) {
-          console.log(`❌ Book ${normalizedBookId} transfer was cancelled`);
+          debug(`❌ Book ${normalizedBookId} transfer was cancelled`);
           updateTransferProgress({ status: 'cancelled' });
         } else if (result?.failed) {
           console.error(`❌ Book ${normalizedBookId} transfer reported failure`);
           updateTransferProgress({ status: 'error' });
         } else if (result?.empty) {
-          console.log(`📋 Book ${normalizedBookId} was empty`);
+          debug(`📋 Book ${normalizedBookId} was empty`);
         } else if (result?.idleTimeout) {
-          console.log(`✅ Book ${normalizedBookId} completed`);
+          debug(`✅ Book ${normalizedBookId} completed`);
         } else {
-          console.log(`✅ Book ${normalizedBookId} transfer completed normally`);
+          debug(`✅ Book ${normalizedBookId} transfer completed normally`);
         }
         
         // Disable batch mode to trigger canvas update
         endBatchMode();
-        console.log(`🎨 Batch mode disabled - canvas updating`);
+        debug(`🎨 Batch mode disabled - canvas updating`);
         
         // Longer delay between books to ensure BLE connection stabilizes
         if (i < selectedBooks.length - 1 && !transferCancelled) {
           updateTransferProgress({ status: 'waiting' });
-          console.log(`⏳ Waiting ${TRANSFER_CONFIG.INTER_BOOK_DELAY_MS}ms before next request...`);
+          debug(`⏳ Waiting ${TRANSFER_CONFIG.INTER_BOOK_DELAY_MS}ms before next request...`);
           await new Promise(resolve => setTimeout(resolve, TRANSFER_CONFIG.INTER_BOOK_DELAY_MS));
         }
       } catch (error) {
@@ -1020,7 +1013,7 @@ async function handleOfflineNoteList(noteList) {
     
     // Log final stats
     const totalElapsed = Math.round((Date.now() - transferStartTime) / 1000);
-    console.log(`✅ All offline data transfers completed: ${receivedStrokesTotal} strokes in ${totalElapsed}s`);
+    debug(`✅ All offline data transfers completed: ${receivedStrokesTotal} strokes in ${totalElapsed}s`);
     
     // Clear progress after a short delay so user can see "complete" status
     updateTransferProgress({ status: 'complete', canCancel: false });
@@ -1028,9 +1021,9 @@ async function handleOfflineNoteList(noteList) {
       resetTransferProgress();
     }, 2000);
   } else {
-    console.log('❌ Download cancelled by user');
+    debug('❌ Download cancelled by user');
   }
-  console.log('%c===== END OFFLINE NOTE LIST PROCESSING =====', 'background: #222; color: #bada55; font-size: 14px; padding: 4px;');
+  debug('%c===== END OFFLINE NOTE LIST PROCESSING =====', 'background: #222; color: #bada55; font-size: 14px; padding: 4px;');
 }
 
 function handleOfflineDataReceived(data) {
@@ -1041,12 +1034,12 @@ function handleOfflineDataReceived(data) {
   // ========================================
   let deletionMode = isDeletionMode;
   if (deletionMode) {
-    console.log('%c🗑️ DELETION MODE - Processing data for pen acknowledgment', 
+    debug('%c🗑️ DELETION MODE - Processing data for pen acknowledgment', 
       'background: #f59e0b; color: white; padding: 2px 6px; border-radius: 3px;');
     
     // Count strokes for logging
     const strokeCount = Array.isArray(data) ? data.length : 0;
-    console.log(`📦 Received ${strokeCount} strokes (will be discarded after processing)`);
+    debug(`📦 Received ${strokeCount} strokes (will be discarded after processing)`);
     
     // Continue processing to ensure proper BLE protocol completion
     // but we'll skip the addOfflineStrokes() call at the end
@@ -1059,10 +1052,10 @@ function handleOfflineDataReceived(data) {
   const timeSinceStart = transferStartTime ? Math.round((receiveTime - transferStartTime) / 1000) : 0;
   const timeSinceLast = lastDataReceivedTime ? Math.round((receiveTime - lastDataReceivedTime) / 1000) : 0;
   
-  console.log('%c===== OFFLINE DATA RECEIVED =====', 'background: #FF9800; color: white; font-size: 14px; padding: 4px;');
-  console.log(`⏱️ Timing: ${timeSinceStart}s since start${timeSinceLast > 0 ? `, ${timeSinceLast}s since last chunk` : ''}`);
-  console.log('📦 Raw data type:', Array.isArray(data) ? 'array' : typeof data);
-  console.log('📦 Raw data length:', Array.isArray(data) ? data.length : 'N/A');
+  debug('%c===== OFFLINE DATA RECEIVED =====', 'background: #FF9800; color: white; font-size: 14px; padding: 4px;');
+  debug(`⏱️ Timing: ${timeSinceStart}s since start${timeSinceLast > 0 ? `, ${timeSinceLast}s since last chunk` : ''}`);
+  debug('📦 Raw data type:', Array.isArray(data) ? 'array' : typeof data);
+  debug('📦 Raw data length:', Array.isArray(data) ? data.length : 'N/A');
   
   // Update timing for idle detection
   lastDataReceivedTime = Date.now();
@@ -1109,7 +1102,7 @@ function handleOfflineDataReceived(data) {
       
       // Log first stroke from each book for debugging
       if (bookStats[bookId] === 1) {
-        console.log(`%c📖 First stroke from book B${bookId}`, 'color: #9C27B0; font-weight: bold;', {
+        debug(`%c📖 First stroke from book B${bookId}`, 'color: #9C27B0; font-weight: bold;', {
           strokeIndex: index,
           section: pageInfo.section,
           owner: pageInfo.owner,
@@ -1159,12 +1152,12 @@ function handleOfflineDataReceived(data) {
     console.warn(`⚠️ Total strokes skipped (no Dots array): ${skippedCount}`);
   }
   
-  console.log('%c📊 Book Statistics:', 'color: #00BCD4; font-weight: bold; font-size: 13px;', bookStats);
-  console.log('%c📄 Page Statistics:', 'color: #00BCD4; font-weight: bold; font-size: 13px;', pageStats);
-  console.log(`✅ Total converted strokes: ${convertedStrokes.length} across ${Object.keys(pageStats).length} pages${skippedCount > 0 ? ` (${skippedCount} skipped)` : ''}`);
+  debug('%c📊 Book Statistics:', 'color: #00BCD4; font-weight: bold; font-size: 13px;', bookStats);
+  debug('%c📄 Page Statistics:', 'color: #00BCD4; font-weight: bold; font-size: 13px;', pageStats);
+  debug(`✅ Total converted strokes: ${convertedStrokes.length} across ${Object.keys(pageStats).length} pages${skippedCount > 0 ? ` (${skippedCount} skipped)` : ''}`);
   
   // Debug: Log comparison values
-  console.log('%c🔍 Transfer Matching Debug:', 'color: #FF5722; font-weight: bold;', {
+  debug('%c🔍 Transfer Matching Debug:', 'color: #FF5722; font-weight: bold;', {
     detectedBook,
     detectedBookRaw,
     detectedBookType: typeof detectedBookRaw,
@@ -1175,7 +1168,7 @@ function handleOfflineDataReceived(data) {
   
   // Add strokes to store (UNLESS in deletion mode)
   if (deletionMode) {
-    console.log(`🗑️ DELETION MODE - Skipping addOfflineStrokes() to discard data`);
+    debug(`🗑️ DELETION MODE - Skipping addOfflineStrokes() to discard data`);
     
     // Resolve the pending transfer (deletion successful).
     // Return false so processMessage doesn't attempt a second resolution.
@@ -1186,7 +1179,7 @@ function handleOfflineDataReceived(data) {
     }
 
     log(`🗑️ Deleted ${convertedStrokes.length} strokes from pen (data discarded)`, 'success');
-    console.log('%c===== END DELETION DATA PROCESSING =====', 'background: #f59e0b; color: white; font-size: 14px; padding: 4px;');
+    debug('%c===== END DELETION DATA PROCESSING =====', 'background: #f59e0b; color: white; font-size: 14px; padding: 4px;');
     return false; // Exit early — resolver already called above
   } else {
     // Normal import - add strokes to store
@@ -1196,7 +1189,7 @@ function handleOfflineDataReceived(data) {
   const elapsed = transferStartTime ? Math.round((Date.now() - transferStartTime) / 1000) : 0;
   const rate = elapsed > 0 ? Math.round(convertedStrokes.length / elapsed) : convertedStrokes.length;
   log(`Received ${convertedStrokes.length} strokes from ${Object.keys(bookStats).length} book(s) (${elapsed}s, ~${rate} strokes/sec)`, 'success');
-  console.log('%c===== END OFFLINE DATA PROCESSING =====', 'background: #FF9800; color: white; font-size: 14px; padding: 4px;');
+  debug('%c===== END OFFLINE DATA PROCESSING =====', 'background: #FF9800; color: white; font-size: 14px; padding: 4px;');
   
   // Track progress - running stroke total
   if (detectedBook && pendingOfflineTransfer && detectedBook === pendingOfflineTransfer) {
@@ -1216,7 +1209,7 @@ function handleOfflineDataReceived(data) {
       const estimated = Math.round(receivedStrokesForCurrentTransfer / (lastStatusPercentage / 100));
       if (estimated > 0) {
         expectedStrokesForCurrentTransfer = estimated;
-        console.log(`📊 Estimated total from STATUS ${lastStatusPercentage.toFixed(2)}%: ${estimated} strokes`);
+        debug(`📊 Estimated total from STATUS ${lastStatusPercentage.toFixed(2)}%: ${estimated} strokes`);
       }
     }
 
@@ -1230,11 +1223,11 @@ function handleOfflineDataReceived(data) {
 
     if (expectedStrokesForCurrentTransfer > 0 &&
         receivedStrokesForCurrentTransfer < expectedStrokesForCurrentTransfer) {
-      console.log(`📊 Chunk received: ${receivedStrokesForCurrentTransfer}/${expectedStrokesForCurrentTransfer} strokes — waiting for more pages`);
+      debug(`📊 Chunk received: ${receivedStrokesForCurrentTransfer}/${expectedStrokesForCurrentTransfer} strokes — waiting for more pages`);
       return false; // more chunks expected
     }
 
-    console.log(`📊 Transfer complete: ${receivedStrokesForCurrentTransfer} strokes` +
+    debug(`📊 Transfer complete: ${receivedStrokesForCurrentTransfer} strokes` +
       (expectedStrokesForCurrentTransfer > 0 ? `/${expectedStrokesForCurrentTransfer} expected` : ' (no count tracking)'));
     return true; // all strokes received — safe to resolve
   } else if (detectedBook && pendingOfflineTransfer && detectedBook !== pendingOfflineTransfer) {

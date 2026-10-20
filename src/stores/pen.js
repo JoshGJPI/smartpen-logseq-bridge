@@ -26,23 +26,11 @@ export const transferProgress = writable({
   canCancel: false
 });
 
-// Derived: Can we use the pen?
-export const penReady = derived(
-  [penConnected, penAuthorized],
-  ([$connected, $authorized]) => $connected && $authorized
-);
-
 // Derived: Battery level
 export const penBattery = derived(penInfo, $info => {
   if (!$info) return null;
   if ($info.Battery === 128) return 'Charging';
   return `${$info.Battery}%`;
-});
-
-// Derived: Memory usage
-export const penMemory = derived(penInfo, $info => {
-  if (!$info) return null;
-  return `${$info.UsedMem || 0}%`;
 });
 
 // Derived: Per-book transfer percentage (0 until expected count is known)

@@ -23,14 +23,8 @@ export const panelTab = derived([destination, activeTab], ([$destination, $activ
   resolvePanelTab($destination, $activeTab)
 );
 
-// Sidebar collapsed state
-export const sidebarCollapsed = writable(false);
-
 // Canvas zoom level
 export const canvasZoom = writable(1);
-
-// Show line guides overlay
-export const showLineGuides = writable(false);
 
 // Show filtered decorative strokes
 export const showFilteredStrokes = writable(false);
@@ -111,25 +105,11 @@ export function setActiveTab(tab) {
 }
 
 /**
- * Toggle sidebar
- */
-export function toggleSidebar() {
-  sidebarCollapsed.update(v => !v);
-}
-
-/**
  * Set canvas zoom
  * @param {number} level 
  */
 export function setCanvasZoom(level) {
   canvasZoom.set(Math.max(0.25, Math.min(10, level)));
-}
-
-/**
- * Toggle line guides
- */
-export function toggleLineGuides() {
-  showLineGuides.update(v => !v);
 }
 
 /**

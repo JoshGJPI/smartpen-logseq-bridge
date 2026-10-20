@@ -22,6 +22,7 @@
  * is what `strokeVariableWidth()` does.
  */
 
+import { debug } from './debug.js';
 import {
   DEFAULT_SKETCH_PROFILE,
   normalizeProfile,
@@ -557,7 +558,7 @@ export class CanvasRenderer {
     this.bounds.minX = 0;
     this.bounds.minY = 0;
     
-    console.log('Page offsets calculated:', Array.from(this.pageOffsets.keys()));
+    debug('Page offsets calculated:', Array.from(this.pageOffsets.keys()));
   }
   
   /**
