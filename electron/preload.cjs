@@ -22,6 +22,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   notifyBluetoothConnectionComplete: () => {
     ipcRenderer.send('bluetooth-connection-complete');
   },
+  // Remembered pen: arm before scanning ({deviceId, deviceName}, or null to
+  // clear) so main connects to it without the picker; main reports which
+  // device it handed to Chromium (picked by hand or automatically).
+  setBluetoothAutoTarget: (target) => {
+    ipcRenderer.send('bluetooth-set-auto-target', target);
+  },
+  onBluetoothPenChosen: (callback) => {
+    ipcRenderer.on('bluetooth-pen-chosen', (_, device) => callback(device));
+  },
 
   // Graceful shutdown: main asks the renderer to release the BLE GATT link
   // before the app quits (including on Windows log-off). The renderer must
@@ -46,6 +55,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.removeAllListeners('bluetooth-scanning-started');
     ipcRenderer.removeAllListeners('bluetooth-device-found');
     ipcRenderer.removeAllListeners('bluetooth-connection-result');
+    ipcRenderer.removeAllListeners('bluetooth-pen-chosen');
     ipcRenderer.removeAllListeners('app-before-quit');
   },
 

@@ -192,6 +192,7 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
 - Web Bluetooth works only in Chromium/Electron, needs an explicit pairing dialog, and connections drop.
 - The SDK emits `{x:-1, y:-1, f:0}` as the first dot of every stroke with stale `pageInfo`. `processDot()` keeps
   `pageInfo: null` / empty `dotArray` until the first real dot and finalises only confirmed strokes.
+- **Remembered pen (picker skip).** `connectPen()` arms main with the last pen (`rememberedPen`, saved after a successful handshake; `autoPickPen` setting) via `bluetooth-set-auto-target`. Main's `select-bluetooth-device` handler then calls `callback(id)` for a match (`electron/pen-match.cjs`: id first, else a *unique* name) and never opens the picker; after `AUTO_PICK_WAIT_MS` (5s) with no match the picker opens as before. The pen must already be on when Connect is clicked. No background scan or reconnect loop, by design (a dirty GATT release can wedge the Windows stack). Unverified on hardware.
 - Offline import (`pen-sdk.js`, `TRANSFER_CONFIG`): the SDK fires `OFFLINE_DATA_SEND_SUCCESS` once per *page*, not
   per book, so hold the promise until received ≥ expected; null the resolver before calling it; a book-id
   mismatch makes `handleOfflineDataReceived()` return `false`. `OFFLINE_DATA_RESPONSE` never reaches the app

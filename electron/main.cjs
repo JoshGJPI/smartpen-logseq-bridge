@@ -6,6 +6,7 @@ const https = require('https');
 const fs = require('fs');
 const fsp = require('fs').promises;
 const tagsSidecar = require('./tags-sidecar.cjs');
+const penMatch = require('./pen-match.cjs');
 
 // Must be set before 'ready' so Windows links the running process to the
 // installed shortcut and shows the correct taskbar icon (rather than grouping
@@ -28,6 +29,31 @@ let isQuitting = false;
 let isBluetoothDialogOpen = false;
 let bluetoothCallback = null;
 let discoveredDevices = [];
+
+// Remembered pen to connect to without the picker (set by the renderer just
+// before it scans). If it hasn't turned up after AUTO_PICK_WAIT_MS the picker
+// opens as usual, so a pen that is off or renamed is never a dead end.
+const AUTO_PICK_WAIT_MS = 5000;
+let autoPickTarget = null;
+let autoPickTimer = null;
+
+function clearAutoPick() {
+  autoPickTarget = null;
+  if (autoPickTimer) {
+    clearTimeout(autoPickTimer);
+    autoPickTimer = null;
+  }
+}
+
+/** Show the picker with whatever the scan has found so far. */
+function openBluetoothPicker() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('bluetooth-device-found', discoveredDevices);
+  if (!isBluetoothDialogOpen) {
+    isBluetoothDialogOpen = true;
+    mainWindow.webContents.send('bluetooth-scanning-started');
+  }
+}
 
 function createWindow() {
   isQuitting = false; // fresh window starts in the "not quitting" state
@@ -126,14 +152,36 @@ function createWindow() {
       }
     });
 
-    // Send updated device list to renderer
-    mainWindow.webContents.send('bluetooth-device-found', discoveredDevices);
-
-    // Only signal dialog open once
-    if (!isBluetoothDialogOpen) {
-      isBluetoothDialogOpen = true;
-      mainWindow.webContents.send('bluetooth-scanning-started');
+    // A remembered pen is in range: connect to it, no picker.
+    if (autoPickTarget) {
+      const pickedId = penMatch.pickRememberedDevice(discoveredDevices, autoPickTarget);
+      if (pickedId) {
+        const picked = discoveredDevices.find(d => d.deviceId === pickedId);
+        bluetoothCallback = null;
+        clearAutoPick();
+        mainWindow.webContents.send('bluetooth-pen-chosen', picked);
+        callback(pickedId);
+        resetBluetoothState();
+        return;
+      }
+      return; // keep scanning quietly until the fallback timer opens the picker
     }
+
+    // Send updated device list to renderer and open the picker (once)
+    openBluetoothPicker();
+  });
+
+  // Renderer arms (or clears) the remembered pen just before it scans.
+  ipcMain.on('bluetooth-set-auto-target', (event, target) => {
+    clearAutoPick();
+    const normalized = penMatch.normalizeTarget(target);
+    if (!normalized) return;
+    autoPickTarget = normalized;
+    autoPickTimer = setTimeout(() => {
+      autoPickTimer = null;
+      autoPickTarget = null;
+      openBluetoothPicker();
+    }, AUTO_PICK_WAIT_MS);
   });
 
   // Handle device selection from renderer
@@ -141,6 +189,10 @@ function createWindow() {
     if (bluetoothCallback) {
       const cb = bluetoothCallback;
       bluetoothCallback = null; // Clear before calling to prevent double-invoke
+      const chosen = discoveredDevices.find(d => d.deviceId === deviceId);
+      if (chosen && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('bluetooth-pen-chosen', chosen);
+      }
       cb(deviceId);
     }
   });
@@ -1110,6 +1162,7 @@ ipcMain.handle('storage:publishToGraph', ipcSafe(async (graphRoot, book, pageId,
 }));
 
 function resetBluetoothState() {
+  clearAutoPick();
   isBluetoothDialogOpen = false;
   bluetoothCallback = null;
   discoveredDevices = [];

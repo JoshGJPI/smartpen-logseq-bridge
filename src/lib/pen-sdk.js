@@ -25,6 +25,8 @@ import {
 import { log, openBookSelectionDialog, setBluetoothStatus } from '$stores/ui.js';
 import { applyActiveVolume } from '$stores/volumes.js';
 import { showEditorForLiveInk } from '$stores/viewer.js';
+import { autoPickPen, rememberedPen } from '$stores/settings.js';
+import { get } from 'svelte/store';
 
 // Local state for tracking current stroke
 let currentStrokeData = null;
@@ -77,7 +79,36 @@ export function initializePenSDK() {
     return originalConnectDevice.call(PenHelper, device);
   };
 
+  // Main reports which Bluetooth device it handed to Chromium (picked by hand
+  // or automatically); it is remembered once the handshake succeeds.
+  if (window.electronAPI?.onBluetoothPenChosen) {
+    window.electronAPI.onBluetoothPenChosen((device) => {
+      chosenDevice = device && device.deviceId
+        ? { deviceId: device.deviceId, deviceName: device.deviceName || '' }
+        : null;
+    });
+  }
+
   log('Pen SDK initialized', 'info');
+}
+
+// Device main last handed to Chromium, saved as the remembered pen on success.
+let chosenDevice = null;
+
+/** Tell main which pen to connect to without the picker (null: always show it). */
+function armRememberedPen() {
+  if (!window.electronAPI?.setBluetoothAutoTarget) return;
+  const pen = get(autoPickPen) ? get(rememberedPen) : null;
+  window.electronAPI.setBluetoothAutoTarget(pen && (pen.deviceId || pen.deviceName) ? pen : null);
+}
+
+function rememberChosenPen() {
+  if (!chosenDevice) return;
+  const current = get(rememberedPen);
+  if (!current || current.deviceId !== chosenDevice.deviceId || current.deviceName !== chosenDevice.deviceName) {
+    rememberedPen.set(chosenDevice);
+  }
+  chosenDevice = null;
 }
 
 // Flag to suppress SDK callbacks after a timeout-forced disconnect
@@ -153,6 +184,8 @@ let connectionReject = null;
  */
 export async function connectPen(timeoutMs = 60000) {
   connectionAborted = false;
+  chosenDevice = null;
+  armRememberedPen();
 
   log('Scanning for pens...', 'info');
   log('💡 Make sure your pen is awake (tap on paper or press button)', 'info');
@@ -225,6 +258,8 @@ export async function connectPen(timeoutMs = 60000) {
   } finally {
     connectionResolve = null;
     connectionReject = null;
+    // Stop main's fallback timer from opening the picker after we are done
+    window.electronAPI?.setBluetoothAutoTarget?.(null);
   }
 }
 
@@ -510,6 +545,7 @@ function handleConnectionSuccess(mac) {
     connectionResolve();
   }
   setPenConnected(true);
+  rememberChosenPen();
   log('Pen connected!', 'success');
 }
 
