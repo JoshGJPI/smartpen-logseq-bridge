@@ -13,7 +13,7 @@ import {
   isSearchShortcut, recordsByKey, snippetHtml
 } from '$lib/global-search.js';
 import { searchPages } from '$lib/transcript-search.js';
-import { parseSearchQuery } from '$lib/search-query.js';
+import { parseSearchQuery, matchTags } from '$lib/search-query.js';
 import { pageDates } from '$lib/library-home.js';
 
 const now = new Date(2026, 9, 19, 15);
@@ -76,14 +76,14 @@ describe('runSearch', () => {
     const r = runSearch(q('rich update'), ctx);
     expect(keys(r.pages)).toEqual(['388/170']);
     expect(r.pages[0].snippet).toBe('10:00 5444-006 Rich update');
-    expect(r.order[0]).toBe('pages');
+    expect(r.order.filter((g) => g !== 'tags')[0]).toBe('pages');
   });
 
   it('a date alone: Days first, and every page written that day, transcribed or not', () => {
     const r = runSearch(q('Oct 14'), ctx);
     expect(r.days).toEqual([{ day: '2026-10-14', pages: 2, strokes: 110 }]);
     expect(keys(r.pages)).toEqual(['387/31', '388/170']); // most ink that day first
-    expect(r.order).toEqual(['days', 'pages', 'notebooks']);
+    expect(r.order).toEqual(['days', 'tags', 'pages', 'notebooks']);
   });
 
   it('date + words: only pages written on that day', () => {
@@ -107,7 +107,7 @@ describe('runSearch', () => {
     const r = runSearch(q('Study Notes 3'), ctx);
     expect(r.notebooks.map((n) => n.book)).toEqual(['390v2']);
     expect(r.order[0]).toBe('notebooks');
-    expect(runSearch(q('study'), ctx).order[0]).toBe('pages');
+    expect(runSearch(q('study'), ctx).order.slice(0, 2)).toEqual(['tags', 'pages']);
   });
 
   it('empty or one-letter query gives nothing', () => {
@@ -169,5 +169,43 @@ describe('isSearchShortcut', () => {
     expect(isSearchShortcut(ev({ isComposing: true }))).toBe(false);
     expect(isSearchShortcut(ev({ defaultPrevented: true }))).toBe(false);
     expect(isSearchShortcut(ev(), { editing: true })).toBe(false);
+  });
+});
+
+describe('tags in search (v3.1.0)', () => {
+  const tags = [
+    { tag: 'beam', pages: 14, notebooks: 3 },
+    { tag: 'steel-beam', pages: 2, notebooks: 1 },
+    { tag: 'P2026-141', pages: 8, notebooks: 2 },
+    { tag: '2327-018', pages: 6, notebooks: 1 }
+  ];
+
+  it('a Tags group sits just above Pages', () => {
+    const r = runSearch(q('beam'), { ...ctx, tags });
+    expect(r.tags.map((t) => t.tag)).toEqual(['beam', 'steel-beam']);
+    expect(r.tags[0].exact).toBe(true);
+    expect(r.order.indexOf('tags')).toBe(r.order.indexOf('pages') - 1);
+    expect(r.total).toBe(r.pages.length + r.notebooks.length + r.days.length + 2);
+    expect(flattenResults(r)[0].group).toBe('tags');
+  });
+
+  it('a project-number query matches that tag exactly, normalized', () => {
+    expect(matchTags('p2026–141', tags)).toEqual([{ tag: 'P2026-141', pages: 8, notebooks: 2, exact: true }]);
+    expect(matchTags('[[2327-018]]', tags).map((t) => t.tag)).toEqual(['2327-018']);
+    expect(matchTags('P2026-142', tags)).toEqual([]);
+    expect(runSearch(q('P2026-141'), { ...ctx, tags }).tags.map((t) => t.tag)).toEqual(['P2026-141']);
+  });
+
+  it('partial numbers and words match by substring, exact and prefix first', () => {
+    expect(matchTags('2327', tags).map((t) => t.tag)).toEqual(['2327-018']);
+    expect(matchTags('steel beam', tags).map((t) => t.tag)).toEqual(['steel-beam']);
+    expect(matchTags('#beam', tags).map((t) => t.tag)).toEqual(['beam', 'steel-beam']);
+    expect(matchTags('b', tags)).toEqual([]);
+    expect(matchTags('', tags)).toEqual([]);
+    expect(matchTags('beam', null)).toEqual([]);
+  });
+
+  it('no tags given: no Tags group', () => {
+    expect(runSearch(q('beam'), ctx).tags).toEqual([]);
   });
 });

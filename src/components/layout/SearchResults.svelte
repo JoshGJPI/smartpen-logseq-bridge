@@ -1,7 +1,7 @@
 <!--
   SearchResults.svelte — the global search's results under the header field
-  (reading-first package E): groups in `results.order` (Pages / Notebooks /
-  Days), one keyboard-active row, hints when empty. Pure display: SearchField
+  (reading-first package E): groups in `results.order` (Tags / Pages /
+  Notebooks / Days), one keyboard-active row, hints when empty. Pure display: SearchField
   owns the query, the keys and what a pick does.
 
   Page rows: lazy thumbnail (PageThumb), notebook and page, when written, and
@@ -15,6 +15,7 @@
   import { writtenRange, shortDay, pageKeyOf } from '$lib/library-home.js';
   import { plural } from '$lib/plural.js';
   import PageThumb from '../viewer/PageThumb.svelte';
+  import TagChip from '../tags/TagChip.svelte';
 
   export let results;
   export let query;
@@ -28,7 +29,7 @@
   export let onPick = () => {};
   export let onBrowseAll = () => {};
 
-  const TITLES = { pages: 'Pages', notebooks: 'Notebooks', days: 'Days' };
+  const TITLES = { tags: 'Tags', pages: 'Pages', notebooks: 'Notebooks', days: 'Days' };
   const idOf = (r) => (r.pageId != null ? String(r.pageId) : String(r.page));
   const nameOf = (book) => formatBookName(book, $bookAliases, 'alias-only');
 
@@ -55,7 +56,7 @@
 <div class="sr" role="listbox" tabindex="-1" aria-label="Search results" on:mousedown|preventDefault>
   {#if !typed}
     <p class="sr-hint">
-      Search transcribed text, a date (<b>Oct 14</b>, <b>2026-10-14</b>, <b>yesterday</b>) or a notebook name.
+      Search transcribed text, a date (<b>Oct 14</b>, <b>2026-10-14</b>, <b>yesterday</b>), a notebook name or a tag.
       <br />↑ ↓ to choose · <b>Enter</b> opens · <b>Shift+Enter</b> loads a page into the Editor · <b>Esc</b> closes
     </p>
   {:else if !groups.length}
@@ -65,7 +66,7 @@
   {:else}
     {#each groups as g (g.id)}
       <div class="sr-group">{TITLES[g.id]} <span>{g.items.length}</span></div>
-      {#each g.items as item, j (g.id + (item.key || item.book || item.day))}
+      {#each g.items as item, j (g.id + (item.key || item.tag || item.book || item.day))}
         {@const i = g.start + j}
         <button
           type="button"
@@ -84,6 +85,11 @@
                 {#if written(item.record)}<span class="sr-when">{written(item.record)}</span>{/if}
               </div>
               {#if item.snippet}<div class="sr-snip">{@html snippetHtml(item.snippet, query)}</div>{/if}
+            </div>
+          {:else if g.id === 'tags'}
+            <div class="sr-main">
+              <div class="sr-title"><TagChip tag={item.tag} /></div>
+              <div class="sr-snip">{item.pages} {plural(item.pages, 'page')} · {item.notebooks} {plural(item.notebooks, 'notebook')} · open the tag's pages</div>
             </div>
           {:else if g.id === 'notebooks'}
             <div class="sr-main">

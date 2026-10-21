@@ -16,6 +16,7 @@
   import DataFolderSettings from '../settings/DataFolderSettings.svelte';
   import GraphFolderSettings from '../settings/GraphFolderSettings.svelte';
   import BooksTab from '../books/BooksTab.svelte';
+  import TagManager from '../tags/TagManager.svelte';
   import PenMemoryDialog from '../dialog/PenMemoryDialog.svelte';
   import { penConnected } from '$stores/pen.js';
   import { dataFolderReady } from '$stores/settings.js';
@@ -195,6 +196,11 @@
       <section class="settings-section">
         <h4>Notebooks</h4>
         <BooksTab />
+      </section>
+
+      <section class="settings-section">
+        <h4>Tags</h4>
+        <TagManager />
       </section>
 
       <!-- Publish to LogSeq graph (mirror saved pages as plugin assets) -->
