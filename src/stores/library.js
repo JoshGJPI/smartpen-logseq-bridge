@@ -15,6 +15,9 @@ import { dataFolderReady } from './settings.js';
 import { formatBookName } from '$utils/formatting.js';
 import { pageDates, notebookCards, parseSortOrder, LIBRARY_SORT_KEY } from '$lib/library-home.js';
 import { buildSearchIndex, recordsByKey } from '$lib/global-search.js';
+import { tagCards, untaggedCard, parseGroupBy, parseTagSort, LIBRARY_GROUP_KEY, TAG_SORT_KEY } from '$lib/tags.js';
+import { readString, write } from '$lib/safe-storage.js';
+import { pageTags, tagIndex } from './tags.js';
 
 function loadSort() {
   try {
@@ -67,6 +70,41 @@ export const searchRecords = derived(savedPages, ($pages) => recordsByKey($pages
  * result and the pages under it agree with the Timeline it opens.
  */
 export const searchDates = derived(timelineIndexFiltered, ($index) => pageDates($index));
+
+/* ----- Page tags (v3.1.0): Group by Notebook | Tag ----- */
+
+/** The home's grouping: 'book' | 'tag'. A per-viewer convenience. */
+export const libraryGroupBy = writable(parseGroupBy(readString(LIBRARY_GROUP_KEY)));
+
+export function setLibraryGroupBy(id) {
+  const next = parseGroupBy(id);
+  write(LIBRARY_GROUP_KEY, next);
+  libraryGroupBy.set(next);
+}
+
+/** Sort chip in tag grouping: 'pages' | 'name' | 'recent'. */
+export const libraryTagSort = writable(parseTagSort(readString(TAG_SORT_KEY)));
+
+export function setLibraryTagSort(id) {
+  const next = parseTagSort(id);
+  write(TAG_SORT_KEY, next);
+  libraryTagSort.set(next);
+}
+
+/**
+ * One card per tag on a page that exists (unsorted), from the sidecar and the
+ * scan alone, rebuilt when either changes.
+ */
+export const tagCardList = derived(
+  [tagIndex, searchRecords, libraryPageDates],
+  ([$index, $records, $dates]) => tagCards($index, $records, $dates)
+);
+
+/** The Untagged card: pages with no tag. */
+export const untaggedSummary = derived(
+  [savedPages, pageTags, libraryPageDates],
+  ([$pages, $tags, $dates]) => untaggedCard($pages, $tags, $dates)
+);
 
 /** Load the capture-date index if nothing has yet (it is cached on disk). */
 export function ensureTimelineLoaded() {

@@ -326,7 +326,14 @@ export {
   searchRecords,
   searchDates,
   notebookNames,
-  ensureTimelineLoaded
+  ensureTimelineLoaded,
+  // Page tags: Group by Notebook | Tag (v3.1.0)
+  libraryGroupBy,
+  setLibraryGroupBy,
+  libraryTagSort,
+  setLibraryTagSort,
+  tagCardList,
+  untaggedSummary
 } from './library.js';
 
 // Book Aliases

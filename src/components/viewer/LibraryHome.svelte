@@ -1,7 +1,9 @@
 <!--
   LibraryHome.svelte — the Library with no notebook or page open (reading-first
   package E): a Recent pages row, then one card per notebook (NotebookCard),
-  sorted by the chips (Recently written / Name / Most pages).
+  sorted by the chips (Recently written / Name / Most pages). Grouped by Tag
+  (v3.1.0) the cards are tags instead (TagCardGrid). The header row is
+  LibraryHomeHead.
 
   The cards' numbers come from the metadata-only scan and the capture-date
   index (stores/library.js); the only page reads are the thumbnails on screen
@@ -11,18 +13,16 @@
   import { onMount } from 'svelte';
   import {
     savedPages, pagesByBook, bookAliases, isScanning, recentViews,
-    notebookCardList, librarySort, setLibrarySort, ensureTimelineLoaded
+    notebookCardList, librarySort, libraryGroupBy, ensureTimelineLoaded
   } from '$stores';
   import { dataFolderReady } from '$stores/settings.js';
-  import { loadTimeline } from '$stores/timeline.js';
   import { scanLocalPages } from '$lib/storage/scan.js';
   import { formatBookName } from '$utils/formatting.js';
-  import { clearPageCache } from '$lib/viewer/page-cache.js';
-  import { thumbs } from '$lib/viewer/thumbs.js';
-  import { sortNotebooks, recentRecords, SORT_ORDERS } from '$lib/library-home.js';
-  import { plural } from '$lib/plural.js';
+  import { sortNotebooks, recentRecords } from '$lib/library-home.js';
   import NotebookCard from './NotebookCard.svelte';
   import PageThumb from './PageThumb.svelte';
+  import LibraryHomeHead from './LibraryHomeHead.svelte';
+  import TagCardGrid from '../tags/TagCardGrid.svelte';
 
   /** (record) => void: open a page in the reader. */
   export let onOpen = () => {};
@@ -33,17 +33,9 @@
 
   $: cards = sortNotebooks($notebookCardList, $librarySort);
   $: recent = recentRecords($recentViews, $pagesByBook);
-  $: totalPages = $savedPages.length;
 
   function aliasFor(book) {
     return formatBookName(book, $bookAliases, 'alias-only');
-  }
-
-  async function rescan() {
-    thumbs.clear();
-    clearPageCache();
-    await scanLocalPages();
-    loadTimeline({ silent: true });
   }
 
   onMount(() => {
@@ -53,27 +45,7 @@
 </script>
 
 <div class="lh">
-  <div class="lh-head">
-    <h2>Library</h2>
-    {#if cards.length}
-      <span class="lh-sum">{cards.length} {plural(cards.length, 'notebook')} · {totalPages} {plural(totalPages, 'page')}</span>
-      <div class="lh-sort" role="group" aria-label="Sort notebooks">
-        {#each SORT_ORDERS as o (o.id)}
-          <button
-            type="button"
-            class="chip"
-            class:on={$librarySort === o.id}
-            aria-pressed={$librarySort === o.id}
-            on:click={() => setLibrarySort(o.id)}
-          >{o.label}</button>
-        {/each}
-      </div>
-    {/if}
-    <span class="grow"></span>
-    <button class="lh-rescan" on:click={rescan} disabled={$isScanning || !$dataFolderReady}>
-      {$isScanning ? 'Scanning…' : 'Rescan'}
-    </button>
-  </div>
+  <LibraryHomeHead notebookCount={cards.length} />
 
   {#if !$dataFolderReady}
     <div class="lh-msg">
@@ -102,53 +74,20 @@
       </section>
     {/if}
 
-    <div class="lh-grid">
-      {#each cards as card (card.book)}
-        <NotebookCard {card} onOpen={onOpenNotebook} />
-      {/each}
-    </div>
+    {#if $libraryGroupBy === 'tag'}
+      <TagCardGrid />
+    {:else}
+      <div class="lh-grid">
+        {#each cards as card (card.book)}
+          <NotebookCard {card} onOpen={onOpenNotebook} />
+        {/each}
+      </div>
+    {/if}
   {/if}
 </div>
 
 <style>
   .lh { flex: 1; overflow-y: auto; padding: 18px 24px 24px; }
-
-  .lh-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 16px; }
-  .lh-head h2 {
-    margin: 0;
-    font-size: 15px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: #888;
-  }
-  .lh-sum { font-size: 13px; color: #888; }
-  .grow { flex: 1; }
-
-  .lh-sort { display: flex; gap: 4px; }
-  .chip {
-    padding: 4px 11px;
-    border: 1px solid #ddd;
-    border-radius: 14px;
-    background: #fff;
-    color: #555;
-    font-size: 12px;
-    cursor: pointer;
-  }
-  .chip:hover { border-color: #bbb; color: #222; }
-  .chip.on { background: #eef3ff; border-color: #4a7cf7; color: #2c56c4; font-weight: 600; }
-
-  .lh-rescan {
-    padding: 5px 12px;
-    border: 1px solid #ddd;
-    border-radius: 6px;
-    background: #fff;
-    cursor: pointer;
-    font-size: 12px;
-    color: #555;
-  }
-  .lh-rescan:hover:not(:disabled) { background: #f0f0f0; }
-  .lh-rescan:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .lh-msg { color: #999; font-size: 14px; padding: 40px 0; text-align: center; }
   .lh-msg p { margin: 0; }
