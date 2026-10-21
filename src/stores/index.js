@@ -110,6 +110,17 @@ export {
   tagsFor
 } from './tags.js';
 
+// Tag suggestions (project numbers found in stored transcripts)
+export {
+  suggestionsFound,
+  pendingSuggestions,
+  suggestionCount,
+  suggestionScan,
+  ensureSuggestionScan,
+  cancelSuggestionScan,
+  clearSuggestions
+} from './tag-suggestions.js';
+
 // Page backgrounds (Neo's printed pages, read-only views)
 export {
   backgroundsEnabled,

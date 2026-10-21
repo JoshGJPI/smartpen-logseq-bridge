@@ -10,6 +10,7 @@
   import LibraryHome from './LibraryHome.svelte';
   import NotebookPages from './NotebookPages.svelte';
   import TagPages from '../tags/TagPages.svelte';
+  import TagSuggestionQueue from '../tags/TagSuggestionQueue.svelte';
 
   /** Book key of the notebook grid to show, or null. */
   export let gridBook = null;
@@ -23,6 +24,8 @@
   <NotebookPages book={gridBook} {onOpen} />
 {:else if $libraryView && ($libraryView.kind === 'tag' || $libraryView.kind === 'untagged')}
   <TagPages view={$libraryView} {onOpen} />
+{:else if $libraryView && $libraryView.kind === 'suggestions'}
+  <TagSuggestionQueue {onOpen} />
 {:else}
   <LibraryHome {onOpen} {onOpenNotebook} />
 {/if}

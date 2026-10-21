@@ -12,9 +12,9 @@
 -->
 <script>
   import { pageTags } from '$stores/tags.js';
-  import { bookAliases } from '$stores';
+  import { bookAliases, savedPages, isScanning } from '$stores';
   import { dataFolderReady } from '$stores/settings.js';
-  import { pendingSuggestions } from '$stores/tag-suggestions.js';
+  import { pendingSuggestions, ensureSuggestionScan } from '$stores/tag-suggestions.js';
   import { formatBookName } from '$utils/formatting.js';
   import { recordTagKey, filterByTags, filterChoices } from '$lib/tags.js';
   import { plural } from '$lib/plural.js';
@@ -35,6 +35,9 @@
   let selecting = false;
   let selected = new Set();
   let anchor = null;
+
+  // Amber dots need the suggestion pass (stored transcripts only, cached).
+  $: if ($savedPages && !$isScanning) ensureSuggestionScan();
 
   $: items = tiles.map((t) => {
     const key = recordTagKey(t.record);

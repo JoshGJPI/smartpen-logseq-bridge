@@ -10,6 +10,8 @@
     libraryTagSort, setLibraryTagSort, tagCardList, untaggedSummary
   } from '$stores';
   import { dataFolderReady } from '$stores/settings.js';
+  import { suggestionCount, ensureSuggestionScan } from '$stores/tag-suggestions.js';
+  import { openLibraryView } from '$stores/viewer.js';
   import { loadTimeline } from '$stores/timeline.js';
   import { scanLocalPages } from '$lib/storage/scan.js';
   import { clearPageCache } from '$lib/viewer/page-cache.js';
@@ -25,6 +27,8 @@
   $: orders = byTag ? TAG_SORT_ORDERS : SORT_ORDERS;
   $: current = byTag ? $libraryTagSort : $librarySort;
   $: totalPages = $savedPages.length;
+  // The suggestion pass reads stored transcripts only; it reruns after a scan.
+  $: if ($savedPages && !$isScanning) ensureSuggestionScan();
   $: summary = byTag
     ? `${$tagCardList.length} ${plural($tagCardList.length, 'tag')} · ${$untaggedSummary.pageCount} of ${totalPages} ${plural(totalPages, 'page')} untagged`
     : `${notebookCount} ${plural(notebookCount, 'notebook')} · ${totalPages} ${plural(totalPages, 'page')}`;
@@ -57,7 +61,11 @@
     </div>
   {/if}
   <span class="grow"></span>
-  <slot />
+  {#if $suggestionCount > 0}
+    <button class="lh-sug" on:click={() => openLibraryView({ kind: 'suggestions' })} title="Project numbers found in transcripts, to tag or dismiss">
+      Suggestions <span class="badge">{$suggestionCount}</span>
+    </button>
+  {/if}
   <button class="lh-rescan" on:click={rescan} disabled={$isScanning || !$dataFolderReady}>
     {$isScanning ? 'Scanning…' : 'Rescan'}
   </button>
@@ -104,5 +112,19 @@
     color: #555;
   }
   .lh-rescan:hover:not(:disabled) { background: #f0f0f0; }
+  .lh-sug {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid #e0b84a;
+    border-radius: 6px;
+    background: #fff8e1;
+    color: #7a5200;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .lh-sug:hover { background: #fff1c4; }
+  .badge { padding: 0 6px; border-radius: 99px; background: #e0a200; color: #fff; font-size: 11px; font-weight: 600; }
   .lh-rescan:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
