@@ -57,6 +57,14 @@ Existing test files (all in `src/lib/__tests__/`):
 | `graph-index.test.js` | `smartpenAssetName`/`smartpenAssetRelPath`, `buildSmartpenIndexEntry`, `upsertSmartpenIndex` (replace-in-place, alias merge, sorting, corrupt-input normalisation) |
 | `graph-export.test.js` | `stripTranscriptRefs`, `mergeGraphStrokes` (dedupe by id, existing wins, re-export is a no-op), `resolveGraphPageInfo`, `buildGraphPageDoc` (**transcript never published**, bounds/totalStrokes recomputed), `groupCanvasStrokesByPage` (multi-page fan-out, orphan counting), `exportSelectionToGraph`/`exportPageDocToGraph` (merge into published page, per-page failure isolation, letter-suffix identity; mocks `publish-graph.js`) |
 
+MCP server tests (in `mcp/__tests__/`, synthetic data built in a temp folder; see [mcp/README.md](../mcp/README.md)):
+
+| File | What it tests |
+|------|---------------|
+| `mcp.test.js` | Path guard, sidecars (incl. paper manifest), Node scan (volumes, suffixes, local-midnight split, app record fields), paper-frame / robust-ink view box and stray-stroke clipping, grayscale PNG decode, per-tool width / image / `maxBytes` caps and offset paging, stored rotation from `_orientation.json`, every tool (`by_day`, `get_strokes`, `list_tags`, app-semantics `search`) |
+| `search-parity.test.js` | MCP `search` vs the app's pipeline (main.cjs `extractPageMeta` / `extractCaptureDays` lifted from source, `metaToRecord`, SearchField's `runSearch` context) on 32 queries: words, partial words, dates, notebook names and keys, project-number tags |
+| `dst.test.js` | America/Chicago fall-back (25 h, both 01:30s) and spring-forward (23 h) days, 23:59:59 vs local midnight, across `days_summary`, `get_strokes` and `render_days` (`by_day`) |
+
 When writing new tests follow the patterns in the existing files:
 - Mock Svelte stores (`vi.mock()`) before imports if needed
 - Use small, focused helper factories (`makeStroke`, `line`)

@@ -62,3 +62,10 @@ export function resolveDataRoot(argv = process.argv.slice(2), env = process.env)
   if (!fs.existsSync(pagesDir(root))) throw new Error(`No pages/ folder under ${root}`);
   return root;
 }
+
+/** `<root>/pages/_backgrounds/<ncodeBook>/manifest.json` (geometry only; the JPGs are never read). */
+export function manifestPath(root, ncodeBook) {
+  const s = String(ncodeBook ?? '');
+  if (!/^\d+$/.test(s)) throw new Error(`Invalid NCode book: ${s}`);
+  return path.join(pagesDir(root), '_backgrounds', s, 'manifest.json');
+}

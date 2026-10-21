@@ -29,6 +29,7 @@ src/lib/storage/   PageDoc layer: local-store (IPC facade), save-page, load-page
 src/lib/viewer/    reader helpers: SVG render, page cache, thumbnails, transcript markdown/save, feed loader
 src/components/    grouped by feature (canvas, dialog, header, viewer, dates, books, tags, transcription, ...)
 electron/tags-sidecar.cjs   pure parse / patch of pages/_tags.json for main (tested from Vitest)
+mcp/               read-only stdio MCP server over the data folder, imports src/lib unchanged (mcp/README.md)
 ```
 
 Data flow: **pen → `strokes` store → canvas / MyScript → `savePageToFolder()` → PageDoc on disk.**

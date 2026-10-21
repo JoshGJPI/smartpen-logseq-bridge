@@ -1,7 +1,10 @@
 # Read-only MCP server (plan)
 
-**Status:** proof of concept built on branch `mcp-server-poc` (see [mcp/README.md](../mcp/README.md)); the plan below is otherwise unchanged. Decided 2026-10-21 (Josh): an MCP server over the data folder, not an HTTP port
-inside the app and not a Claude Code skill.
+**Status:** built (branch `mcp-server-v2`, on the proof of concept): every tool below, with the caps and choices
+in [mcp/README.md](../mcp/README.md). Differences from this plan: renders lay pages out on Neo's printed frame (manifest
+geometry only) rather than the ink box, PNGs are 4-bit grayscale, and search needed no extraction (`global-search.js` /
+`search-query.js` already import under plain Node). Decided 2026-10-21 (Josh): an MCP server over the data folder, not
+an HTTP port inside the app and not a Claude Code skill.
 
 ## Goal
 
