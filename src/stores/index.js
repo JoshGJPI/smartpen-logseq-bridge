@@ -91,6 +91,25 @@ export {
   setPageRotation
 } from './orientation.js';
 
+// Page tags (keywords and project numbers per page, pages/_tags.json)
+export {
+  pageTags,
+  dismissedTags,
+  tagIndex,
+  tagStatsList,
+  loadTags,
+  clearTags,
+  setPageTagList,
+  addTagToPages,
+  removeTagFromPages,
+  renameTag,
+  mergeTags,
+  deleteTag,
+  dismissSuggestion,
+  resetDismissed,
+  tagsFor
+} from './tags.js';
+
 // Page backgrounds (Neo's printed pages, read-only views)
 export {
   backgroundsEnabled,

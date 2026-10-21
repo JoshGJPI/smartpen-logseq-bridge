@@ -266,3 +266,29 @@ export async function setOrientation(book, pageId, rotation) {
   const res = await backend.setOrientation(requireRoot(), book, pageId, rotation);
   return unwrap(res, 'setOrientation');
 }
+
+/* ============================================================
+ *  Page tags
+ * ============================================================ */
+
+/**
+ * The tags sidecar, raw: `{ version, pages, dismissed, state }`, where state is
+ * 'missing' | 'ok' | 'corrupt' | 'newer'. Run it through `normalizeTagsFile()`
+ * (lib/tags.js) before use. Never touches a PageDoc.
+ */
+export async function getTags() {
+  const backend = getBackend();
+  const res = await backend.getTags(requireRoot());
+  return unwrap(res, 'getTags');
+}
+
+/**
+ * Apply per-page changes to the tags sidecar in one locked write:
+ * `{ pages?: { "<bookKey>/<pageId>": tags[] | null }, dismissed?: {...} }`.
+ * Tags must already be normalized (lib/tags.js). Resolves `{ replacedCorrupt }`.
+ */
+export async function patchTags(patch) {
+  const backend = getBackend();
+  const res = await backend.patchTags(requireRoot(), patch);
+  return unwrap(res, 'patchTags');
+}

@@ -25,7 +25,7 @@ import { refreshAfterSave, resetForDataFolder } from '$lib/storage/refresh.js';
 import { thumbs } from '$lib/viewer/thumbs.js';
 import { dataFolderReady } from '$stores/settings.js';
 import { timelineIndex } from '$stores/timeline.js';
-import { savedPages, libraryNotebook, viewerSelection, setViewerSelection } from '$stores';
+import { savedPages, libraryNotebook, viewerSelection, setViewerSelection, pageTags, dismissedTags } from '$stores';
 
 beforeEach(() => {
   calls.length = 0;
@@ -53,8 +53,12 @@ describe('resetForDataFolder', () => {
     timelineIndex.set({ pages: {} });
     libraryNotebook.set('1');
     setViewerSelection('1', '1');
+    pageTags.set({ '1/1': ['beam'] });
+    dismissedTags.set({ '1/1': ['2327-018'] });
     await resetForDataFolder();
     expect(get(savedPages)).toEqual([]);
+    expect(get(pageTags)).toEqual({});
+    expect(get(dismissedTags)).toEqual({});
     expect(get(libraryNotebook)).toBe(null);
     expect(get(viewerSelection)).toBe(null);
     expect(calls).toEqual(['clearCache', 'volumes', 'scan', 'backgrounds', 'timeline']);

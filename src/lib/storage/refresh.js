@@ -12,7 +12,8 @@
  *   refreshAfterSave(pages)  an Editor / Create Page save: drop those pages'
  *                            cached docs and thumbnails, rescan, refresh dates
  *   resetForDataFolder()     a different folder: drop everything read from the
- *                            old one, then load the new one as boot does
+ *                            old one (tags too), then load the new one as boot
+ *                            does (the scan reloads the sidecars)
  *
  * The scan is metadata-only and the index rebuild is incremental (mtime/size),
  * so both are cheap; neither reads strokes into the renderer.
@@ -23,6 +24,7 @@ import {
 } from '$stores';
 import { timelineIndex, loadTimeline } from '$stores/timeline.js';
 import { loadVolumes } from '$stores/volumes.js';
+import { clearTags } from '$stores/tags.js';
 import { refreshBackgrounds } from '$stores/backgrounds.js';
 import { dataFolderReady } from '$stores/settings.js';
 import { scanLocalPages } from './scan.js';
@@ -60,6 +62,7 @@ export async function resetForDataFolder() {
   clearPageCache();
   thumbs.clear();
   clearSavedPages();
+  clearTags();
   timelineIndex.set(null);
   clearReaderFocus();
   libraryNotebook.set(null);

@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const https = require('https');
 const fs = require('fs');
 const fsp = require('fs').promises;
+const tagsSidecar = require('./tags-sidecar.cjs');
 
 // Must be set before 'ready' so Windows links the running process to the
 // installed shortcut and shows the correct taskbar icon (rather than grouping
@@ -307,6 +308,10 @@ function volumesPath(root) {
 
 function orientationPath(root) {
   return path.join(pagesDir(root), '_orientation.json');
+}
+
+function tagsPath(root) {
+  return path.join(pagesDir(root), '_tags.json');
 }
 
 // ----- "Publish to graph" target paths (JPI Tools plugin asset storage) -----
@@ -785,6 +790,42 @@ function withOrientationLock(fn) {
   return run;
 }
 
+/**
+ * Page tags — `<dataRoot>/pages/_tags.json` (v3.1.0). Display metadata, like
+ * rotation: never in a PageDoc, never through the save path. The format and
+ * every edit are the renderer's (src/lib/tags.js); main applies per-page
+ * patches (electron/tags-sidecar.cjs) inside one lock, read-merge-write per
+ * call. A corrupt file reads as empty and is replaced by the next write; a
+ * file from a newer version is read but never rewritten.
+ */
+const warnedTagFiles = new Set();
+async function readTags(root) {
+  let text = null;
+  try {
+    text = await fsp.readFile(tagsPath(root), 'utf8');
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+  }
+  const res = tagsSidecar.parseTagsFile(text);
+  if (res.state === 'corrupt' || res.state === 'newer') {
+    const k = `${root}|${res.state}`;
+    if (!warnedTagFiles.has(k)) {
+      warnedTagFiles.add(k);
+      console.warn(res.state === 'corrupt'
+        ? '[storage] _tags.json is unreadable; showing no tags until the next tag change replaces it'
+        : `[storage] _tags.json is version ${res.file.version}; reading it but not rewriting it`);
+    }
+  }
+  return res;
+}
+
+let tagsChain = Promise.resolve();
+function withTagsLock(fn) {
+  const run = tagsChain.then(fn, fn);
+  tagsChain = run.catch(() => {});
+  return run;
+}
+
 /** Wraps an IPC handler so thrown errors become `{ok:false, error}` responses. */
 function ipcSafe(fn) {
   return async (_event, ...args) => {
@@ -888,6 +929,22 @@ ipcMain.handle('storage:setOrientation', ipcSafe(async (root, book, page, rotati
     return registry;
   });
 }));
+
+ipcMain.handle('storage:getTags', ipcSafe(async (root) => {
+  const { file, state } = await readTags(root);
+  return { version: file.version, pages: file.pages, dismissed: file.dismissed, state };
+}));
+ipcMain.handle('storage:patchTags', ipcSafe(async (root, patch) => withTagsLock(async () => {
+  const { file, state } = await readTags(root);
+  if (state === 'newer') {
+    throw new Error(`_tags.json is from a newer version of the app (v${file.version}); not changing it`);
+  }
+  const base = state === 'corrupt' ? tagsSidecar.emptyTagsFile() : file;
+  const next = tagsSidecar.applyTagsPatch(base, patch, { requireBookKey, requirePageId });
+  await writeFileAtomic(tagsPath(root), tagsSidecar.serializeTagsFile(next));
+  if (state === 'corrupt') console.warn('[storage] replaced the unreadable _tags.json');
+  return { replacedCorrupt: state === 'corrupt' };
+})));
 
 // ===== Page backgrounds — `<dataRoot>/pages/_backgrounds/<ncodeBook>/` =====
 // Neo's printed-page images, cached by scripts/fetch-neo-backgrounds.mjs and drawn
