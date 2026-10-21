@@ -39,6 +39,7 @@
   import LibraryHome from './LibraryHome.svelte';
   import NotebookPages from './NotebookPages.svelte';
   import PageSpreadView from './PageSpreadView.svelte';
+  import ReaderTagsLayout from '../tags/ReaderTagsLayout.svelte';
 
   // Shared viewer state, bound by App.svelte so the pane toolbar (breadcrumb,
   // View ▾, spread toolbar) can show and drive it.
@@ -221,6 +222,7 @@
       <LibraryHome onOpen={openRecord} onOpenNotebook={openNotebook} />
     {/if}
   {:else}
+    <ReaderTagsLayout records={pinEdit ? [editingRecord] : [slotA.record, showSlotB && slotB ? slotB.record : null]}>
     <div class="bv-body" class:spread={showSlotB}>
       {#key `${slotA.record.book}:${idOf(slotA.record)}`}
         <div class="bv-page">
@@ -269,6 +271,7 @@
         {/if}
       {/if}
     </div>
+    </ReaderTagsLayout>
   {/if}
 </div>
 
