@@ -18,6 +18,8 @@ import { buildSearchIndex, recordsByKey } from '$lib/global-search.js';
 import { tagCards, untaggedCard, parseGroupBy, parseTagSort, LIBRARY_GROUP_KEY, TAG_SORT_KEY } from '$lib/tags.js';
 import { readString, write } from '$lib/safe-storage.js';
 import { pageTags, tagIndex } from './tags.js';
+import { readerSequence, readerOrder, viewerSelection } from './viewer.js';
+import { sequenceRecords, readerPageList, sequenceLabel } from '$lib/viewer/reading-order.js';
 
 function loadSort() {
   try {
@@ -104,6 +106,28 @@ export const tagCardList = derived(
 export const untaggedSummary = derived(
   [savedPages, pageTags, libraryPageDates],
   ([$pages, $tags, $dates]) => untaggedCard($pages, $tags, $dates)
+);
+
+/* ----- Reading order (v3.2.0): Book | Tag ----- */
+
+/** The reader's sequence as scan records (pages gone since are skipped). */
+export const readingSequence = derived([readerSequence, searchRecords], ([$seq, $records]) =>
+  sequenceRecords($seq, $records)
+);
+
+/**
+ * What ←/→ and the spread turn through: `{ pages, order }`. Tag order only
+ * while the open page is in the sequence; otherwise the open notebook.
+ */
+export const readingList = derived(
+  [readerOrder, readingSequence, viewerSelection, pagesByBook],
+  ([$order, $seq, $sel, $byBook]) =>
+    readerPageList({ order: $order, sequence: $seq, selection: $sel, bookPages: $sel ? $byBook[$sel.book] || [] : [] })
+);
+
+/** What Tag order walks, for the breadcrumb and the toggle: "Tag: beam", "Untagged", "Site 3 · beam". */
+export const readingLabel = derived([readerSequence, bookAliases], ([$seq, $aliases]) =>
+  sequenceLabel($seq, nameOf($aliases))
 );
 
 /** Load the capture-date index if nothing has yet (it is cached on disk). */

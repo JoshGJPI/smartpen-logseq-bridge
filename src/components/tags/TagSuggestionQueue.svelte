@@ -67,7 +67,7 @@
       <button type="button" class="btn" disabled={!$dataFolderReady || $isScanning} on:click={() => ensureSuggestionScan({ force: true })}>↻ Re-check transcripts</button>
     {/if}
   </div>
-  <p class="sq-note">Numbers like P2026-141 and 2327-018 found in transcripts. Nothing is tagged until you choose; a dismissed number stays dismissed for that page (Settings → Tags can reset them).</p>
+  <p class="sq-note">Numbers like P2026-141 and 2327-018 found in transcripts. Nothing is tagged until you choose; a dismissed number stays dismissed for that page (Library › Manage tags can reset them).</p>
 
   {#if !groups.length}
     <div class="sq-empty">

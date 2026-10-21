@@ -43,6 +43,8 @@
   <PageGrid
     {tiles}
     showNotebook
+    origin={view.kind === 'tag' ? { kind: 'tag', tag: view.tag } : { kind: 'untagged' }}
+    filterKey={view.kind === 'tag' ? `tag:${view.tag}` : 'untagged'}
     {onOpen}
     emptyText={view.kind === 'tag' ? 'No page carries this tag any more.' : 'Every page has a tag.'}
   />

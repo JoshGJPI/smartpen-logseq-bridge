@@ -492,6 +492,40 @@ export function tagStats(map) {
   return out.sort((a, b) => b.pages - a.pages || compareTags(a.tag, b.tag));
 }
 
+/* ----- Tag manager column sort (v3.2.0) ----- */
+
+/** Sortable tag manager columns, and the direction a first click on each gives. */
+export const TAG_STAT_COLUMNS = { tag: 'asc', pages: 'desc', notebooks: 'desc' };
+export const TAG_MANAGER_SORT_KEY = 'smartpen-tag-manager-sort';
+
+/** A stored `{ by, dir }`, or most pages first. */
+export function parseTagStatSort(raw) {
+  const by = raw && Object.prototype.hasOwnProperty.call(TAG_STAT_COLUMNS, raw.by) ? raw.by : 'pages';
+  const dir = raw && (raw.dir === 'asc' || raw.dir === 'desc') ? raw.dir : TAG_STAT_COLUMNS[by];
+  return { by, dir };
+}
+
+/**
+ * A header click: the same column flips direction, another column starts in
+ * its natural direction (names A→Z, counts largest first).
+ */
+export function nextTagStatSort(current, by) {
+  if (!Object.prototype.hasOwnProperty.call(TAG_STAT_COLUMNS, by)) return parseTagStatSort(current);
+  if (current && current.by === by) return { by, dir: current.dir === 'asc' ? 'desc' : 'asc' };
+  return { by, dir: TAG_STAT_COLUMNS[by] };
+}
+
+/**
+ * `tagStats()` rows in a column order. Name order is compareTags (project
+ * numbers first, natural order); counts tie by name, A→Z either way. A new array.
+ */
+export function sortTagStats(rows, { by = 'pages', dir = 'desc' } = {}) {
+  const sign = dir === 'asc' ? 1 : -1;
+  const list = [...(rows || [])];
+  if (by === 'tag') return list.sort((a, b) => sign * compareTags(a.tag, b.tag));
+  return list.sort((a, b) => sign * ((a[by] || 0) - (b[by] || 0)) || compareTags(a.tag, b.tag));
+}
+
 /**
  * Items whose tags match the chosen filter: 'any' = at least one chosen tag,
  * 'all' = every chosen tag. No chosen tags = everything.

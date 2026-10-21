@@ -18,18 +18,14 @@
   import DataFolderSettings from '../settings/DataFolderSettings.svelte';
   import GraphFolderSettings from '../settings/GraphFolderSettings.svelte';
   import BooksTab from '../books/BooksTab.svelte';
-  import TagManagerDialog from '../tags/TagManagerDialog.svelte';
-  import { tagStatsList } from '$stores/tags.js';
   import { dataFolderReady } from '$stores/settings.js';
   import { readString, write } from '$lib/safe-storage.js';
-  import { plural } from '$lib/plural.js';
 
   const NOTEBOOKS_OPEN_KEY = 'settingsNotebooksOpen';
 
   let isOpen = false;
   let showKeys = false;
   let isTesting = false;
-  let showTagManager = false;
   // Notebooks is the longest section (a row per notebook), so it starts folded;
   // whether it was left open is remembered.
   let notebooksOpen = readString(NOTEBOOKS_OPEN_KEY) === 'true';
@@ -68,13 +64,6 @@
   function handleNotebooksToggle(event) {
     notebooksOpen = event.currentTarget.open;
     write(NOTEBOOKS_OPEN_KEY, String(notebooksOpen));
-  }
-
-  $: tagCount = $tagStatsList.length;
-
-  function handleManageTags() {
-    showTagManager = true;
-    isOpen = false;  // Close settings dropdown — the dialog is modal
   }
 
   /** Errors and warnings are what the log is opened for, so the button counts them. */
@@ -232,24 +221,6 @@
         </details>
       </section>
 
-      <!-- The tag table gets its own dialog: it needs the width, and a long
-           list would push everything below it out of view. -->
-      <section class="settings-section">
-        <h4>Tags</h4>
-
-        <button class="btn btn-secondary tool-btn" on:click={handleManageTags}>
-          <span class="button-icon">🏷️</span>
-          <span class="button-text">Manage Tags</span>
-          {#if tagCount > 0}
-            <span class="badge">{tagCount} {plural(tagCount, 'tag')}</span>
-          {/if}
-        </button>
-
-        <p class="help-text">
-          Rename, merge or delete tags, and bring back dismissed suggestions.
-        </p>
-      </section>
-
       <!-- Publish to LogSeq graph (mirror saved pages as plugin assets) -->
       <section class="settings-section">
         <h4>Publish to LogSeq Graph</h4>
@@ -277,10 +248,9 @@
   {/if}
 </div>
 
-<!-- Dialogs are mounted outside the {#if isOpen} block so they survive the
-     dropdown closing behind them. -->
+<!-- The dialog is mounted outside the {#if isOpen} block so it survives the
+     dropdown closing behind it. -->
 <ActivityLogDialog />
-<TagManagerDialog bind:visible={showTagManager} />
 
 <style>
   .settings-dropdown {
@@ -519,7 +489,7 @@
     border-radius: 4px;
   }
 
-  /* "Open a tool" buttons: Manage Tags, Activity Log. */
+  /* "Open a tool" button: Activity Log. */
   .tool-btn {
     display: flex;
     align-items: center;
@@ -535,15 +505,6 @@
   .tool-btn .button-text {
     flex: 1;
     text-align: left;
-  }
-
-  .tool-btn .badge {
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 0.7rem;
-    font-weight: 600;
-    background: var(--bg-primary);
-    color: var(--text-secondary);
   }
 
   .tool-btn .badge.problems {

@@ -5,8 +5,9 @@
  * (`StrokeCanvas`) or the read/edit-oriented Book View (`BookViewer`).
  * This store owns the pane mode, the per-page "unsaved transcript edit"
  * dirty set (kept separate from the canvas's global `unsavedChanges` flag so
- * a transcript save never masks unsaved stroke changes), and the
- * recently-viewed pages list (persisted to localStorage).
+ * a transcript save never masks unsaved stroke changes), the
+ * recently-viewed pages list (persisted to localStorage), and the Library's
+ * session-only place: open page, reading order, grid filters.
  */
 import { writable, derived, get } from 'svelte/store';
 import {
@@ -112,46 +113,70 @@ export function recordRecentView(book, pageId) {
 }
 
 /* ============================================================
- *  Last-open selection (localStorage-backed)
- *  Lets Book View reopen the page(s) you were last viewing, instead of
- *  resetting to the home grid each time the pane is toggled or reloaded.
+ *  Open page
+ *  Session-only: the Library reopens the page(s) you were viewing when you
+ *  come back from the Timeline or the Editor, but each launch starts on the
+ *  Library home (v3.2.0; it used to be restored from localStorage).
  * ============================================================ */
 
-const SELECTION_KEY = 'smartpen-viewer-selection';
-
-function loadSelection() {
-  try {
-    const raw = localStorage.getItem(SELECTION_KEY);
-    const parsed = raw ? JSON.parse(raw) : null;
-    if (parsed && parsed.book != null && parsed.pageId != null) {
-      return { book: parsed.book, pageId: String(parsed.pageId) };
-    }
-    return null;
-  } catch {
-    return null;
-  }
+// The key earlier versions persisted the open page under. Dropped once, so a
+// stale value never lingers in the profile.
+try {
+  localStorage.removeItem('smartpen-viewer-selection');
+} catch {
+  /* ignore */
 }
 
-/** @type {import('svelte/store').Writable<{book:number,pageId:string}|null>} */
-export const viewerSelection = writable(loadSelection());
+/** @type {import('svelte/store').Writable<{book:string,pageId:string}|null>} */
+export const viewerSelection = writable(null);
 
 export function setViewerSelection(book, pageId) {
-  const sel = { book, pageId: String(pageId) };
-  try {
-    localStorage.setItem(SELECTION_KEY, JSON.stringify(sel));
-  } catch {
-    /* ignore */
-  }
-  viewerSelection.set(sel);
+  viewerSelection.set({ book, pageId: String(pageId) });
 }
 
 export function clearViewerSelection() {
-  try {
-    localStorage.removeItem(SELECTION_KEY);
-  } catch {
-    /* ignore */
-  }
   viewerSelection.set(null);
+}
+
+/* ============================================================
+ *  Reading order (v3.2.0)
+ *  A page opened from a tag's pages, Untagged, or a grid with a tag filter
+ *  brings that grid's pages along (lib/viewer/reading-order.js buildSequence),
+ *  and the reader starts in Tag order: ←/→ walk those pages, notebook then
+ *  page. Book order walks the open page's notebook. Session-only.
+ * ============================================================ */
+
+/** @type {import('svelte/store').Writable<import('../lib/viewer/reading-order.js').ReadingSequence|null>} */
+export const readerSequence = writable(null);
+
+/** 'book' | 'tag'. Only means anything while there is a sequence. */
+export const readerOrder = writable('book');
+
+/** A new sequence (or none) from the page grid a page was opened from. */
+export function setReaderSequence(sequence) {
+  readerSequence.set(sequence || null);
+  readerOrder.set(sequence ? 'tag' : 'book');
+}
+
+export function setReaderOrder(order) {
+  readerOrder.set(order === 'tag' && get(readerSequence) ? 'tag' : 'book');
+}
+
+/**
+ * Each page grid's tag filter, keyed by grid ('nb:<book>', 'tag:<tag>',
+ * 'untagged'), so going back from the reader finds the grid as you left it.
+ * Session-only, like the grids' select mode is not.
+ * @type {import('svelte/store').Writable<Record<string, {chosen: string[], mode: 'any'|'all'}>>}
+ */
+export const gridFilters = writable({});
+
+export function setGridFilter(key, { chosen = [], mode = 'any' } = {}) {
+  gridFilters.update((m) => {
+    const next = { ...m };
+    if (chosen.length) next[key] = { chosen: [...chosen], mode };
+    else delete next[key];
+    return next;
+  });
 }
 
 /* ============================================================
@@ -265,6 +290,9 @@ export function openPageInLibrary(book, pageId, { confirm = windowConfirm } = {}
     if (!confirm(DISCARD_PROMPT)) return 'cancelled';
     clearAllViewerDirty();
   }
+  // Opened from outside a page grid (search, contents, a feed card), so it
+  // reads in its notebook's order.
+  setReaderSequence(null);
   setViewerSelection(book, pageId);
   recordRecentView(book, String(pageId));
   // Dirty was settled above, so this never asks again.
@@ -309,6 +337,7 @@ export const libraryNotebook = writable(null);
  *   { kind: 'tag', tag }      that tag's pages, across notebooks
  *   { kind: 'untagged' }      pages with no tag
  *   { kind: 'suggestions' }   the suggested-project-number queue
+ *   { kind: 'tags' }          the tag manager (v3.2.0; was a Settings dialog)
  * null = the home. Session-only.
  */
 export const libraryView = writable(null);
@@ -336,9 +365,10 @@ export function openNotebookInLibrary(book, { confirm = windowConfirm } = {}) {
 }
 
 /**
- * Show a tag's pages, the Untagged pages or the suggestions queue in the
- * Library (a tag card, a Tags search result). Asks first like a notebook.
- * @param {{kind: 'tag', tag: string}|{kind: 'untagged'}|{kind: 'suggestions'}} view
+ * Show a tag's pages, the Untagged pages, the suggestions queue or the tag
+ * manager in the Library (a tag card, a Tags search result, the home's
+ * buttons). Asks first like a notebook.
+ * @param {{kind: 'tag', tag: string}|{kind: 'untagged'}|{kind: 'suggestions'}|{kind: 'tags'}} view
  * @returns {'cancelled'|'opened'}
  */
 export function openLibraryView(view, { confirm = windowConfirm } = {}) {

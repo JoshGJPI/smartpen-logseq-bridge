@@ -400,3 +400,47 @@ describe('planTagCarry (volume moves)', () => {
     expect(planTagCarry({ pages: {} }, null).carried).toEqual([]);
   });
 });
+
+describe('tag manager column sort (v3.2.0)', () => {
+  const rows = [
+    { tag: 'beam', pages: 3, notebooks: 1 },
+    { tag: 'P2026-141', pages: 3, notebooks: 2 },
+    { tag: 'slab', pages: 7, notebooks: 1 },
+    { tag: '2327-018', pages: 1, notebooks: 3 }
+  ];
+  const tags = (list) => list.map((r) => r.tag);
+
+  it('defaults to most pages first; a bad stored value falls back', async () => {
+    const { parseTagStatSort } = await import('$lib/tags.js');
+    expect(parseTagStatSort(null)).toEqual({ by: 'pages', dir: 'desc' });
+    expect(parseTagStatSort({ by: 'colour', dir: 'up' })).toEqual({ by: 'pages', dir: 'desc' });
+    expect(parseTagStatSort({ by: 'tag' })).toEqual({ by: 'tag', dir: 'asc' });
+    expect(parseTagStatSort({ by: 'notebooks', dir: 'asc' })).toEqual({ by: 'notebooks', dir: 'asc' });
+  });
+
+  it('a header click flips the same column, starts another in its natural direction', async () => {
+    const { nextTagStatSort } = await import('$lib/tags.js');
+    expect(nextTagStatSort({ by: 'pages', dir: 'desc' }, 'pages')).toEqual({ by: 'pages', dir: 'asc' });
+    expect(nextTagStatSort({ by: 'pages', dir: 'asc' }, 'pages')).toEqual({ by: 'pages', dir: 'desc' });
+    expect(nextTagStatSort({ by: 'pages', dir: 'asc' }, 'tag')).toEqual({ by: 'tag', dir: 'asc' });
+    expect(nextTagStatSort({ by: 'tag', dir: 'asc' }, 'notebooks')).toEqual({ by: 'notebooks', dir: 'desc' });
+    expect(nextTagStatSort({ by: 'tag', dir: 'desc' }, 'actions')).toEqual({ by: 'tag', dir: 'desc' });
+  });
+
+  it('sorts by name (project numbers first), and by counts with ties by name', async () => {
+    const { sortTagStats } = await import('$lib/tags.js');
+    expect(tags(sortTagStats(rows, { by: 'tag', dir: 'asc' }))).toEqual(['2327-018', 'P2026-141', 'beam', 'slab']);
+    expect(tags(sortTagStats(rows, { by: 'tag', dir: 'desc' }))).toEqual(['slab', 'beam', 'P2026-141', '2327-018']);
+    expect(tags(sortTagStats(rows, { by: 'pages', dir: 'desc' }))).toEqual(['slab', 'P2026-141', 'beam', '2327-018']);
+    expect(tags(sortTagStats(rows, { by: 'pages', dir: 'asc' }))).toEqual(['2327-018', 'P2026-141', 'beam', 'slab']);
+    expect(tags(sortTagStats(rows, { by: 'notebooks', dir: 'desc' }))).toEqual(['2327-018', 'P2026-141', 'beam', 'slab']);
+  });
+
+  it('never reorders its input; empty is empty', async () => {
+    const { sortTagStats } = await import('$lib/tags.js');
+    const copy = [...rows];
+    sortTagStats(rows, { by: 'tag', dir: 'asc' });
+    expect(rows).toEqual(copy);
+    expect(sortTagStats(null, { by: 'pages', dir: 'desc' })).toEqual([]);
+  });
+});

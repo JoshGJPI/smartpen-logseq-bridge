@@ -48,7 +48,12 @@ tagging). The header's global search (`SearchField`, Ctrl K) covers words, dates
 tag strip beside the pages (`ReaderTagsLayout` / `PageTagsStrip`). The Library reader (package D) shows each page as Strokes, Transcript or
 Ink + text (`'inktext'`), with shared zoom and Go to page in the pane toolbar (`SpreadToolbar`), rotation on
 each page's corner, and ←/→ page turns (`lib/viewer/page-reader.js` `pageTurnKey`). Tab ids (`'strokes'`, `'transcription'`, `'saved-pages'`, `'books'`, `'dates'`,
-`'contents'`) predate the labels, so don't rename them (`ActionBar` calls `setActiveTab('transcription')`). Full component tree, store and library inventory:
+`'contents'`) predate the labels, so don't rename them (`ActionBar` calls `setActiveTab('transcription')`).
+Pages turn through `readingList` (v3.2.0, `lib/viewer/reading-order.js`): a page opened from a tag's pages, Untagged or a
+filtered grid carries that grid's pages (`readerSequence`, notebook then page) and the reader starts in **Tag** order
+(Book | Tag toggle in `SpreadToolbar`); anything else reads in Book order. The tag manager is a Library view
+(`libraryView` `{ kind: 'tags' }`, Manage tags on the home). The open page, reading order and grid filters are
+session-only: each launch opens the Library on its home. Full component tree, store and library inventory:
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Data formats
@@ -121,7 +126,8 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
 - **Transcript merge:** existing lines keep their order; new lines are sorted among themselves and appended;
   `checked` survives when text matches; dangling `lineId`s are scrubbed.
 - Deletions marked but unsaved have a 15-minute undo window.
-- Settings and display prefs → localStorage. Stroke and transcript data → PageDoc only. Read localStorage through
+- Settings and display prefs → localStorage. Where you are in the Library (open page, reading order, grid filters,
+  `libraryView`) is session-only on purpose. Stroke and transcript data → PageDoc only. Read localStorage through
   `lib/safe-storage.js` (or your own try/catch): a corrupt value read at module load must never stop the app starting.
 - **The reading views hold copies** (scan records, the reader's page cache, thumbnail SVGs, the capture-date index).
   Anything that writes PageDocs outside the Library reader calls `refreshAfterSave(pages)` afterwards, and a data-folder
@@ -275,7 +281,7 @@ then looks broken when it isn't). Launch with `--disable-backgrounding-occluded-
 - In the Timeline the range can be set in two places (Range ▾ and the Dates panel's From / To).
 - Some `.active` accents outside the reading surfaces (Transcripts Review | Search) still use the red accent.
 - Several components are over the ~300-line guideline (StrokeCanvas, ActionBar, TranscriptionEditorModal,
-  SaveConfirmDialog, TranscriptPane, BookViewer at 301, …); don't grow them, split when touching.
+  SaveConfirmDialog, TranscriptPane, …); don't grow them, split when touching.
 - Global search covers transcribed text only; untranscribed pages are found by date or notebook (or by tag).
 - **Page tags (v3.1.0).** Suggestions are pattern-only: no check that a number is a real project, and letters read
   for digits (`P2O26-141`) are missed. Tags don't follow a *partial* volume move (they stay on the source page).

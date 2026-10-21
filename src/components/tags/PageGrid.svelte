@@ -5,18 +5,22 @@
 
   Above the tiles, the tag filter row (TagFilterRow: tags in THIS grid, Any |
   All) and Select. Select mode ticks pages (shift-click ticks a range in the
-  order shown) and brings up the bulk bar (BulkTagBar). Filter and selection
-  are per view and not persisted. Opening a page is the caller's (onOpen →
-  BookViewer's guarded openRecord). Tiles read tags from the store; thumbnails
-  load only on screen (PageThumb).
+  order shown) and brings up the bulk bar (BulkTagBar). The filter is kept per
+  grid for the session (`gridFilters`, v3.2.0), so coming back from the reader
+  finds it as it was; selection is per visit. Opening a page is the caller's
+  (onOpen → BookViewer's guarded openFromGrid) and carries the pages shown as
+  a reading sequence (buildSequence), so the reader can turn through them in
+  Tag order. Tiles read tags from the store; thumbnails load only on screen
+  (PageThumb).
 -->
 <script>
   import { pageTags } from '$stores/tags.js';
-  import { bookAliases, savedPages, isScanning } from '$stores';
+  import { bookAliases, savedPages, isScanning, gridFilters, setGridFilter } from '$stores';
   import { dataFolderReady } from '$stores/settings.js';
   import { pendingSuggestions, ensureSuggestionScan } from '$stores/tag-suggestions.js';
   import { formatBookName } from '$utils/formatting.js';
   import { recordTagKey, filterByTags, filterChoices } from '$lib/tags.js';
+  import { buildSequence } from '$lib/viewer/reading-order.js';
   import { plural } from '$lib/plural.js';
   import TagFilterRow from './TagFilterRow.svelte';
   import BulkTagBar from './BulkTagBar.svelte';
@@ -26,12 +30,15 @@
   export let tiles = [];
   /** Name each page's notebook on its label (a grid across notebooks). */
   export let showNotebook = false;
-  /** (record) => void */
+  /** Where these pages come from (a SequenceOrigin): `{ kind: 'notebook', book }`, `{ kind: 'tag', tag }`, `{ kind: 'untagged' }`. */
+  export let origin = null;
+  /** Session key for this grid's filter in `gridFilters`. */
+  export let filterKey = '';
+  /** (record, sequence) => void: sequence is null when Tag order would equal Book order. */
   export let onOpen = () => {};
   export let emptyText = 'No pages.';
 
-  let chosen = [];
-  let mode = 'any';
+  const NO_FILTER = { chosen: [], mode: 'any' };
   let selecting = false;
   let selected = new Set();
   let anchor = null;
@@ -43,9 +50,13 @@
     const key = recordTagKey(t.record);
     return { ...t, key, tags: $pageTags[key] || [] };
   });
-  // A chosen tag that no page here carries any more drops out of the filter.
-  $: if (chosen.some((c) => !items.some((it) => it.tags.includes(c)))) {
-    chosen = chosen.filter((c) => items.some((it) => it.tags.includes(c)));
+  $: filter = (filterKey && $gridFilters[filterKey]) || NO_FILTER;
+  $: chosen = filter.chosen;
+  $: mode = filter.mode;
+  // A chosen tag that no page here carries any more drops out of the filter
+  // (not while the grid is empty: a scan in progress is not a retag).
+  $: if (items.length && chosen.some((c) => !items.some((it) => it.tags.includes(c)))) {
+    setFilter(chosen.filter((c) => items.some((it) => it.tags.includes(c))), mode);
   }
   $: shown = filterByTags(items, chosen, mode);
   $: choices = filterChoices(items, chosen, mode);
@@ -54,13 +65,19 @@
 
   const nameOf = (book) => formatBookName(book, $bookAliases, 'alias-only');
 
+  function setFilter(nextChosen, nextMode) {
+    setGridFilter(filterKey, { chosen: nextChosen, mode: nextMode });
+  }
+
   function toggleTag(tag) {
-    chosen = chosen.includes(tag) ? chosen.filter((t) => t !== tag) : [...chosen, tag];
+    setFilter(chosen.includes(tag) ? chosen.filter((t) => t !== tag) : [...chosen, tag], mode);
   }
 
   function click(e, i) {
     const it = shown[i];
-    if (!selecting) return onOpen(it.record);
+    if (!selecting) {
+      return onOpen(it.record, buildSequence({ records: shown.map((s) => s.record), origin, chosen, mode }));
+    }
     const next = new Set(selected);
     if (e.shiftKey && anchor != null && shown[anchor]) {
       const [a, b] = [Math.min(anchor, i), Math.max(anchor, i)];
@@ -94,7 +111,7 @@
     <div class="pg-bar">
       {#if hasTags || chosen.length}
         <div class="pg-filter">
-          <TagFilterRow {choices} {chosen} {mode} onToggle={toggleTag} onMode={(m) => (mode = m)} onClear={() => (chosen = [])} />
+          <TagFilterRow {choices} {chosen} {mode} onToggle={toggleTag} onMode={(m) => setFilter(chosen, m)} onClear={() => setFilter([], mode)} />
         </div>
       {:else}
         <span class="grow"></span>

@@ -83,3 +83,55 @@ describe('Library views (v3.1.0 page tags)', () => {
     clearAllViewerDirty();
   });
 });
+
+describe('Library place (v3.2.0)', () => {
+  it('each launch starts with no page open, and the old persisted page is dropped', async () => {
+    localStorage.setItem('smartpen-viewer-selection', JSON.stringify({ book: '388', pageId: '12' }));
+    const { vi } = await import('vitest');
+    vi.resetModules();
+    const { viewerSelection, setViewerSelection } = await import('$stores/viewer.js');
+    const { get } = await import('svelte/store');
+    expect(get(viewerSelection)).toBe(null);
+    expect(localStorage.getItem('smartpen-viewer-selection')).toBe(null);
+    setViewerSelection('388', 12);
+    expect(get(viewerSelection)).toEqual({ book: '388', pageId: '12' });
+    expect(localStorage.getItem('smartpen-viewer-selection')).toBe(null);
+  });
+
+  it('a grid sequence turns Tag order on; none turns it off; Tag needs a sequence', async () => {
+    const { readerSequence, readerOrder, setReaderSequence, setReaderOrder } = await import('$stores/viewer.js');
+    const { get } = await import('svelte/store');
+    const seq = { keys: ['388/12'], chosen: [], mode: 'any', origin: { kind: 'tag', tag: 'beam' } };
+    setReaderSequence(seq);
+    expect(get(readerSequence)).toBe(seq);
+    expect(get(readerOrder)).toBe('tag');
+    setReaderOrder('book');
+    expect(get(readerOrder)).toBe('book');
+    setReaderOrder('tag');
+    expect(get(readerOrder)).toBe('tag');
+    setReaderSequence(null);
+    expect(get(readerOrder)).toBe('book');
+    setReaderOrder('tag');
+    expect(get(readerOrder)).toBe('book');
+  });
+
+  it('a page opened from outside a grid reads in Book order', async () => {
+    const { readerSequence, setReaderSequence, openPageInLibrary, clearAllViewerDirty } = await import('$stores/viewer.js');
+    const { get } = await import('svelte/store');
+    clearAllViewerDirty();
+    setReaderSequence({ keys: ['388/12'], chosen: [], mode: 'any', origin: { kind: 'untagged' } });
+    openPageInLibrary('3017', '5', { confirm: () => true });
+    expect(get(readerSequence)).toBe(null);
+  });
+
+  it('grid filters are kept per grid; an empty filter is forgotten', async () => {
+    const { gridFilters, setGridFilter } = await import('$stores/viewer.js');
+    const { get } = await import('svelte/store');
+    gridFilters.set({});
+    setGridFilter('nb:388', { chosen: ['beam'], mode: 'all' });
+    setGridFilter('tag:beam', { chosen: ['slab'] });
+    expect(get(gridFilters)).toEqual({ 'nb:388': { chosen: ['beam'], mode: 'all' }, 'tag:beam': { chosen: ['slab'], mode: 'any' } });
+    setGridFilter('nb:388', { chosen: [] });
+    expect(get(gridFilters)).toEqual({ 'tag:beam': { chosen: ['slab'], mode: 'any' } });
+  });
+});

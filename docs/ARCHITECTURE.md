@@ -13,10 +13,8 @@ App.svelte (Root)
 │   ├── ActionBar (capture bar: Fetch, Save, Delete, Undo, Clear, Transcribe; always
 │   │   mounted, `visible` from `lib/capture-bar.js`)
 │   └── SettingsDropdown (gear, warning dot when the data folder is not ready; MyScript, Data Folder,
-│       │                 Notebooks (folds, state remembered), Tags, Graph Folder, Troubleshooting)
+│       │                 Notebooks (folds, state remembered), Graph Folder, Troubleshooting)
 │       ├── BooksTab (Settings → Notebooks: per-notebook aliases + volume routing)
-│       ├── TagManagerDialog (Settings → Tags → Manage Tags)
-│       │   └── TagManager (tag / pages / notebooks; Rename, Merge into…, Delete; reset dismissals)
 │       └── ActivityLogDialog (Troubleshooting → 🩺, filter by level + copy)
 ├── LeftPanel (contextual tabs — see "Left panel tabs" below; folds to a 48 px rail, `stores/left-panel.js`)
 │   ├── LibraryContents ("Contents", Library — notebooks and pages from the scan, ● = transcribed)
@@ -30,7 +28,8 @@ App.svelte (Root)
 │       └── ActivityGrid (weekday heat grid, drag to select a range; Editor only — the Timeline has the strip)
 └── Canvas Section (destination from `$destination`, in App.svelte)
     ├── PaneToolbar (Library and Timeline only: breadcrumb + ViewMenu "View ▾")
-    │   └── SpreadToolbar (open Library page or page grid: Go to page · − % + Fit for both pages)
+    │   └── SpreadToolbar (open Library page or page grid: Book | Tag order (when there is a sequence) ·
+    │                      Go to page · − % + Fit for both pages)
     ├── StrokeCanvas (Editor — live capture/edit)
     │   ├── panel header: Select All · Deselect · CanvasSearch · stroke count
     │   ├── top toolbar: Decorative · Duplicate · Edit Points · Volume ▾ ·
@@ -40,21 +39,24 @@ App.svelte (Root)
     │   ├── Canvas Renderer (Drawing engine)
     │   ├── PointEditPanel (Edit Points mode — stray-point list + delete)
     │   └── FilteredStrokesPanel (Decorative strokes)
-    ├── BookViewer (Library — read/edit saved pages as a book; ←/→ turn pages)
-    │   ├── LibraryBrowse (no page open: picks the home, a notebook's grid, a tag's grid or the queue)
+    ├── BookViewer (Library — read/edit saved pages as a book; ←/→ turn pages through `readingList`)
+    │   ├── LibraryBrowse (no page open: picks the home, a notebook's grid, a tag's grid, the queue or Manage tags)
     │   │   ├── LibraryHome (Recent pages row, then notebook cards or, grouped by Tag, tag cards)
-    │   │   │   ├── LibraryHomeHead (summary, Group by Notebook | Tag, sort chips, Suggestions (n), Rescan)
+    │   │   │   ├── LibraryHomeHead (summary, Group by Notebook | Tag, sort chips, Suggestions (n), Manage tags, Rescan)
     │   │   │   ├── NotebookCard ×N (fan of 3 recent pages, name, Vol badge, pages, written, transcribed %)
     │   │   │   └── TagCardGrid (Projects / Keywords headings) → TagCard ×N + dashed Untagged card
     │   │   ├── NotebookPages (a notebook's page grid; `libraryNotebook`) → PageGrid
     │   │   ├── TagPages (a tag's pages, or the Untagged pages, across notebooks; `libraryView`) → PageGrid
     │   │   │   PageGrid = TagFilterRow (tags in this grid, Any | All) · Select → BulkTagBar ·
     │   │   │              PageTile ×N (date badge, ✓, tag line, hover "+ tag" popover, amber suggestion dot)
-    │   │   └── TagSuggestionQueue (suggested project numbers by number: Tag all n, Dismiss all, Re-check)
+    │   │   ├── TagSuggestionQueue (suggested project numbers by number: Tag all n, Dismiss all, Re-check)
+    │   │   └── TagManagerView (Library › Manage tags, `{kind: 'tags'}`)
+    │   │       └── TagManager (Undo bar; tag / pages / notebooks, headers sort; chip opens the tag; Rename, Merge into…, Delete; reset dismissals)
     │   │   (PageThumb: lazy thumbnail via lib/viewer/thumbs.js; also in the fan, Recent row, search)
-    │   ├── ReaderTagsLayout (wraps the spread; a container query folds the strip into a bar under 900px)
-    │   │   └── PageTagsStrip (P12 | P13 · TagInput: chips + type-ahead · Suggested from transcript ✓ ✕)
-    │   └── PageSpreadView ×1–2 (one page: header + Strokes | Transcript | Ink + text)
+    │   └── ReaderSpread (the open page or spread; split out of BookViewer in v3.2.0)
+    │       ├── ReaderTagsLayout (wraps the spread; a container query folds the strip into a bar under 900px)
+    │       │   └── PageTagsStrip (P12 | P13 · TagInput: chips + type-ahead · Suggested from transcript ✓ ✕)
+    │       └── PageSpreadView ×1–2 (one page: header + Strokes | Transcript | Ink + text)
     │       ├── PageHeader (title, strokes, written-on date / day chips, Load into Editor icon)
     │       ├── PageInk (SVG render, per-page zoom/pan/fit, refit on resize)
     │       │   ├── PageTurnButtons (‹ › edge strips over the ink)
@@ -185,7 +187,8 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `viewer.js` — reading-pane state:
   - `viewerMode` (`'editor' | 'book'`, starts `'book'`) — which view the right pane shows; `setViewerMode()`
   - `viewerDirty` (derived) + `markViewerDirtyPage()`/`clearViewerDirtyPage()` — per-page unsaved-transcript-edit tracking, kept **separate** from the canvas `unsavedChanges` so saving a transcript never masks unsaved stroke changes (App's `beforeunload` checks both)
-  - `viewerSelection` — last-open `{book, pageId}`, persisted to localStorage so the Library reopens the same spread across toggles/reload; `setViewerSelection()`/`clearViewerSelection()`
+  - `viewerSelection` — the open `{book, pageId}`, session-only (v3.2.0): the Library reopens it when you come back from the Timeline or Editor, but each launch starts on the Library home; `setViewerSelection()`/`clearViewerSelection()`
+  - `readerSequence` / `readerOrder` (v3.2.0) — the grid a page was opened from (`buildSequence`: page keys, notebook then page, its filter and origin) and Book | Tag; `setReaderSequence(seq)` turns Tag order on (null → Book), `openPageInLibrary` clears it. `gridFilters` / `setGridFilter(key, {chosen, mode})` keep each page grid's tag filter for the session (`nb:<book>`, `tag:<tag>`, `untagged`)
   - `recentViews` + `recordRecentView()` — recently-opened pages for the home's Recent pages row
   - **Library home + search (v3.0 package E), session-only:** `libraryNotebook` (book key of the page grid
     shown when no page is open) + `openNotebookInLibrary(book, {confirm?})` (asks before dropping an open
@@ -251,7 +254,7 @@ All state is managed through Svelte stores located in `src/stores/`:
 **Page tags (v3.1.0):**
 - `tags.js` — `pageTags` (`{ "<bookKey>/<pageId>": ["P2026-141", "beam"] }`, untagged by absence), `dismissedTags` (suggestions turned down, per page), `tagIndex` (tag → keys), `tagStatsList` (tag, pages, notebooks: the manager and type-ahead), `loadTags()` (called by `scanLocalPages()` with the orientations; waits for writes in flight; missing / corrupt sidecar → no tags, corrupt and newer-version files logged), `clearTags()` (data-folder change), `setPageTagList()`, `addTagToPages()` / `removeTagFromPages()` (bulk, one write), `renameTag()` / `mergeTags()` / `deleteTag()`, `dismissSuggestion()`, `resetDismissed()`, `carryTagsForMoves()` (volume moves), `tagsFor()`. Every edit is optimistic and sent to main as a per-page patch; a failed write rolls back only the pages it changed, only if nothing changed them since, with an Activity Log error. Never a PageDoc, never `markUnsavedChanges()`, no `refreshAfterSave()`
 - `tag-suggestions.js` — `suggestionsFound` (key → numbers in its stored transcript, the pass's output), `pendingSuggestions` (derived: found − tags − dismissals, so a ✓ / ✕ anywhere updates every view), `suggestionCount`, `suggestionScan` (`{running, done, total}`), `ensureSuggestionScan({force})` (once per `savedPages` array; not during a scan or offline import), `cancelSuggestionScan()`, `clearSuggestions()`
-- `viewer.js` gains `libraryView` (`{kind: 'tag', tag} | {kind: 'untagged'} | {kind: 'suggestions'} | null`), `showLibraryGrid(book)` and `openLibraryView(view, {confirm?})` (asks like `openNotebookInLibrary`)
+- `viewer.js` gains `libraryView` (`{kind: 'tag', tag} | {kind: 'untagged'} | {kind: 'suggestions'} | {kind: 'tags'} (v3.2.0) | null`), `showLibraryGrid(book)` and `openLibraryView(view, {confirm?})` (asks like `openNotebookInLibrary`)
 
 **Page backgrounds (spike, released in 2.8.0):**
 - `backgrounds.js` — `backgroundsEnabled` (localStorage; the **Paper** toggle), `installedBackgrounds` / `backgroundsAvailable` (gate the toggle), `resolvePageBackground()` (→ `{frame, url}` or null, never throws), `refreshBackgrounds()`. Read-only: the images are put there by `scripts/fetch-neo-backgrounds.mjs`. Used by the Library and the Timeline only — **never the Editor**
@@ -370,6 +373,7 @@ All state is managed through Svelte stores located in `src/stores/`:
 **Reader layer (`src/lib/viewer/`)** — since v2.1:
 - `page-svg.js` — `computeStrokeBounds()`, `strokeToPathD()`, `generateThumbnailSVG()` — SVG render for the spread pages + home-grid thumbnails (`NCODE_SCALE = 2.371`). Also `strokePointPressures()` + `strokeToWidthRuns()` for sketch strokes: SVG applies one `stroke-width` per `<path>`, so a pressure-varying line is emitted as consecutive constant-width runs (thumbnails stay flat — too small to matter)
 - `page-sittings.js` — **hover-to-reveal capture time** (pure). `pageDayGroups(strokes)` (one page's strokes grouped by local day of `startTime` via `dayKey`, each group with its `day` key, ink box and a `groupOf` stroke→group map), `buildHitIndex()` + `hitTest()` (a uniform grid of stroke segments, nearest stroke within the tolerance wins), `hoverTolerance()` (a few screen px in Ncode units, capped) and `formatSittingLabel()` ("Wed Oct 14, 2026 · 9:05–9:42 AM", both dates across midnight). Built once per page load; ~25 ms and ~2 µs per hover on a 2,400-stroke page
+- `reading-order.js` — Book | Tag order (pure, v3.2.0): `buildSequence({records, origin, chosen, mode})` (null for an unfiltered notebook grid), `sequenceRecords(seq, recordsByKey)` (skips pages gone), `readerPageList({order, sequence, selection, bookPages})` (Tag only while the open page is in the sequence), `landingInSequence(seq, current)`, `sequenceCrumb(index, total, spread)` ("3–4 of 9"), `sequenceLabel(seq, nameOf)`. `stores/library.js` derives `readingSequence`, `readingList` (`{pages, order}`) and `readingLabel` from it
 - `page-reader.js` — the Library reader's movement (pure, package D): `pageIdOf`, `pagePosition(selection, pagesByBook, spread)` (index, total, "P26–P27 of 13"), `resolveGoToPage(input, pages)` (exact id, else first suffixed variant of a bare number), `turnTarget(index, total, dir, spread)`, `pageTurnKey(e, {editing})` (←/→ rule) and `zoomText(a, b)`
 - `written-on.js` — the page header's `writtenLabel(groups)` ("Feb 5 – Jun 25, 2026") and `writtenChips(groups)` from `pageDayGroups`
 - `ink-text.js` — Ink + text: `isTrustworthyTranscript(doc)` (≥ `TRUST_SINCE`, has links, links lack the pre-fix raw-mm signature) and `strokesByLine(strokes, lines)` (stored `lineId`s)
