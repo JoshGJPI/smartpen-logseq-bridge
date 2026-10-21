@@ -1,6 +1,9 @@
 # Page tags (v3.1.0)
 
-Status: **specified 2026-10-21, not built.** Mockups: [TAGS-UI-MOCKUPS.html](TAGS-UI-MOCKUPS.html) (live, clickable; the
+Status: **built 2026-10-21 (v3.1.0).** Two implementation notes differ from the text below and are recorded in
+[CHANGELOG.md](CHANGELOG.md) (v3.1.0): main exposes one `storage:patchTags` (per-page patches; every edit is worked
+out in `lib/tags.js`) instead of one handler per edit, and suggestions read the scan records' `transcriptionText`
+instead of `getPage()`, so the background pass reads no pages at all. Was: **specified 2026-10-21, not built.** Mockups: [TAGS-UI-MOCKUPS.html](TAGS-UI-MOCKUPS.html) (live, clickable; the
 mockups are the visual source of truth, this file is the behavioural one). Ships as **v3.1.0**.
 
 ## 1. Goal

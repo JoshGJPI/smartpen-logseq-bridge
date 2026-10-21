@@ -7,14 +7,15 @@ rules that must not be broken; this file is the map you look things up in.
 ```
 App.svelte (Root)
 ├── Header (one 44 px row: name, `nav` slot = Library | Timeline | Editor from App, search, Unsaved marker)
-│   ├── SearchField (global search, Ctrl K: words, dates, notebooks)
-│   │   └── SearchResults (Pages / Notebooks / Days; Enter opens, Shift+Enter → Editor)
+│   ├── SearchField (global search, Ctrl K: words, dates, notebooks, tags)
+│   │   └── SearchResults (Tags / Pages / Notebooks / Days; Enter opens, Shift+Enter → Editor)
 │   ├── PenChip (pen state + battery; Connect / Disconnect)
 │   ├── ActionBar (capture bar: Fetch, Save, Delete, Undo, Clear, Transcribe; always
 │   │   mounted, `visible` from `lib/capture-bar.js`)
 │   └── SettingsDropdown (gear, warning dot when the data folder is not ready; MyScript, Data Folder,
-│       │                 Notebooks, Graph Folder, Pen Memory, Troubleshooting)
+│       │                 Notebooks, Tags, Graph Folder, Pen Memory, Troubleshooting)
 │       ├── BooksTab (Settings → Notebooks: per-notebook aliases + volume routing)
+│       ├── TagManager (Settings → Tags: tag / pages / notebooks; Rename, Merge into…, Delete; reset dismissals)
 │       └── ActivityLogDialog (Troubleshooting → 🩺, filter by level + copy)
 ├── LeftPanel (contextual tabs — see "Left panel tabs" below; folds to a 48 px rail, `stores/left-panel.js`)
 │   ├── LibraryContents ("Contents", Library — notebooks and pages from the scan, ● = transcribed)
@@ -39,10 +40,19 @@ App.svelte (Root)
     │   ├── PointEditPanel (Edit Points mode — stray-point list + delete)
     │   └── FilteredStrokesPanel (Decorative strokes)
     ├── BookViewer (Library — read/edit saved pages as a book; ←/→ turn pages)
-    │   ├── LibraryHome (no page or notebook open: Recent pages row, sort chips, notebook cards)
-    │   │   └── NotebookCard ×N (fan of 3 recent pages, name, Vol badge, pages, written, transcribed %)
-    │   ├── NotebookPages (a notebook's page grid: date badge, ✓ transcribed; `libraryNotebook`)
+    │   ├── LibraryBrowse (no page open: picks the home, a notebook's grid, a tag's grid or the queue)
+    │   │   ├── LibraryHome (Recent pages row, then notebook cards or, grouped by Tag, tag cards)
+    │   │   │   ├── LibraryHomeHead (summary, Group by Notebook | Tag, sort chips, Suggestions (n), Rescan)
+    │   │   │   ├── NotebookCard ×N (fan of 3 recent pages, name, Vol badge, pages, written, transcribed %)
+    │   │   │   └── TagCardGrid (Projects / Keywords headings) → TagCard ×N + dashed Untagged card
+    │   │   ├── NotebookPages (a notebook's page grid; `libraryNotebook`) → PageGrid
+    │   │   ├── TagPages (a tag's pages, or the Untagged pages, across notebooks; `libraryView`) → PageGrid
+    │   │   │   PageGrid = TagFilterRow (tags in this grid, Any | All) · Select → BulkTagBar ·
+    │   │   │              PageTile ×N (date badge, ✓, tag line, hover "+ tag" popover, amber suggestion dot)
+    │   │   └── TagSuggestionQueue (suggested project numbers by number: Tag all n, Dismiss all, Re-check)
     │   │   (PageThumb: lazy thumbnail via lib/viewer/thumbs.js; also in the fan, Recent row, search)
+    │   ├── ReaderTagsLayout (wraps the spread; a container query folds the strip into a bar under 900px)
+    │   │   └── PageTagsStrip (P12 | P13 · TagInput: chips + type-ahead · Suggested from transcript ✓ ✕)
     │   └── PageSpreadView ×1–2 (one page: header + Strokes | Transcript | Ink + text)
     │       ├── PageHeader (title, strokes, written-on date / day chips, Load into Editor icon)
     │       ├── PageInk (SVG render, per-page zoom/pan/fit, refit on resize)
@@ -137,6 +147,15 @@ capture-date index (`notebookCardList`), never from a page read; only on-screen
 thumbnails read pages, through `lib/viewer/thumbs.js`, which never touches the
 reader's page cache order.
 
+**Page tags (v3.1.0).** Tags are display metadata on pages, in `pages/_tags.json`
+(never in a PageDoc), keyed `"<bookKey>/<pageId>"` like `_orientation.json`. Main
+applies per-page patches inside one lock (`electron/tags-sidecar.cjs`); every edit is
+worked out in `lib/tags.js` and applied optimistically by `stores/tags.js`. The
+Library groups by Tag (`libraryGroupBy`), any page grid filters and bulk-tags
+(`PageGrid`), and project numbers in stored transcripts are suggested, never applied
+without a click (`lib/tag-suggestions.js`: no page reads, the scan records already
+carry the text). Tag components live in `components/tags/`.
+
 **Three resets, deliberately distinct.** `Reset View` (bottom bar) is zoom/pan.
 `Page Resets ▾` holds `Reset Layout` (dragged page positions) and `Reset Sizes`
 (page scaling). The bottom-bar button was labelled just "Reset", which read as if
@@ -157,7 +176,7 @@ All state is managed through Svelte stores located in `src/stores/`:
 
 **Saved-Pages Index:**
 - `saved-pages.js` — holds the scanned list of `pages/B###/P##.json` records the Library, Contents, Pages tab and search read. Store is `savedPages` (renamed from `logseqPages` in v2.3; nothing LogSeq-specific remains). `applyTranscriptToRecord(book, pageId, lines)` reflects a Library transcript save into its record and drops the page's cached doc
-- `library.js` (v3.0 package E) — `librarySort` + `setLibrarySort()` (localStorage `smartpen-library-sort`, try/catch), `libraryPageDates` (`pageDates` of the unfiltered index), `notebookCardList`, `notebookNames`, `globalSearchIndex` (built once per `savedPages` change), `searchRecords`, `searchDates` (`pageDates` of `timelineIndexFiltered`), `ensureTimelineLoaded()`
+- `library.js` (v3.0 package E) — `librarySort` + `setLibrarySort()` (localStorage `smartpen-library-sort`, try/catch), `libraryPageDates` (`pageDates` of the unfiltered index), `notebookCardList`, `notebookNames`, `globalSearchIndex` (built once per `savedPages` change), `searchRecords`, `searchDates` (`pageDates` of `timelineIndexFiltered`), `ensureTimelineLoaded()`; v3.1.0: `libraryGroupBy` / `setLibraryGroupBy()` (`'book' | 'tag'`, localStorage `smartpen-library-group` via safe-storage), `libraryTagSort` / `setLibraryTagSort()` (`smartpen-library-tag-sort`), `tagCardList` (`tagCards` of `tagIndex` + `searchRecords` + dates), `untaggedSummary`
 - `storage.js` — save status, unsaved-changes flag (`unsavedChanges` writable, `markUnsavedChanges()`, cleared on successful save)
 - `book-aliases.js` — custom book name mappings (persisted to `<dataRoot>/pages/_aliases.json`)
 
@@ -228,6 +247,11 @@ All state is managed through Svelte stores located in `src/stores/`:
 **Page orientation (v2.10):**
 - `orientation.js` — `pageOrientations` (`{ "<bookKey>/<pageId>": 90|180|270 }`, portrait by absence), `loadOrientations()` (called by `scanLocalPages()`; missing folder, missing or corrupt sidecar → every page portrait), `setPageRotation(book, pageId, rotation)` (optimistic, written at once to `<dataRoot>/pages/_orientation.json`; a failed write undoes only its own page). Display-only: never touches a PageDoc and never marks unsaved changes. UI: `components/viewer/OrientationControl.svelte` (↺ / picker / ↻) on each Library page's corner (`compact`) and in the Editor canvas toolbar
 
+**Page tags (v3.1.0):**
+- `tags.js` — `pageTags` (`{ "<bookKey>/<pageId>": ["P2026-141", "beam"] }`, untagged by absence), `dismissedTags` (suggestions turned down, per page), `tagIndex` (tag → keys), `tagStatsList` (tag, pages, notebooks: the manager and type-ahead), `loadTags()` (called by `scanLocalPages()` with the orientations; waits for writes in flight; missing / corrupt sidecar → no tags, corrupt and newer-version files logged), `clearTags()` (data-folder change), `setPageTagList()`, `addTagToPages()` / `removeTagFromPages()` (bulk, one write), `renameTag()` / `mergeTags()` / `deleteTag()`, `dismissSuggestion()`, `resetDismissed()`, `carryTagsForMoves()` (volume moves), `tagsFor()`. Every edit is optimistic and sent to main as a per-page patch; a failed write rolls back only the pages it changed, only if nothing changed them since, with an Activity Log error. Never a PageDoc, never `markUnsavedChanges()`, no `refreshAfterSave()`
+- `tag-suggestions.js` — `suggestionsFound` (key → numbers in its stored transcript, the pass's output), `pendingSuggestions` (derived: found − tags − dismissals, so a ✓ / ✕ anywhere updates every view), `suggestionCount`, `suggestionScan` (`{running, done, total}`), `ensureSuggestionScan({force})` (once per `savedPages` array; not during a scan or offline import), `cancelSuggestionScan()`, `clearSuggestions()`
+- `viewer.js` gains `libraryView` (`{kind: 'tag', tag} | {kind: 'untagged'} | {kind: 'suggestions'} | null`), `showLibraryGrid(book)` and `openLibraryView(view, {confirm?})` (asks like `openNotebookInLibrary`)
+
 **Page backgrounds (spike, released in 2.8.0):**
 - `backgrounds.js` — `backgroundsEnabled` (localStorage; the **Paper** toggle), `installedBackgrounds` / `backgroundsAvailable` (gate the toggle), `resolvePageBackground()` (→ `{frame, url}` or null, never throws), `refreshBackgrounds()`. Read-only: the images are put there by `scripts/fetch-neo-backgrounds.mjs`. Used by the Library and the Timeline only — **never the Editor**
 
@@ -294,8 +318,10 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `timeline-range.js` - Range ▾ presets (`RANGE_PRESETS`, `rangePreset()`, shared with the Dates tab) and activity-strip geometry: `dayOffset()` (calendar days, DST-safe), `stripLayout()` (every day from first to last ink, bucketed to fit), `dayAtFraction()`, `windowFraction()`, `moveWindow()` (keeps length, stays inside the ink's span), `resizeWindow()` (ends never cross)
 - `library-contents.js` - `buildContents(pagesByBook, bookIds, nameOf)`: the Library contents list from scan records only (pages, `transcribed`, `strokeCount`)
 - `library-home.js` - the Library home (package E, pure): `pageDates(index)` (first / last day, day count, last time per page; untimed pages absent), `notebookCards(pagesByBook, bookIds, dates, nameOf)` (pages, transcribed %, strokes, first / last written, volume, `fan` = 3 most recently written pages topped up from the book's end), `sortNotebooks(cards, order)`, `SORT_ORDERS`, `parseSortOrder()`, `recentRecords()`, `pageTiles()`, `shortDay()`, `writtenRange()`, `relativeDay()`, `pageKeyOf()`
-- `search-query.js` - `parseSearchQuery(text, {now})` → `{text, tokens, days}` (Oct 14, October 14th, 14 Oct 2025, 2026-10-14, 10/14, 10/14/26 month first, today, yesterday; no year = latest on or before today; invalid dates and a month alone stay words) and `matchNotebooks(text, notebooks)` (every word in the name, or an exact book key)
-- `global-search.js` - the header search (pure): `buildSearchIndex(records)`, `searchIndex()` (same matching as `searchPages`, ranked by words matched, whole words, recency), `runSearch(query, ctx)` → `{pages, notebooks, days, order}`, `flattenResults()`, `bestLine()`, `matchingLineId(lines, tokens)` (the reader's highlight), `snippetHtml()`, `recordsByKey()`, `isSearchShortcut(e, {editing})` (Ctrl K rule)
+- `search-query.js` - `matchTags(text, tags)` (v3.1.0: a project-number-shaped query matches that tag exactly, normalized; words by substring); `parseSearchQuery(text, {now})` → `{text, tokens, days}` (Oct 14, October 14th, 14 Oct 2025, 2026-10-14, 10/14, 10/14/26 month first, today, yesterday; no year = latest on or before today; invalid dates and a month alone stay words) and `matchNotebooks(text, notebooks)` (every word in the name, or an exact book key)
+- `global-search.js` - the header search (pure): `buildSearchIndex(records)`, `searchIndex()` (same matching as `searchPages`, ranked by words matched, whole words, recency), `runSearch(query, ctx)` → `{tags, pages, notebooks, days, order}` (v3.1.0: Tags always just above Pages), `flattenResults()`, `bestLine()`, `matchingLineId(lines, tokens)` (the reader's highlight), `snippetHtml()`, `recordsByKey()`, `isSearchShortcut(e, {editing})` (Ctrl K rule)
+- `tags.js` - **Page tags** (v3.1.0, pure): `normalizeTag()` (project numbers → `P####-###` / `####-###`, brackets and spaces dropped, dash types tolerated, letters-for-digits not; keywords lowercase `a-z 0-9 - _`, ≤ 40), `isProjectTag()`, `compareTags()` (projects first), `normalizeTagList()`, `tagKey()` / `parseTagKey()` (the orientation key), `recordTagKey()`, `normalizeTagsFile()`; edits as map → map (`withPageList`, `addTagToKeys`, `removeTagFromKeys`, `renameTagInMap` (onto an existing tag = merge), `deleteTagFromMap`), `diffTagMaps()` (the patch main applies), `rollbackPatch()`, `planTagCarry()` (volume moves); suggestions `findProjectNumbers()`, `suggestProjectNumbers(lines, {exclude})`, `splitSuggestionLine()`; derived `buildTagIndex()`, `recordsForKeys()`, `untaggedRecords()`, `tagCards()`, `untaggedCard()`, `sortTagCards()`, `tagStats()`, `filterByTags()` / `filterChoices()` (Any / All; All offers only tags that still match), `tagOptions()` (type-ahead)
+- `tag-suggestions.js` - the Library-wide suggestion pass (v3.1.0): `foundInText()`, `pendingFrom(found, tags, dismissed)`, `countPending()`, `groupSuggestions()` (the queue: by number, most pages first, first source line), `createSuggestionScanner({chunk, budgetMs, pause})` (per-page cache keyed by transcript text; yields by time budget; cancellable)
 - `timeline.js` - **Capture dates** (pure). Interprets the index built in
   `main.cjs`. Two units that are NOT interchangeable: a **day key**
   (`"YYYY-MM-DD"`, a LOCAL calendar day — string comparison is the range test)

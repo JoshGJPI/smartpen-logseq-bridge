@@ -37,8 +37,16 @@ The left panel follows the destination and folds to a rail with the chevron or `
   count, when it was written, a **Vol 2** badge for a second volume, and how much is
   transcribed. Sort by Recently written, Name or Most pages. **Recent pages** shows
   what you last opened.
-- **A notebook**: every page as a thumbnail, with the day it was written and ✓ when
-  transcribed. **Go to page** takes `42`, `P42` or `151b`.
+- **A notebook**: every page as a thumbnail, with the day it was written, ✓ when
+  transcribed, and its tags. **Go to page** takes `42`, `P42` or `151b`.
+- **Tags** (3.1): tag a page beside it in the reader (keywords like `beam`, or project
+  numbers like `P2026-141` / `2327-018`); project numbers found in a page's transcript
+  are suggested with the line they came from (✓ adds, ✕ dismisses). **Group by Tag**
+  on the home shows a card per tag, plus Untagged. Any page grid filters by tag
+  (Any / All) and **Select** tags or untags many pages at once. **Suggestions (n)**
+  on the home reviews every suggested number at once. Settings → **Tags** renames,
+  merges and deletes tags. Tags are saved as you go, beside your pages, and never
+  change a page.
 - **Reading a page**: a two-page spread or a single page, as **Strokes**,
   **Transcript** or **Ink + text** (View ▾). Zoom and Fit act on both pages; ← / →
   turn pages. The header says when each page was written; hover a day chip to light
@@ -76,8 +84,8 @@ the **Pages** or **Dates** tab, or a Library / Timeline load all land here.
 
 ### Search
 - **Header field / Ctrl K** (any destination): words in transcripts, dates (`Oct 14`,
-  `2026-10-14`, `10/14`, `yesterday`) and notebook names. Results are grouped Pages /
-  Notebooks / Days. **Enter** opens the page in the Library (and lights the matching
+  `2026-10-14`, `10/14`, `yesterday`), notebook names and tags. Results are grouped
+  Tags / Pages / Notebooks / Days. **Enter** opens the page in the Library (and lights the matching
   line where the page's line links are reliable), a notebook's pages, or a day in
   the Timeline; **Shift+Enter** loads a page into the Editor; **Esc** closes.
 - **Transcripts → Search** in the left panel (Ctrl+Shift+F in the Editor) lists every
@@ -104,6 +112,7 @@ includes the transcript. LogSeq does not need to be running.
   _aliases.json         notebook names
   _volumes.json         active volume per NCode book
   _orientation.json     page rotations (display only)
+  _tags.json            page tags and dismissed suggestions (display only)
   _timeline.json        capture-date index (a cache; safe to delete)
 ```
 
@@ -171,7 +180,10 @@ show fewer pages.
 
 ## Version history
 
-- **3.0.0** (Current) - Reading first: Library | Timeline | Editor; Library home with notebook
+- **3.1.0** (Current) - Page tags: keywords and project numbers on pages, suggested
+  from transcripts; Group by Tag, tag filters and bulk tagging in page grids, a
+  suggestions queue, Settings → Tags, tags in Ctrl K. No PageDoc change.
+- **3.0.0** - Reading first: Library | Timeline | Editor; Library home with notebook
   cards and page grids; page reader with shared toolbar, Go to page, written-on
   ribbon and Ink + text; Timeline range menu and activity strip; global search
   (Ctrl K); slim header, capture bar on demand, collapsible left panel. No data
