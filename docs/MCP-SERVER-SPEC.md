@@ -1,6 +1,6 @@
 # Read-only MCP server (plan)
 
-**Status:** planned, nothing built. Decided 2026-10-21 (Josh): an MCP server over the data folder, not an HTTP port
+**Status:** proof of concept built on branch `mcp-server-poc` (see [mcp/README.md](../mcp/README.md)); the plan below is otherwise unchanged. Decided 2026-10-21 (Josh): an MCP server over the data folder, not an HTTP port
 inside the app and not a Claude Code skill.
 
 ## Goal
