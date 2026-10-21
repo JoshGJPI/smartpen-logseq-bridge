@@ -204,6 +204,8 @@ export {
   myscriptHmacKey,
   hasMyScriptCredentials,
   getMyScriptCredentials,
+  autoPickPen,
+  rememberedPen,
   // v2.0 local-folder storage
   dataRoot,
   dataFolderReady,

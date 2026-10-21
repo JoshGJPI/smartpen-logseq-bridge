@@ -9,7 +9,9 @@
     log,
     logMessages,
     openActivityLogDialog,
-    getMyScriptCredentials
+    getMyScriptCredentials,
+    autoPickPen,
+    rememberedPen
   } from '$stores';
   import { testMyScriptCredentials } from '$lib/myscript-api.js';
   import ActivityLogDialog from '../dialog/ActivityLogDialog.svelte';
@@ -193,6 +195,31 @@
       <section class="settings-section">
         <h4>Data Folder</h4>
         <DataFolderSettings />
+      </section>
+
+      <!-- Skip the Bluetooth picker for the pen used last time -->
+      <section class="settings-section">
+        <h4>Pen</h4>
+
+        <label class="show-keys">
+          <input type="checkbox" bind:checked={$autoPickPen} />
+          Connect straight to my last pen
+        </label>
+
+        <p class="help-text">
+          {#if $rememberedPen?.deviceName || $rememberedPen?.deviceId}
+            Turn the pen on, then click Connect: {$rememberedPen.deviceName || 'your pen'} is
+            picked automatically. If it isn't found within a few seconds, the picker opens.
+          {:else}
+            Connect once from the picker and the app will remember that pen.
+          {/if}
+        </p>
+
+        {#if $rememberedPen}
+          <button class="btn btn-secondary" on:click={() => ($rememberedPen = null)}>
+            Forget {$rememberedPen.deviceName || 'remembered pen'}
+          </button>
+        {/if}
       </section>
 
       <!-- Notebook names and volume routing: was the left panel's Books tab,

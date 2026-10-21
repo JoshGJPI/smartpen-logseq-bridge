@@ -78,6 +78,11 @@ export const graphRoot = createPersistedStore('graphRoot', '');         // absol
 export const graphFolderReady = writable(false);                         // updated at boot / on folder change
 export const graphFolderStatusText = writable('Graph: not set');
 
+// Pen connection: skip the Bluetooth picker for the pen used last time.
+// rememberedPen is { deviceId, deviceName } saved after a successful connect.
+export const autoPickPen = createPersistedStore('autoPickPen', true);
+export const rememberedPen = createPersistedStore('rememberedPen', null);
+
 // Derived store: Check if MyScript credentials are configured
 export const hasMyScriptCredentials = derived(
   [myscriptAppKey, myscriptHmacKey],
