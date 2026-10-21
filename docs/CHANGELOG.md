@@ -6,6 +6,16 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Unreleased — Settings layout (October 2026)
+
+Settings had grown into one long scroll, with the tag table in the middle of it. **Manage Pen Memory** left
+Settings for the header's pen chip: it is about the pen, so while one is connected the dot and the pen's name
+are a button that opens it (no button when disconnected, since the dialog needs the pen). The **tag manager**
+moved into its own dialog behind Settings → Tags → Manage Tags: its table and Rename / Merge into… actions
+need more than the dropdown's 400–500 px, and a long tag list pushed every setting below it out of view
+(folding it in place was the alternative; a dialog gives it the width). **Notebooks** folds (a `<details>`,
+closed by default, the open state kept in localStorage as `settingsNotebooksOpen`), being a row per notebook.
+
 ## v3.1.0 — Page tags (October 2026)
 
 Spec: [PAGE-TAGS-SPEC.md](PAGE-TAGS-SPEC.md), with [mockups](TAGS-UI-MOCKUPS.html). Pages can carry

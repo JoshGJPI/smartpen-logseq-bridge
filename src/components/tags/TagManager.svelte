@@ -1,5 +1,6 @@
 <!--
-  TagManager.svelte — Settings → Tags (v3.1.0 page tags; mockup 7): every tag
+  TagManager.svelte — Settings → Tags → Manage Tags (v3.1.0 page tags; mockup 7,
+  shown in TagManagerDialog): every tag
   with how many pages and notebooks carry it (straight from the sidecar), and
   Rename, Merge into…, Delete; plus Reset dismissed suggestions.
 

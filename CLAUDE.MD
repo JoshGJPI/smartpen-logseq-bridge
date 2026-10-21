@@ -279,7 +279,7 @@ then looks broken when it isn't). Launch with `--disable-backgrounding-occluded-
 - **Page tags (v3.1.0).** Suggestions are pattern-only: no check that a number is a real project, and letters read
   for digits (`P2O26-141`) are missed. Tags don't follow a *partial* volume move (they stay on the source page).
   Project names aren't shown on chips; no tags on Timeline cards or in the Editor; tags aren't exported to LogSeq.
-  Tags on a page that is later deleted stay in `_tags.json` (hidden everywhere except the Settings → Tags counts).
+  Tags on a page that is later deleted stay in `_tags.json` (hidden everywhere except the Manage Tags counts).
   "Recently written" in tag grouping uses the newest capture date under the tag (no tag timestamps are stored).
 - Main-process and renderer tracing is behind `lib/debug.js` (`localStorage['smartpen-debug'] = '1'`, or the dev
   server). Never log MyScript keys or the HMAC, not even fragments.

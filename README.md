@@ -27,9 +27,10 @@ in a folder you choose: `<data folder>/pages/B###/P##.json`.
 ## Finding your way around
 
 The header holds the three destinations, the search field, an **Unsaved** marker
-when anything is unsaved, the pen chip (state, battery, Connect) and Settings. The
-capture bar (Save, Undo, Delete, Clear, Transcribe, Fetch Notes) appears only when
-there is capture work: in the Editor, with the pen connected, or with unsaved work.
+when anything is unsaved, the pen chip (state, battery, Connect; with the pen
+connected, click its name to manage pen memory) and Settings. The capture bar
+(Save, Undo, Delete, Clear, Transcribe, Fetch Notes) appears only when there is
+capture work: in the Editor, with the pen connected, or with unsaved work.
 The left panel follows the destination and folds to a rail with the chevron or `[`.
 
 ### Library: read your notebooks
@@ -44,8 +45,8 @@ The left panel follows the destination and folds to a rail with the chevron or `
   are suggested with the line they came from (✓ adds, ✕ dismisses). **Group by Tag**
   on the home shows a card per tag, plus Untagged. Any page grid filters by tag
   (Any / All) and **Select** tags or untags many pages at once. **Suggestions (n)**
-  on the home reviews every suggested number at once. Settings → **Tags** renames,
-  merges and deletes tags. Tags are saved as you go, beside your pages, and never
+  on the home reviews every suggested number at once. Settings → Tags → **Manage Tags**
+  renames, merges and deletes tags. Tags are saved as you go, beside your pages, and never
   change a page.
 - **Reading a page**: a two-page spread or a single page, as **Strokes**,
   **Transcript** or **Ink + text** (View ▾). Zoom and Fit act on both pages; ← / →
@@ -159,6 +160,9 @@ Documentation:
 **The pen won't connect.** Check Bluetooth is on, turn the pen off and on, make sure
 no other app (Neo's phone app) holds the pen, or remove it from Windows Bluetooth
 devices and pair again. A low battery can cause timeouts.
+
+**The pen's memory is full.** With the pen connected, click its name in the header
+chip (Manage Pen Memory) and delete books you have already imported.
 
 **Ink doesn't appear.** Use Ncode paper and check the pen chip says connected. Ink
 written while a Library transcript edit is unsaved is still captured; switch to the

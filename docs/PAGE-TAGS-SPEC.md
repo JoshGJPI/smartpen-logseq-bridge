@@ -83,7 +83,7 @@ feature.** Tags are display-style metadata: not an unsaved edit (no `markUnsaved
 - **Never stored.** Computed from the stored transcript when needed (reader opens, queue opens), so re-transcribing
   refreshes them. Only **dismissals** persist (`dismissed[pageKey]`).
 - Excluded if already a tag on the page or dismissed for that page. A page with no transcript has none. A dismissal
-  survives re-transcription; *Reset dismissed suggestions* (Settings → Tags) clears all of them.
+  survives re-transcription; *Reset dismissed suggestions* (Settings → Tags → Manage Tags) clears all of them.
 - **Where the transcript is read.** The scan stays metadata-only (CLAUDE.md invariant). The reader computes from the
   page it already holds. The queue and the thumbnail dot need the transcript of many pages, so a **background scanner**
   (`lib/tag-suggestions.js`) reads transcribed pages one at a time via `getPage()` **bypassing the reader's page cache**
@@ -160,7 +160,8 @@ Reference the mockups for look and flow. Components stay under ~300 lines; **`Bo
 
 ### 6.5 Tag manager (mockup 7)
 
-- `TagManager.svelte` in Settings → Tags: table (tag, pages, notebooks) with **Rename**, **Merge into…**, **Delete**,
+- `TagManager.svelte`, opened from Settings → Tags → Manage Tags in its own dialog (`TagManagerDialog`, since the
+  Settings dropdown is too narrow for it; changed after v3.1.0): table (tag, pages, notebooks) with **Rename**, **Merge into…**, **Delete**,
   plus *Reset dismissed suggestions*. Renaming onto an existing tag is a merge and asks to confirm. Delete removes the
   label from pages and never touches a page. Counts come from the sidecar.
 

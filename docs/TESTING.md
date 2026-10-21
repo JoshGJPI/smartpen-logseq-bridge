@@ -73,6 +73,10 @@ When making changes, also verify manually:
 - Left panel (v3.0 package B): collapse with the chevron and `[`; the header search results' "Browse every transcript in Transcripts → Search" and canvas Ctrl+Shift+F each expand it (search input focused); a Library ink click leaves it collapsed; `[` typed in an input does not collapse it; state survives reload; in the Editor at 1280 and 1200 wide, `document.documentElement.scrollWidth <= innerWidth` with the panel expanded and collapsed
 - Pen connection/disconnection flows
 - Offline sync from pen memory
+- Settings layout: Notebooks folds (chevron) and reopens the way it was left after a reload; Tags → **Manage Tags**
+  opens the tag table in its own dialog (the dropdown closes; Esc cancels a rename first, then closes). Pen memory
+  has no Settings section: with the pen connected, click the dot or the pen's name in the header chip → Manage Pen
+  Memory; disconnected or authorizing, the chip's name is not a button
 - Real-time stroke capture
 - Selection (box, individual, keyboard shortcuts)
 - Duplication and dragging strokes
