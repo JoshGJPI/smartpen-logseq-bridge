@@ -6,6 +6,7 @@
  *   "Oct 14", "October 14th", "14 Oct 2025", "2026-10-14", "10/14", "10/14/26",
  *   "today", "yesterday"  → days (local day keys)
  *   "Study Notes", "B390", "390v2"                         → notebooks
+ *   "beam", "p2026-141"                                    → tags (v3.1.0)
  *   everything else                                         → transcript words
  *
  * Numeric dates are read month first (10/14), the way Josh writes them. A date
@@ -18,6 +19,7 @@
 
 import { dayKey } from './timeline.js';
 import { tokenize } from './transcript-search.js';
+import { normalizeTag, isProjectTag } from './tags.js';
 
 const MONTH_RE =
   'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?';
@@ -133,4 +135,36 @@ export function matchNotebooks(text, notebooks) {
   return out
     .sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name, undefined, { numeric: true }))
     .map(({ rank, ...nb }) => nb);
+}
+
+/**
+ * Page tags a query names (v3.1.0). A query shaped like a project number
+ * ("p2026–141", "[[2327-018]]") matches only that tag, normalized; anything
+ * else matches tags containing every query word (case-insensitive), exact and
+ * prefix matches first, then most pages.
+ *
+ * @param {string} text  the query with dates removed
+ * @param {Array<{tag: string, pages: number}>} tags  tagStats() of the sidecar
+ * @returns {Array<{tag: string, pages: number, exact: boolean}>}
+ */
+export function matchTags(text, tags) {
+  const raw = String(text || '').trim();
+  if (!raw || !Array.isArray(tags)) return [];
+  const asTag = normalizeTag(raw);
+  if (asTag && isProjectTag(asTag)) {
+    return tags.filter((t) => t.tag === asTag).map((t) => ({ ...t, exact: true }));
+  }
+  if (raw.length < 2) return [];
+  const q = raw.toLowerCase();
+  const words = q.split(/\s+/).map((w) => w.replace(/^#/, '')).filter(Boolean);
+  const out = [];
+  for (const t of tags) {
+    const name = t.tag.toLowerCase();
+    if (!words.every((w) => name.includes(w))) continue;
+    const rank = name === asTag || name === q ? 0 : name.startsWith(words[0]) ? 1 : 2;
+    out.push({ ...t, exact: rank === 0, rank });
+  }
+  return out
+    .sort((a, b) => a.rank - b.rank || b.pages - a.pages || a.tag.localeCompare(b.tag))
+    .map(({ rank, ...t }) => t);
 }

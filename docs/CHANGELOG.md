@@ -6,6 +6,102 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Unreleased — Settings layout (October 2026)
+
+Settings had grown into one long scroll, with the tag table in the middle of it. **Manage Pen Memory** left
+Settings for the header's pen chip: it is about the pen, so while one is connected the dot and the pen's name
+are a button that opens it (no button when disconnected, since the dialog needs the pen). The **tag manager**
+moved into its own dialog behind Settings → Tags → Manage Tags: its table and Rename / Merge into… actions
+need more than the dropdown's 400–500 px, and a long tag list pushed every setting below it out of view
+(folding it in place was the alternative; a dialog gives it the width). **Notebooks** folds (a `<details>`,
+closed by default, the open state kept in localStorage as `settingsNotebooksOpen`), being a row per notebook.
+
+## v3.1.0 — Page tags (October 2026)
+
+Spec: [PAGE-TAGS-SPEC.md](PAGE-TAGS-SPEC.md), with [mockups](TAGS-UI-MOCKUPS.html). Pages can carry
+keywords (`beam`, `site-visit`) and project numbers (`P2026-141`, `2327-018`). The Library can be read by tag
+as well as by notebook, any page grid filters and bulk-tags, project numbers found in transcripts are
+suggested, and Ctrl K finds tags. PageDoc stays `"2.0"`; nothing in a PageDoc changed.
+
+**A sidecar, not a PageDoc field.** Tags live in `pages/_tags.json`, keyed `"<bookKey>/<pageId>"` like
+`_orientation.json`, untagged by absence. Putting them in the PageDoc was rejected for the same reasons
+rotation was: a tag is not a stroke or transcript edit, and storing it there would route a label through the
+append-only save path, `validatePageDoc()`, the SaveConfirmDialog diff and the unsaved-changes marker, and make
+every tag change a rewrite of a 250 KB page. A tag change is written at once, is not an unsaved edit, and needs
+no `refreshAfterSave()`: every view (grid tiles, tag cards, the queue, the search index, the reader strip)
+reads the same store. Bulk edits (tag 40 pages, rename a tag on 300) are one small write instead of hundreds.
+
+**One write handler, the logic in the renderer.** The spec sketched a handler per edit (set, bulk, rename,
+merge, delete, dismiss, reset). Instead every edit is a map → map function in `lib/tags.js`, the store applies
+it optimistically, and main gets the difference as a per-page patch (`storage:patchTags`:
+`{ pages: { key: tags[] | null }, dismissed: {...} }`), applied read-merge-write inside one lock with an atomic
+write. So there is one implementation of each edit (tested), main stays a validator (keys through
+`requireBookKey` / `requirePageId`, tags must already be in normalized shape, a bad entry rejects the whole
+patch), two quick edits to different pages can't overwrite each other, and a failed write rolls back only the
+pages it changed, only where nothing has changed them since (the `setPageRotation` rule). Main's half is a
+pure module (`electron/tags-sidecar.cjs`) so it is tested from Vitest. A corrupt file reads as empty and is
+left alone by reads; the first tag change replaces it and says so. A file from a newer version is read but
+never rewritten. Unknown top-level fields survive a write.
+
+**Normalization.** Project numbers are recognised after trimming, removing spaces, dropping `[[ ]]` and
+mapping dash types to `-`: `p 2026–141` and `[[P2026-141]]` are `P2026-141`; a job number gets no P.
+Keywords are lowercase `a-z 0-9 - _`, whitespace to `-`, accents dropped, at most 40 characters. Page lists
+are de-duplicated and sorted, project numbers first.
+
+**Suggestions are pattern-only and never stored.** A number shaped like `P####-###` or `####-###` in a
+page's transcript is offered, with the line it came from; ✓ tags that page only, ✕ dismisses it for that
+page. Only dismissals are stored, so re-transcribing refreshes suggestions while a dismissal survives.
+Validation against LogSeq / BQE was rejected for v1: the app can't see either, and a wrong number costs one
+✕. Mapping letters to digits (`O`→`0`, `l`→`1`) was rejected: in real notes it would turn ordinary words and
+codes into project numbers. Dates (`2026-10-21`), phone numbers and longer digit runs don't match. On the real
+planner (book 3017) the pass finds 43 numbers on 79 pages, `9999-110` (overhead) on 33 of them; Dismiss all
+handles that in one click.
+
+**No page reads for suggestions.** The spec's background scanner read each transcribed page through
+`getPage()`. The scan records already carry each page's stored transcript as `transcriptionText` (global
+search uses it), so the pass reads those instead: no IPC, nothing through the page cache or the thumbnail
+cache. Matching 740 transcribed pages takes about 15 ms. It still keeps the spec's shape: it runs when a
+Library list view asks and the scan is idle (never during a scan or an offline import), reports progress,
+can be cancelled, caches per page by transcript text, and keeps what it found apart from what is pending
+(found − tags − dismissals, re-derived on every tag change), so a ✓ or ✕ anywhere updates every view at
+once. It first yielded every 40 pages, which on a 1,036-page root left it waiting behind queued thumbnail
+reads (2.4 s to re-check); it now yields after 12 ms of work (0.75 s including the queue's re-render). The
+reader strip computes from the open page's record the same way.
+
+**UI without growing the big components.** `LibraryBrowse` takes over BookViewer's home / grid branch
+(BookViewer 302 → 301 lines with the strip added), `LibraryHomeHead` takes LibraryHome's header (189 → 128),
+and `NotebookPages` renders the shared `PageGrid` (125 → 64). `PageGrid` is the generalized page-list source:
+a notebook's records, a tag's (`recordsForKeys`) or the Untagged ones, with `TagFilterRow` (tags in this
+grid with counts; All offers only tags that still match, so a click can't empty the grid), select mode
+(shift-click range) and `BulkTagBar`. The reader's strip sits beside the spread and folds into one bar above
+it under 900 px of reader (a container query, so it follows the pane, not the window); in a spread
+`P12 | P13` picks the page. Opening anything still goes through `openPageInLibrary` / `openLibraryView`, so
+the unsaved-transcript prompt stays in one place. Settings → Tags (`TagManager`) and the Tags group in Ctrl K
+(always just above Pages; a project-number-shaped query matches the tag exactly) read `tagStatsList`, rebuilt
+per tag change, not per keystroke.
+
+**Volume moves carry tags.** Tags are keyed by page key, so reassigning a page's strokes to another volume
+would strand them. `finalizePageMoves()` already decides whether a move emptied its source page into exactly
+one target (that is when the transcript follows); it now reports those moves (`emptied`) and ActionBar passes
+them to `carryTagsForMoves()`, which moves the source's tags and dismissals onto the target only when the
+target has none. A partial move leaves tags where they are. Checked in the app: `390v2/1` reassigned to a new
+volume 3 → the emptied source file was removed as before and its tag moved to `390v3/1`.
+
+**Measured on a 1,036-page data root** (the real folder plus the planner copied into six more books, 691 pages
+tagged): Group by Tag 150 ms, a 345-page Untagged grid 280 ms, a 173-page tag grid 250 ms, a filter click
+about 280 ms, the queue (724 suggestions) 380 ms to open; only on-screen thumbnails load.
+
+**Limitations.**
+- Suggestions are pattern-only: no check that a number is a real project, and letters read for digits
+  (`P2O26-141`) are missed.
+- Tags don't follow a partial volume move.
+- Project names aren't shown on chips (storage is unaffected if they are added later).
+- No tags on Timeline cards or in the Editor; tags aren't exported to LogSeq.
+- Tags on a page deleted later stay in the sidecar: hidden everywhere, but counted in Settings → Tags.
+- "Recently written" in tag grouping is the newest capture date under the tag; no tag timestamps are stored.
+- `SettingsDropdown` (already over the guideline) grew by six lines for the Tags section; `ActionBar` by four
+  for the carry hook.
+
 ## v3.0.0 — Reading first (October 2026)
 
 Reading-first UI: [READING-UX-SPEC.md](READING-UX-SPEC.md), packages A–E plus a pre-release

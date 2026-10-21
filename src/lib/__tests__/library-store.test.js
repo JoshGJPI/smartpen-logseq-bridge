@@ -101,3 +101,39 @@ describe('derived from the scan and the index', () => {
     timelineIndex.set(null);
   });
 });
+
+describe('page tags on the Library home (v3.1.0)', () => {
+  it('derives tag cards and the Untagged card from the sidecar and the scan', async () => {
+    const { tagCardList, untaggedSummary } = await import('../../stores/library.js');
+    const { pageTags } = await import('../../stores/tags.js');
+    timelineIndex.set(null);
+    savedPages.set([
+      { book: '388', page: 1, pageId: '1' },
+      { book: '388v2', page: 151, pageId: '151b', suffix: 'b' },
+      { book: '3017', page: 42, pageId: '42' }
+    ]);
+    pageTags.set({ '388/1': ['beam'], '388v2/151b': ['beam', 'P2026-141'], '9/9': ['ghost'] });
+    const cards = get(tagCardList);
+    expect(cards.map((c) => [c.tag, c.pageCount, c.notebookCount]).sort()).toEqual([
+      ['P2026-141', 1, 1],
+      ['beam', 2, 2]
+    ]);
+    expect(get(untaggedSummary)).toMatchObject({ pageCount: 1, notebookCount: 1 });
+    pageTags.set({});
+    savedPages.set([]);
+  });
+
+  it('remembers the grouping and the tag sort, falling back on junk', async () => {
+    const { libraryGroupBy, setLibraryGroupBy, libraryTagSort, setLibraryTagSort } = await import('../../stores/library.js');
+    const { LIBRARY_GROUP_KEY, TAG_SORT_KEY } = await import('$lib/tags.js');
+    setLibraryGroupBy('tag');
+    expect(get(libraryGroupBy)).toBe('tag');
+    expect(localStorage.getItem(LIBRARY_GROUP_KEY)).toBe('tag');
+    setLibraryGroupBy('nonsense');
+    expect(get(libraryGroupBy)).toBe('book');
+    setLibraryTagSort('name');
+    expect(localStorage.getItem(TAG_SORT_KEY)).toBe('name');
+    setLibraryTagSort('???');
+    expect(get(libraryTagSort)).toBe('pages');
+  });
+});

@@ -783,7 +783,7 @@ describe('finalizePageMoves', () => {
 
   it('does nothing when there are no moves', async () => {
     const out = await finalizePageMoves([]);
-    expect(out).toEqual({ transcriptsMoved: 0, pagesDeleted: 0, errors: [] });
+    expect(out).toEqual({ transcriptsMoved: 0, pagesDeleted: 0, errors: [], emptied: [] });
     expect(getPage).not.toHaveBeenCalled();
   });
 
@@ -844,6 +844,26 @@ describe('finalizePageMoves', () => {
     const out = await finalizePageMoves([
       { fromBook: '3017', fromPage: 42, toBook: '3017v2', toPage: 42 }
     ]);
-    expect(out).toEqual({ transcriptsMoved: 0, pagesDeleted: 0, errors: [] });
+    expect(out).toEqual({ transcriptsMoved: 0, pagesDeleted: 0, errors: [], emptied: [] });
+  });
+
+  // Page tags live in _tags.json, so the whole-page moves are reported for
+  // stores/tags.js to carry them (v3.1.0).
+  it('reports whole-page moves (source emptied, one target) for the tag carry', async () => {
+    getPage.mockImplementation(async (book) => (book === '3017' ? doc([], []) : doc([{ id: 's1' }], [])));
+    const out = await finalizePageMoves([{ fromBook: '3017', fromPage: 42, toBook: '3017v2', toPage: 42 }]);
+    expect(out.emptied).toEqual([{ fromBook: '3017', fromPage: 42, toBook: '3017v2', toPage: 42 }]);
+  });
+
+  it('a partial move or a split source is not reported', async () => {
+    getPage.mockImplementation(async (book) => (book === '3017' ? doc([{ id: 's9' }], []) : doc([], [])));
+    expect((await finalizePageMoves([{ fromBook: '3017', fromPage: 42, toBook: '3017v2', toPage: 42 }])).emptied).toEqual([]);
+
+    getPage.mockResolvedValue(doc([], []));
+    const split = await finalizePageMoves([
+      { fromBook: '3017', fromPage: 42, toBook: '3017v2', toPage: 42 },
+      { fromBook: '3017', fromPage: 42, toBook: '3017v3', toPage: 42 }
+    ]);
+    expect(split.emptied).toEqual([]);
   });
 });

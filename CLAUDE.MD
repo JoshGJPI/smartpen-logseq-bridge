@@ -23,11 +23,12 @@ node scripts/fetch-neo-backgrounds.mjs <data-root> 3_27_388   # cache Neo page i
 
 ```
 electron/main.cjs, preload.cjs   all disk IO + MyScript proxy, exposed as window.storageAPI
-src/stores/        one store per concern (strokes, selection, pending-changes, viewer, timeline, volumes, ...)
-src/lib/           pure logic, no UI, testable without DOM
+src/stores/        one store per concern (strokes, selection, pending-changes, viewer, timeline, volumes, tags, ...)
+src/lib/           pure logic, no UI, testable without DOM (tags.js, tag-suggestions.js: page tags, v3.1.0)
 src/lib/storage/   PageDoc layer: local-store (IPC facade), save-page, load-page, load-range, scan, page-changes, graph-export
 src/lib/viewer/    reader helpers: SVG render, page cache, thumbnails, transcript markdown/save, feed loader
-src/components/    grouped by feature (canvas, dialog, header, viewer, dates, books, transcription, ...)
+src/components/    grouped by feature (canvas, dialog, header, viewer, dates, books, tags, transcription, ...)
+electron/tags-sidecar.cjs   pure parse / patch of pages/_tags.json for main (tested from Vitest)
 ```
 
 Data flow: **pen → `strokes` store → canvas / MyScript → `savePageToFolder()` → PageDoc on disk.**
@@ -38,10 +39,13 @@ them goes through `navigateTo()` / `openPageInLibrary()` (`stores/viewer.js`), t
 prompt is asked. The app opens on the Timeline, and live pen ink switches to the Editor. The left panel's tabs follow
 the destination (`CONTEXT_TABS` in `lib/left-panel.js`: Library → Contents · Transcripts, Timeline → Dates ·
 Transcripts, Editor → Strokes · Transcripts · Pages · Dates; `panelTab` is what shows); notebook names and volume
-routing are in Settings → Notebooks. With no page open the Library shows notebook cards (`LibraryHome`) or one
-notebook's page grid (`NotebookPages`, `libraryNotebook`); the header's global search (`SearchField`, Ctrl K) covers
-words, dates and notebook names (`lib/global-search.js`, `lib/search-query.js`, index built once per scan in
-`stores/library.js`). The Library reader (package D) shows each page as Strokes, Transcript or
+routing are in Settings → Notebooks. With no page open the Library (`LibraryBrowse`) shows notebook cards
+(`LibraryHome`), or tag cards when grouped by Tag (`libraryGroupBy`), one notebook's page grid (`NotebookPages`,
+`libraryNotebook`), a tag's or the Untagged pages (`TagPages`), or the suggestions queue (`TagSuggestionQueue`); the
+last three come from `libraryView` (`openLibraryView()`). Every page grid is `PageGrid` (tag filter, Select + bulk
+tagging). The header's global search (`SearchField`, Ctrl K) covers words, dates, notebook names and tags
+(`lib/global-search.js`, `lib/search-query.js`, index built once per scan in `stores/library.js`). The reader has a
+tag strip beside the pages (`ReaderTagsLayout` / `PageTagsStrip`). The Library reader (package D) shows each page as Strokes, Transcript or
 Ink + text (`'inktext'`), with shared zoom and Go to page in the pane toolbar (`SpreadToolbar`), rotation on
 each page's corner, and ←/→ page turns (`lib/viewer/page-reader.js` `pageTurnKey`). Tab ids (`'strokes'`, `'transcription'`, `'saved-pages'`, `'books'`, `'dates'`,
 `'contents'`) predate the labels, so don't rename them (`ActionBar` calls `setActiveTab('transcription')`). Full component tree, store and library inventory:
@@ -86,7 +90,9 @@ each page's corner, and ←/→ page turns (`lib/viewer/page-reader.js` `pageTur
   user's variant label and is preserved.
 - Sidecar files in `pages/`: `_aliases.json` (book names, keyed by book key), `_volumes.json` (active volume per
   NCode book), `_timeline.json` (per-page capture-day histograms; a pure cache, safe to delete), `_orientation.json`
-  (display rotation per page, `"<bookKey>/<pageId>": 90|180|270`, portrait by absence; missing or corrupt = all portrait).
+  (display rotation per page, `"<bookKey>/<pageId>": 90|180|270`, portrait by absence; missing or corrupt = all portrait),
+  `_tags.json` (page tags and dismissed suggestions, `{ version: 1, pages: { "<bookKey>/<pageId>": [tags] }, dismissed:
+  {...} }`, untagged by absence; missing or corrupt = no tags, and a corrupt file is replaced only by the next tag change).
 
 ## Invariants
 
@@ -120,6 +126,17 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
 - **The reading views hold copies** (scan records, the reader's page cache, thumbnail SVGs, the capture-date index).
   Anything that writes PageDocs outside the Library reader calls `refreshAfterSave(pages)` afterwards, and a data-folder
   change calls `resetForDataFolder()` (`lib/storage/refresh.js`); otherwise they show stale data until Rescan.
+
+### Page tags (v3.1.0)
+
+- **Tags are display metadata in `_tags.json`; never write them into a PageDoc.** A tag change is written at once
+  (`stores/tags.js`, optimistic, per-page rollback): never `markUnsavedChanges()`, never `savePageToFolder()`, no
+  `refreshAfterSave()` (every view reads the store). Main applies per-page patches inside one lock
+  (`storage:patchTags`, `electron/tags-sidecar.cjs`); the format and every edit belong to `lib/tags.js`.
+- **Tags are keyed by page key** (`tagKey()` = the orientation key), so a volume move must carry them:
+  `finalizePageMoves().emptied` → `carryTagsForMoves()` (whole-page moves only, never onto a page that has tags).
+- **Suggestions are never stored**, only dismissals; they are computed from stored transcript text
+  (`record.transcriptionText`, so no page read) and never applied without a click.
 
 ### Book keys and volumes
 
@@ -258,7 +275,12 @@ then looks broken when it isn't). Launch with `--disable-backgrounding-occluded-
 - Some `.active` accents outside the reading surfaces (Transcripts Review | Search) still use the red accent.
 - Several components are over the ~300-line guideline (StrokeCanvas, ActionBar, TranscriptionEditorModal,
   SaveConfirmDialog, TranscriptPane, BookViewer at 301, …); don't grow them, split when touching.
-- Global search covers transcribed text only; untranscribed pages are found by date or notebook.
+- Global search covers transcribed text only; untranscribed pages are found by date or notebook (or by tag).
+- **Page tags (v3.1.0).** Suggestions are pattern-only: no check that a number is a real project, and letters read
+  for digits (`P2O26-141`) are missed. Tags don't follow a *partial* volume move (they stay on the source page).
+  Project names aren't shown on chips; no tags on Timeline cards or in the Editor; tags aren't exported to LogSeq.
+  Tags on a page that is later deleted stay in `_tags.json` (hidden everywhere except the Manage Tags counts).
+  "Recently written" in tag grouping uses the newest capture date under the tag (no tag timestamps are stored).
 - Main-process and renderer tracing is behind `lib/debug.js` (`localStorage['smartpen-debug'] = '1'`, or the dev
   server). Never log MyScript keys or the HMAC, not even fragments.
 - Timeline: no transcripts on cards (stored `lineId`s are unreliable); `SESSION_GAP_MS` is a constant.
@@ -283,6 +305,7 @@ then looks broken when it isn't). Launch with `--disable-backgrounding-occluded-
 | [docs/LOCAL-STORAGE-PIVOT-SPEC.md](docs/LOCAL-STORAGE-PIVOT-SPEC.md) | Storage design; §12 records changes to `strokes[]` since v2.0 |
 | [docs/VOLUMES-SPEC.md](docs/VOLUMES-SPEC.md) | Notebook volumes: design and rejected alternatives |
 | [docs/READING-UX-SPEC.md](docs/READING-UX-SPEC.md) | **v3.0.0** reading-first UI/UX, packages A–E (built), with [mockups](docs/READING-UX-MOCKUPS.html) |
+| [docs/PAGE-TAGS-SPEC.md](docs/PAGE-TAGS-SPEC.md) | **v3.1.0** page tags (built), with [mockups](docs/TAGS-UI-MOCKUPS.html) |
 | [docs/QUICK-ARCHITECTURE-REFERENCE.md](docs/QUICK-ARCHITECTURE-REFERENCE.md) | Historical (v1 era): canvas / pen / MyScript notes; file paths in it are out of date |
 | [docs/NEOSMARTPEN-SDK-USAGE.md](docs/NEOSMARTPEN-SDK-USAGE.md) | Pen SDK usage |
 | [docs/EDITOR-IMPORT-SPEC.md](docs/EDITOR-IMPORT-SPEC.md) | The handwriting editor's import formats, which the JSON / Markdown exports follow |

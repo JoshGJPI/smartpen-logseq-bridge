@@ -583,11 +583,15 @@ export function planPageMove(source, target, targetCount) {
  * Best-effort — a failure here leaves a ghost page, not lost data, so it logs
  * and continues rather than failing the save that already succeeded.
  *
+ * `emptied` lists the whole-page moves (the source has no strokes left and
+ * fed exactly one target), so page tags, which live outside the PageDoc in
+ * `_tags.json`, can follow them (stores/tags.js carryTagsForMoves).
+ *
  * @param {Array<{fromBook: string, fromPage: number|string, toBook: string, toPage: number|string}>} moves
- * @returns {Promise<{transcriptsMoved: number, pagesDeleted: number, errors: string[]}>}
+ * @returns {Promise<{transcriptsMoved: number, pagesDeleted: number, errors: string[], emptied: Array}>}
  */
 export async function finalizePageMoves(moves) {
-  const out = { transcriptsMoved: 0, pagesDeleted: 0, errors: [] };
+  const out = { transcriptsMoved: 0, pagesDeleted: 0, errors: [], emptied: [] };
   if (!Array.isArray(moves) || moves.length === 0) return out;
 
   // How many distinct targets each source fed — a source split across two
@@ -617,6 +621,9 @@ export async function finalizePageMoves(moves) {
       const targetState = { lineCount: (targetDoc?.transcript?.lines || []).length };
 
       const plan = planPageMove(sourceState, targetState, targetsPerSource.get(srcKey).size);
+      if (sourceState.strokeCount === 0 && targetsPerSource.get(srcKey).size === 1) {
+        out.emptied.push({ fromBook: m.fromBook, fromPage: m.fromPage, toBook: m.toBook, toPage: m.toPage });
+      }
 
       if (plan.carryTranscript && targetDoc) {
         await savePage(m.toBook, m.toPage, {

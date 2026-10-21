@@ -198,10 +198,12 @@ export function relativeDay(day, now = new Date()) {
 /**
  * A notebook's page grid: each page with its first written day (the badge)
  * and how many days it was written on. Order is the scan's (P151b after P151).
+ * With `book` null each record's own book is used (a tag's pages, across
+ * notebooks).
  */
 export function pageTiles(records, book, dates) {
   return (records || []).map((r) => {
-    const d = dates && dates.get(pageKeyOf(book, idOf(r)));
+    const d = dates && dates.get(pageKeyOf(book ?? r.book, idOf(r)));
     return {
       record: r,
       pageId: idOf(r),

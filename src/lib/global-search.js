@@ -20,11 +20,11 @@
 import { tokenize, highlightMatches } from './transcript-search.js';
 import { filterTranscriptionProperties } from '../utils/formatting.js';
 import { isTypingTarget } from './left-panel.js';
-import { matchNotebooks } from './search-query.js';
+import { matchNotebooks, matchTags } from './search-query.js';
 import { pageKeyOf } from './library-home.js';
 import { pagesOnDay } from './timeline.js';
 
-export const LIMITS = { pages: 30, notebooks: 6, days: 6 };
+export const LIMITS = { pages: 30, notebooks: 6, days: 6, tags: 6 };
 
 const idOf = (r) => (r.pageId != null ? String(r.pageId) : String(r.page));
 
@@ -133,19 +133,22 @@ export function recordsByKey(records) {
  *   days, only pages written on them. A query that is only a date lists the
  *   pages written that day.
  * - **Notebooks**: names or keys matching the words (`matchNotebooks`).
+ * - **Tags** (v3.1.0): page tags matching the text (`matchTags`), always the
+ *   group just above Pages.
  *
  * `order` puts the group the query is most clearly about first: Days for a
  * date-only query, Notebooks when a notebook is named exactly, else Pages.
  *
  * @param {{text: string, tokens: string[], days: string[]}} q  from parseSearchQuery
  * @param {{index: Array, notebooks: Array<{book: string, name: string}>,
- *          timeline?: Object|null, dates?: Map|null, records?: Map|null}} ctx
+ *          timeline?: Object|null, dates?: Map|null, records?: Map|null,
+ *          tags?: Array<{tag: string, pages: number}>}} ctx
  *   `timeline` is the FILTERED capture-date index; `dates` is pageDates() of it;
  *   `records` maps every page key to its scan record (`recordsByKey`)
- * @returns {{pages: Array, notebooks: Array, days: Array, order: string[], total: number}}
+ * @returns {{pages: Array, notebooks: Array, days: Array, tags: Array, order: string[], total: number}}
  */
-export function runSearch(q, { index, notebooks, timeline = null, dates = null, records = null }) {
-  const empty = { pages: [], notebooks: [], days: [], order: ['pages', 'notebooks', 'days'], total: 0 };
+export function runSearch(q, { index, notebooks, timeline = null, dates = null, records = null, tags = [] }) {
+  const empty = { pages: [], notebooks: [], days: [], tags: [], order: ['tags', 'pages', 'notebooks', 'days'], total: 0 };
   if (!q || (!q.tokens.length && !q.days.length && q.text.length < 2)) return empty;
 
   // Days, and which pages they hold.
@@ -187,18 +190,21 @@ export function runSearch(q, { index, notebooks, timeline = null, dates = null, 
   }
 
   const nbs = matchNotebooks(q.text, notebooks);
+  const tagHits = matchTags(q.text, tags);
 
   let order = ['pages', 'notebooks', 'days'];
   if (q.days.length && !q.tokens.length) order = ['days', 'pages', 'notebooks'];
   else if (nbs.some((n) => n.exact)) order = ['notebooks', 'pages', 'days'];
+  order.splice(order.indexOf('pages'), 0, 'tags');
 
   const res = {
     pages: pages.slice(0, LIMITS.pages),
     notebooks: nbs.slice(0, LIMITS.notebooks),
     days: days.slice(0, LIMITS.days),
+    tags: tagHits.slice(0, LIMITS.tags),
     order
   };
-  res.total = res.pages.length + res.notebooks.length + res.days.length;
+  res.total = res.pages.length + res.notebooks.length + res.days.length + res.tags.length;
   return res;
 }
 

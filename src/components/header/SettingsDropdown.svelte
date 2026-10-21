@@ -16,15 +16,22 @@
   import DataFolderSettings from '../settings/DataFolderSettings.svelte';
   import GraphFolderSettings from '../settings/GraphFolderSettings.svelte';
   import BooksTab from '../books/BooksTab.svelte';
-  import PenMemoryDialog from '../dialog/PenMemoryDialog.svelte';
-  import { penConnected } from '$stores/pen.js';
+  import TagManagerDialog from '../tags/TagManagerDialog.svelte';
+  import { tagStatsList } from '$stores/tags.js';
   import { dataFolderReady } from '$stores/settings.js';
+  import { readString, write } from '$lib/safe-storage.js';
+  import { plural } from '$lib/plural.js';
+
+  const NOTEBOOKS_OPEN_KEY = 'settingsNotebooksOpen';
 
   let isOpen = false;
   let showKeys = false;
   let isTesting = false;
-  let showPenMemoryDialog = false;
-  
+  let showTagManager = false;
+  // Notebooks is the longest section (a row per notebook), so it starts folded;
+  // whether it was left open is remembered.
+  let notebooksOpen = readString(NOTEBOOKS_OPEN_KEY) === 'true';
+
   function toggleDropdown() {
     isOpen = !isOpen;
   }
@@ -56,17 +63,16 @@
     }
   }
   
-  function handleManagePenMemory() {
-    if (!$penConnected) {
-      log('Please connect your pen first', 'warning');
-      return;
-    }
-    showPenMemoryDialog = true;
-    isOpen = false;  // Close settings dropdown
+  function handleNotebooksToggle(event) {
+    notebooksOpen = event.currentTarget.open;
+    write(NOTEBOOKS_OPEN_KEY, String(notebooksOpen));
   }
-  
-  function handlePenMemoryClose() {
-    showPenMemoryDialog = false;
+
+  $: tagCount = $tagStatsList.length;
+
+  function handleManageTags() {
+    showTagManager = true;
+    isOpen = false;  // Close settings dropdown — the dialog is modal
   }
 
   /** Errors and warnings are what the log is opened for, so the button counts them. */
@@ -193,8 +199,28 @@
            which is configuration rather than something to read beside a page
            (reading-first package C). Same component, unchanged. -->
       <section class="settings-section">
-        <h4>Notebooks</h4>
-        <BooksTab />
+        <details class="collapsible" open={notebooksOpen} on:toggle={handleNotebooksToggle}>
+          <summary><h4>Notebooks</h4></summary>
+          <BooksTab />
+        </details>
+      </section>
+
+      <!-- The tag table gets its own dialog: it needs the width, and a long
+           list would push everything below it out of view. -->
+      <section class="settings-section">
+        <h4>Tags</h4>
+
+        <button class="btn btn-secondary tool-btn" on:click={handleManageTags}>
+          <span class="button-icon">🏷️</span>
+          <span class="button-text">Manage Tags</span>
+          {#if tagCount > 0}
+            <span class="badge">{tagCount} {plural(tagCount, 'tag')}</span>
+          {/if}
+        </button>
+
+        <p class="help-text">
+          Rename, merge or delete tags, and bring back dismissed suggestions.
+        </p>
       </section>
 
       <!-- Publish to LogSeq graph (mirror saved pages as plugin assets) -->
@@ -203,33 +229,11 @@
         <GraphFolderSettings />
       </section>
 
-      <!-- Pen Memory Management -->
-      <section class="settings-section">
-        <h4>Pen Memory</h4>
-        
-        <button 
-          class="btn btn-secondary manage-memory-btn"
-          class:disabled={!$penConnected}
-          on:click={handleManagePenMemory}
-          disabled={!$penConnected}
-        >
-          <span class="button-icon">🗑️</span>
-          <span class="button-text">Manage Pen Memory</span>
-          {#if !$penConnected}
-            <span class="badge disabled">Pen Disconnected</span>
-          {/if}
-        </button>
-        
-        <p class="help-text">
-          Remove books from pen memory after importing them.
-        </p>
-      </section>
-
       <!-- Troubleshooting — the activity log, on demand rather than always on screen -->
       <section class="settings-section">
         <h4>Troubleshooting</h4>
 
-        <button class="btn btn-secondary activity-log-btn" on:click={handleShowActivityLog}>
+        <button class="btn btn-secondary tool-btn" on:click={handleShowActivityLog}>
           <span class="button-icon">🩺</span>
           <span class="button-text">Activity Log</span>
           {#if logProblemCount > 0}
@@ -246,15 +250,10 @@
   {/if}
 </div>
 
-<!-- Activity Log Dialog. Mounted outside the {#if isOpen} block so it survives
-     the dropdown closing behind it, same as the pen memory dialog. -->
+<!-- Dialogs are mounted outside the {#if isOpen} block so they survive the
+     dropdown closing behind them. -->
 <ActivityLogDialog />
-
-<!-- Pen Memory Dialog -->
-<PenMemoryDialog 
-  bind:visible={showPenMemoryDialog} 
-  onClose={handlePenMemoryClose}
-/>
+<TagManagerDialog bind:visible={showTagManager} />
 
 <style>
   .settings-dropdown {
@@ -364,22 +363,6 @@
     gap: 8px;
   }
 
-  .badge-new, .badge-legacy {
-    font-size: 0.65rem;
-    padding: 2px 6px;
-    border-radius: 3px;
-    font-weight: 500;
-    letter-spacing: 0.03em;
-  }
-  .badge-new {
-    background: rgba(74, 222, 128, 0.18);
-    color: #4ade80;
-  }
-  .badge-legacy {
-    background: rgba(160, 160, 160, 0.18);
-    color: #a0a0a0;
-  }
-
   .input-group {
     margin-bottom: 15px;
   }
@@ -466,24 +449,68 @@
     text-decoration: underline;
   }
   
-  .manage-memory-btn {
+  /* A collapsible section: the summary is the section heading plus a chevron. */
+  .collapsible summary {
+    list-style: none;
+    cursor: pointer;
+  }
+
+  .collapsible summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .collapsible summary h4 {
+    margin-bottom: 0;
+  }
+
+  .collapsible[open] summary h4 {
+    margin-bottom: 15px;
+  }
+
+  .collapsible summary h4::after {
+    content: '';
+    width: 6px;
+    height: 6px;
+    margin-left: auto;
+    border-right: 2px solid var(--text-secondary);
+    border-bottom: 2px solid var(--text-secondary);
+    transform: rotate(-45deg);
+    transition: transform 0.15s;
+  }
+
+  .collapsible[open] summary h4::after {
+    transform: rotate(45deg);
+  }
+
+  .collapsible summary:hover h4::after {
+    border-color: var(--text-primary);
+  }
+
+  .collapsible summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* "Open a tool" buttons: Manage Tags, Activity Log. */
+  .tool-btn {
     display: flex;
     align-items: center;
     gap: 8px;
     width: 100%;
   }
-  
-  .manage-memory-btn .button-icon {
+
+  .tool-btn .button-icon {
     font-size: 1.1rem;
     line-height: 1;
   }
-  
-  .manage-memory-btn .button-text {
+
+  .tool-btn .button-text {
     flex: 1;
     text-align: left;
   }
-  
-  .manage-memory-btn .badge {
+
+  .tool-btn .badge {
     padding: 4px 8px;
     border-radius: 4px;
     font-size: 0.7rem;
@@ -491,36 +518,8 @@
     background: var(--bg-primary);
     color: var(--text-secondary);
   }
-  
-  .manage-memory-btn .badge.disabled {
-    background: rgba(239, 68, 68, 0.1);
-    color: #ef4444;
-  }
-  
-  .manage-memory-btn.disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
 
-  /* Same shape as the pen memory button — both are "open a tool" actions. */
-  .activity-log-btn {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-  }
-
-  .activity-log-btn .button-icon {
-    font-size: 1.1rem;
-    line-height: 1;
-  }
-
-  .activity-log-btn .button-text {
-    flex: 1;
-    text-align: left;
-  }
-
-  .activity-log-btn .badge.problems {
+  .tool-btn .badge.problems {
     padding: 4px 8px;
     border-radius: 4px;
     font-size: 0.7rem;

@@ -1,7 +1,7 @@
 <!--
   SearchField.svelte — the header's global search (reading-first package E):
   a field, Ctrl K to focus it from anywhere, and the results under it
-  (SearchResults), grouped Pages / Notebooks / Days.
+  (SearchResults), grouped Tags / Pages / Notebooks / Days.
 
   Words search transcripts (the same matching as Transcripts → Search, over an
   index built once per scan: stores/library.js); dates ("Oct 14", "2026-10-14",
@@ -23,7 +23,7 @@
   import {
     globalSearchIndex, searchRecords, searchDates, notebookNames, transcriptEditing,
     ensureTimelineLoaded, openPageInLibrary, openNotebookInLibrary, focusReaderLine,
-    navigateTo, setTimelineRange, setActiveTab, openTranscriptSearch
+    navigateTo, setTimelineRange, setActiveTab, openTranscriptSearch, openLibraryView, tagStatsList
   } from '$stores';
   import { timelineIndexFiltered } from '$stores/timeline.js';
   import { parseSearchQuery } from '$lib/search-query.js';
@@ -59,7 +59,8 @@
     notebooks: $notebookNames,
     timeline: $timelineIndexFiltered,
     dates: $searchDates,
-    records: $searchRecords
+    records: $searchRecords,
+    tags: $tagStatsList
   });
 
   onDestroy(() => clearTimeout(timer));
@@ -87,6 +88,8 @@
       }
       if (openPageInLibrary(r.book, pageId) === 'cancelled') return;
       if (query.tokens.length) focusReaderLine(r.book, pageId, query.tokens);
+    } else if (group === 'tags') {
+      if (openLibraryView({ kind: 'tag', tag: item.tag }) === 'cancelled') return;
     } else if (group === 'notebooks') {
       if (openNotebookInLibrary(item.book) === 'cancelled') return;
     } else if (group === 'days') {

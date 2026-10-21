@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>smartpen-bridge page tags: UI mockups</title>
+<style>
+  :root{
+    --bg:#12121f; --panel:#1a1a2e; --line:#2a2a4a; --text:#eaeaea; --muted:#a0a0b0;
+    --accent:#e94560; --ok:#4ade80; --warn:#fbbf24; --blue:#5b8def;
+    /* the app's light reading surface */
+    --a-blue:#4a7cf7; --a-blue-bg:#eef3ff; --a-blue-ink:#2c56c4; --a-line:#ddd; --a-card:#fff;
+    --proj:#0f766e; --proj-bg:#e3f5f2; --kw:#555; --kw-bg:#eef0f3; --sug:#9a6700; --sug-bg:#fff8e1;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-padding-top:56px}
+  body{background:var(--bg);color:var(--text);font:15px/1.6 'Segoe UI',system-ui,sans-serif;overflow-x:hidden}
+  .wrap{max-width:1120px;margin:0 auto;padding:40px 24px 120px}
+  h1{font-size:2rem;margin-bottom:6px}
+  h2{font-size:1.4rem;margin:60px 0 6px;padding-top:24px;border-top:1px solid var(--line)}
+  h3{font-size:1rem;margin:22px 0 6px;color:#fff}
+  p,li{color:#cfcfdc}
+  p{margin:8px 0}
+  ul{margin:8px 0 8px 20px}
+  .sub{color:var(--muted)}
+  .num{color:var(--accent);font-weight:700;margin-right:6px}
+  code{background:#23233d;padding:1px 6px;border-radius:4px;font-size:.85em;color:#ffb3c0}
+  .note{border-left:3px solid var(--warn);background:#2a2614;padding:10px 14px;border-radius:0 8px 8px 0;margin:14px 0;color:#e8dca8}
+  .good{border-left:3px solid var(--ok);background:#14281c;padding:10px 14px;border-radius:0 8px 8px 0;margin:14px 0;color:#bfe9cd}
+  .toc{position:sticky;top:0;background:rgba(18,18,31,.92);backdrop-filter:blur(8px);padding:10px 0 10px 24px;margin:0 -24px;z-index:50;border-bottom:1px solid var(--line);display:flex;gap:14px;flex-wrap:wrap;font-size:.8rem}
+  .toc a{color:var(--muted);text-decoration:none}.toc a:hover{color:#fff}
+  table{border-collapse:collapse;width:100%;font-size:.9rem;margin:12px 0}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:.75rem;letter-spacing:.06em;text-transform:uppercase}
+  .mock{margin:14px 0 6px;border:1px solid var(--line);border-radius:12px;background:#0c0c17;padding:14px}
+  .cap{font-size:.78rem;color:var(--muted);margin:8px 2px 0}
+  .hint{display:inline-block;font-size:.72rem;background:#2a2614;color:#f6d36b;padding:1px 9px;border-radius:99px;margin-left:6px;font-weight:600;letter-spacing:.03em}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:860px){.cols{grid-template-columns:1fr}}
+
+  /* ---------- the app, light ---------- */
+  .app{background:#f5f5f5;color:#222;border:1px solid #444;border-radius:8px;overflow:hidden;font-size:13px;line-height:1.4;position:relative}
+  .app *{color:inherit}
+  .app .mut{color:#888}
+  .abar{display:flex;align-items:center;gap:10px;padding:8px 14px;background:#fff;border-bottom:1px solid var(--a-line)}
+  .seg{display:inline-flex;border:1px solid var(--a-line);border-radius:7px;overflow:hidden}
+  .seg span{padding:4px 12px;background:#fff;color:#666;font-size:12px;cursor:default}
+  .seg span+span{border-left:1px solid var(--a-line)}
+  .seg span.on{background:#262650;color:#fff;box-shadow:inset 0 -2px 0 var(--a-blue)}
+  .search{display:inline-flex;align-items:center;gap:8px;min-width:220px;padding:4px 10px;border:1px solid var(--a-line);border-radius:6px;color:#999;font-size:12px;background:#fafafa}
+  .grow{flex:1}
+  .view{padding:16px 20px 20px;min-height:200px}
+  .vh{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin-bottom:14px}
+  .vh h4{font-size:15px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#888}
+  .vh .s{font-size:13px;color:#888}
+  .ch{padding:4px 11px;border:1px solid var(--a-line);border-radius:14px;background:#fff;color:#555;font-size:12px;cursor:pointer;user-select:none;display:inline-flex;gap:5px;align-items:center}
+  .ch:hover{border-color:#bbb;color:#222}
+  .ch.on{background:var(--a-blue-bg);border-color:var(--a-blue);color:var(--a-blue-ink);font-weight:600}
+  .btn{padding:4px 11px;border:1px solid var(--a-line);border-radius:6px;background:#fff;font-size:12px;color:#555;cursor:pointer;display:inline-flex;align-items:center;gap:5px;user-select:none}
+  .btn:hover{background:#f0f0f0}
+  .btn.pri{background:var(--a-blue);border-color:var(--a-blue);color:#fff}
+  .btn.pri:hover{background:#3b6be0}
+  .btn.sm{padding:2px 8px;font-size:11px}
+
+  /* tags */
+  .tg{display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border-radius:99px;background:var(--kw-bg);color:var(--kw);font-size:11.5px;line-height:1.5;white-space:nowrap;cursor:default}
+  .tg.p{background:var(--proj-bg);color:var(--proj);font-variant-numeric:tabular-nums;font-weight:600}
+  .tg .x{opacity:.5;cursor:pointer;font-size:12px;margin-left:1px}
+  .tg .x:hover{opacity:1}
+  .tg.s{background:var(--sug-bg);color:var(--sug);border:1px dashed #e0b84a;font-weight:600;padding-right:4px}
+  .tg.s .ok,.tg.s .no{cursor:pointer;width:17px;height:17px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px}
+  .tg.s .ok{background:#2f7d4f;color:#fff!important}.tg.s .ok:hover{background:#25663f}
+  .tg.s .no{background:#0001;color:#7a5200}.tg.s .no:hover{background:#0003}
+  .tg.on{outline:2px solid var(--a-blue);background:var(--a-blue-bg);color:var(--a-blue-ink)}
+  .tg.btnish{cursor:pointer}
+  .tg.btnish:hover{filter:brightness(.95)}
+  .tg.more{background:#0001}
+
+  /* thumbnails */
+  .th{background:#fff;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;cursor:pointer;position:relative;display:flex;flex-direction:column}
+  .th:hover{border-color:var(--a-blue)}
+  .th.sel{border-color:var(--a-blue);box-shadow:0 0 0 2px var(--a-blue)}
+  .th svg{display:block;width:100%;background:#fcfcfa}
+  .th .lab{padding:5px 8px 6px;border-top:1px solid #f0f0f0;font-size:12px;color:#444}
+  .th .lab .tags{display:flex;gap:3px;flex-wrap:wrap;margin-top:4px;min-height:19px}
+  .th .tick{position:absolute;top:6px;left:6px;width:20px;height:20px;border-radius:50%;border:2px solid #fff;background:#0004;display:none;align-items:center;justify-content:center;color:#fff;font-size:12px;box-shadow:0 0 0 1px #0003}
+  .selecting .th .tick{display:flex}
+  .th.sel .tick{background:var(--a-blue);display:flex}
+  .th .addtag{position:absolute;top:6px;right:6px;background:#fffd;border:1px solid #0002;border-radius:99px;font-size:11px;padding:0 8px;display:none}
+  .th:hover .addtag{display:block}
+  .selecting .th .addtag{display:none!important}
+  .th .dot{position:absolute;top:8px;right:8px;width:9px;height:9px;border-radius:50%;background:#e0a200;box-shadow:0 0 0 2px #fff}
+  .tgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+  .nb{background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:12px 14px;cursor:pointer;display:flex;flex-direction:column;gap:8px}
+  .nb:hover{border-color:var(--a-blue)}
+  .nb h5{font-size:14px;font-weight:600;display:flex;align-items:center;gap:6px}
+  .nb .meta{font-size:12px;color:#888}
+  .nb .strip{display:flex;gap:4px;height:70px}
+  .nb .strip svg{flex:1;min-width:0;height:100%;border:1px solid #eee;border-radius:3px;background:#fcfcfa}
+  .ngrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+
+  /* reader + editor */
+  .reader{display:grid;grid-template-columns:minmax(0,1fr) 310px}
+  @media(max-width:860px){.reader{grid-template-columns:1fr}}
+  .stage{padding:14px;background:#ececec;display:flex;justify-content:center}
+  .sheet{width:min(100%,300px);background:#fff;border:1px solid #ddd;box-shadow:0 1px 5px #0002;position:relative}
+  .sheet svg{display:block;width:100%}
+  .rtool{display:flex;align-items:center;gap:8px;padding:6px 12px;background:#fff;border-bottom:1px solid var(--a-line);font-size:12px}
+  .side{background:#fff;border-left:1px solid var(--a-line);padding:12px 14px;display:flex;flex-direction:column;gap:12px;min-width:0}
+  .side h6{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#888;font-weight:600;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
+  .tagbox{display:flex;flex-wrap:wrap;gap:5px;padding:6px;border:1px solid var(--a-line);border-radius:7px;background:#fff;position:relative;min-height:36px;align-items:center}
+  .tagbox:focus-within{border-color:var(--a-blue);box-shadow:0 0 0 2px #4a7cf733}
+  .tagbox input{border:0;outline:0;font:inherit;font-size:12px;flex:1;min-width:90px;padding:2px 4px;background:transparent}
+  .pop{position:absolute;left:-1px;right:-1px;top:calc(100% + 4px);background:#fff;border:1px solid var(--a-line);border-radius:8px;box-shadow:0 6px 20px #0003;z-index:9;padding:4px;display:none}
+  .tagbox:focus-within .pop.show{display:block}
+  .pop .it{display:flex;justify-content:space-between;align-items:center;padding:5px 8px;border-radius:5px;font-size:12px;cursor:pointer}
+  .pop .it:hover,.pop .it.hi{background:var(--a-blue-bg)}
+  .pop .it small{color:#999}
+  .pop .hd{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:#999;padding:4px 8px 2px}
+  .ev{font-size:11.5px;color:#777;background:#fafafa;border-left:3px solid #e0b84a;padding:4px 8px;border-radius:0 5px 5px 0;margin-top:5px}
+  .ev b{background:#fff3b0;font-weight:600;padding:0 2px;border-radius:2px;color:#222}
+  .row{display:flex;align-items:center;gap:8px}
+  .sel-bar{position:sticky;bottom:10px;margin:14px auto 0;width:max-content;max-width:100%;background:#262650;color:#fff;border-radius:10px;padding:8px 12px;display:flex;align-items:center;gap:10px;box-shadow:0 6px 24px #0005;flex-wrap:wrap}
+  .sel-bar *{color:#fff}
+  .sel-bar .btn{background:#ffffff1a;border-color:#fff3}
+  .sel-bar .btn:hover{background:#ffffff33}
+  .sel-bar .btn.pri{background:var(--a-blue);border-color:var(--a-blue)}
+  .filters{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px;padding:8px 10px;background:#fff;border:1px solid #e6e6e6;border-radius:8px}
+  .filters .lb{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:#999;margin-right:2px}
+  .queue{background:#fff;border:1px solid #e6e6e6;border-radius:8px}
+  .qrow{display:grid;grid-template-columns:64px 1fr auto;gap:12px;padding:10px 12px;border-bottom:1px solid #f0f0f0;align-items:center}
+  .qrow:last-child{border-bottom:0}
+  .qrow svg{width:64px;border:1px solid #eee;border-radius:3px;background:#fcfcfa;display:block}
+  .tm{width:100%;border-collapse:collapse}
+  .tm td,.tm th{padding:7px 10px;border-bottom:1px solid #eee;font-size:12.5px;color:#333;text-align:left}
+  .tm th{font-size:11px;color:#999;letter-spacing:.06em;text-transform:uppercase}
+  .callout{position:absolute;background:var(--warn);color:#222!important;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:99px;z-index:20;white-space:nowrap;box-shadow:0 1px 6px #0006;pointer-events:none}
+  .toast{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:#222;color:#fff!important;font-size:12px;padding:6px 14px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:30}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="toc" style="max-width:none"><b style="color:#fff">Page tags</b>
+  <a href="#sum">Summary</a><a href="#m1">1 Tag a page</a><a href="#m2">2 Suggestions</a><a href="#m3">3 Grid &amp; bulk</a><a href="#m4">4 Group by</a><a href="#m5">5 Filter</a><a href="#m6">6 Review queue</a><a href="#m7">7 Manager</a><a href="#spec">Spec notes</a><a href="#open">Decisions</a>
+</div>
+<div class="wrap">
+
+<h1>Page tags: UI mockups</h1>
+<p class="sub">Draft for review · 2026-10-21 · nothing in the repo's code was changed. Synthetic ink, made-up tags and project numbers. <b>These mockups are live: click chips, type in the tag boxes, select thumbnails.</b></p>
+
+<h2 id="sum" style="border-top:none;margin-top:30px">Summary of what is proposed</h2>
+<table>
+  <tr><th>#</th><th>Surface</th><th>What it does</th></tr>
+  <tr><td>1</td><td>Tag editor in the reader</td><td>A <i>Tags</i> block in a side strip beside the open page: chips, type-ahead, Enter to add.</td></tr>
+  <tr><td>2</td><td>Project-number suggestions</td><td>Numbers like <code>P2026-141</code> and <code>2327-018</code> found in a page's transcript are offered as dashed one-click chips, with the line they came from.</td></tr>
+  <tr><td>3</td><td>Tags on the page grid + bulk tagging</td><td>Thumbnails show their tags. A select mode tags many pages at once.</td></tr>
+  <tr><td>4</td><td>Group by Notebook | Tag</td><td>The Library home gets a toggle. In tag mode each card is a tag, across all notebooks.</td></tr>
+  <tr><td>5</td><td>Filter inside a grid</td><td>Tag chips narrow any page grid (match any / match all). Works within a notebook too.</td></tr>
+  <tr><td>6</td><td>Suggestion review queue</td><td>One place to accept or dismiss suggested project numbers for every transcribed page.</td></tr>
+  <tr><td>7</td><td>Tag manager</td><td>Rename, merge and delete tags. In Settings.</td></tr>
+</table>
+<div class="note"><b>The main thing to look at first:</b> mockup 2 (suggestions) and mockup 6 (review queue). They are the new behaviour. Everything else is conventional tagging. Decisions I need from you are collected at the <a href="#open" style="color:#ffd966">end</a>, and each has my default.</div>
+
+
+<!-- ============ 1 ============ -->
+<h2 id="m1"><span class="num">1</span>Tag a page in the reader</h2>
+<p>When a page is open in the Library reader, a narrow side strip shows its tags. It sits beside the page, so the handwriting keeps its space. Type, pick or press Enter, and a tag saves immediately. Tags don't count as an unsaved edit: they're written straight away, like page rotation.</p>
+<div class="mock">
+<div class="app" id="m1app">
+  <div class="abar">
+    <b style="font-size:13px">smartpen-bridge</b>
+    <span class="seg"><span class="on">Library</span><span>Timeline</span><span>Editor</span></span>
+    <span class="search">🔍 Search notes… <span class="grow"></span><span style="opacity:.6">Ctrl K</span></span>
+    <span class="grow"></span><span class="mut">⚙</span>
+  </div>
+  <div class="rtool"><span class="btn sm">‹ Notebooks</span><span class="mut">/</span><b>Field Notes 3</b><span class="mut">· P42</span>
+    <span class="grow"></span><span class="seg"><span>Strokes</span><span>Transcript</span><span class="on" style="background:#262650">Ink + text</span></span>
+    <span class="btn sm">⟲ Turn</span><span class="btn sm">Zoom −  +</span></div>
+  <div class="reader">
+    <div class="stage"><div class="sheet" data-ink="42"></div></div>
+    <div class="side">
+      <div>
+        <h6><span>Tags</span><span class="mut" style="text-transform:none;letter-spacing:0">saved as you go</span></h6>
+        <div class="tagbox" data-demo="m1" data-key="B3/P42">
+          <span class="chips"></span>
+          <input placeholder="Add tag…" autocomplete="off" aria-label="Add tag">
+          <div class="pop"></div>
+        </div>
+        <p style="font-size:11.5px;color:#999;margin-top:6px">Enter adds · Backspace removes the last · tags are lowercase keywords, or a project number.</p>
+      </div>
+      <div>
+        <h6><span>Page</span></h6>
+        <div style="font-size:12px;color:#555;line-height:1.7">Written 14 Oct 2026<br>385 strokes · transcribed<br>Also on this page: <span class="mut">no other tags in this notebook share all of these</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="callout" style="top:112px;right:16px">chips + type-ahead</div>
+</div>
+</div>
+<p class="cap">Try it: click the box, type "be" and pick <i>beam</i>, or type a new word and press Enter. Existing tags are offered first (most-used first) with a page count; typing a new one shows a <i>Create "…"</i> row. Project numbers get a teal chip so they read differently from keywords.</p>
+
+
+<!-- ============ 2 ============ -->
+<h2 id="m2"><span class="num">2</span>Suggested project numbers <span class="hint">new behaviour</span></h2>
+<p>When the open page's transcript contains <code>####-###</code> or <code>P####-###</code>, the strip offers it as a dashed chip, with the transcript line it came from underneath. <b>✓</b> adds it as a real tag, <b>✕</b> dismisses it for this page (and it stays dismissed). Nothing is tagged without a click. A page with no transcript shows no suggestions.</p>
+<div class="mock">
+<div class="cols">
+ <div>
+  <div class="lbl" style="font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Page with a suggestion (live)</div>
+  <div class="app"><div class="side" style="border-left:0" id="m2side">
+    <div>
+      <h6><span>Tags</span></h6>
+      <div class="tagbox" data-demo="m2" data-key="B3/P51" data-tags="roof framing"><span class="chips"></span><input placeholder="Add tag…" autocomplete="off" aria-label="Add tag"><div class="pop"></div></div>
+    </div>
+    <div>
+      <h6><span>Suggested from transcript</span><span class="mut" style="text-transform:none;letter-spacing:0;cursor:pointer" id="m2reset">reset demo</span></h6>
+      <div id="m2sug"></div>
+    </div>
+  </div></div>
+ </div>
+ <div>
+  <div class="lbl" style="font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">How the match behaves</div>
+  <table style="font-size:.85rem">
+   <tr><th>Transcript says</th><th>Result</th></tr>
+   <tr><td><code>P2026-141</code></td><td>Suggest <b>P2026-141</b> (proposal)</td></tr>
+   <tr><td><code>2327-018</code></td><td>Suggest <b>2327-018</b> (job)</td></tr>
+   <tr><td><code>p2026-141</code>, <code>P2026–141</code> (en dash), <code>P 2026-141</code></td><td>Same tag, normalized: capital P, plain hyphen</td></tr>
+   <tr><td><code>[[P2026-141]]</code> in your own notes</td><td>Brackets ignored; tag has none</td></tr>
+   <tr><td><code>2026-10-21</code>, <code>555-1234</code>, <code>12345-678</code></td><td>Not a match (dates, phone numbers, longer digit runs)</td></tr>
+   <tr><td>Same number on three lines</td><td>One suggestion, first line shown</td></tr>
+   <tr><td><code>P2O26-141</code> (handwriting read O for 0)</td><td>No suggestion. Type it yourself; see decision 6.</td></tr>
+  </table>
+ </div>
+</div>
+</div>
+<p class="cap">Try it: ✓ one suggestion and ✕ the other. "Reset demo" puts it back. Suggestions are computed from the stored transcript each time and not saved, so re-transcribing a page updates them. Only your <i>dismissals</i> are saved.</p>
+
+
+<!-- ============ 3 ============ -->
+<h2 id="m3"><span class="num">3</span>Tags on the page grid, and bulk tagging</h2>
+<p>Thumbnails in a notebook's page grid show their tags under the page number (first two, then "+N"). A small amber dot marks a page that has an unreviewed project-number suggestion. <b>Select</b> turns on tick-circles; with pages ticked, a bar appears to add or remove a tag from all of them.</p>
+<div class="mock">
+<div class="app" id="m3app">
+  <div class="view" style="min-height:0">
+    <div class="vh">
+      <span class="btn sm">‹ Library</span><h4 style="text-transform:none;font-size:15px;color:#333;letter-spacing:0">Field Notes 3</h4><span class="s">24 pages</span>
+      <span class="grow"></span>
+      <span class="btn" id="m3sel">☐ Select</span>
+    </div>
+    <div class="tgrid" id="m3grid"></div>
+    <div class="sel-bar" id="m3bar" style="display:none">
+      <b id="m3n">0 selected</b>
+      <span class="tagbox" style="background:#fff;border-color:#fff;min-width:170px;min-height:30px;padding:3px 6px" data-demo="m3bulk"><input placeholder="Add tag to selected…" aria-label="Tag selected pages" style="color:#222"><div class="pop"></div></span>
+      <span class="btn pri" id="m3apply">Add tag</span>
+      <span class="btn" id="m3clear">Remove a tag ▾</span>
+      <span class="btn" id="m3all">Select all</span>
+      <span class="btn" id="m3done">Done</span>
+    </div>
+  </div>
+  <div class="toast" id="m3toast"></div>
+</div>
+</div>
+<p class="cap">Try it: hover a thumbnail for <i>+ tag</i> (opens the same chip editor as mockup 1 in a small popover). Press <i>Select</i>, tick a few pages, type a tag in the bar and press Add tag. Shift-click selects a range.</p>
+
+
+<!-- ============ 4 ============ -->
+<h2 id="m4"><span class="num">4</span>Group by Notebook | Tag</h2>
+<p>The Library home keeps its existing sort chips and gains a <b>Group by</b> toggle. In <i>Tag</i> mode each card is a tag. A card shows the page count, how many notebooks it spans, and a thumbnail strip of its most recent pages. Opening a card shows that tag's pages across all notebooks (mockup 5). The last choice is remembered.</p>
+<div class="mock">
+<div class="app" id="m4app">
+  <div class="view">
+    <div class="vh">
+      <h4>Library</h4>
+      <span class="s" id="m4sum"></span>
+      <span class="seg" id="m4grp" role="group" aria-label="Group by"><span class="on" data-g="book">Notebook</span><span data-g="tag">Tag</span></span>
+      <span style="display:inline-flex;gap:4px" id="m4sort"></span>
+      <span class="grow"></span><span class="btn">Rescan</span>
+    </div>
+    <div class="ngrid" id="m4grid"></div>
+  </div>
+</div>
+</div>
+<p class="cap">Try it: switch Group by to <i>Tag</i>. Sort chips follow the grouping: in Tag mode they read <i>Most pages · Name · Recently tagged/written</i>. Project-number tags group together under a <i>Projects</i> heading so keywords don't bury them. An <i>Untagged</i> card (dashed) keeps un-tagged pages reachable.</p>
+
+
+<!-- ============ 5 ============ -->
+<h2 id="m5"><span class="num">5</span>Opening a tag, and filtering any grid</h2>
+<p>A tag's page grid is the same grid as a notebook's, with two differences: every thumbnail's label also names its notebook, and a <b>filter row</b> sits above. The same filter row appears in a single notebook's grid, so "filter" works both ways: group by tag, or stay in a notebook and narrow it.</p>
+<div class="mock">
+<div class="app" id="m5app">
+  <div class="view" style="min-height:0">
+    <div class="vh">
+      <span class="btn sm">‹ Library</span><h4 style="text-transform:none;font-size:15px;color:#333;letter-spacing:0" id="m5title">Tag: beam</h4><span class="s" id="m5sum"></span>
+      <span class="grow"></span>
+      <span class="seg" id="m5mode" title="How multiple tags combine"><span class="on" data-m="any">Any</span><span data-m="all">All</span></span>
+    </div>
+    <div class="filters" id="m5f"></div>
+    <div class="tgrid" id="m5grid"></div>
+  </div>
+</div>
+</div>
+<p class="cap">Try it: click tag chips to add them to the filter, switch Any / All. <i>Any</i> = pages with at least one chosen tag, <i>All</i> = pages with every chosen tag. Only tags that exist on pages in the current grid are offered, each with its count, so you can't filter to an empty result by accident.</p>
+
+
+<!-- ============ 6 ============ -->
+<h2 id="m6"><span class="num">6</span>Suggestion review queue <span class="hint">new behaviour</span></h2>
+<p>Going page by page to accept suggestions would be slow for a back catalogue. A small <b>Suggestions</b> entry on the Library home (with a count badge) opens a queue of every transcribed page that has an unreviewed project-number suggestion, grouped by number so the same job across pages is one decision.</p>
+<div class="mock">
+<div class="app" id="m6app">
+  <div class="view" style="min-height:0">
+    <div class="vh"><span class="btn sm">‹ Library</span><h4 style="text-transform:none;font-size:15px;color:#333;letter-spacing:0">Suggested project numbers</h4><span class="s" id="m6sum"></span><span class="grow"></span><span class="btn" id="m6rescan">↻ Re-check transcripts</span></div>
+    <div class="queue" id="m6q"></div>
+  </div>
+</div>
+</div>
+<p class="cap">Try it: <i>Tag all</i> applies a number to every page in its group; <i>Dismiss all</i> stops suggesting it on those pages; the row's thumbnails open the page. Clicking a single thumbnail's tick lets you exclude pages before Tag all. A page that's been dismissed won't come back, even after a re-transcribe, unless you reset it in the manager.</p>
+
+
+<!-- ============ 7 ============ -->
+<h2 id="m7"><span class="num">7</span>Tag manager</h2>
+<p>Settings gets a <b>Tags</b> section, deliberately plain: a table of every tag with its page count, and rename / merge / delete. Renaming to a name that already exists is a merge (with a confirm). Deleting a tag only removes the label from pages; it never touches a page.</p>
+<div class="mock">
+<div class="app">
+  <div class="view" style="min-height:0">
+    <div class="vh"><h4 style="text-transform:none;font-size:15px;color:#333;letter-spacing:0">Settings › Tags</h4><span class="grow"></span><span class="btn sm">Reset dismissed suggestions</span></div>
+    <table class="tm" id="m7t"></table>
+    <div class="toast" id="m7toast"></div>
+  </div>
+</div>
+</div>
+<p class="cap">Try it: Rename and Merge show the confirm text they'd use. Merge asks which tag survives. Counts come from the sidecar, so they're instant and never read a page.</p>
+
+
+<!-- ============ SPEC ============ -->
+<h2 id="spec">Spec notes behind the mockups</h2>
+<h3>Storage: <code>pages/_tags.json</code></h3>
+<p>Same family as <code>_orientation.json</code>: read and written through main-process IPC, atomic write, serialized, a missing or corrupt file means "no tags". Page keys are <code>"&lt;bookKey&gt;/&lt;pageId&gt;"</code>, so suffixed pages (<code>P151b</code>) and volumes (<code>388v2</code>) work as everywhere else.</p>
+<pre style="background:#0c0c17;border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:12.5px;color:#cfcfdc;overflow:auto">{
+  "version": 1,
+  "pages":     { "3017/42": ["beam", "P2026-141"], "388v2/7": ["2327-018"] },
+  "dismissed": { "3017/42": ["2327-018"] }
+}</pre>
+<ul>
+  <li>Tags are normalized on write: trimmed, internal whitespace collapsed to <code>-</code>, lowercase, except project numbers, which are stored as <code>P####-###</code> / <code>####-###</code>. Sorted, de-duplicated, max length (proposal: 40 chars).</li>
+  <li>Display-only metadata: no PageDoc is touched, no unsaved-changes dot, no <code>refreshAfterSave()</code>. A <code>pageTags</code> store feeds views, as <code>pageOrientations</code> does.</li>
+  <li>Volume reassignment is a move, so it must carry the page's tag and dismissed entries to the new key (small hook in the move path, with a test).</li>
+  <li>Indexes (tag → pages, tag counts) are derived once per change in a pure <code>lib/tags.js</code>, never per render.</li>
+</ul>
+<h3>Suggestion rules</h3>
+<ul>
+  <li>Pattern, roughly <code>(?&lt;![\dA-Za-z])P?\s?\d{4}[-–—]\d{3}(?!\d)</code> over each transcript line's text, then normalized as in the table in mockup 2.</li>
+  <li><b>Pattern only, not validated.</b> The app can't know if a number is a real project (that needs LogSeq or BQE). A wrong number is one ✕. If you later want validation or a project title next to the chip, it can be a lookup layered on top and doesn't change the storage.</li>
+  <li>Computed from the page's stored transcript when needed (reader open, queue open). Nothing about suggestions is stored except dismissals. Pages are read lazily; the queue reads transcribed pages in the background with a progress count, not in the metadata scan (scans stay metadata-only).</li>
+  <li>Not suggested if already a tag on the page or dismissed for that page.</li>
+</ul>
+<h3>Performance and safety checks</h3>
+<ul>
+  <li>Tag counts and grouping read only the sidecar plus the existing scan records, so the home and tag cards cost nothing extra at any page count.</li>
+  <li>Thumbnail tags come from the store, not from reading pages. The thumbnail loading rules (on-screen only, off the page cache) are unchanged.</li>
+  <li>Failure modes: data folder missing → tag UI disabled with the same message as other folder features; write fails → chip rolls back with an Activity Log entry; two quick edits can't overwrite each other (serialized, per-page merge in main).</li>
+</ul>
+
+<h2 id="open">Decisions for you</h2>
+<p class="sub">My default is in bold. Say "go with the defaults" or change any.</p>
+<table>
+  <tr><th>#</th><th>Question</th><th>Default</th></tr>
+  <tr><td>1</td><td>Where does the tag strip live in the reader: a side strip beside the page (shown), or a one-line bar under the toolbar?</td><td><b>Side strip</b>; collapses to the one-line bar on narrow windows.</td></tr>
+  <tr><td>2</td><td>Should <i>Untagged</i> be a card in Tag grouping?</td><td><b>Yes</b>, dashed card, last.</td></tr>
+  <tr><td>3</td><td>Bulk tagging: add only, or also remove a tag from many pages?</td><td><b>Both</b> (as drawn).</td></tr>
+  <tr><td>4</td><td>Do suggestions also appear on thumbnails (the amber dot) and in a queue (mockup 6), or only in the reader?</td><td><b>All three</b>; the queue is the part that makes a back catalogue practical.</td></tr>
+  <tr><td>5</td><td>Should accepting a suggestion tag <i>every</i> page in the same book that mentions it, or just the one page?</td><td><b>Just the one page</b>; the queue's Tag all covers the many-page case deliberately.</td></tr>
+  <tr><td>6</td><td>Handwriting slips (<code>O</code> for <code>0</code>, <code>l</code> for <code>1</code>, a space inside the number): tolerate them in the matcher?</td><td><b>Tolerate spaces and dash types; not letters-for-digits</b> (too many false positives). Revisit after seeing real hits.</td></tr>
+  <tr><td>7</td><td>Should typing a project-number-shaped tag by hand be normalized (<code>p2026-141</code> → <code>P2026-141</code>)?</td><td><b>Yes</b>.</td></tr>
+  <tr><td>8</td><td>Should tags be searchable from Ctrl K (a tag name returns its pages)?</td><td><b>Yes</b>; a "Tags" result group above Pages.</td></tr>
+  <tr><td>9</td><td>Later: show a project's name next to a project-number chip (from LogSeq / BQE)? Out of scope for v1.</td><td><b>Defer</b>; storage is unaffected.</td></tr>
+</table>
+
+</div>
+
+<script>
+/* ---------- tiny shared helpers ---------- */
+const $ = (s, r=document) => r.querySelector(s);
+const $$ = (s, r=document) => [...r.querySelectorAll(s)];
+const isProj = t => /^P?\d{4}-\d{3}$/.test(t);
+function norm(t){
+  t = t.trim().replace(/[–—]/g,'-');
+  const m = t.replace(/\s+/g,'').match(/^[Pp]?(\d{4})-(\d{3})$/);
+  if (m) return (/^[Pp]/.test(t.replace(/\s+/g,'')) ? 'P' : '') + m[1] + '-' + m[2];
+  return t.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9\-_]/g,'').slice(0,40);
+}
+function seeded(seed){ let s = seed*9301+49297; return () => (s = (s*9301+49297) % 233280) / 233280; }
+function inkSVG(seed, w=100, h=140){
+  const r = seeded(seed + 7); let p = '';
+  const lines = 9 + Math.floor(r()*4);
+  for (let i=0;i<lines;i++){
+    const y = 14 + i*(h-24)/lines, x0 = 8 + r()*6, len = 30 + r()*(w-52);
+    let d = `M${x0} ${y}`;
+    for (let x=x0, k=0; x < x0+len; x += 3.2, k++) d += ` L${x.toFixed(1)} ${(y + Math.sin(k*1.7+i)*1.6 + (r()-.5)*1.1).toFixed(1)}`;
+    p += `<path d="${d}" fill="none" stroke="#1b1b2a" stroke-width=".9" stroke-linecap="round" stroke-linejoin="round" opacity="${(.7+r()*.3).toFixed(2)}"/>`;
+  }
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid slice" aria-hidden="true">${p}</svg>`;
+}
+document.querySelectorAll('.sheet[data-ink]').forEach(el => el.innerHTML = inkSVG(+el.dataset.ink, 100, 140));
+const chip = (t, x=true) => `<span class="tg ${isProj(t)?'p':''}" data-t="${t}">${t}${x?'<span class="x" title="Remove" aria-label="Remove tag">×</span>':''}</span>`;
+
+/* ---------- shared tag-box widget (mockups 1, 2, bulk) ---------- */
+const ALL = {                  // vocabulary with counts, used for type-ahead
+  'beam':14,'footing':9,'P2026-141':8,'2327-018':6,'roof':5,'framing':4,'site-visit':4,'calc':3,'rfi':3,'2412-007':2,'meeting':2
+};
+const state = {};              // per demo
+function setupBox(box){
+  const demo = box.dataset.demo;
+  const st = state[demo] = state[demo] || { tags: (box.dataset.tags||(demo==='m1'?'beam P2026-141':'')).split(' ').filter(Boolean) };
+  const chips = $('.chips', box), input = $('input', box), pop = $('.pop', box);
+  let hi = 0, items = [];
+  function paint(){ if (chips) chips.innerHTML = st.tags.map(t => chip(t)).join(''); box.dispatchEvent(new CustomEvent('tagschanged', {bubbles:true, detail:st.tags})); }
+  function options(){
+    const q = norm(input.value);
+    const have = new Set(st.tags);
+    let list = Object.entries(ALL).filter(([t]) => !have.has(t) && (!q || t.toLowerCase().includes(q.toLowerCase())))
+      .sort((a,b)=>b[1]-a[1]).slice(0,6).map(([t,n])=>({t,n}));
+    if (q && !ALL[q] && !have.has(q)) list.push({t:q,create:true});
+    return list;
+  }
+  function renderPop(){
+    items = options(); hi = Math.min(hi, Math.max(0, items.length-1));
+    if (!items.length){ pop.classList.remove('show'); return; }
+    pop.innerHTML = `<div class="hd">${input.value?'Matching tags':'Your tags'}</div>` + items.map((o,i) =>
+      `<div class="it ${i===hi?'hi':''}" data-i="${i}">${o.create?`Create <b>"${o.t}"</b>`:chip(o.t,false)}<small>${o.create?(isProj(o.t)?'project number':'new tag'):o.n+' pages'}</small></div>`).join('');
+    pop.classList.add('show');
+  }
+  function add(t){ t = norm(t); if (!t) return; if (!st.tags.includes(t)) st.tags.push(t); st.tags.sort(); input.value=''; if (!ALL[t]) ALL[t]=0; paint(); renderPop(); }
+  input.addEventListener('input', () => { hi=0; renderPop(); });
+  input.addEventListener('focus', renderPop);
+  input.addEventListener('keydown', e => {
+    if (e.key==='ArrowDown'){ hi=Math.min(items.length-1,hi+1); renderPop(); e.preventDefault(); }
+    else if (e.key==='ArrowUp'){ hi=Math.max(0,hi-1); renderPop(); e.preventDefault(); }
+    else if (e.key==='Enter'){ e.preventDefault(); if (demo==='m3bulk'){ return; } if (input.value){ add(items[hi] && input.value.length && items[hi].t.toLowerCase().startsWith(norm(input.value))?items[hi].t:input.value); } }
+    else if (e.key==='Backspace' && !input.value && st.tags.length){ st.tags.pop(); paint(); renderPop(); }
+    else if (e.key==='Escape'){ input.blur(); }
+  });
+  pop.addEventListener('mousedown', e => {
+    e.preventDefault();
+    const it = e.target.closest('.it'); if (!it) return;
+    const o = items[+it.dataset.i];
+    if (demo==='m3bulk'){ input.value = o.t; renderPop(); } else add(o.t);
+  });
+  box.addEventListener('click', e => {
+    const x = e.target.closest('.x');
+    if (x){ const t = x.parentElement.dataset.t; st.tags = st.tags.filter(v => v!==t); paint(); renderPop(); e.stopPropagation(); }
+    else input.focus();
+  });
+  box._st = st; box._add = add; box._paint = paint; paint();
+}
+$$('.tagbox').forEach(setupBox);
+
+/* ---------- mockup 2: suggestions ---------- */
+(function(){
+  const box = $('.tagbox[data-demo="m2"]'), host = $('#m2sug');
+  const base = [
+    { t:'P2026-141', line:'Call w/ client re <b>P2026-141</b> – roof beam size, check deflection' },
+    { t:'2327-018',  line:'Follow up on <b>2327-018</b> footing RFI, owner wants answer Fri' }
+  ];
+  let dismissed = new Set();
+  function paint(){
+    const have = new Set(box._st.tags);
+    const rows = base.filter(s => !have.has(s.t) && !dismissed.has(s.t));
+    host.innerHTML = rows.length ? rows.map(s => `<div style="margin-bottom:10px" data-t="${s.t}">
+        <span class="tg s ${isProj(s.t)?'':''}">${s.t}<span class="ok" title="Add as a tag" role="button" aria-label="Add ${s.t}">✓</span><span class="no" title="Dismiss for this page" role="button" aria-label="Dismiss ${s.t}">✕</span></span>
+        <div class="ev">${s.line}</div></div>`).join('')
+      : `<div class="mut" style="font-size:12px;color:#999">No suggestions. ${dismissed.size? 'Dismissed ones stay hidden.' : ''}</div>`;
+  }
+  host.addEventListener('click', e => {
+    const row = e.target.closest('[data-t]'); if (!row) return;
+    const t = row.dataset.t;
+    if (e.target.closest('.ok')) box._add(t);
+    else if (e.target.closest('.no')) dismissed.add(t);
+    paint();
+  });
+  box.addEventListener('tagschanged', paint);
+  $('#m2reset').onclick = () => { dismissed.clear(); box._st.tags = ['framing','roof']; box._paint(); paint(); };
+  paint();
+})();
+
+/* ---------- mockup 3: grid + bulk ---------- */
+(function(){
+  const grid = $('#m3grid'), app = $('#m3app'), bar = $('#m3bar');
+  const tagsOf = [
+    ['beam'],['beam','footing'],[],['P2026-141','beam','calc'],['site-visit'],[],['2327-018'],['footing','calc'],['beam','P2026-141'],[],['rfi','2327-018'],['meeting']
+  ].map(a => a.slice());
+  const sugDot = new Set([2,5,9]);
+  let selecting = false, sel = new Set(), last = null;
+  function card(i){
+    const t = tagsOf[i], shown = t.slice(0,2), more = t.length-2;
+    return `<div class="th ${sel.has(i)?'sel':''}" data-i="${i}">${inkSVG(i+20)}
+      <span class="tick">${sel.has(i)?'✓':''}</span>
+      ${sugDot.has(i)?'<span class="dot" title="Suggested project number"></span>':'<span class="addtag">+ tag</span>'}
+      <div class="lab">P${30+i}<div class="tags">${shown.map(x=>chip(x,false)).join('')}${more>0?`<span class="tg more">+${more}</span>`:''}${!t.length?'<span class="mut" style="font-size:11px;color:#bbb">no tags</span>':''}</div></div></div>`;
+  }
+  function paint(){
+    grid.innerHTML = tagsOf.map((_,i)=>card(i)).join('');
+    app.classList.toggle('selecting', selecting);
+    bar.style.display = selecting ? 'flex' : 'none';
+    $('#m3n').textContent = sel.size + ' selected';
+    $('#m3sel').textContent = selecting ? '☑ Selecting' : '☐ Select';
+  }
+  function toast(m){ const t=$('#m3toast'); t.textContent=m; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1800); }
+  grid.addEventListener('click', e => {
+    const th = e.target.closest('.th'); if (!th) return;
+    const i = +th.dataset.i;
+    if (!selecting){ if (e.target.closest('.addtag')) toast('Opens the chip editor in a small popover'); else toast('Would open P'+(30+i)+' in the reader'); return; }
+    if (e.shiftKey && last!=null){ const [a,b]=[Math.min(i,last),Math.max(i,last)]; for(let k=a;k<=b;k++) sel.add(k); }
+    else { sel.has(i)?sel.delete(i):sel.add(i); last=i; }
+    paint();
+  });
+  $('#m3sel').onclick = () => { selecting=!selecting; if(!selecting) sel.clear(); paint(); };
+  $('#m3done').onclick = () => { selecting=false; sel.clear(); paint(); };
+  $('#m3all').onclick = () => { tagsOf.forEach((_,i)=>sel.add(i)); paint(); };
+  $('#m3apply').onclick = () => {
+    const inp = $('#m3bar input'); const t = norm(inp.value);
+    if (!t) return toast('Type a tag first'); if (!sel.size) return toast('Tick some pages first');
+    sel.forEach(i => { if (!tagsOf[i].includes(t)) tagsOf[i].push(t); });
+    toast(`Added "${t}" to ${sel.size} page${sel.size>1?'s':''}`); inp.value=''; paint();
+  };
+  $('#m3clear').onclick = () => {
+    const inp = $('#m3bar input'); const t = norm(inp.value);
+    if (!t) return toast('Type the tag to remove, then press this'); if (!sel.size) return toast('Tick some pages first');
+    sel.forEach(i => { tagsOf[i] = tagsOf[i].filter(v=>v!==t); }); toast(`Removed "${t}" from selection`); inp.value=''; paint();
+  };
+  paint();
+})();
+
+/* ---------- shared synthetic library for 4, 5, 6 ---------- */
+const BOOKS = {'Field Notes 3':24,'Site Visits':18,'Calc Pad':31,'Meetings 2026':12};
+const TAGPAGES = {            // tag -> [[book, page, seed]]
+  'beam':      [['Field Notes 3',42,1],['Field Notes 3',44,2],['Calc Pad',7,3],['Calc Pad',9,4],['Site Visits',3,5],['Calc Pad',12,6],['Meetings 2026',2,7]],
+  'footing':   [['Field Notes 3',38,8],['Site Visits',5,9],['Calc Pad',20,10],['Site Visits',6,11]],
+  'P2026-141': [['Field Notes 3',42,1],['Field Notes 3',51,12],['Meetings 2026',2,7],['Calc Pad',7,3]],
+  '2327-018':  [['Site Visits',5,9],['Site Visits',6,11],['Field Notes 3',55,13]],
+  'site-visit':[['Site Visits',3,5],['Site Visits',5,9],['Site Visits',6,11]],
+  'rfi':       [['Field Notes 3',55,13],['Calc Pad',20,10]],
+  'meeting':   [['Meetings 2026',2,7],['Meetings 2026',3,14]]
+};
+const bookSeeds = { 'Field Notes 3':[42,43,44], 'Site Visits':[50,51,52], 'Calc Pad':[60,61,62], 'Meetings 2026':[70,71,72] };
+const strip = (seeds) => `<div class="strip">${seeds.map(s=>inkSVG(s)).join('')}</div>`;
+
+/* ---------- mockup 4: group by ---------- */
+(function(){
+  let grp = 'book', sort = 'recent';
+  const sorts = { book:[['recent','Recently written'],['name','Name'],['pages','Most pages']], tag:[['pages','Most pages'],['name','Name'],['recent','Recently tagged']] };
+  const tagMeta = t => { const p = TAGPAGES[t]; return { n:p.length, nb:new Set(p.map(x=>x[0])).size }; };
+  function paint(){
+    const g = $('#m4grid');
+    $('#m4sort').innerHTML = sorts[grp].map(([id,l]) => `<span class="ch ${sort===id?'on':''}" data-s="${id}">${l}</span>`).join('');
+    $$('#m4grp span').forEach(s => s.classList.toggle('on', s.dataset.g===grp));
+    if (grp==='book'){
+      $('#m4sum').textContent = `${Object.keys(BOOKS).length} notebooks · ${Object.values(BOOKS).reduce((a,b)=>a+b,0)} pages`;
+      let b = Object.entries(BOOKS); if (sort==='name') b.sort((x,y)=>x[0].localeCompare(y[0])); if (sort==='pages') b.sort((x,y)=>y[1]-x[1]);
+      g.innerHTML = b.map(([n,c]) => `<div class="nb"><h5>${n}</h5><div class="meta">${c} pages · last written Oct 2026</div>${strip(bookSeeds[n])}</div>`).join('');
+    } else {
+      const tags = Object.keys(TAGPAGES);
+      $('#m4sum').textContent = `${tags.length} tags · 11 pages untagged of 85`;
+      const proj = tags.filter(isProj), kw = tags.filter(t=>!isProj(t));
+      const sorter = (a,b) => sort==='name'? a.localeCompare(b) : tagMeta(b).n - tagMeta(a).n;
+      const cardT = t => { const m = tagMeta(t); return `<div class="nb"><h5>${chip(t,false)}</h5><div class="meta">${m.n} pages · ${m.nb} notebook${m.nb>1?'s':''}</div>${strip(TAGPAGES[t].slice(0,3).map(x=>x[2]+30))}</div>`; };
+      g.innerHTML =
+        `<div style="grid-column:1/-1;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#999">Projects</div>` + proj.sort(sorter).map(cardT).join('') +
+        `<div style="grid-column:1/-1;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#999;margin-top:6px">Keywords</div>` + kw.sort(sorter).map(cardT).join('') +
+        `<div class="nb" style="border-style:dashed;background:transparent"><h5><span class="mut" style="color:#888">Untagged</span></h5><div class="meta">11 pages · across 4 notebooks</div><div style="font-size:12px;color:#aaa">Pages with no tag yet</div></div>`;
+    }
+  }
+  $('#m4grp').addEventListener('click', e => { const s = e.target.closest('[data-g]'); if (!s) return; grp = s.dataset.g; sort = sorts[grp][0][0]; paint(); });
+  $('#m4sort').addEventListener('click', e => { const s = e.target.closest('[data-s]'); if (!s) return; sort = s.dataset.s; paint(); });
+  paint();
+})();
+
+/* ---------- mockup 5: filter ---------- */
+(function(){
+  let chosen = ['beam'], mode = 'any';
+  const all = Object.keys(TAGPAGES);
+  const pages = {};   // key -> {book,page,seed,tags}
+  Object.entries(TAGPAGES).forEach(([t,list]) => list.forEach(([b,p,s]) => { const k=b+'/'+p; (pages[k]=pages[k]||{b,p,s,tags:[]}).tags.push(t); }));
+  function paint(){
+    const list = Object.values(pages);
+    const match = list.filter(pg => !chosen.length || (mode==='any' ? chosen.some(c=>pg.tags.includes(c)) : chosen.every(c=>pg.tags.includes(c))));
+    const avail = {}; match.forEach(pg => pg.tags.forEach(t => avail[t]=(avail[t]||0)+1));
+    $('#m5title').innerHTML = chosen.length ? 'Tag: ' + chosen.join(mode==='any'?' or ':' + ') : 'All tagged pages';
+    $('#m5sum').textContent = `${match.length} page${match.length===1?'':'s'} · ${new Set(match.map(m=>m.b)).size} notebook${new Set(match.map(m=>m.b)).size===1?'':'s'}`;
+    $$('#m5mode span').forEach(s => s.classList.toggle('on', s.dataset.m===mode));
+    const next = all.filter(t => !chosen.includes(t) && (mode==='any' || avail[t]));
+    $('#m5f').innerHTML = `<span class="lb">Filter</span>` +
+      chosen.map(t => `<span class="tg on btnish ${isProj(t)?'p':''}" data-c="${t}">${t} <span class="x" style="opacity:.8">×</span></span>`).join('') +
+      (chosen.length && next.length?'<span class="mut" style="margin:0 4px;color:#ccc">|</span>':'') +
+      next.map(t => `<span class="tg btnish ${isProj(t)?'p':''}" data-a="${t}">${t} <small style="opacity:.6">${(mode==='all'?avail[t]:TAGPAGES[t].length)}</small></span>`).join('') +
+      (chosen.length>0?`<span class="grow"></span><span class="btn sm" data-clear>Clear</span>`:'');
+    $('#m5grid').innerHTML = match.length ? match.map(pg => `<div class="th">${inkSVG(pg.s+30)}<div class="lab"><span class="mut" style="color:#888">${pg.b}</span> P${pg.p}<div class="tags">${pg.tags.slice(0,3).map(x=>chip(x,false)).join('')}${pg.tags.length>3?`<span class="tg more">+${pg.tags.length-3}</span>`:''}</div></div></div>`).join('')
+      : `<div style="grid-column:1/-1;color:#999;text-align:center;padding:30px">No page has all of these. Nothing to show, which is why the chips above only offer tags that still match.</div>`;
+  }
+  $('#m5f').addEventListener('click', e => {
+    const c = e.target.closest('[data-c]'), a = e.target.closest('[data-a]');
+    if (c) chosen = chosen.filter(t => t!==c.dataset.c);
+    else if (a) chosen.push(a.dataset.a);
+    else if (e.target.closest('[data-clear]')) chosen = [];
+    paint();
+  });
+  $('#m5mode').addEventListener('click', e => { const s = e.target.closest('[data-m]'); if (!s) return; mode = s.dataset.m; if (mode==='all'){ /* drop chips that no longer co-occur */ } paint(); });
+  paint();
+})();
+
+/* ---------- mockup 6: review queue ---------- */
+(function(){
+  const init = () => ([
+    { t:'P2026-141', pages:[['Field Notes 3',51,12],['Meetings 2026',3,14],['Calc Pad',9,4]], line:'…re <b>P2026-141</b> roof beam size, check deflection' },
+    { t:'2327-018',  pages:[['Site Visits',6,11],['Field Notes 3',55,13]], line:'…follow up on <b>2327-018</b> footing RFI' },
+    { t:'2412-007',  pages:[['Calc Pad',20,10]], line:'…<b>2412-007</b> new job, kickoff Thursday' }
+  ]);
+  let q = init();
+  function paint(){
+    const n = q.reduce((a,g)=>a+g.pages.length,0);
+    $('#m6sum').textContent = n ? `${n} pages · ${q.length} numbers` : '';
+    $('#m6q').innerHTML = q.length ? q.map((g,gi) => `<div class="qrow" style="grid-template-columns:1fr auto">
+        <div><div class="row" style="gap:10px;margin-bottom:6px"><span class="tg s" style="padding-right:8px">${g.t}</span><span class="mut" style="color:#888;font-size:12px">${g.pages.length} page${g.pages.length>1?'s':''}</span></div>
+        <div class="ev" style="margin:0 0 8px">${g.line}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">${g.pages.map(p => `<div style="width:60px;font-size:10.5px;color:#777;text-align:center"><div class="th" style="cursor:default">${inkSVG(p[2]+30)}</div>${p[0].split(' ')[0]} P${p[1]}</div>`).join('')}</div></div>
+        <div style="display:flex;flex-direction:column;gap:6px"><span class="btn pri" data-ok="${gi}">Tag all ${g.pages.length}</span><span class="btn" data-no="${gi}">Dismiss all</span></div></div>`).join('')
+      : `<div style="padding:32px;text-align:center;color:#999">All caught up. New suggestions appear after you transcribe more pages.</div>`;
+  }
+  $('#m6q').addEventListener('click', e => {
+    const ok = e.target.closest('[data-ok]'), no = e.target.closest('[data-no]');
+    const i = ok ? +ok.dataset.ok : no ? +no.dataset.no : -1; if (i<0) return;
+    q.splice(i,1); paint();
+  });
+  $('#m6rescan').onclick = () => { q = init(); paint(); };
+  paint();
+})();
+
+/* ---------- mockup 7: manager ---------- */
+(function(){
+  const rows = Object.entries(ALL).filter(([,n])=>n).sort((a,b)=>b[1]-a[1]);
+  const t = $('#m7t');
+  t.innerHTML = `<tr><th>Tag</th><th>Pages</th><th>Notebooks</th><th></th></tr>` + rows.map(([n,c]) =>
+    `<tr><td>${chip(n,false)}</td><td>${c}</td><td>${Math.max(1,Math.round(c/4))}</td><td style="text-align:right;white-space:nowrap"><span class="btn sm" data-a="rename" data-t="${n}">Rename</span> <span class="btn sm" data-a="merge" data-t="${n}">Merge into…</span> <span class="btn sm" data-a="delete" data-t="${n}">Delete</span></td></tr>`).join('');
+  const toast = $('#m7toast');
+  t.addEventListener('click', e => {
+    const b = e.target.closest('[data-a]'); if (!b) return;
+    const n = b.dataset.t, c = ALL[n];
+    toast.textContent = { rename:`Rename "${n}": new name, then it's updated on ${c} pages. If the name exists, it merges (confirm).`,
+      merge:`Merge "${n}" into: pick the tag that survives. ${c} pages relabelled; "${n}" is removed.`,
+      delete:`Remove "${n}" from ${c} pages? Pages themselves are not touched.` }[b.dataset.a];
+    toast.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(()=>toast.classList.remove('show'),3200);
+  });
+})();
+</script>
+</body>
+</html>

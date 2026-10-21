@@ -304,6 +304,22 @@ export function requestFeedJump(day) {
 export const libraryNotebook = writable(null);
 
 /**
+ * A Library page list that is not one notebook (v3.1.0 page tags), shown when
+ * no page is open and `libraryNotebook` is null:
+ *   { kind: 'tag', tag }      that tag's pages, across notebooks
+ *   { kind: 'untagged' }      pages with no tag
+ *   { kind: 'suggestions' }   the suggested-project-number queue
+ * null = the home. Session-only.
+ */
+export const libraryView = writable(null);
+
+/** A notebook's page grid, or the home for null. Leaves any tag view. */
+export function showLibraryGrid(book) {
+  libraryView.set(null);
+  libraryNotebook.set(book == null ? null : String(book));
+}
+
+/**
  * Show one notebook's page grid in the Library (a card, a Notebook search
  * result). Leaving an open page with unsaved transcript edits asks first.
  * @returns {'cancelled'|'opened'}
@@ -314,7 +330,25 @@ export function openNotebookInLibrary(book, { confirm = windowConfirm } = {}) {
     clearAllViewerDirty();
   }
   clearViewerSelection();
-  libraryNotebook.set(book == null ? null : String(book));
+  showLibraryGrid(book);
+  navigateTo('library', { confirm });
+  return 'opened';
+}
+
+/**
+ * Show a tag's pages, the Untagged pages or the suggestions queue in the
+ * Library (a tag card, a Tags search result). Asks first like a notebook.
+ * @param {{kind: 'tag', tag: string}|{kind: 'untagged'}|{kind: 'suggestions'}} view
+ * @returns {'cancelled'|'opened'}
+ */
+export function openLibraryView(view, { confirm = windowConfirm } = {}) {
+  if (get(viewerSelection) && get(viewerDirty)) {
+    if (!confirm(DISCARD_PROMPT)) return 'cancelled';
+    clearAllViewerDirty();
+  }
+  clearViewerSelection();
+  libraryNotebook.set(null);
+  libraryView.set(view || null);
   navigateTo('library', { confirm });
   return 'opened';
 }

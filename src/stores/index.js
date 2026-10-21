@@ -91,6 +91,37 @@ export {
   setPageRotation
 } from './orientation.js';
 
+// Page tags (keywords and project numbers per page, pages/_tags.json)
+export {
+  pageTags,
+  dismissedTags,
+  tagIndex,
+  tagStatsList,
+  loadTags,
+  clearTags,
+  setPageTagList,
+  addTagToPages,
+  removeTagFromPages,
+  renameTag,
+  mergeTags,
+  deleteTag,
+  dismissSuggestion,
+  resetDismissed,
+  carryTagsForMoves,
+  tagsFor
+} from './tags.js';
+
+// Tag suggestions (project numbers found in stored transcripts)
+export {
+  suggestionsFound,
+  pendingSuggestions,
+  suggestionCount,
+  suggestionScan,
+  ensureSuggestionScan,
+  cancelSuggestionScan,
+  clearSuggestions
+} from './tag-suggestions.js';
+
 // Page backgrounds (Neo's printed pages, read-only views)
 export {
   backgroundsEnabled,
@@ -286,7 +317,10 @@ export {
   openPageInLibrary,
   // Library home + global search (reading-first package E)
   libraryNotebook,
+  libraryView,
+  showLibraryGrid,
   openNotebookInLibrary,
+  openLibraryView,
   transcriptEditing,
   readerPages,
   readerFocus,
@@ -304,7 +338,14 @@ export {
   searchRecords,
   searchDates,
   notebookNames,
-  ensureTimelineLoaded
+  ensureTimelineLoaded,
+  // Page tags: Group by Notebook | Tag (v3.1.0)
+  libraryGroupBy,
+  setLibraryGroupBy,
+  libraryTagSort,
+  setLibraryTagSort,
+  tagCardList,
+  untaggedSummary
 } from './library.js';
 
 // Book Aliases
