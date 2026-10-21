@@ -19,7 +19,7 @@
 import { writable, derived, get } from 'svelte/store';
 import {
   normalizeTag, normalizeTagsFile, tagKey, withPageList, addTagToKeys, removeTagFromKeys,
-  renameTagInMap, deleteTagFromMap, diffTagMaps, rollbackPatch, buildTagIndex, tagStats
+  renameTagInMap, deleteTagFromMap, diffTagMaps, rollbackPatch, buildTagIndex, tagStats, planTagCarry
 } from '../lib/tags.js';
 import { getTags, patchTags } from '../lib/storage/local-store.js';
 import { debug } from '../lib/debug.js';
@@ -159,6 +159,22 @@ export function dismissSuggestion(keys, tag) {
 /** Forget every dismissal, so all suggestions come back. */
 export function resetDismissed() {
   return commit(get(pageTags), {}, 'the reset');
+}
+
+/**
+ * After a save that moved strokes between volumes: carry the tags (and
+ * dismissals) of each page the move emptied onto its one target page, unless
+ * the target already has its own (lib/tags.js planTagCarry). A partial move
+ * leaves them where they are. Called from ActionBar after finalizePageMoves.
+ * @param {Array<{fromBook, fromPage, toBook, toPage}>} moves  finalizePageMoves().emptied
+ * @returns {Promise<number>} how many pages' tags moved
+ */
+export async function carryTagsForMoves(moves) {
+  if (!moves || !moves.length) return 0;
+  const plan = planTagCarry({ pages: get(pageTags), dismissed: get(dismissedTags) }, moves);
+  if (!plan.carried.length && plan.dismissed === get(dismissedTags)) return 0;
+  const ok = await commit(plan.pages, plan.dismissed, 'tags for the moved pages');
+  return ok ? plan.carried.length : 0;
 }
 
 /** A page's tags from a map: `tagsFor($pageTags, book, pageId)`. */

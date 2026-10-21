@@ -246,6 +246,33 @@ export function rollbackPatch(map, patch, prev) {
   return next;
 }
 
+/**
+ * Tags after volume moves (v3.1.0). Tags stay with the source page key; only
+ * when a move emptied the source page (finalizePageMoves `emptied`: no
+ * strokes left, exactly one target) do they follow, and only onto a page that
+ * has none, so nothing is ever overwritten. Dismissals follow the same way.
+ * @param {{pages: Record<string, string[]>, dismissed: Record<string, string[]>}} maps
+ * @param {Array<{fromBook, fromPage, toBook, toPage}>} moves
+ * @returns {{pages: Record<string, string[]>, dismissed: Record<string, string[]>, carried: string[]}}
+ *   `carried`: source keys whose tags moved
+ */
+export function planTagCarry({ pages = {}, dismissed = {} }, moves) {
+  let p = pages;
+  let d = dismissed;
+  const carried = [];
+  for (const m of moves || []) {
+    const from = tagKey(m.fromBook, m.fromPage);
+    const to = tagKey(m.toBook, m.toPage);
+    if (!from || !to || from === to) continue;
+    if (p[from] && !p[to]) {
+      p = withPageList(withPageList(p, to, p[from]), from, []);
+      carried.push(from);
+    }
+    if (d[from] && !d[to]) d = withPageList(withPageList(d, to, d[from]), from, []);
+  }
+  return { pages: p, dismissed: d, carried };
+}
+
 /* ============================================================
  *  Suggestions: project numbers in transcript text
  * ============================================================ */

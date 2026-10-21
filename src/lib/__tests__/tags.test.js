@@ -10,7 +10,7 @@ import {
   deleteTagFromMap, tagExists, diffTagMaps, rollbackPatch, findProjectNumbers,
   suggestProjectNumbers, splitSuggestionLine, buildTagIndex, recordsForKeys, untaggedRecords,
   tagCards, untaggedCard, sortTagCards, tagStats, filterByTags, filterChoices, tagOptions,
-  parseTagSort, parseGroupBy, MAX_TAG_LENGTH
+  parseTagSort, parseGroupBy, planTagCarry, MAX_TAG_LENGTH
 } from '$lib/tags.js';
 
 const rec = (book, pageId, extra = {}) => ({
@@ -370,5 +370,33 @@ describe('tagOptions (type-ahead)', () => {
     expect(tagOptions('Beam', stats).create).toBeNull();
     expect(tagOptions('p2026-141', stats)).toEqual({ options: [{ tag: 'P2026-141', pages: 8 }], create: null });
     expect(tagOptions('!!', stats).create).toBeNull();
+  });
+});
+
+describe('planTagCarry (volume moves)', () => {
+  const move = { fromBook: '390', fromPage: 12, toBook: '390v2', toPage: 12 };
+
+  it('moves an emptied page’s tags and dismissals to a target that has none', () => {
+    const out = planTagCarry({ pages: { '390/12': ['beam'] }, dismissed: { '390/12': ['2327-018'] } }, [move]);
+    expect(out).toEqual({
+      pages: { '390v2/12': ['beam'] },
+      dismissed: { '390v2/12': ['2327-018'] },
+      carried: ['390/12']
+    });
+  });
+
+  it('never overwrites the target’s own tags', () => {
+    const maps = { pages: { '390/12': ['beam'], '390v2/12': ['roof'] }, dismissed: {} };
+    const out = planTagCarry(maps, [move]);
+    expect(out.pages).toEqual(maps.pages);
+    expect(out.carried).toEqual([]);
+  });
+
+  it('ignores untagged sources, bad keys and repeated moves', () => {
+    expect(planTagCarry({ pages: {}, dismissed: {} }, [move]).carried).toEqual([]);
+    expect(planTagCarry({ pages: { '390/12': ['a'] } }, [{ ...move, toBook: '390v1' }]).carried).toEqual([]);
+    const twice = planTagCarry({ pages: { '390/12': ['a'] }, dismissed: {} }, [move, move]);
+    expect(twice.pages).toEqual({ '390v2/12': ['a'] });
+    expect(planTagCarry({ pages: {} }, null).carried).toEqual([]);
   });
 });

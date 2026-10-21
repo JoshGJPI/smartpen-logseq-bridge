@@ -16,7 +16,7 @@ import { getTags, patchTags } from '$lib/storage/local-store.js';
 import {
   pageTags, dismissedTags, tagIndex, tagStatsList, loadTags, clearTags, setPageTagList,
   addTagToPages, removeTagFromPages, renameTag, mergeTags, deleteTag, dismissSuggestion,
-  resetDismissed, tagsFor
+  resetDismissed, tagsFor, carryTagsForMoves
 } from '$stores/tags.js';
 import { logMessages } from '$stores/ui.js';
 
@@ -201,5 +201,35 @@ describe('dismissals', () => {
     clearTags();
     expect(get(pageTags)).toEqual({});
     expect(get(dismissedTags)).toEqual({});
+  });
+});
+
+describe('carryTagsForMoves (volume reassignment)', () => {
+  it('carries an emptied page’s tags to its one target in one write', async () => {
+    pageTags.set({ '390/12': ['beam'], '390/13': ['roof'] });
+    dismissedTags.set({ '390/12': ['2327-018'] });
+    const n = await carryTagsForMoves([{ fromBook: '390', fromPage: 12, toBook: '390v2', toPage: 12 }]);
+    expect(n).toBe(1);
+    expect(get(pageTags)).toEqual({ '390v2/12': ['beam'], '390/13': ['roof'] });
+    expect(get(dismissedTags)).toEqual({ '390v2/12': ['2327-018'] });
+    expect(patchTags).toHaveBeenCalledTimes(1);
+    expect(patchTags).toHaveBeenCalledWith({
+      pages: { '390/12': null, '390v2/12': ['beam'] },
+      dismissed: { '390/12': null, '390v2/12': ['2327-018'] }
+    });
+  });
+
+  it('does nothing for no moves or untagged pages', async () => {
+    expect(await carryTagsForMoves([])).toBe(0);
+    expect(await carryTagsForMoves(undefined)).toBe(0);
+    expect(await carryTagsForMoves([{ fromBook: '390', fromPage: 1, toBook: '390v2', toPage: 1 }])).toBe(0);
+    expect(patchTags).not.toHaveBeenCalled();
+  });
+
+  it('rolls the carry back if the write fails', async () => {
+    pageTags.set({ '390/12': ['beam'] });
+    vi.mocked(patchTags).mockRejectedValue(new Error('locked'));
+    expect(await carryTagsForMoves([{ fromBook: '390', fromPage: 12, toBook: '390v2', toPage: 12 }])).toBe(0);
+    expect(get(pageTags)).toEqual({ '390/12': ['beam'] });
   });
 });

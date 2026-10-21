@@ -107,6 +107,7 @@ export {
   deleteTag,
   dismissSuggestion,
   resetDismissed,
+  carryTagsForMoves,
   tagsFor
 } from './tags.js';
 

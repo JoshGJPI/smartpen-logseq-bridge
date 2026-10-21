@@ -46,6 +46,7 @@
   } from '$stores';
   import { getUntranscribedStrokes, clearPointEditMarkers, clearMovedFromMarkers } from '$stores/strokes.js';
   import { getDeletedStrokeIdsForPage, getMovedAwayStrokeIdsForPage } from '$stores/pending-changes.js';
+  import { carryTagsForMoves } from '$stores/tags.js';
   import { clearContextInk, contextInkPageKeys } from '$stores/context-ink.js';
   import { writable } from 'svelte/store';
   import SaveConfirmDialog from '$components/dialog/SaveConfirmDialog.svelte';
@@ -539,6 +540,9 @@
         for (const err of tidy.errors) {
           log(`Move cleanup: ${err}`, 'warning');
         }
+        // Page tags live in _tags.json, so a whole-page move carries them too.
+        const tagsMoved = await carryTagsForMoves(tidy.emptied);
+        if (tagsMoved > 0) log(`Moved the tags of ${tagsMoved} page(s) to follow their strokes`, 'info');
       }
 
       // Summary
