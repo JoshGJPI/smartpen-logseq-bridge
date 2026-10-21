@@ -31,6 +31,8 @@
   export let label = 'Add tag';
   /** Dark surface (the bulk bar). */
   export let dark = false;
+  /** Open the list above the field (a bar at the bottom of the pane). */
+  export let dropUp = false;
 
   let input;
   let text = '';
@@ -105,7 +107,7 @@
     on:keydown={onKey}
   />
   {#if showList}
-    <div class="pop" id={listId} role="listbox" tabindex="-1" on:mousedown|preventDefault>
+    <div class="pop" class:up={dropUp} id={listId} role="listbox" tabindex="-1" on:mousedown|preventDefault>
       <div class="hd">{text.trim() ? 'Matching tags' : 'Your tags'}</div>
       {#each items as o, i (o.create ? `+${o.tag}` : o.tag)}
         <button
@@ -169,6 +171,7 @@
     background: #fff;
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
   }
+  .pop.up { top: auto; bottom: calc(100% + 4px); }
   .hd { padding: 4px 8px 2px; font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase; color: #999; }
   .it {
     display: flex;

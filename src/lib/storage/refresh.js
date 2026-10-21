@@ -20,7 +20,7 @@
  */
 import { get } from 'svelte/store';
 import {
-  isScanning, clearSavedPages, clearViewerSelection, libraryNotebook, clearReaderFocus
+  isScanning, clearSavedPages, clearViewerSelection, showLibraryGrid, clearReaderFocus
 } from '$stores';
 import { timelineIndex, loadTimeline } from '$stores/timeline.js';
 import { loadVolumes } from '$stores/volumes.js';
@@ -65,7 +65,7 @@ export async function resetForDataFolder() {
   clearTags();
   timelineIndex.set(null);
   clearReaderFocus();
-  libraryNotebook.set(null);
+  showLibraryGrid(null);
   clearViewerSelection();
   if (!get(dataFolderReady)) return;
   await loadVolumes();

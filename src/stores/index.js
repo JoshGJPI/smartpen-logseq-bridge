@@ -305,7 +305,10 @@ export {
   openPageInLibrary,
   // Library home + global search (reading-first package E)
   libraryNotebook,
+  libraryView,
+  showLibraryGrid,
   openNotebookInLibrary,
+  openLibraryView,
   transcriptEditing,
   readerPages,
   readerFocus,

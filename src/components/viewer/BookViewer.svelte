@@ -1,7 +1,7 @@
 <!--
-  BookViewer.svelte — the Library pane: the home (LibraryHome, notebook cards)
-  or one notebook's page grid (NotebookPages, `libraryNotebook`) when no page
-  is open, otherwise the reader: one page, or a two-page spread.
+  BookViewer.svelte — the Library pane: LibraryBrowse (the home, a notebook's
+  or a tag's page grid) when no page is open, otherwise the reader: one page,
+  or a two-page spread, with the page tags strip beside it.
 
   The shared spread toolbar (SpreadToolbar, in the pane toolbar) drives both
   pages through zoomAll() and goToPage(); ←/→ turn pages (pageTurnKey: never
@@ -26,6 +26,7 @@
     setViewerSelection,
     clearViewerSelection,
     libraryNotebook,
+    showLibraryGrid,
     transcriptEditing,
     readerPages,
     clearReaderFocus,
@@ -36,8 +37,7 @@
   import { DISCARD_PROMPT } from '$lib/navigation.js';
   import { pageIdOf as idOf, resolveGoToPage, turnTarget, pageTurnKey, zoomText } from '$lib/viewer/page-reader.js';
   import { modalOpen } from '$lib/left-panel.js';
-  import LibraryHome from './LibraryHome.svelte';
-  import NotebookPages from './NotebookPages.svelte';
+  import LibraryBrowse from './LibraryBrowse.svelte';
   import PageSpreadView from './PageSpreadView.svelte';
   import ReaderTagsLayout from '../tags/ReaderTagsLayout.svelte';
 
@@ -179,7 +179,7 @@
   export function goHome() {
     if (!guardNav()) return;
     editingSide = null;
-    libraryNotebook.set(null);
+    showLibraryGrid(null);
     clearViewerSelection();
   }
 
@@ -187,7 +187,7 @@
   export function openNotebook(book) {
     if (!guardNav()) return;
     editingSide = null;
-    libraryNotebook.set(String(book));
+    showLibraryGrid(book);
     clearViewerSelection();
   }
 
@@ -216,11 +216,7 @@
 
 <div class="book-viewer">
   {#if !leftRecord}
-    {#if gridBook}
-      <NotebookPages book={gridBook} onOpen={openRecord} />
-    {:else}
-      <LibraryHome onOpen={openRecord} onOpenNotebook={openNotebook} />
-    {/if}
+    <LibraryBrowse {gridBook} onOpen={openRecord} onOpenNotebook={openNotebook} />
   {:else}
     <ReaderTagsLayout records={pinEdit ? [editingRecord] : [slotA.record, showSlotB && slotB ? slotB.record : null]}>
     <div class="bv-body" class:spread={showSlotB}>

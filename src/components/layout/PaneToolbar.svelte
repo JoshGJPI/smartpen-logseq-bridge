@@ -5,6 +5,7 @@
   Library:  Library › Notebook › P12–P13 of 48   ("Library" goes back to the notebook
             cards, "Notebook" to that notebook's page grid), then the reader's shared
             controls (the default slot: SpreadToolbar). On a page grid: Library › Notebook.
+            A tag's pages, Untagged or the suggestions queue: Library › Tag: beam (v3.1.0).
   Timeline: Timeline                       (the range is in the feed's Range ▾)
 
   The Editor has no pane toolbar: none of the View options apply to it, and its
@@ -13,7 +14,7 @@
 -->
 <script>
   import ViewMenu from './ViewMenu.svelte';
-  import { destination, viewerSelection, pagesByBook, bookAliases, backgroundsAvailable } from '$stores';
+  import { destination, viewerSelection, pagesByBook, bookAliases, backgroundsAvailable, libraryView } from '$stores';
   import { viewOptionsFor, pageCrumb } from '$lib/pane-toolbar.js';
   import { formatBookName } from '$utils/formatting.js';
 
@@ -37,6 +38,10 @@
   $: open = $destination === 'library' && openBook != null;
   $: bookLabel = open ? formatBookName(openBook, $bookAliases, 'alias-only') : '';
   $: pagesLabel = open && hasSelection && $viewerSelection ? pageCrumb($viewerSelection, $pagesByBook, spread) : '';
+  // A tag's pages, the Untagged pages or the suggestions queue (v3.1.0).
+  $: viewLabel = !open && !hasSelection && $libraryView
+    ? ({ tag: `Tag: ${$libraryView.tag}`, untagged: 'Untagged', suggestions: 'Suggestions' })[$libraryView.kind] || ''
+    : '';
 
   function setSpread(on) {
     if (on !== spread) onToggleSpread();
@@ -58,6 +63,10 @@
           <span class="sep" aria-hidden="true">›</span>
           <span class="crumb here">{pagesLabel}</span>
         {/if}
+      {:else if viewLabel}
+        <button type="button" class="crumb link" on:click={onHome} title="Back to the Library">Library</button>
+        <span class="sep" aria-hidden="true">›</span>
+        <span class="crumb here">{viewLabel}</span>
       {:else}
         <span class="crumb here">Library</span>
       {/if}
