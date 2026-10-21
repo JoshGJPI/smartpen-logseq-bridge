@@ -6,6 +6,40 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.2.0 — Tag reading order, tag manager in the Library (October 2026)
+
+**Reading a tag's pages as a book.** A tag's grid (or Untagged, or any grid with a tag filter on) only showed
+thumbnails; opening one put the reader back in that page's notebook, so ←/→ left the tag at once. Now the grid hands
+the reader its pages (`buildSequence`, `lib/viewer/reading-order.js`), sorted notebook then page, and the reader
+starts in **Tag** order, with a Book | Tag toggle in the spread toolbar. Rejected: a third Library "mode" with its
+own grid → reader route (the reader already exists; only what ←/→ walk changes), and re-evaluating the filter live
+while reading (retagging the open page would pull it out from under you mid-read; the sequence is a snapshot of the
+click, and pages deleted since are skipped). Tag order applies only while the open page is in the sequence, so a
+page opened some other way (search, Contents, a feed card, Recent) reads in Book order and `openPageInLibrary`
+drops the sequence. Switching to Tag from a page Book order turned to lands on the next tagged page
+(`landingInSequence`). Go to page stays per notebook and switches to Book when the target is not tagged. Each grid's
+filter is now kept for the session (`gridFilters`), so the crumb back from the reader finds the grid as it was. A
+spread can pair two notebooks' pages: each page header already names its notebook, and the Contents highlight
+leaves out the other notebook's page. `ReaderSpread` was split out of BookViewer, which was over the size guideline.
+
+**Tag manager in the Library.** It is about pages, and the Library is where pages and notebooks are managed, so
+it moved from the Settings dialog to a Library view (`libraryView` `{ kind: 'tags' }`, **Manage tags** on the
+home, `Library › Manage tags`), restyled for the light reading surface; a tag's chip opens its pages, and the
+Tag / Pages / Notebooks headers sort the table (click again to reverse; remembered per viewer as
+`smartpen-tag-manager-sort`, `sortTagStats()` in `lib/tags.js`). A rename, merge, delete or reset of dismissals
+now shows **Undo** in a bar above the table (`tagUndo` / `undoTagChange()` in `stores/tags.js`): a merge forgets
+which pages had which tag, so a mistaken one could not otherwise be split again (merged the wrong way round only
+needs a rename back). Undo puts back each page the change touched with the same `rollbackPatch` a failed write
+uses, in one write. It covers only the last change and ends at the next tag change of any kind, a failed write or
+a data-folder change (so nothing can have moved under it), and is session-only: undoing across a restart would
+need a stored history, which wasn't worth a second sidecar.
+`TagManagerDialog` and the Settings → Tags section are gone.
+
+**The Library opens on its home each launch.** The open page used to be restored from localStorage
+(`smartpen-viewer-selection`), so the first Library click of a session dropped you into an old spread. It is now
+session-only, like the rest of the Library's place: coming back from the Timeline or Editor still returns to it.
+The old key is removed at startup.
+
 ## Unreleased — Settings layout (October 2026)
 
 Settings had grown into one long scroll, with the tag table in the middle of it. **Manage Pen Memory** left

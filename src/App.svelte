@@ -27,7 +27,7 @@
   import { openBluetoothPicker, updateBluetoothDevices, closeBluetoothPicker } from '$stores/ui.js';
   import { dataRoot, setDataFolderStatus, getDataRoot } from '$stores/settings.js';
   import { graphRoot, setGraphFolderStatus, getGraphRoot } from '$stores/settings.js';
-  import { unsavedChanges, viewerDirty, destination, navigateTo } from '$stores';
+  import { unsavedChanges, viewerDirty, destination, navigateTo, readerSequence, readingList, readingLabel } from '$stores';
   import { DESTINATIONS, DESTINATION_LABELS } from '$lib/navigation.js';
   import { leftPanelCollapsed, toggleLeftPanel } from '$stores';
   import { isPanelToggleKey, modalOpen } from '$lib/left-panel.js';
@@ -235,6 +235,7 @@
           openBook={bookViewerOpenBook}
           onHome={() => bookViewer?.goHome()}
           onNotebook={(book) => bookViewer?.openNotebook(book)}
+          onSequence={() => bookViewer?.openSequenceOrigin()}
           onContent={(mode) => bookViewer?.setContentMode(mode)}
           onToggleSpread={() => bookViewer?.toggleSpread()}
         >
@@ -244,6 +245,9 @@
               zoomLabel={bookViewerHasSelection ? bookViewerZoom : ''}
               onZoom={(op) => bookViewer?.zoomAll(op)}
               onGoTo={(text) => bookViewer?.goToPage(text) ?? false}
+              order={bookViewerHasSelection && $readerSequence ? $readingList.order : null}
+              orderLabel={$readingLabel}
+              onOrder={(order) => bookViewer?.setReadingOrder(order)}
             />
           {/if}
         </PaneToolbar>

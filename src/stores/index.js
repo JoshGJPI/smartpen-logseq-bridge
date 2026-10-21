@@ -302,6 +302,13 @@ export {
   recordRecentView,
   setViewerSelection,
   clearViewerSelection,
+  // Reading order + grid filters (v3.2.0)
+  readerSequence,
+  readerOrder,
+  setReaderSequence,
+  setReaderOrder,
+  gridFilters,
+  setGridFilter,
   // Timeline feed (Book View's date mode)
   bookViewMode,
   setBookViewMode,
@@ -347,7 +354,11 @@ export {
   libraryTagSort,
   setLibraryTagSort,
   tagCardList,
-  untaggedSummary
+  untaggedSummary,
+  // Reading order (v3.2.0)
+  readingSequence,
+  readingList,
+  readingLabel
 } from './library.js';
 
 // Book Aliases

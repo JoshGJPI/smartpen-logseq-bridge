@@ -20,7 +20,8 @@
  */
 import { get } from 'svelte/store';
 import {
-  isScanning, clearSavedPages, clearViewerSelection, showLibraryGrid, clearReaderFocus
+  isScanning, clearSavedPages, clearViewerSelection, showLibraryGrid, clearReaderFocus,
+  setReaderSequence, gridFilters
 } from '$stores';
 import { timelineIndex, loadTimeline } from '$stores/timeline.js';
 import { loadVolumes } from '$stores/volumes.js';
@@ -69,6 +70,8 @@ export async function resetForDataFolder() {
   clearReaderFocus();
   showLibraryGrid(null);
   clearViewerSelection();
+  setReaderSequence(null);
+  gridFilters.set({});
   if (!get(dataFolderReady)) return;
   await loadVolumes();
   await rescan();

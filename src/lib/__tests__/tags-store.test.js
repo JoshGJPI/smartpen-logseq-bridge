@@ -16,7 +16,7 @@ import { getTags, patchTags } from '$lib/storage/local-store.js';
 import {
   pageTags, dismissedTags, tagIndex, tagStatsList, loadTags, clearTags, setPageTagList,
   addTagToPages, removeTagFromPages, renameTag, mergeTags, deleteTag, dismissSuggestion,
-  resetDismissed, tagsFor, carryTagsForMoves
+  resetDismissed, tagsFor, carryTagsForMoves, tagUndo, undoTagChange
 } from '$stores/tags.js';
 import { logMessages } from '$stores/ui.js';
 
@@ -231,5 +231,60 @@ describe('carryTagsForMoves (volume reassignment)', () => {
     vi.mocked(patchTags).mockRejectedValue(new Error('locked'));
     expect(await carryTagsForMoves([{ fromBook: '390', fromPage: 12, toBook: '390v2', toPage: 12 }])).toBe(0);
     expect(get(pageTags)).toEqual({ '390/12': ['beam'] });
+  });
+});
+
+describe('undo (v3.2.0)', () => {
+  beforeEach(() => {
+    pageTags.set({ '388/1': ['a'], '388/2': ['a', 'b'], '388/3': ['b'], '3017/4': ['c'] });
+    tagUndo.set(null);
+  });
+
+  it('a merge can be undone exactly, in one write', async () => {
+    await mergeTags('a', 'b');
+    expect(get(pageTags)).toEqual({ '388/1': ['b'], '388/2': ['b'], '388/3': ['b'], '3017/4': ['c'] });
+    expect(get(tagUndo).label).toBe('Merged “a” into “b”');
+    vi.mocked(patchTags).mockClear();
+    expect(await undoTagChange()).toBe(true);
+    expect(get(pageTags)).toEqual({ '388/1': ['a'], '388/2': ['a', 'b'], '388/3': ['b'], '3017/4': ['c'] });
+    expect(patchTags).toHaveBeenCalledTimes(1);
+    expect(patchTags).toHaveBeenCalledWith({ pages: { '388/1': ['a'], '388/2': ['a', 'b'] }, dismissed: {} });
+    expect(get(tagUndo)).toBe(null);
+    expect(await undoTagChange()).toBe(false);
+  });
+
+  it('labels a rename and a delete, and undoes a delete', async () => {
+    await renameTag('c', 'd');
+    expect(get(tagUndo).label).toBe('Renamed “c” to “d”');
+    await deleteTag('a');
+    expect(get(tagUndo).label).toBe('Removed “a” from 2 pages');
+    await undoTagChange();
+    expect(get(pageTags)['388/1']).toEqual(['a']);
+    expect(get(pageTags)['388/2']).toEqual(['a', 'b']);
+    expect(get(pageTags)['3017/4']).toEqual(['d']); // only the last change is undone
+  });
+
+  it('any later tag change ends the undo', async () => {
+    await mergeTags('a', 'b');
+    await setPageTagList('3017', '4', ['c', 'e']);
+    expect(get(tagUndo)).toBe(null);
+  });
+
+  it('resetting dismissals can be undone', async () => {
+    dismissedTags.set({ '388/1': ['2327-018'] });
+    await resetDismissed();
+    expect(get(dismissedTags)).toEqual({});
+    await undoTagChange();
+    expect(get(dismissedTags)).toEqual({ '388/1': ['2327-018'] });
+  });
+
+  it('a failed write leaves nothing to undo; a data-folder change clears it', async () => {
+    vi.mocked(patchTags).mockRejectedValueOnce(new Error('locked'));
+    await mergeTags('a', 'b');
+    expect(get(pageTags)['388/1']).toEqual(['a']);
+    expect(get(tagUndo)).toBe(null);
+    await mergeTags('a', 'b');
+    clearTags();
+    expect(get(tagUndo)).toBe(null);
   });
 });

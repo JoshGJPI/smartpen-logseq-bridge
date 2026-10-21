@@ -44,7 +44,7 @@
     </span>
   </div>
 
-  <PageGrid {tiles} {onOpen} />
+  <PageGrid {tiles} origin={{ kind: 'notebook', book }} filterKey="nb:{book}" {onOpen} />
 </div>
 
 <style>

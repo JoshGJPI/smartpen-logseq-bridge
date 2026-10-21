@@ -1,8 +1,9 @@
 <!--
   LibraryHomeHead.svelte — the Library home's header row: title and summary,
   Group by Notebook | Tag (v3.1.0), the sort chips for that grouping, the
-  Suggestions (n) entry when there are unreviewed project numbers, and
-  Rescan. Choices persist per viewer (stores/library.js).
+  Suggestions (n) entry when there are unreviewed project numbers, Manage
+  tags (v3.2.0, the tag manager as a Library view) and Rescan. Choices persist
+  per viewer (stores/library.js).
 -->
 <script>
   import {
@@ -64,6 +65,11 @@
   {#if $suggestionCount > 0}
     <button class="lh-sug" on:click={() => openLibraryView({ kind: 'suggestions' })} title="Project numbers found in transcripts, to tag or dismiss">
       Suggestions <span class="badge">{$suggestionCount}</span>
+    </button>
+  {/if}
+  {#if $dataFolderReady}
+    <button class="lh-rescan" on:click={() => openLibraryView({ kind: 'tags' })} title="Rename, merge or delete tags; bring back dismissed suggestions">
+      Manage tags
     </button>
   {/if}
   <button class="lh-rescan" on:click={rescan} disabled={$isScanning || !$dataFolderReady}>

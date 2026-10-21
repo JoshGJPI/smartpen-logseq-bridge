@@ -1,9 +1,10 @@
 <!--
   SpreadToolbar.svelte — the Library reader's shared controls (reading-first
   package D), shown in the pane toolbar between the breadcrumb (which says
-  "P101–P102 of N") and View ▾: Go to page…, and zoom − % + Fit for both
-  pages at once. Rotation is per page (each page's corner); Load into Editor
-  is per page (each page's header).
+  "P101–P102 of N") and View ▾: Book | Tag order (v3.2.0, only when the page
+  was opened from a tag's pages or a filtered grid), Go to page…, and zoom
+  − % + Fit for both pages at once. Rotation is per page (each page's corner);
+  Load into Editor is per page (each page's header).
 -->
 <script>
   /** "62%" / "62% · 58%", or '' when no page shows ink (zoom hidden). */
@@ -12,6 +13,12 @@
   export let onZoom = () => {};
   /** (text) => boolean: false when no such page. */
   export let onGoTo = () => true;
+  /** 'book' | 'tag', or null to hide the toggle (nothing to read in Tag order). */
+  export let order = null;
+  /** Name of the tagged pages Tag order walks, for the tooltip. */
+  export let orderLabel = '';
+  /** ('book'|'tag') => void */
+  export let onOrder = () => {};
 
   let goText = '';
   let notFound = false;
@@ -29,6 +36,15 @@
 </script>
 
 <div class="st">
+  {#if order}
+    <div class="st-order" role="group" aria-label="Turn pages in">
+      <button type="button" class:on={order === 'book'} aria-pressed={order === 'book'} on:click={() => onOrder('book')}
+        title="←/→ turn through this page's notebook">Book</button>
+      <button type="button" class:on={order === 'tag'} aria-pressed={order === 'tag'} on:click={() => onOrder('tag')}
+        title="←/→ turn through {orderLabel || 'the tagged pages'}, notebook then page">Tag</button>
+    </div>
+  {/if}
+
   <form class="st-go" on:submit|preventDefault={submit}>
     <input
       type="text"
@@ -59,6 +75,28 @@
     align-items: center;
     gap: 10px;
     flex-shrink: 0;
+  }
+
+  .st-order {
+    display: flex;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    overflow: hidden;
+  }
+  .st-order button {
+    padding: 3px 10px;
+    border: none;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  .st-order button + button { border-left: 1px solid var(--border); }
+  .st-order button:hover { color: var(--text-primary); }
+  .st-order button.on {
+    background: var(--selected-bg);
+    color: var(--text-primary);
+    box-shadow: inset 0 -2px 0 var(--selected-line);
   }
 
   .st-go input {

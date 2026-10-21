@@ -14,11 +14,16 @@
  * reply, is the truth: a failed write rolls back only the pages it changed,
  * and only where nothing has changed them since, and says so in the Activity
  * Log.
+ *
+ * The tag manager's changes (rename, merge, delete, reset dismissals) can be
+ * undone (v3.2.0): `tagUndo` holds the last one until the next tag change of
+ * any kind, and undoTagChange() puts back the pages it changed the same way a
+ * failed write is rolled back. Session-only.
  */
 
 import { writable, derived, get } from 'svelte/store';
 import {
-  normalizeTag, normalizeTagsFile, tagKey, withPageList, addTagToKeys, removeTagFromKeys,
+  normalizeTag, normalizeTagsFile, tagExists, tagKey, withPageList, addTagToKeys, removeTagFromKeys,
   renameTagInMap, deleteTagFromMap, diffTagMaps, rollbackPatch, buildTagIndex, tagStats, planTagCarry
 } from '../lib/tags.js';
 import { getTags, patchTags } from '../lib/storage/local-store.js';
@@ -33,6 +38,13 @@ export const tagIndex = derived(pageTags, ($tags) => buildTagIndex($tags));
 
 /** `[{ tag, pages, notebooks }]`, most-used first, from the sidecar alone. */
 export const tagStatsList = derived(pageTags, ($tags) => tagStats($tags));
+
+/**
+ * The last undoable change, or null: `{ label, pages, prevPages, dismissed,
+ * prevDismissed }` (the patches it applied and the maps before it). Cleared by
+ * any later tag change, an undo, a failed write, or a data-folder change.
+ */
+export const tagUndo = writable(null);
 
 // Writes in flight. A reload waits for them, so a Rescan straight after a tag
 // change cannot read the file before that change is in it.
@@ -68,13 +80,15 @@ export async function loadTags() {
 export function clearTags() {
   pageTags.set({});
   dismissedTags.set({});
+  tagUndo.set(null);
 }
 
 /**
- * Apply new maps optimistically and write the difference.
+ * Apply new maps optimistically and write the difference. With `undoLabel`
+ * the change becomes the one Undo puts back; without, it ends any earlier one.
  * @returns {Promise<boolean>}
  */
-async function commit(nextPages, nextDismissed, what) {
+async function commit(nextPages, nextDismissed, what, undoLabel = null) {
   const prevPages = get(pageTags);
   const prevDismissed = get(dismissedTags);
   const pages = diffTagMaps(prevPages, nextPages);
@@ -83,6 +97,10 @@ async function commit(nextPages, nextDismissed, what) {
 
   pageTags.set(nextPages);
   dismissedTags.set(nextDismissed);
+  const undo = undoLabel
+    ? { label: undoLabel, pages, prevPages, dismissed, prevDismissed }
+    : null;
+  tagUndo.set(undo);
 
   const run = (async () => {
     try {
@@ -92,6 +110,7 @@ async function commit(nextPages, nextDismissed, what) {
     } catch (err) {
       pageTags.update((m) => rollbackPatch(m, pages, prevPages));
       dismissedTags.update((m) => rollbackPatch(m, dismissed, prevDismissed));
+      if (undo && get(tagUndo) === undo) tagUndo.set(null);
       log(`Could not save ${what}: ${err?.message || err}`, 'error');
       return false;
     }
@@ -133,8 +152,12 @@ export function removeTagFromPages(keys, tag) {
  * the UI does). Dismissals are untouched.
  */
 export function renameTag(from, to) {
-  if (!normalizeTag(from) || !normalizeTag(to)) return Promise.resolve(false);
-  return commit(renameTagInMap(get(pageTags), from, to), get(dismissedTags), 'the renamed tag');
+  const f = normalizeTag(from);
+  const t = normalizeTag(to);
+  if (!f || !t) return Promise.resolve(false);
+  const map = get(pageTags);
+  const label = tagExists(map, t) ? `Merged “${f}” into “${t}”` : `Renamed “${f}” to “${t}”`;
+  return commit(renameTagInMap(map, f, t), get(dismissedTags), 'the renamed tag', label);
 }
 
 /** Merge `from` into `into` (a rename onto an existing tag). */
@@ -144,12 +167,14 @@ export function mergeTags(from, into) {
 
 /** Remove a tag from every page. Pages themselves are not touched. */
 export function deleteTag(tag) {
-  return commit(deleteTagFromMap(get(pageTags), tag), get(dismissedTags), 'tags');
+  const map = get(pageTags);
+  const n = Object.values(map).filter((list) => list.includes(normalizeTag(tag))).length;
+  return commit(deleteTagFromMap(map, tag), get(dismissedTags), 'tags', `Removed “${normalizeTag(tag)}” from ${n} ${n === 1 ? 'page' : 'pages'}`);
 }
 
 /**
  * Stop suggesting a project number on these pages. A dismissal survives
- * re-transcription; Settings → Tags can reset them all.
+ * re-transcription; Library › Manage tags can reset them all.
  */
 export function dismissSuggestion(keys, tag) {
   if (!normalizeTag(tag)) return Promise.resolve(false);
@@ -158,7 +183,21 @@ export function dismissSuggestion(keys, tag) {
 
 /** Forget every dismissal, so all suggestions come back. */
 export function resetDismissed() {
-  return commit(get(pageTags), {}, 'the reset');
+  return commit(get(pageTags), {}, 'the reset', 'Brought back dismissed suggestions');
+}
+
+/**
+ * Undo the last tag manager change: each page it changed goes back to what it
+ * was, unless something has changed that page since (rollbackPatch). In
+ * practice nothing has, since any tag change ends the undo. One write.
+ * @returns {Promise<boolean>} false when there was nothing to undo or the write failed
+ */
+export function undoTagChange() {
+  const u = get(tagUndo);
+  if (!u) return Promise.resolve(false);
+  const pages = rollbackPatch(get(pageTags), u.pages, u.prevPages);
+  const dismissed = rollbackPatch(get(dismissedTags), u.dismissed, u.prevDismissed);
+  return commit(pages, dismissed, 'the undo');
 }
 
 /**
