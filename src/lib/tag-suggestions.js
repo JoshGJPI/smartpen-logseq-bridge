@@ -101,11 +101,17 @@ export function groupSuggestions(pending, found, records) {
 
 const nextTick = () => new Promise((r) => setTimeout(r, 0));
 
+const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
 /**
- * The background pass, with its per-page cache.
- * @param {{chunk?: number, pause?: () => Promise<void>}} [opts]
+ * The background pass, with its per-page cache. Matching is cheap (about
+ * 15 ms for 740 transcribed pages), so it yields by time, not by count: every
+ * `chunk` pages it checks the clock and yields once `budgetMs` of work has
+ * gone by, so a large library cannot hold the UI and a small one does not
+ * wait behind queued thumbnail reads between needless yields.
+ * @param {{chunk?: number, budgetMs?: number, pause?: () => Promise<void>}} [opts]
  */
-export function createSuggestionScanner({ chunk = 40, pause = nextTick } = {}) {
+export function createSuggestionScanner({ chunk = 25, budgetMs = 12, pause = nextTick } = {}) {
   /** pageKey → { text, found } */
   const cache = new Map();
   let token = 0;
@@ -123,6 +129,7 @@ export function createSuggestionScanner({ chunk = 40, pause = nextTick } = {}) {
     const found = new Map();
     const seen = new Set();
     onProgress(0, todo.length);
+    let slice = now();
     for (let i = 0; i < todo.length; i++) {
       const r = todo[i];
       const key = recordTagKey(r);
@@ -134,10 +141,11 @@ export function createSuggestionScanner({ chunk = 40, pause = nextTick } = {}) {
         cache.set(key, entry);
       }
       if (entry.found.length) found.set(key, entry.found);
-      if ((i + 1) % chunk === 0) {
+      if ((i + 1) % chunk === 0 && now() - slice >= budgetMs) {
         onProgress(i + 1, todo.length);
         await pause();
         if (mine !== token) return null;
+        slice = now();
       }
     }
     // Pages that left the scan (deleted, other folder) leave the cache.

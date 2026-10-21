@@ -71,7 +71,7 @@ describe('pending and groups', () => {
 describe('createSuggestionScanner', () => {
   it('matches only transcribed pages, in chunks with progress, and caches by text', async () => {
     const pause = vi.fn(async () => {});
-    const s = createSuggestionScanner({ chunk: 2, pause });
+    const s = createSuggestionScanner({ chunk: 2, budgetMs: 0, pause });
     const records = [rec('1', '1', 'P2026-141'), rec('1', '2', null), rec('1', '3', 'none'), rec('1', '4', '2327-018')];
     const progress = [];
     const found = await s.run(records, { onProgress: (d, t) => progress.push([d, t]) });
@@ -87,9 +87,17 @@ describe('createSuggestionScanner', () => {
     expect(s.size()).toBe(2);
   });
 
+  it('does not yield while under its time budget', async () => {
+    const pause = vi.fn(async () => {});
+    const s = createSuggestionScanner({ chunk: 1, budgetMs: 10_000, pause });
+    const found = await s.run([rec('1', '1', 'P2026-141'), rec('1', '2', '2327-018'), rec('1', '3', 'x')]);
+    expect(found.size).toBe(2);
+    expect(pause).not.toHaveBeenCalled();
+  });
+
   it('a cancelled run resolves null', async () => {
     let release;
-    const s = createSuggestionScanner({ chunk: 1, pause: () => new Promise((r) => { release = r; }) });
+    const s = createSuggestionScanner({ chunk: 1, budgetMs: 0, pause: () => new Promise((r) => { release = r; }) });
     const p = s.run([rec('1', '1', 'P2026-141'), rec('1', '2', 'x')]);
     s.cancel();
     release();
