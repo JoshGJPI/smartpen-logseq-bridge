@@ -6,6 +6,43 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.6.0 — Set time… for selected strokes (October 2026)
+
+**Move the earliest selected stroke to a chosen time; the rest keep their spacing.** Editor → select strokes →
+**🕒 Set time…** opens a dialog with the selection's earliest and latest times, a local date + time (seconds) field,
+±day / hour / minute nudges, the resulting shift and each page's capture days before → after. Applying is an unsaved
+Editor change (amber dot) like a sketch flag or a volume move; nothing is written until Save. Feasibility review and
+mockups: [RETIME-MOCKUPS.html](RETIME-MOCKUPS.html).
+
+**The id is the time, so a retime is a delete plus an add.** Stored ids are `s{startTime}` and saves are append-only,
+so a retimed stroke saved naively lands under its new id and the old copy stays: every stroke twice, silently. The
+fix is the `movedFrom` pattern: `shiftStroke()` stamps an in-memory `retimedFrom: { id }` (the FIRST disk id, so a
+second retime before saving still names the stored copy; shifting back to it drops the marker), and the save unions
+`getRetimedAwayStrokeIdsForPage()` into the deletion set. Two existing paths had the same blind spot and now read
+`strokeDiskId()`: deleting a retimed stroke before saving and moving one to another volume both named the new id and
+left the stored copy. A stroke that is both retimed and moved has its old id on the source page, so the move-away
+handles it there and its marker lasts until `clearMovedFromMarkers()`.
+
+**Collisions are refused, not nudged silently.** A shifted stroke landing on the exact millisecond of a stroke that
+isn't moving (on disk or on the canvas) would be dropped by the dedupe. The dialog reads the affected pages once for
+their ids and disables Apply with a "+1 ms" offer. Ids vacated by the selection itself, or by an earlier unsaved
+retime, are free.
+
+**The pen still has the old times: `pages/_retimed.json`.** Offline import dedupes by id, so re-importing pen memory
+would bring every retimed stroke back at its original time. The save records `{ "<ncodeBook>/<page>": { "s<penId>":
+"s<idNow>" } }` (physical page, since volumes share paper and the pen id doesn't depend on the volume) and import
+drops those strokes with an Activity Log note. Chains collapse to the pen id (`s1 → s2`, then `s2 → s3` = `s1 → s3`);
+a retime back to the pen time removes the entry. Written BEFORE the page: if the page write then fails the old id is
+still on disk, and dropping the pen's copy of it loses nothing; a failed sidecar write holds the page save back.
+Rejected: only warning to clear pen memory (import is exactly when a bad pen clock shows up), and remapping the
+imported stroke to its new time (the retimed copy is already on disk, so dropping is the same result with less code).
+
+**Save dialog** gains a Retiming count and a per-page "🕒 n retimed" chip; the summary row now wraps (nine counts no
+longer fit). Checked in the app on a scratch data folder with a separate profile: +2 d 1 h on six strokes → the file
+has six strokes at the new times (point timestamps shifted, force kept), `_retimed.json` maps all six; shifting back
+restores the original ids and empties the sidecar. Not checked on hardware: the import drop (unit-tested).
+Limitations: re-exporting a retimed page to LogSeq adds a second copy there; no separate undo after Apply.
+
 ## v3.5.0 — CANCELLED task state (October 2026)
 
 **A fourth state, set by hand like WAITING.** A task that won't be done can be marked CANCELLED from its ⋯ menu (Tasks

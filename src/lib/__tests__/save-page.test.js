@@ -942,3 +942,46 @@ describe('finalizePageMoves', () => {
     expect(split.emptied).toEqual([]);
   });
 });
+
+describe('savePageToFolder — a retimed stroke (v3.6.0)', () => {
+  const writtenDoc = () => savePage.mock.calls[0][2];
+
+  beforeEach(() => {
+    getPage.mockReset();
+    savePage.mockReset();
+    savePage.mockResolvedValue({ path: '/tmp/P42.json' });
+  });
+
+  // The save the Editor does after a retime: the old id in the deletion set,
+  // the canvas stroke at its new time. One stroke on disk, at the new time.
+  it('replaces the stored copy instead of keeping one at each time', async () => {
+    getPage.mockResolvedValue({
+      version: '2.0',
+      pageInfo: PAGE_INFO,
+      metadata: { lastUpdated: 'x', totalStrokes: 2, bounds: {} },
+      transcript: { lastTranscribed: null, lines: [{ id: 'L1', text: 'beam', indentLevel: 0, parentId: null }] },
+      strokes: [
+        { id: 's1000', startTime: 1000, endTime: 1100, lineId: 'L1', sketch: true, points: [[1, 2, 1000, 300]] },
+        { id: 's5000', startTime: 5000, endTime: 5100, lineId: null, points: [[3, 4, 5000, 300]] }
+      ],
+    });
+
+    const retimed = canvasStroke(9000, [[1, 2, 300]], { sketch: true, blockUuid: 'L1', retimedFrom: { id: 's1000' } });
+    const result = await savePageToFolder({
+      book: 3017,
+      page: 42,
+      activeStrokes: [retimed],
+      deletedStrokeIds: new Set(['s1000']),
+    });
+
+    expect(result.success).toBe(true);
+    const ids = writtenDoc().strokes.map((st) => st.id);
+    expect(ids).toEqual(['s5000', 's9000']);           // re-sorted by time
+    const moved = writtenDoc().strokes[1];
+    expect(moved.startTime).toBe(9000);
+    expect(moved.points[0]).toEqual([1, 2, 9000, 300]);
+    expect(moved.lineId).toBe('L1');
+    expect(moved.sketch).toBe(true);
+    expect('retimedFrom' in moved).toBe(false);        // in-memory marker never reaches disk
+  });
+});

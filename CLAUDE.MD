@@ -26,7 +26,7 @@ electron/main.cjs, preload.cjs   all disk IO + MyScript proxy, exposed as window
 src/stores/        one store per concern (strokes, selection, pending-changes, viewer, timeline, volumes, tags, ...)
 src/lib/           pure logic, no UI, testable without DOM (tags.js, tag-suggestions.js: page tags, v3.1.0;
                    task-markers.js: ☐ / ☑ → TODO / DONE, v3.3.0; tasks.js: task state, WAITING, task list, v3.4.0,
-                   CANCELLED, v3.5.0)
+                   CANCELLED, v3.5.0; retime.js: shift selected strokes in time, v3.6.0)
 src/lib/storage/   PageDoc layer: local-store (IPC facade), save-page, load-page, load-range, scan, page-changes, graph-export,
                    convert-task-boxes (one-off conversion of old transcripts)
 src/lib/viewer/    reader helpers: SVG render, page cache, thumbnails, transcript markdown/save, feed loader,
@@ -34,6 +34,7 @@ src/lib/viewer/    reader helpers: SVG render, page cache, thumbnails, transcrip
 src/components/    grouped by feature (canvas, dialog, header, viewer, dates, books, tags, transcription, ...)
 electron/tags-sidecar.cjs   pure parse / patch of pages/_tags.json for main (tested from Vitest)
 electron/task-summary.cjs   the scan's per-page task summary; mirrors lib/tasks.js buildTaskSummary (tested together)
+electron/retimed-sidecar.cjs  pure parse / record of pages/_retimed.json for main (tested from Vitest)
 ```
 
 Data flow: **pen → `strokes` store → canvas / MyScript → `savePageToFolder()` → PageDoc on disk.**
@@ -112,7 +113,10 @@ session-only: each launch opens the Library on its home. Full component tree, st
   NCode book), `_timeline.json` (per-page capture-day histograms; a pure cache, safe to delete), `_orientation.json`
   (display rotation per page, `"<bookKey>/<pageId>": 90|180|270`, portrait by absence; missing or corrupt = all portrait),
   `_tags.json` (page tags and dismissed suggestions, `{ version: 1, pages: { "<bookKey>/<pageId>": [tags] }, dismissed:
-  {...} }`, untagged by absence; missing or corrupt = no tags, and a corrupt file is replaced only by the next tag change).
+  {...} }`, untagged by absence; missing or corrupt = no tags, and a corrupt file is replaced only by the next tag change),
+  `_retimed.json` (v3.6.0, pen ids retimed away, `{ version: 1, pages: { "<ncodeBook>/<page>": { "s<penId>": "s<idNow>" } } }`,
+  keyed by the PHYSICAL page, not the book key; offline import drops pen strokes listed here. Not a cache: deleting it
+  lets a pen re-import bring retimed strokes back at their old times).
 
 ## Invariants
 
@@ -171,6 +175,22 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   if another view starts showing task state from its own copy.
 - The scan's `tasks` summary is built in main (`electron/task-summary.cjs`) and mirrors `lib/tasks.js`
   `buildTaskSummary()`; change both (`task-summary.test.js` runs them over one fixture). Keep it scalar-small.
+
+### Retiming strokes (v3.6.0)
+
+- **The id is the time.** A stroke's id is `s{startTime}`, so the Editor's Set time… (`lib/retime.js`, store action
+  `retimeStrokes()`) changes it. `shiftStroke()` stamps the in-memory `retimedFrom: { id }` (the id on disk, kept from
+  the FIRST retime) and the save deletes that id (`getRetimedAwayStrokeIdsForPage()`) while appending the new one.
+  Without it every retimed stroke would be saved twice.
+- **Every "id to remove from disk" goes through `strokeDiskId()`**: deletion (`getDeletedStrokeIdsForPage`), volume
+  move (`getMovedAwayStrokeIdsForPage`) and retime. Using `s{startTime}` there misses a retimed stroke's stored copy.
+- Start, end and numeric point timestamps shift together; null point timestamps, force, sketch and `lineId` don't.
+  Pasted strokes are never retimed.
+- **Sidecar first, then the page.** The save records `pages/_retimed.json` before writing the page (a failed write
+  holds the page back), then `clearRetimedMarkers()`. A stroke that also moved volume keeps its marker until
+  `clearMovedFromMarkers()` (its old id is on the source page).
+- `pendingChanges` and `computePageChangesFolder()` both have a **retimes** bucket (old id on disk on this page, new id
+  not); change both. The dialog refuses a shift that lands on an id already taken on the page (`findRetimeCollisions`).
 
 ### Book keys and volumes
 
@@ -323,6 +343,9 @@ then looks broken when it isn't). Launch with `--disable-backgrounding-occluded-
   Project names aren't shown on chips; no tags on Timeline cards or in the Editor; tags aren't exported to LogSeq.
   Tags on a page that is later deleted stay in `_tags.json` (hidden everywhere except the Manage Tags counts).
   "Recently written" in tag grouping uses the newest capture date under the tag (no tag timestamps are stored).
+- **Retime (v3.6.0).** Exported to LogSeq: `mergeGraphStrokes()` keeps the published copy by id, so re-exporting a
+  retimed page adds the new-time copy beside the old one in the graph. Offline-import dropping is unit-tested only (no
+  pen in the Oct 2026 check). Undo before save is the dialog's Reset or shifting back; no separate undo.
 - **Tasks (v3.4.0).** A task's date is its page's capture days (no per-line date; stored `lineId`s are unreliable
   before Aug 2026), and its project is the page's first project tag. Only transcribed pages have tasks. A tick in
   the app doesn't change the ink. No ink snippet on hover, no LogSeq copy or sync of tasks.

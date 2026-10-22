@@ -44,8 +44,11 @@
     hasPendingChanges,
     deletedIndices
   } from '$stores';
-  import { getUntranscribedStrokes, clearPointEditMarkers, clearMovedFromMarkers } from '$stores/strokes.js';
-  import { getDeletedStrokeIdsForPage, getMovedAwayStrokeIdsForPage } from '$stores/pending-changes.js';
+  import { getUntranscribedStrokes, clearPointEditMarkers, clearMovedFromMarkers, clearRetimedMarkers } from '$stores/strokes.js';
+  import {
+    getDeletedStrokeIdsForPage, getMovedAwayStrokeIdsForPage, getRetimedAwayStrokeIdsForPage, pendingChanges
+  } from '$stores/pending-changes.js';
+  import { recordRetimesFor } from '$stores/retimed.js';
   import { carryTagsForMoves } from '$stores/tags.js';
   import { clearContextInk, contextInkPageKeys } from '$stores/context-ink.js';
   import { writable } from 'svelte/store';
@@ -447,6 +450,12 @@
 
         const activeStrokes = getActiveStrokesForPage(book, page);
         const movedAwayIds = getMovedAwayStrokeIdsForPage(book, page);
+        // Old ids of strokes retimed on this page (lib/retime.js): the retimed
+        // copy is appended under its new id, so the old one must go.
+        const retimedAwayIds = getRetimedAwayStrokeIdsForPage(book, page);
+        // Strokes whose old id is confirmed on disk, for the log line: the save
+        // counts each as one addition plus one deletion.
+        const retimedCount = $pendingChanges.get(`B${book}/P${page}`)?.retimes?.length || 0;
         // A page emptied by a move has no active strokes but still owes the
         // deletions, so "nothing to do" now means nothing to add AND nothing to
         // remove.
@@ -461,7 +470,18 @@
           // the stroke was deleted or moved to another volume, so they union.
           const deletedIds = new Set([
             ...getDeletedStrokeIdsForPage(book, page),
-            ...movedAwayIds
+            ...movedAwayIds,
+            ...retimedAwayIds
+          ]);
+
+          // Retimes go into pages/_retimed.json BEFORE the page write, so a pen
+          // import can't bring the old-time copy back. Moved-away strokes are
+          // included in case their target page isn't saved now (recording is
+          // idempotent). A failed write holds this page back (caught below).
+          await recordRetimesFor([
+            ...activeStrokes,
+            ...$strokes.filter((s) => s.movedFrom && s.retimedFrom &&
+              String(s.movedFrom.book) === String(book) && String(s.movedFrom.page) === String(page))
           ]);
 
           // Pull the page transcription (if MyScript ran on this page in this session)
@@ -487,6 +507,9 @@
             // point-edited before its first save is written by the append branch,
             // which reports it as an addition, and its marker needs clearing too.
             clearPointEditMarkers(book, page);
+            // The old ids are gone from disk; a marker left behind would make a
+            // later save delete an id that may belong to another stroke by then.
+            clearRetimedMarkers(book, page);
 
             // Same reasoning for move markers: the source page has now lost the
             // strokes on disk, so "still needs deleting here" would be a lie —
@@ -503,10 +526,13 @@
             }
 
             const parts = [];
-            if (result.added > 0) parts.push(`+${result.added} new`);
+            const added = Math.max(0, result.added - retimedCount);
+            const deleted = Math.max(0, result.deleted - retimedCount);
+            if (added > 0) parts.push(`+${added} new`);
+            if (retimedCount > 0) parts.push(`${retimedCount} retimed`);
             if (result.edited > 0) parts.push(`${result.edited} edited (points rewritten)`);
             if (movedAwayIds.size > 0) parts.push(`→${movedAwayIds.size} moved to another volume`);
-            if (result.deleted > 0) parts.push(`-${result.deleted} deleted`);
+            if (deleted > 0) parts.push(`-${deleted} deleted`);
             if (result.linesAdded > 0) parts.push(`+${result.linesAdded} transcript line(s)`);
             const changes = parts.length > 0 ? parts.join(', ') + ', ' : '';
 
