@@ -6,6 +6,20 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.6.1 — A task's project is the nearest project number (October 2026)
+
+**Tasks file under the project they were written under, not just the page's first tag.** A page often holds two
+meetings (`8:30 4981-003 …`, then `10:00 5444-006 …`), and tags are sorted, so "the page's first project tag" filed
+every task on it under whichever number sorts first. `buildTaskSummary()` (and its mirror in
+`electron/task-summary.cjs`) now records each task's `projectHint`: the first project number in the task's own text,
+else the nearest one among the lines it sits under (the named parent, then shallower lines), else the last one on any
+earlier line. `buildTaskRows()` uses it only when the page is tagged with that number, else falls back to the first
+project tag, so an OCR misread or a number mentioned in passing never invents a project; the tag suggestions queue is
+still how a number becomes a tag. On the real library 15 of 98 tasks moved, each to the meeting heading it was written
+under. The Tasks view and the MCP `list_tasks` both take rows from `buildTaskRows()`, so they change together; the MCP
+`tag` filter is unchanged (any tag on the page). `projectHint` is one scalar per task in the scan record, never written
+to a PageDoc.
+
 ## v3.6.0 — Set time… for selected strokes (October 2026)
 
 **Move the earliest selected stroke to a chosen time; the rest keep their spacing.** Editor → select strokes →

@@ -82,7 +82,7 @@ reg('get_strokes',
   'Get strokes');
 reg('list_tasks',
   'Tasks written in the notebooks (transcript lines with a box: TODO, DONE, WAITING, CANCELLED), the same rows as the app\'s Tasks view. '
-  + 'Default: open tasks (TODO + WAITING), newest page first. Filter by project (the page\'s first project tag, or "untagged" for none), '
+  + 'Default: open tasks (TODO + WAITING), newest page first. Filter by project (the page tag nearest the task in the transcript, else the page\'s first project tag; "untagged" for none), '
   + 'any page tags (all must match), notebook, days written (pages with ink in from..to) and text; group by project, date or book. '
   + `Each row has book + page for get_transcript / render_page. ${LIMITS.tasks.limit} rows per call (max ${LIMITS.tasks.maxLimit}); page with offset. `
   + 'Read-only: ticking or changing a task is done in the app. Untranscribed pages have no tasks.',

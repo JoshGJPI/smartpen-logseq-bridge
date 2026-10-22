@@ -58,7 +58,50 @@ describe('buildTaskSummary', () => {
     expect(byId.t6.text).toBe('Deeper, under a sub-heading');
     expect(byId.t8.text.length).toBeLessThanOrEqual(TASK_TEXT_MAX);
     expect(byId.t8.text.endsWith('…')).toBe(true);
-    for (const t of out) expect(Object.keys(t).sort()).toEqual(['checked', 'id', 'marker', 'parentText', 'text']);
+    for (const t of out) expect(Object.keys(t).sort()).toEqual(['checked', 'id', 'marker', 'parentText', 'projectHint', 'text']);
+  });
+});
+
+// Made-up lines: two meetings on one page, as a page is often written.
+const L = (id, text, indentLevel, extra = {}) => ({ id, text, indentLevel, parentId: null, checked: null, ...extra });
+const twoMeetings = [
+  L('d1', '10/14/26', 0),
+  L('h1', '8:30 4981-003 Demo reveal site visit', 0),
+  L('n1', 'Joists found under lobby', 1),
+  L('a', 'Schedule field measure', 1, { checked: false }),
+  L('d2', '8/14/260', 0),
+  L('h2', '10:00 5444-006 Rich update', 0),
+  L('n2', 'Compare with the 2327-018 detail', 1),
+  L('b', 'Finalize column location', 1, { checked: false }),
+  L('c', 'Send P2026-141 fee to Joe', 1, { checked: false }),
+  L('e', 'Follow up', 2, { checked: false, parentId: 'n2' }),
+  L('f', 'Top-level after both', 0, { checked: true })
+];
+
+describe('buildTaskSummary: projectHint, the nearest project number', () => {
+  const hint = Object.fromEntries(buildTaskSummary(twoMeetings).map((t) => [t.id, t.projectHint]));
+
+  it('main and renderer agree', () => {
+    expect(main.buildTaskSummary(twoMeetings)).toEqual(buildTaskSummary(twoMeetings));
+  });
+
+  it('takes the heading the task sits under', () => {
+    expect(hint.a).toBe('4981-003');
+    expect(hint.b).toBe('5444-006'); // not the 2327-018 on a sibling note
+  });
+
+  it('a number in the task itself wins', () => {
+    expect(hint.c).toBe('P2026-141');
+  });
+
+  it('the named parent comes before shallower lines', () => {
+    expect(hint.e).toBe('2327-018');
+  });
+
+  it('falls back to the last number on any earlier line, else null', () => {
+    expect(hint.f).toBe('P2026-141'); // the nearest earlier number, even inside a task
+    expect(buildTaskSummary([L('x', 'No numbers', 0, { checked: false })])[0].projectHint).toBeNull();
+    expect(buildTaskSummary([L('x', 'Dated 2026-10-21', 0, { checked: false })])[0].projectHint).toBeNull();
   });
 });
 
@@ -83,10 +126,19 @@ describe('normalizeTaskSummary / metaToRecord', () => {
       { text: 'no id', checked: false },
       null
     ])).toEqual([
-      { id: 'a', text: 'x', checked: false, marker: 'WAITING', parentText: null },
-      { id: 'b', text: 'y', checked: true, marker: null, parentText: null },
-      { id: 'k', text: 'w', checked: true, marker: 'CANCELLED', parentText: null },
-      { id: 'm', text: 'v', checked: false, marker: null, parentText: null }
+      { id: 'a', text: 'x', checked: false, marker: 'WAITING', parentText: null, projectHint: null },
+      { id: 'b', text: 'y', checked: true, marker: null, parentText: null, projectHint: null },
+      { id: 'k', text: 'w', checked: true, marker: 'CANCELLED', parentText: null, projectHint: null },
+      { id: 'm', text: 'v', checked: false, marker: null, parentText: null, projectHint: null }
     ]);
+  });
+
+  it('keeps a well-formed projectHint, drops anything else', () => {
+    const [a, b] = normalizeTaskSummary([
+      { id: 'a', text: 'x', checked: false, projectHint: '5444-006' },
+      { id: 'b', text: 'y', checked: false, projectHint: 'beam' }
+    ]);
+    expect(a.projectHint).toBe('5444-006');
+    expect(b.projectHint).toBeNull();
   });
 });

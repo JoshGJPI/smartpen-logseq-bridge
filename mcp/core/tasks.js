@@ -48,7 +48,8 @@ export function allTaskRows(scan, dates = pageDates(scan.index)) {
 }
 
 /**
- * The non-state filters: book, project (first project tag, or 'untagged' for
+ * The non-state filters: book, project (the row's project from buildTaskRows:
+ * the nearest tagged project number, else the first project tag; 'untagged' for
  * none), tags (all must be on the page), from/to (the page has ink on a local
  * day in range), text (task or parent text, case-insensitive).
  */

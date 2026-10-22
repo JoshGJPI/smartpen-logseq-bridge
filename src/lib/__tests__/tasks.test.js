@@ -126,6 +126,18 @@ describe('buildTaskRows', () => {
     expect(rows[3].lastDay).toBe('2026-10-21');
   });
 
+  it('project: the nearest project number in the transcript when the page is tagged with it', () => {
+    const recs = [{ book: '3017', page: 170, pageId: '170', tasks: [
+      t('p', false, { projectHint: '5444-006' }), // tagged, but not first: wins
+      t('q', false, { projectHint: '2327-018' }), // not a tag on this page: first tag
+      t('r', false)
+    ] }];
+    const r = buildTaskRows(recs, { tags: { '3017/170': ['4981-003', '5444-006', 'beam'] } });
+    expect(r.map((x) => x.project)).toEqual(['5444-006', '4981-003', '4981-003']);
+    expect(r[0].projects).toEqual(['4981-003', '5444-006']);
+    expect(buildTaskRows(recs, { tags: {} }).map((x) => x.project)).toEqual([null, null, null]);
+  });
+
   it('an override (a change not in the scan yet) wins', () => {
     const over = new Map([[taskKey('3017', '142', 'a'), 'done']]);
     expect(buildTaskRows(records, { overrides: over })[0].state).toBe('done');
