@@ -348,7 +348,9 @@ then looks broken when it isn't). Launch with `--disable-backgrounding-occluded-
   retimed page adds the new-time copy beside the old one in the graph. Offline-import dropping is unit-tested only (no
   pen in the Oct 2026 check). Undo before save is the dialog's Reset or shifting back; no separate undo.
 - **Tasks (v3.4.0).** A task's date is its page's capture days (no per-line date; stored `lineId`s are unreliable
-  before Aug 2026), and its project is the page's first project tag. Only transcribed pages have tasks. A tick in
+  before Aug 2026). Its project is the project number nearest it in the transcript (`projectHint`, v3.6.1: its own
+  text, then the lines it sits under, then any earlier line) when the page is tagged with that number, else the page's
+  first project tag; an untagged number never counts (OCR misreads digits). Only transcribed pages have tasks. A tick in
   the app doesn't change the ink. No ink snippet on hover, no LogSeq copy or sync of tasks.
 - Main-process and renderer tracing is behind `lib/debug.js` (`localStorage['smartpen-debug'] = '1'`, or the dev
   server). Never log MyScript keys or the HMAC, not even fragments.

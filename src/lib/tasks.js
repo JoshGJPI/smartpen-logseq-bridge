@@ -24,7 +24,7 @@
  */
 
 import { compareBookKeys } from './volumes.js';
-import { isProjectTag } from './tags.js';
+import { isProjectTag, findProjectNumbers } from './tags.js';
 
 export const WAITING = 'WAITING';
 export const CANCELLED = 'CANCELLED';
@@ -119,41 +119,58 @@ const clip = (s, max) => {
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 };
 
+/** Project numbers in a line's text, in order (pattern only, see tags.js). */
+function projectsIn(text) {
+  return findProjectNumbers(text).map((h) => h.tag);
+}
+
 /**
  * The scan's per-page task summary: one entry per line with `checked` set.
  * The parent is the line `parentId` names when it exists and has text, else
  * the nearest earlier line with a smaller indent (some stored parentIds point
  * at lines that are gone).
  *
+ * `projectHint` is the project number nearest the task in the transcript: the
+ * first one in the task's own text, else the nearest one among the lines it
+ * sits under (the named parent, then shallower lines, nearest first), else the
+ * last one on any earlier line; null when none. Pattern only (OCR can misread
+ * a digit), so buildTaskRows() uses it only when it is one of the page's tags.
+ *
  * MIRRORED in electron/task-summary.cjs (main can't import this ESM module).
  * Change both; task-summary.test.js runs them over one fixture.
  *
  * @param {Array<{id?: string, text?: string, indentLevel?: number, parentId?: string|null, checked?: boolean|null, marker?: string}>} lines
- * @returns {Array<{id: string, text: string, checked: boolean, marker: 'WAITING'|'CANCELLED'|null, parentText: string|null}>}
+ * @returns {Array<{id: string, text: string, checked: boolean, marker: 'WAITING'|'CANCELLED'|null, parentText: string|null, projectHint: string|null}>}
  */
 export function buildTaskSummary(lines) {
   if (!Array.isArray(lines) || !lines.length) return [];
   const byId = new Map();
   for (const l of lines) if (l && typeof l.id === 'string') byId.set(l.id, l);
   const out = [];
-  const stack = []; // [{ level, text }] of earlier lines with text
+  const stack = []; // [{ level, text, project }] of earlier lines with text
+  let lastProject = null; // the last project number on any earlier line
   for (const l of lines) {
     if (!l || typeof l !== 'object') continue;
     const level = Math.max(0, Number(l.indentLevel) || 0);
     while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
+    const own = projectsIn(l.text);
     if ((l.checked === true || l.checked === false) && typeof l.id === 'string' && l.id) {
       const named = l.parentId != null ? byId.get(l.parentId) : null;
       let parent = named && named !== l && typeof named.text === 'string' && named.text.trim() ? named.text : null;
       if (!parent && stack.length) parent = stack[stack.length - 1].text;
+      let hint = own[0] || (named && named !== l ? projectsIn(named.text).pop() : null) || null;
+      for (let i = stack.length - 1; !hint && i >= 0; i--) hint = stack[i].project;
       out.push({
         id: l.id,
         text: clip(l.text, TASK_TEXT_MAX),
         checked: l.checked,
         marker: markerOf(l),
-        parentText: parent ? clip(parent, TASK_PARENT_MAX) : null
+        parentText: parent ? clip(parent, TASK_PARENT_MAX) : null,
+        projectHint: hint || lastProject
       });
     }
-    if (typeof l.text === 'string' && l.text.trim()) stack.push({ level, text: l.text });
+    if (own.length) lastProject = own[own.length - 1];
+    if (typeof l.text === 'string' && l.text.trim()) stack.push({ level, text: l.text, project: own[own.length - 1] || null });
   }
   return out;
 }
@@ -161,7 +178,7 @@ export function buildTaskSummary(lines) {
 /**
  * A scan summary as the renderer keeps it: anything malformed is dropped, so
  * a record from an older main (no `tasks`) simply has none.
- * @returns {Array<{id: string, text: string, checked: boolean, marker: 'WAITING'|'CANCELLED'|null, parentText: string|null}>}
+ * @returns {Array<{id: string, text: string, checked: boolean, marker: 'WAITING'|'CANCELLED'|null, parentText: string|null, projectHint: string|null}>}
  */
 export function normalizeTaskSummary(tasks) {
   if (!Array.isArray(tasks)) return [];
@@ -172,7 +189,8 @@ export function normalizeTaskSummary(tasks) {
       text: typeof t.text === 'string' ? t.text : '',
       checked: t.checked,
       marker: markerOf(t),
-      parentText: typeof t.parentText === 'string' && t.parentText ? t.parentText : null
+      parentText: typeof t.parentText === 'string' && t.parentText ? t.parentText : null,
+      projectHint: isProjectTag(t.projectHint) ? t.projectHint : null
     }));
 }
 
@@ -183,7 +201,9 @@ const idOf = (r) => (r.pageId != null ? String(r.pageId) : String(r.page));
 
 /**
  * One row per task in the library, from the scan records, page tags and the
- * capture-date index. `overrides` (taskKey → state) are changes made in the
+ * capture-date index. A task's project is its `projectHint` (the project number
+ * nearest it in the transcript) when that is one of the page's project tags,
+ * else the page's first project tag. `overrides` (taskKey → state) are changes made in the
  * app that the scan doesn't know about yet: they win.
  *
  * @param {Array<object>} records  scan records (`tasks` on each)
@@ -213,7 +233,7 @@ export function buildTaskRows(records, { tags = {}, dates = null, overrides = nu
         parentText: t.parentText || null,
         state,
         projects,
-        project: projects[0] || null,
+        project: (t.projectHint && projects.includes(t.projectHint) ? t.projectHint : projects[0]) || null,
         day: when ? when.first : null,
         lastDay: when ? when.last : null
       });
@@ -282,7 +302,8 @@ export const NO_DATE = 'No date';
 
 /**
  * Rows in groups: `[{ id, label, kind, rows }]`.
- *   project  by the page's first project tag (newest group first; untagged last)
+ *   project  by the row's project (its nearest tagged project number, else the page's
+ *            first project tag; newest group first; untagged last)
  *   date     by the page's first written day (newest first; undated last)
  *   book     by notebook (book order)
  * @param {Array<object>} rows

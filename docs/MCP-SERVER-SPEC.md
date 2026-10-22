@@ -38,7 +38,7 @@ config with that env var.
 | `render_page` | SVG text, or PNG as an MCP image. Options: `format`, `width` (default ~1000px, capped), `rotation` (default: the stored orientation), `background` (default off) |
 | `search` | Same semantics as the app's global search: words, dates, notebook names, tags. Returns page keys, snippets, dates |
 | `list_tags` | Tags with page counts (and open tasks); optionally the pages under one tag |
-| `list_tasks` | Task lines (TODO / DONE / WAITING / CANCELLED) as the app's Tasks view rows them: `state` (`open` = TODO + WAITING, default), `project` (first project tag, or `untagged`), `tag` (any page tag, several = all), `book`, `from` / `to`, `text`, `group_by`, `limit` / `offset`. Counts per state for the scope. See "Tasks" |
+| `list_tasks` | Task lines (TODO / DONE / WAITING / CANCELLED) as the app's Tasks view rows them: `state` (`open` = TODO + WAITING, default), `project` (the page tag nearest the task in the transcript, else the first project tag; or `untagged`), `tag` (any page tag, several = all), `book`, `from` / `to`, `text`, `group_by`, `limit` / `offset`. Counts per state for the scope. See "Tasks" |
 | `days_summary` | For a day or range: per-day stroke counts and the pages touched (page, strokes that day, strokes on the page in total, notebook name). Cheap; call it before rendering |
 | `render_days` | The strokes written on the given day(s), rendered. See "Date-based strokes" |
 | `get_strokes` | Raw stroke data for a day range (compact tuples, per page, capped) for when Claude needs coordinates, not a picture |
