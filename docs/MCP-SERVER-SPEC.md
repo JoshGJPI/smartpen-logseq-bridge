@@ -37,7 +37,8 @@ config with that env var.
 | `get_transcript` | Transcript lines (text, indent, DONE/TODO state) for one page; plain text or markdown. Notes whether the page predates the line-matching fix |
 | `render_page` | SVG text, or PNG as an MCP image. Options: `format`, `width` (default ~1000px, capped), `rotation` (default: the stored orientation), `background` (default off) |
 | `search` | Same semantics as the app's global search: words, dates, notebook names, tags. Returns page keys, snippets, dates |
-| `list_tags` | Tags with page counts; optionally the pages under one tag |
+| `list_tags` | Tags with page counts (and open tasks); optionally the pages under one tag |
+| `list_tasks` | Task lines (TODO / DONE / WAITING / CANCELLED) as the app's Tasks view rows them: `state` (`open` = TODO + WAITING, default), `project` (first project tag, or `untagged`), `tag` (any page tag, several = all), `book`, `from` / `to`, `text`, `group_by`, `limit` / `offset`. Counts per state for the scope. See "Tasks" |
 | `days_summary` | For a day or range: per-day stroke counts and the pages touched (page, strokes that day, strokes on the page in total, notebook name). Cheap; call it before rendering |
 | `render_days` | The strokes written on the given day(s), rendered. See "Date-based strokes" |
 | `get_strokes` | Raw stroke data for a day range (compact tuples, per page, capped) for when Claude needs coordinates, not a picture |
@@ -73,6 +74,21 @@ this filters at **stroke** level on `startTime`, exactly like `storage/load-rang
   `lineId`s are unreliable on older pages, so lines are not claimed to belong to the day's strokes).
 - **Sizes to expect** (app's reference corpus): a median week is about 7,900 strokes and a busy month about 50,000, so
   a day or week renders fine, and a month must page or downscale rather than return one image.
+
+## Tasks (added after v2)
+
+Josh wants to ask Claude for outstanding tasks by project or tag. A task is a transcript line with `checked` set; its
+state comes from `taskStateOf()` (`marker` only beside the right `checked` value). The server must give the same rows
+as the app's Tasks view, so nothing is ported: the scan cache keeps each page's `buildTaskSummary()` (normalized as
+`metaToRecord()` does), and rows are `buildTaskRows(pages, { tags, dates: pageDates(index) })`, filtered and grouped by
+`filterTaskRows()` / `groupTaskRows()`. One deliberate difference: `open` is TODO + WAITING (still to do); the app's
+Open chip, TODO only, is `state: "todo"`. Parity is tested against the app's own pipeline (main.cjs metadata →
+`metaToRecord` → `buildTaskRows`) for every chip and grouping.
+
+Read-only like everything else: no tool changes a task (the description says to tick tasks in the app). Rows carry
+`book` + `page` for a follow-up `get_transcript` / `render_page`; per-line ink crops are not offered (stored `lineId`s
+are unreliable before Aug 2026). Pages whose text still has ☐ / ☑ (transcribed before v3.3.0, not yet converted) are
+counted in the reply, since their boxes are not tasks until the app's Convert task boxes… step runs.
 
 ## Reuse and the extraction work
 

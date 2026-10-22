@@ -71,6 +71,8 @@ MCP server tests (in `mcp/__tests__/`, synthetic data built in a temp folder; se
 |------|---------------|
 | `mcp.test.js` | Path guard, sidecars (incl. paper manifest), Node scan (volumes, suffixes, local-midnight split, app record fields), paper-frame / robust-ink view box and stray-stroke clipping, grayscale PNG decode, per-tool width / image / `maxBytes` caps and offset paging, stored rotation from `_orientation.json`, every tool (`by_day`, `get_strokes`, `list_tags`, app-semantics `search`) |
 | `search-parity.test.js` | MCP `search` vs the app's pipeline (main.cjs `extractPageMeta` / `extractCaptureDays` lifted from source, `metaToRecord`, SearchField's `runSearch` context) on 32 queries: words, partial words, dates, notebook names and keys, project-number tags |
+| `tasks.test.js` | `list_tasks`: every state (WAITING beside `checked: false`, CANCELLED beside `checked: true`, markers on the wrong side ignored), open = TODO + WAITING, project = first project tag, `untagged`, tag on a non-first tag and several tags, local-midnight day filter, multi-day pages, text on the parent line, grouping, offset paging (flat and grouped), unconverted-box count; open-task counts on `list_pages` / `list_tags` / `list_notebooks`; WAITING / CANCELLED in `get_transcript`; parity with the app's `buildTaskRows` / `filterTaskRows` / `groupTaskRows` for every chip and grouping |
+| `server.test.js` | `server.js` over stdio: starts, every tool annotated read-only, `list_tasks` round-trips |
 | `dst.test.js` | America/Chicago fall-back (25 h, both 01:30s) and spring-forward (23 h) days, 23:59:59 vs local midnight, across `days_summary`, `get_strokes` and `render_days` (`by_day`) |
 
 When writing new tests follow the patterns in the existing files:

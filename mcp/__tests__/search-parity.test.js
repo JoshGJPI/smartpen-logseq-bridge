@@ -4,16 +4,14 @@
  *
  * The app side is built the way the app builds it: page metadata and the
  * capture-day histogram by main.cjs's own extractPageMeta() / extractCaptureDays()
- * (lifted out of electron/main.cjs source, since main is not importable outside
- * Electron), records by scan.js metaToRecord(), and the context SearchField.svelte
+ * (lifted out of electron/main.cjs source by __fixtures__/app-side.js), records by
+ * scan.js metaToRecord(), and the context SearchField.svelte
  * passes runSearch() (library.js / tags.js derivations).
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
-import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
-import { metaToRecord } from '$lib/storage/scan.js';
 import { parseSearchQuery } from '$lib/search-query.js';
 import { buildSearchIndex, recordsByKey, runSearch } from '$lib/global-search.js';
 import { pageDates } from '$lib/library-home.js';
@@ -21,23 +19,7 @@ import { tagStats, normalizeTagsFile } from '$lib/tags.js';
 import { compareBookKeys } from '$lib/volumes.js';
 import { formatBookName } from '../../src/utils/formatting.js';
 import { createTools } from '../core/tools.js';
-
-/** Pull named top-level functions out of main.cjs and evaluate them together. */
-function mainFunctions(names) {
-  const src = fs.readFileSync(path.resolve(__dirname, '../../electron/main.cjs'), 'utf8');
-  const body = names.map((n) => {
-    const start = src.indexOf(`\nfunction ${n}(`);
-    if (start < 0) throw new Error(`main.cjs has no function ${n}`);
-    // A top-level function ends at the first `}` in column 0 (bodies hold braces in strings).
-    const end = src.indexOf('\n}', start + 1);
-    return src.slice(start, end + 2);
-  }).join('\n');
-  // main.cjs requires its pure helpers; hand them in the same way.
-  const { buildTaskSummary } = createRequire(import.meta.url)('../../electron/task-summary.cjs');
-  // eslint-disable-next-line no-new-func
-  return new Function('buildTaskSummary', `${body}\nreturn { ${names.join(', ')} };`)(buildTaskSummary);
-}
-const main = mainFunctions(['buildTranscriptionText', 'countStrokeLines', 'extractPageMeta', 'dayKeyLocal', 'extractCaptureDays']);
+import { appScan, writePage as writeFixturePage } from '../__fixtures__/app-side.js';
 
 let root;
 const t = (y, mo, d, h, mi) => new Date(y, mo - 1, d, h, mi).getTime();
@@ -45,42 +27,12 @@ const stroke = (ms, x = 5, y = 5) => ({
   id: `s${ms}`, startTime: ms, endTime: ms + 400, lineId: null, points: [[x, y, ms, 200], [x + 4, y + 1, ms + 200, 200]]
 });
 const line = (id, text, indentLevel = 0) => ({ id, text, indentLevel, parentId: null, checked: null, yBounds: null });
-
-/** The hybrid layout the app writes: shell pretty-printed, strokes last, one per line. */
-function serialize(doc) {
-  const { strokes, ...shell } = doc;
-  const head = JSON.stringify(shell, null, 2).replace(/\n}$/, '');
-  return `${head},\n  "strokes": [\n${strokes.map((s) => `    ${JSON.stringify(s)}`).join(',\n')}\n  ]\n}\n`;
-}
-function writePage(book, id, strokes, lines = []) {
-  const dir = path.join(root, 'pages', `B${book}`);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, `P${id}.json`), serialize({
-    version: '2.0',
-    pageInfo: { section: 3, owner: 1, book: parseInt(book, 10), page: parseInt(id, 10) },
-    metadata: { lastUpdated: '2026-01-01T00:00:00Z', totalStrokes: strokes.length, bounds: {} },
-    transcript: { lastTranscribed: lines.length ? '2026-10-16T00:00:00Z' : null, lines },
-    strokes
-  }));
-}
+const writePage = (...a) => writeFixturePage(root, ...a);
 
 /** What the app's stores would hand runSearch for this folder. */
 function appContext() {
   const pagesRoot = path.join(root, 'pages');
-  const records = [];
-  const timeline = { version: 1, pages: {} };
-  for (const dir of fs.readdirSync(pagesRoot)) {
-    const m = dir.match(/^B(\d+(?:v\d+)?)$/);
-    if (!m) continue;
-    for (const f of fs.readdirSync(path.join(pagesRoot, dir))) {
-      const pm = f.match(/^P(\d+)([a-zA-Z]?)\.json$/);
-      if (!pm) continue;
-      const raw = fs.readFileSync(path.join(pagesRoot, dir, f), 'utf8');
-      const page = parseInt(pm[1], 10), suffix = pm[2] || '', pageId = `${page}${suffix}`;
-      records.push(metaToRecord({ book: m[1], page, pageId, suffix, ...main.extractPageMeta(raw) }));
-      timeline.pages[`${m[1]}/${pageId}`] = { book: m[1], page, pageId, suffix, ...main.extractCaptureDays(raw) };
-    }
-  }
+  const { records, timeline } = appScan(root);
   const aliases = JSON.parse(fs.readFileSync(path.join(pagesRoot, '_aliases.json'), 'utf8'));
   const tags = normalizeTagsFile(JSON.parse(fs.readFileSync(path.join(pagesRoot, '_tags.json'), 'utf8'))).pages;
   const bookIds = [...new Set(records.map((r) => r.book))].sort(compareBookKeys);

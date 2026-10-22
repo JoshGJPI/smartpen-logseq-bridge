@@ -48,10 +48,11 @@ New pages show up without a restart: each call re-stats the folder and re-reads 
 
 | Tool | Returns | Cost |
 |---|---|---|
-| `list_notebooks` | Book keys, names, page / stroke / transcribed counts, first and last day, active volume, paper known | text |
-| `list_pages` | One notebook's pages: strokes, days, tags, transcribed, rotation. Tag / date filters, paged | text |
-| `list_tags` | Tags with page and notebook counts, untagged count; with `tag`, that tag's pages | text |
-| `get_transcript` | One page's lines with indent and TODO/DONE; flags pages whose stroke-to-line links are unreliable | text, few KB |
+| `list_notebooks` | Book keys, names, page / stroke / transcribed / open-task counts, first and last day, active volume, paper known | text |
+| `list_pages` | One notebook's pages: strokes, days, tags, transcribed, open tasks, rotation. Tag / date filters, paged | text |
+| `list_tags` | Tags with page, notebook and open-task counts, untagged count; with `tag`, that tag's pages | text |
+| `list_tasks` | Task lines (TODO / DONE / WAITING / CANCELLED): the app's Tasks view rows, filtered by state, project, tags, notebook, days, text; grouped; paged | text, ~350 chars a row |
+| `get_transcript` | One page's lines with indent and TODO / DONE / WAITING / CANCELLED; flags pages whose stroke-to-line links are unreliable | text, few KB |
 | `search` | The app's header search: words, dates, notebook names / keys, tags (same code, same limits) | text |
 | `days_summary` | Per local day: strokes and pages touched | text |
 | `render_page` | One page, grayscale PNG (or SVG), stored rotation, on the printed page | ~50–100 KB at 1000 px |
@@ -68,9 +69,29 @@ Caps, all overridable within limits (`LIMITS` in `core/tools.js`):
 | `render_days` by_day | 4 days (12 pages each), 1200 px | 8 days, 2000 px |
 | `maxBytes` per call (PNG bytes or SVG text) | 1 MB | 4 MB |
 | `get_strokes` | 300 strokes / 2,000 points (~25K chars) | 3,000 / 60,000 |
+| `list_tasks` rows | 50 | 200 |
 
 Anything left out is named in the reply with the `offset` to ask for next. The first image of a call shrinks to fit
 `maxBytes` rather than coming back empty; later ones wait for the next call.
+
+## Tasks
+
+`list_tasks` returns the rows the app's Tasks view shows (Library › Tasks), built by the same code: each page's
+`buildTaskSummary()` is kept in the scan cache, rows come from `buildTaskRows()` with the page tags and the capture-day
+index, and `filterTaskRows()` / `groupTaskRows()` / `compareTaskRows()` order them (`core/tasks.js`). Read-only: ticking or
+changing a task is done in the app.
+
+- `state`: `open` (default) = TODO + WAITING, `todo`, `waiting`, `done`, `cancelled`, `all`. The app's **Open** chip is
+  TODO only; here that is `todo`. The reply's counts cover every state in the filtered scope.
+- `project`: the page's **first** project tag, as the app groups (`P2026-141`, `2327-018`, normalized by `normalizeTag`);
+  `untagged` = pages with no project tag. `tag` (one or several, all must match) checks every tag on the page.
+- `book`, `from` / `to` (pages with ink on a local day in range), `text` (task or parent line, case-insensitive),
+  `group_by` (`project` | `date` | `book`), `limit` / `offset`.
+- A row: `state`, `text`, `parent`, `notebook`, `book`, `page`, `project`, `tags`, `written`, `line` (empty fields left
+  out). Follow up with `get_transcript` / `render_page` on `book` + `page`; no per-line ink crops (stored `lineId`s are
+  unreliable before Aug 2026).
+- Only lines whose state is stored are tasks. Pages transcribed before v3.3.0 that still have ☐ / ☑ in their text are
+  counted in the reply ("not tasks yet"): run Convert task boxes… in the app.
 
 ## Rendering
 
@@ -90,13 +111,18 @@ Anything left out is named in the reply with the `offset` to ask for next. The f
 `core/paths.js` (root + path guard), `core/sidecars.js` (aliases, volumes, orientation, tags, paper frame),
 `core/store.js` (Node scan, app-shaped records, in-memory capture-day index; `_timeline.json` is never read or written),
 `core/bounds.js` (paper / robust ink view box), `core/render.js` (SVG, PNG via `@resvg/resvg-js`, contact sheets),
-`core/png.js`, `core/search.js` (wires the app's `parseSearchQuery` / `runSearch`), `core/tools.js` (transport-free
+`core/png.js`, `core/search.js` (wires the app's `parseSearchQuery` / `runSearch`), `core/tasks.js` (the Tasks view's
+rows, filters and groups), `core/tools.js` (transport-free
 handlers), `server.js`. Reuses `src/lib` unchanged: volumes, timeline, page-sittings, page-orientation, page-svg path
-helpers, tags, global-search, search-query, neo-backgrounds, ink-text, `utils/formatting` (book names).
+helpers, tags, tasks, convert-task-boxes (detection only), global-search, search-query, neo-backgrounds, ink-text,
+`utils/formatting` (book names).
 
 Tests (`mcp/__tests__/`, synthetic data built in a temp folder): `mcp.test.js` (guard, sidecars, scan, bounds and
 outliers, PNG decode, size caps, stored rotation, every tool), `search-parity.test.js` (MCP search vs the app's search
-pipeline, with main.cjs's own metadata functions), `dst.test.js` (fall-back / spring-forward days, local midnight).
+pipeline, with main.cjs's own metadata functions), `tasks.test.js` (`list_tasks` filters, groups, paging, and parity
+with the app's Tasks view rows), `server.test.js` (stdio start-up, every tool read-only), `dst.test.js` (fall-back /
+spring-forward days, local midnight). `__fixtures__/app-side.js` builds the synthetic folders and reads them back the
+app's way.
 
 ## Not done
 

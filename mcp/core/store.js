@@ -8,7 +8,10 @@
  *
  * Records carry the field names of the app's scan records (scan.js
  * metaToRecord: `book`, `page`, `pageId`, `suffix`, `strokeCount`,
- * `transcriptionText`), so lib/ code such as global search runs on them as-is.
+ * `transcriptionText`, `tasks`), so lib/ code such as global search and the
+ * Tasks view's buildTaskRows() runs on them as-is. `tasks` is built the way the
+ * app builds it: main's scan summary (buildTaskSummary, which
+ * electron/task-summary.cjs mirrors), normalized as scan.js metaToRecord() does.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,6 +21,8 @@ import { parseBookKey, compareBookKeys, BOOK_DIR_RE } from '../../src/lib/volume
 import { dayKey } from '../../src/lib/timeline.js';
 import { formatBookName } from '../../src/utils/formatting.js';
 import { pageNumberOfId, manifestCoversPage } from '../../src/lib/neo-backgrounds.js';
+import { buildTaskSummary, normalizeTaskSummary } from '../../src/lib/tasks.js';
+import { mightHaveTaskBoxes } from '../../src/lib/storage/convert-task-boxes.js';
 
 const PAGE_FILE_RE = /^P(\d+)([a-zA-Z]?)\.json$/;
 
@@ -41,6 +46,7 @@ function summarize(doc, f, st) {
     if (last === null || t > last) last = t;
   }
   const lines = (doc.transcript && doc.transcript.lines) || [];
+  const text = transcriptText(lines);
   return {
     book: f.book, page: f.page, pageId: f.pageId, suffix: f.suffix,
     mtimeMs: st.mtimeMs, size: st.size,
@@ -51,7 +57,9 @@ function summarize(doc, f, st) {
     lastTranscribed: (doc.transcript && doc.transcript.lastTranscribed) || null,
     lineCount: lines.length,
     transcribed: lines.length > 0,
-    transcriptionText: transcriptText(lines)
+    transcriptionText: text,
+    tasks: normalizeTaskSummary(buildTaskSummary(lines)),
+    taskBoxesInText: mightHaveTaskBoxes(text)   // not converted to tasks yet (the app's Convert task boxes… step)
   };
 }
 

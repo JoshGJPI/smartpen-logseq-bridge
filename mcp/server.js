@@ -21,7 +21,7 @@ try {
   process.exit(1);
 }
 const tools = createTools(root);
-const server = new McpServer({ name: 'smartpen-bridge', version: '0.2.0' });
+const server = new McpServer({ name: 'smartpen-bridge', version: '0.3.0' });
 
 const RO = { readOnlyHint: true, openWorldHint: false };
 const book = z.string().describe('Book key: "388", or "388v2" for volume 2');
@@ -51,7 +51,7 @@ reg('list_tags',
   'Page tags (project numbers like P2026-141 and free tags) with page counts, or with `tag` the pages under that tag.',
   { tag: z.string().optional() }, 'List tags');
 reg('get_transcript',
-  'Handwriting-recognition transcript of one page (text, indentation, TODO/DONE). Cheap; prefer this over an image when the text is enough. Many pages are untranscribed: use render_page for those.',
+  'Handwriting-recognition transcript of one page (text, indentation, TODO/DONE/WAITING/CANCELLED). Cheap; prefer this over an image when the text is enough. Many pages are untranscribed: use render_page for those.',
   { book, page }, 'Get transcript');
 reg('render_page',
   `See a page: its ink as a grayscale PNG (or SVG text), in the stored orientation, laid out on the printed page. Default ${LIMITS.page.width}px wide.`,
@@ -80,6 +80,21 @@ reg('get_strokes',
     decimals: z.number().int().optional().describe('Coordinate decimals (default 1, max 3)'),
     force: z.boolean().optional().describe('Include per-point pen force') },
   'Get strokes');
+reg('list_tasks',
+  'Tasks written in the notebooks (transcript lines with a box: TODO, DONE, WAITING, CANCELLED), the same rows as the app\'s Tasks view. '
+  + 'Default: open tasks (TODO + WAITING), newest page first. Filter by project (the page\'s first project tag, or "untagged" for none), '
+  + 'any page tags (all must match), notebook, days written (pages with ink in from..to) and text; group by project, date or book. '
+  + `Each row has book + page for get_transcript / render_page. ${LIMITS.tasks.limit} rows per call (max ${LIMITS.tasks.maxLimit}); page with offset. `
+  + 'Read-only: ticking or changing a task is done in the app. Untranscribed pages have no tasks.',
+  { state: z.enum(['open', 'todo', 'waiting', 'done', 'cancelled', 'all']).optional()
+      .describe('open (default) = TODO + WAITING; todo = TODO only; all = every state'),
+    project: z.string().optional().describe('Project tag, e.g. P2026-141 or 2327-018 (normalized like the app); "untagged" = pages with no project tag'),
+    tag: z.union([z.string(), z.array(z.string())]).optional().describe('Page tag(s), any of the page\'s tags; several = all must be on the page'),
+    book: book.optional(), from: day.optional(), to: day.optional(),
+    text: z.string().optional().describe('Case-insensitive substring of the task or its parent line'),
+    group_by: z.enum(['project', 'date', 'book', 'none']).optional(),
+    limit: z.number().int().optional(), offset },
+  'List tasks');
 reg('search',
   'The app\'s global search: words in transcripts, dates ("Oct 14", "10/14", "2026-10-14", "yesterday"), notebook names or keys ("Study Notes", "390v2") and tags ("P2026-141"). '
   + 'Returns pages with snippets plus matching notebooks, days and tags. Transcribed text only.',

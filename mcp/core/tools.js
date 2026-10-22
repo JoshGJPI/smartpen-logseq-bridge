@@ -18,6 +18,11 @@ import { pageDayGroups, formatSittingLabel } from '../../src/lib/viewer/page-sit
 import { rotationFor, normalizeRotation } from '../../src/lib/page-orientation.js';
 import { isTrustworthyTranscript } from '../../src/lib/viewer/ink-text.js';
 import { buildTagIndex, tagStats, normalizeTag } from '../../src/lib/tags.js';
+import { taskStateOf, stateLabel, groupTaskRows } from '../../src/lib/tasks.js';
+import {
+  allTaskRows, rowsInState, countsOf, filterTasks, orderTasks, taskOut, openTasksByPage, unconvertedPages,
+  TASK_GROUP_ARGS
+} from './tasks.js';
 
 /** Per-tool size defaults and caps (px are PNG widths). */
 export const LIMITS = Object.freeze({
@@ -27,6 +32,7 @@ export const LIMITS = Object.freeze({
   by_day: { width: 1200, maxWidth: 2000, days: 4, maxDays: 8, pagesPerDay: 12 },
   bytes: { default: 1_000_000, min: 1_000, max: 4_000_000 },
   strokes: { limit: 300, maxLimit: 3000, points: 2_000, maxPoints: 60_000 },
+  tasks: { limit: 50, maxLimit: 200 },
   minWidth: 200
 });
 
@@ -145,10 +151,12 @@ export function createTools(root) {
     list_notebooks() {
       const scan = store.scan();
       const byBook = new Map();
+      const open = openTasksByPage(scan);
       for (const p of scan.pages) {
         let b = byBook.get(p.book);
-        if (!b) byBook.set(p.book, (b = { book: p.book, pages: 0, strokes: 0, transcribed: 0, first: null, last: null }));
+        if (!b) byBook.set(p.book, (b = { book: p.book, pages: 0, strokes: 0, transcribed: 0, openTasks: 0, first: null, last: null }));
         b.pages++; b.strokes += p.strokes; if (p.lineCount) b.transcribed++;
+        b.openTasks += open.get(pageKey(p)) || 0;
         for (const d of Object.keys(p.days)) {
           if (!b.first || d < b.first) b.first = d;
           if (!b.last || d > b.last) b.last = d;
@@ -159,7 +167,7 @@ export function createTools(root) {
         const activeVol = scan.volumes[String(parsed.ncodeBook)] || 1;
         return {
           book: b.book, name: bookName(scan.aliases, b.book), pages: b.pages, strokes: b.strokes,
-          transcribedPages: b.transcribed, firstDay: b.first, lastDay: b.last,
+          transcribedPages: b.transcribed, openTasks: b.openTasks, firstDay: b.first, lastDay: b.last,
           activeVolume: parsed.volume === activeVol,
           paper: !!store.paperFrame(b.book, 1)
         };
@@ -176,9 +184,11 @@ export function createTools(root) {
       if (tag) pages = pages.filter((p) => (scan.tags[pageKey(p)] || []).includes(tag));
       if (range) pages = pages.filter((p) => Object.keys(p.days).some((d) => inRange(d, range.from, range.to)));
       const limit = clampInt(args.limit, 100, 1, 300), offset = clampInt(args.offset, 0, 0, 1e9);
+      const open = openTasksByPage(scan);
       const rows = pages.slice(offset, offset + limit).map((p) => ({
         page: p.pageId, strokes: p.strokes, days: Object.keys(p.days).sort(),
         tags: scan.tags[pageKey(p)] || [], transcribed: p.lineCount > 0,
+        openTasks: open.get(pageKey(p)) || undefined,
         rotation: rotationFor(scan.orientations, p.book, p.pageId) || undefined
       }));
       const more = pages.length > offset + limit ? ` (showing ${rows.length} of ${pages.length}; pass offset=${offset + limit} for more)` : '';
@@ -193,7 +203,8 @@ export function createTools(root) {
       if (!lines.length) return { content: [text(`Page ${book}/${page} has no transcript (${(doc.strokes || []).length} strokes).`)] };
       const when = doc.transcript.lastTranscribed || '';
       const body = lines.map((l) => {
-        const mark = l.checked === true ? 'DONE ' : l.checked === false ? 'TODO ' : '';
+        const state = taskStateOf(l);
+        const mark = state ? `${stateLabel(state)} ` : '';
         return `${'  '.repeat(l.indentLevel || 0)}- ${mark}${l.text}`;
       }).join('\n');
       const note = isTrustworthyTranscript(doc) ? ''
@@ -352,8 +363,13 @@ export function createTools(root) {
       for (const [k, list] of Object.entries(scan.tags)) {
         if (exists.has(k)) live[k] = list; else orphans++;
       }
+      const open = openTasksByPage(scan);
       if (!args.tag) {
-        const stats = tagStats(live);
+        const index = buildTagIndex(live);
+        const stats = tagStats(live).map((s) => {
+          const n = (index.get(s.tag) || []).reduce((a, k) => a + (open.get(k) || 0), 0);
+          return n ? { ...s, openTasks: n } : s;
+        });
         const untagged = scan.pages.filter((p) => !(live[pageKey(p)] || []).length).length;
         return { content: [text(`${stats.length} tag(s); ${untagged} untagged page(s)`
           + (orphans ? `; ${orphans} tagged page(s) no longer exist (ignored)` : '') + `\n${JSON.stringify(stats)}`)] };
@@ -364,9 +380,53 @@ export function createTools(root) {
       const byKey = new Map(scan.pages.map((p) => [pageKey(p), p]));
       const rows = keys.map((k) => {
         const p = byKey.get(k);
-        return { page: k, notebook: bookName(scan.aliases, p.book), strokes: p.strokes, days: Object.keys(p.days).sort(), transcribed: p.lineCount > 0, tags: live[k] };
+        return { page: k, notebook: bookName(scan.aliases, p.book), strokes: p.strokes, days: Object.keys(p.days).sort(), transcribed: p.lineCount > 0, openTasks: open.get(k) || undefined, tags: live[k] };
       });
       return { content: [text(`"${tag}": ${rows.length} page(s)\n${JSON.stringify(rows)}`)] };
+    },
+
+    list_tasks(args) {
+      const state = args.state == null || args.state === '' ? 'open' : String(args.state).toLowerCase();
+      const groupBy = args.group_by == null || args.group_by === '' || args.group_by === 'none' ? null : String(args.group_by);
+      if (groupBy && !TASK_GROUP_ARGS.includes(groupBy)) return fail(`Unknown group_by "${args.group_by}": use ${TASK_GROUP_ARGS.join(', ')} or none`);
+      let range = null;
+      if (args.from || args.to) {
+        try { range = dayRange(args.from || args.to, args.to); } catch (e) { return fail(e.message); }
+      }
+      const scan = store.scan();
+      const book = args.book ? requireBookKey(args.book) : null;
+      const scoped = filterTasks(allTaskRows(scan), scan, {
+        book, project: args.project, tags: args.tag, from: range && range.from, to: range && range.to, text: args.text
+      });
+      const counts = countsOf(scoped);
+      const ordered = orderTasks(rowsInState(scoped, state), groupBy);
+      const limit = clampInt(args.limit, LIMITS.tasks.limit, 1, LIMITS.tasks.maxLimit);
+      const offset = clampInt(args.offset, 0, 0, 1e9);
+      const slice = ordered.slice(offset, offset + limit);
+      const out = (r) => taskOut(r, scan, bookName);
+      let body;
+      if (groupBy) {
+        // Regroup the page of rows; group order and labels are the app's (groupTaskRows).
+        body = groupTaskRows(slice, groupBy).map((g) => ({
+          group: g.kind === 'book' ? `${bookName(scan.aliases, g.id)} (${g.id})` : g.label,
+          tasks: g.rows.length, rows: g.rows.map(out)
+        }));
+      } else {
+        body = slice.map(out);
+      }
+      const scope = [
+        book && `book ${book}`, args.project && `project ${args.project}`,
+        args.tag && `tag ${[].concat(args.tag).join(' + ')}`, range && rangeText(range), args.text && `text "${args.text}"`
+      ].filter(Boolean).join(', ');
+      const left = ordered.length - offset - slice.length;
+      const unconverted = unconvertedPages(scan);
+      const head = `${ordered.length} ${state} task(s)${scope ? ` (${scope})` : ''}; showing ${slice.length} from offset ${offset}`
+        + (left > 0 ? `; ${left} more, call again with offset=${offset + slice.length}` : '')
+        + `. Counts in this scope: ${JSON.stringify(counts)} (open = TODO + WAITING).`
+        + ' Follow up with get_transcript or render_page using book + page. Read-only: tick or change tasks in the app.'
+        + (unconverted ? ` ${unconverted} transcribed page(s) still have task boxes in their text that are not tasks yet (the app's Convert task boxes… step).` : '');
+      return { content: [text(`${head}
+${JSON.stringify(body)}`)] };
     },
 
     search(args) {
