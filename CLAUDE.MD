@@ -24,12 +24,18 @@ node scripts/fetch-neo-backgrounds.mjs <data-root> 3_27_388   # cache Neo page i
 ```
 electron/main.cjs, preload.cjs   all disk IO + MyScript proxy, exposed as window.storageAPI
 src/stores/        one store per concern (strokes, selection, pending-changes, viewer, timeline, volumes, tags, ...)
-src/lib/           pure logic, no UI, testable without DOM (tags.js, tag-suggestions.js: page tags, v3.1.0)
-src/lib/storage/   PageDoc layer: local-store (IPC facade), save-page, load-page, load-range, scan, page-changes, graph-export
-src/lib/viewer/    reader helpers: SVG render, page cache, thumbnails, transcript markdown/save, feed loader
+src/lib/           pure logic, no UI, testable without DOM (tags.js, tag-suggestions.js: page tags, v3.1.0;
+                   task-markers.js: ☐ / ☑ → TODO / DONE, v3.3.0; tasks.js: task state, WAITING, task list, v3.4.0,
+                   CANCELLED, v3.5.0; retime.js: shift selected strokes in time, v3.6.0)
+src/lib/storage/   PageDoc layer: local-store (IPC facade), save-page, load-page, load-range, scan, page-changes, graph-export,
+                   convert-task-boxes (one-off conversion of old transcripts)
+src/lib/viewer/    reader helpers: SVG render, page cache, thumbnails, transcript markdown/save, feed loader,
+                   task-state.js (the one task write path, v3.4.0)
 src/components/    grouped by feature (canvas, dialog, header, viewer, dates, books, tags, transcription, ...)
 electron/tags-sidecar.cjs   pure parse / patch of pages/_tags.json for main (tested from Vitest)
 mcp/               read-only stdio MCP server over the data folder, imports src/lib unchanged (mcp/README.md)
+electron/task-summary.cjs   the scan's per-page task summary; mirrors lib/tasks.js buildTaskSummary (tested together)
+electron/retimed-sidecar.cjs  pure parse / record of pages/_retimed.json for main (tested from Vitest)
 ```
 
 Data flow: **pen → `strokes` store → canvas / MyScript → `savePageToFolder()` → PageDoc on disk.**
@@ -53,7 +59,11 @@ each page's corner, and ←/→ page turns (`lib/viewer/page-reader.js` `pageTur
 Pages turn through `readingList` (v3.2.0, `lib/viewer/reading-order.js`): a page opened from a tag's pages, Untagged or a
 filtered grid carries that grid's pages (`readerSequence`, notebook then page) and the reader starts in **Tag** order
 (Book | Tag toggle in `SpreadToolbar`); anything else reads in Book order. The tag manager is a Library view
-(`libraryView` `{ kind: 'tags' }`, Manage tags on the home). The open page, reading order and grid filters are
+(`libraryView` `{ kind: 'tags' }`, Manage tags on the home). So is **Tasks** (v3.4.0, `{ kind: 'tasks' }`, from the
+Library home's Tasks card or the header's Tasks button with the open count; `components/tasks/`): every line with a
+TODO / DONE / WAITING / CANCELLED state from the scan's `tasks` summaries, Open / Waiting / Done / Cancelled / All, grouped by project tag,
+date written or notebook; a row's page link opens the reader on that line (`focusReaderLineId`). The reader's
+transcript markers tick too, a ⋯ menu beside each task sets / clears WAITING and CANCELLED (v3.5.0), and a toast offers Undo. The open page, reading order and grid filters are
 session-only: each launch opens the Library on its home. Full component tree, store and library inventory:
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -77,7 +87,9 @@ session-only: each launch opens the Library on its home. Full component tree, st
   "transcript": {
     "lastTranscribed": "…",
     "lines": [{ "id": "…", "text": "…", "indentLevel": 0, "parentId": null,
-                "checked": null /* null | true (DONE) | false (TODO) */,
+                "checked": null /* null | true (DONE) | false (TODO); the box is not in text */,
+                /* "marker": "WAITING" | "CANCELLED"   optional, set by hand: WAITING (v3.4.0) only beside
+                   checked: false, CANCELLED (v3.5.0) only beside checked: true */
                 "yBounds": { "minY": 1.6, "maxY": 8.6 } }]
   },
   "strokes": [
@@ -92,13 +104,20 @@ session-only: each launch opens the Library on its home. Full component tree, st
   read back fine and render at a constant `flatWidth`.
 - `PAGE_DOC_VERSION` stays `"2.0"`. `validatePageDoc()` rejects anything else, so changes must be
   backward-compatible additions.
+- `marker` is written only as `"WAITING"` beside `checked: false` (v3.4.0) or `"CANCELLED"` beside `checked: true`
+  (v3.5.0), and is absent otherwise, so older code reads a WAITING line as TODO and a CANCELLED line as DONE (closed,
+  never open). Anything that copies a transcript line carries it with `lib/tasks.js` `markerField()`. The UI offers
+  TODO, DONE, WAITING and CANCELLED only (never DOING / NOW / LATER), and WAITING / CANCELLED are never read from text.
 - Letter-suffixed pages (`P151b.json`) are real: the integer `pageInfo.page` is the NCode page, the suffix is the
   user's variant label and is preserved.
 - Sidecar files in `pages/`: `_aliases.json` (book names, keyed by book key), `_volumes.json` (active volume per
   NCode book), `_timeline.json` (per-page capture-day histograms; a pure cache, safe to delete), `_orientation.json`
   (display rotation per page, `"<bookKey>/<pageId>": 90|180|270`, portrait by absence; missing or corrupt = all portrait),
   `_tags.json` (page tags and dismissed suggestions, `{ version: 1, pages: { "<bookKey>/<pageId>": [tags] }, dismissed:
-  {...} }`, untagged by absence; missing or corrupt = no tags, and a corrupt file is replaced only by the next tag change).
+  {...} }`, untagged by absence; missing or corrupt = no tags, and a corrupt file is replaced only by the next tag change),
+  `_retimed.json` (v3.6.0, pen ids retimed away, `{ version: 1, pages: { "<ncodeBook>/<page>": { "s<penId>": "s<idNow>" } } }`,
+  keyed by the PHYSICAL page, not the book key; offline import drops pen strokes listed here. Not a cache: deleting it
+  lets a pen re-import bring retimed strokes back at their old times).
 
 ## Invariants
 
@@ -144,6 +163,35 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   `finalizePageMoves().emptied` → `carryTagsForMoves()` (whole-page moves only, never onto a page that has tags).
 - **Suggestions are never stored**, only dismissals; they are computed from stored transcript text
   (`record.transcriptionText`, so no page read) and never applied without a click.
+
+### Tasks (v3.4.0)
+
+- **One write path for a task's state:** `lib/viewer/task-state.js` `setTaskState()` (from the UI through
+  `stores/tasks.js` `changeTask()`). It changes one line's `checked` / `marker` and `metadata.lastUpdated`, nothing
+  else: never `transcript.lastTranscribed` (`isTrustworthyTranscript()` reads it), text, other lines or strokes.
+- **Refused on a page with an unsaved Library transcript draft** (`isViewerPageDirty`): the draft's save writes every
+  line verbatim and would undo the tick. A line id that is gone or is not a task → error, no write.
+- It refreshes its own copies instead of calling `refreshAfterSave()`: the scan record (`applyTaskStateToRecord`), the
+  page cache (`invalidatePage`) and the open reader page (`noteTaskWritten` → `lastTaskWrite`). Keep that list in step
+  if another view starts showing task state from its own copy.
+- The scan's `tasks` summary is built in main (`electron/task-summary.cjs`) and mirrors `lib/tasks.js`
+  `buildTaskSummary()`; change both (`task-summary.test.js` runs them over one fixture). Keep it scalar-small.
+
+### Retiming strokes (v3.6.0)
+
+- **The id is the time.** A stroke's id is `s{startTime}`, so the Editor's Set time… (`lib/retime.js`, store action
+  `retimeStrokes()`) changes it. `shiftStroke()` stamps the in-memory `retimedFrom: { id }` (the id on disk, kept from
+  the FIRST retime) and the save deletes that id (`getRetimedAwayStrokeIdsForPage()`) while appending the new one.
+  Without it every retimed stroke would be saved twice.
+- **Every "id to remove from disk" goes through `strokeDiskId()`**: deletion (`getDeletedStrokeIdsForPage`), volume
+  move (`getMovedAwayStrokeIdsForPage`) and retime. Using `s{startTime}` there misses a retimed stroke's stored copy.
+- Start, end and numeric point timestamps shift together; null point timestamps, force, sketch and `lineId` don't.
+  Pasted strokes are never retimed.
+- **Sidecar first, then the page.** The save records `pages/_retimed.json` before writing the page (a failed write
+  holds the page back), then `clearRetimedMarkers()`. A stroke that also moved volume keeps its marker until
+  `clearMovedFromMarkers()` (its old id is on the source page).
+- `pendingChanges` and `computePageChangesFolder()` both have a **retimes** bucket (old id on disk on this page, new id
+  not); change both. The dialog refuses a shift that lands on an id already taken on the page (`findRetimeCollisions`).
 
 ### Book keys and volumes
 
@@ -191,6 +239,13 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   The batch origin is never stored, so line → ink in the Library's Ink + text uses the stored `lineId`s, and only
   where `isTrustworthyTranscript()` (`lib/viewer/ink-text.js`) says the page was matched by the fixed code; a
   date check alone is wrong (Library transcript edits bump `lastTranscribed`).
+- **Task boxes are parsed on transcription** (v3.3.0): `mergeTranscript()` runs each new MyScript line through
+  `parseTaskMarker()` (`lib/task-markers.js`), so a leading `☐` / `[ ]` / `TODO` becomes `checked: false` and
+  `☑` / `☒` / `[x]` / `DONE` becomes `checked: true`, with the marker stripped from `text`. A bare `✓`, `WAITING`, `CANCELLED`
+  and lowercase `todo` stay text. The duplicate check compares marker-stripped text on both sides. Pages
+  transcribed earlier are converted once from Settings → Data Folder → Convert task boxes… (preview first;
+  `lib/storage/convert-task-boxes.js`), which bumps `metadata.lastUpdated` but never `lastTranscribed`, and never
+  overrides a `checked` already set (a glyph that disagrees is left in the text as a conflict).
 - MyScript only sees strokes that are loaded, so transcribing a partially loaded page covers those strokes only.
 - Free tier is 2,000 requests/month, HMAC-authenticated; process page by page.
 
@@ -289,6 +344,12 @@ then looks broken when it isn't). Launch with `--disable-backgrounding-occluded-
   Project names aren't shown on chips; no tags on Timeline cards or in the Editor; tags aren't exported to LogSeq.
   Tags on a page that is later deleted stay in `_tags.json` (hidden everywhere except the Manage Tags counts).
   "Recently written" in tag grouping uses the newest capture date under the tag (no tag timestamps are stored).
+- **Retime (v3.6.0).** Exported to LogSeq: `mergeGraphStrokes()` keeps the published copy by id, so re-exporting a
+  retimed page adds the new-time copy beside the old one in the graph. Offline-import dropping is unit-tested only (no
+  pen in the Oct 2026 check). Undo before save is the dialog's Reset or shifting back; no separate undo.
+- **Tasks (v3.4.0).** A task's date is its page's capture days (no per-line date; stored `lineId`s are unreliable
+  before Aug 2026), and its project is the page's first project tag. Only transcribed pages have tasks. A tick in
+  the app doesn't change the ink. No ink snippet on hover, no LogSeq copy or sync of tasks.
 - Main-process and renderer tracing is behind `lib/debug.js` (`localStorage['smartpen-debug'] = '1'`, or the dev
   server). Never log MyScript keys or the HMAC, not even fragments.
 - Timeline: no transcripts on cards (stored `lineId`s are unreliable); `SESSION_GAP_MS` is a constant.

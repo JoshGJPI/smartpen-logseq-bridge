@@ -26,7 +26,7 @@ import { log } from './ui.js';
  * @param {string|number} book - book KEY ("388" or "388v2")
  * @param {string|number} page - NCode page number
  * @returns {{strokes: number, additions: number, edits: number,
- *            modifications: number, deletions: number, transcription: boolean,
+ *            modifications: number, deletions: number, retimes: number, transcription: boolean,
  *            hasUnsaved: boolean}}
  */
 export function describePageUnload(book, page) {
@@ -39,6 +39,7 @@ export function describePageUnload(book, page) {
   const edits = changes?.edits?.length || 0;
   const modifications = changes?.modifications?.length || 0;
   const deletions = changes?.deletions?.length || 0;
+  const retimes = changes?.retimes?.length || 0;
 
   const transcription = [...get(pageTranscriptions).values()].some(
     t => String(t?.pageInfo?.book) === bookKey && Number(t?.pageInfo?.page) === pageNum
@@ -50,8 +51,9 @@ export function describePageUnload(book, page) {
     edits,
     modifications,
     deletions,
+    retimes,
     transcription,
-    hasUnsaved: additions > 0 || edits > 0 || modifications > 0 || deletions > 0 || transcription
+    hasUnsaved: additions > 0 || edits > 0 || modifications > 0 || deletions > 0 || retimes > 0 || transcription
   };
 }
 

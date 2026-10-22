@@ -27,6 +27,8 @@ import { applyActiveVolume } from '$stores/volumes.js';
 import { showEditorForLiveInk } from '$stores/viewer.js';
 import { autoPickPen, rememberedPen } from '$stores/settings.js';
 import { get } from 'svelte/store';
+import { retimedPages } from '$stores/retimed.js';
+import { dropRetimedPenStrokes } from './retime.js';
 
 // Local state for tracking current stroke
 let currentStrokeData = null;
@@ -1218,8 +1220,14 @@ function handleOfflineDataReceived(data) {
     debug('%c===== END DELETION DATA PROCESSING =====', 'background: #f59e0b; color: white; font-size: 14px; padding: 4px;');
     return false; // Exit early — resolver already called above
   } else {
-    // Normal import - add strokes to store
-    addOfflineStrokes(convertedStrokes);
+    // Normal import - add strokes to store, minus any the user has retimed in
+    // the Editor: those are already saved at their new times, and the pen's
+    // copy at the old time would come back as a duplicate (lib/retime.js).
+    const { kept, dropped } = dropRetimedPenStrokes(convertedStrokes, get(retimedPages));
+    if (dropped > 0) {
+      log(`Skipped ${dropped} stroke(s) already saved at a changed time`, 'info');
+    }
+    addOfflineStrokes(kept);
   }
   
   const elapsed = transferStartTime ? Math.round((Date.now() - transferStartTime) / 1000) : 0;

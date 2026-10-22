@@ -42,6 +42,7 @@ import { pageInfoForDisk } from '$lib/volumes.js';
 import { yBoundsToNcode } from '$lib/myscript-api.js';
 import { normalizeRotation, rotateStoredPoints } from '$lib/page-orientation.js';
 import { noteOnDiskStrokeIds } from '$stores/pending-changes.js';
+import { parseTaskMarker, stripTaskMarker } from '$lib/task-markers.js';
 
 /* -----------------------------------------------------------------
  *  Stroke shape conversion
@@ -242,10 +243,12 @@ function strokesIntersectingLine(line, storedStrokes, originNcodeY, tol = LINE_M
  * what keeps that from being common.
  */
 function isDuplicate(newLine, existingLines) {
-  const t = (newLine.text || '').trim();
+  // Compared without a leading task box: a line saved before boxes were parsed
+  // still holds `☐ Call Troy…` as text, and its re-reading is `Call Troy…`.
+  const t = stripTaskMarker(newLine.text);
   if (!t) return false;
   for (const ex of existingLines) {
-    if ((ex.text || '').trim() === t && yBoundsOverlap(ex.yBounds, newLine.yBounds, 3)) {
+    if (stripTaskMarker(ex.text) === t && yBoundsOverlap(ex.yBounds, newLine.yBounds, 3)) {
       return true;
     }
   }
@@ -278,7 +281,9 @@ function mergeTranscript(existingLines, myscriptLines, storedStrokes, originNcod
   const newLines = [];
   for (let i = 0; i < myscriptLines.length; i++) {
     const ms = myscriptLines[i];
-    const text = (ms.text || '').trim();
+    // A drawn box (☐ / ☑) or a typed TODO / DONE becomes the line's state.
+    const { checked, text: parsed } = parseTaskMarker((ms.text || '').trim());
+    const text = parsed.trim();
 
     const lineRecord = {
       id: newIds[i],
@@ -288,7 +293,7 @@ function mergeTranscript(existingLines, myscriptLines, storedStrokes, originNcod
         (typeof ms.parent === 'number' && ms.parent >= 0 && ms.parent < newIds.length)
           ? newIds[ms.parent]
           : null,
-      checked: null,
+      checked,
       yBounds: ms.yBounds && (ms.yBounds.minY !== 0 || ms.yBounds.maxY !== 0)
         ? { minY: ms.yBounds.minY, maxY: ms.yBounds.maxY }
         : null

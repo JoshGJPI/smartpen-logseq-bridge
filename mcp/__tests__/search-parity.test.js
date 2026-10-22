@@ -10,6 +10,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { metaToRecord } from '$lib/storage/scan.js';
@@ -31,8 +32,10 @@ function mainFunctions(names) {
     const end = src.indexOf('\n}', start + 1);
     return src.slice(start, end + 2);
   }).join('\n');
+  // main.cjs requires its pure helpers; hand them in the same way.
+  const { buildTaskSummary } = createRequire(import.meta.url)('../../electron/task-summary.cjs');
   // eslint-disable-next-line no-new-func
-  return new Function(`${body}\nreturn { ${names.join(', ')} };`)();
+  return new Function('buildTaskSummary', `${body}\nreturn { ${names.join(', ')} };`)(buildTaskSummary);
 }
 const main = mainFunctions(['buildTranscriptionText', 'countStrokeLines', 'extractPageMeta', 'dayKeyLocal', 'extractCaptureDays']);
 

@@ -12,6 +12,7 @@
  */
 
 import { getPage, savePage } from '$lib/storage/local-store.js';
+import { markerField } from '$lib/tasks.js';
 
 /**
  * Recompute each line's parentId from its indentLevel: the parent is the
@@ -44,6 +45,7 @@ function normaliseLine(line) {
     indentLevel: Math.max(0, line.indentLevel || 0),
     parentId: line.parentId ?? null,
     checked: line.checked === true || line.checked === false ? line.checked : null,
+    ...markerField(line),
     yBounds: line.yBounds ?? null,
   };
 }

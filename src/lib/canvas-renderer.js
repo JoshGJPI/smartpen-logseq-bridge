@@ -1626,6 +1626,7 @@ export class CanvasRenderer {
           (pageChanges.additions && pageChanges.additions.length > 0) ||
           (pageChanges.edits && pageChanges.edits.length > 0) ||
           (pageChanges.modifications && pageChanges.modifications.length > 0) ||
+          (pageChanges.retimes && pageChanges.retimes.length > 0) ||
           // Strokes this page still owes a deletion for, having been reassigned
           // to another volume. They're drawn on the target page now, so without
           // this the source page shows no sign of the pending work.

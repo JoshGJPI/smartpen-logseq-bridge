@@ -14,11 +14,18 @@
   lineIds can be trusted (lib/viewer/ink-text.js); other pages sit side by
   side without linking. Nothing here writes lineIds or touches the merge.
   A global search hit (`readerFocus`) lights its matching line's ink and marks
-  the line, on trusted pages only; elsewhere the page just opens.
+  the line, on trusted pages only; elsewhere the page just opens. A task's
+  page link names the line by id (v3.4.0), so that line is marked on any
+  page, and its ink lit only on trusted pages.
+
+  A task tick (lib/viewer/task-state.js, from here or the Tasks view) patches
+  this page's doc from `lastTaskWrite`, so the transcript follows at once.
 -->
 <script>
   import { tick } from 'svelte';
-  import { setTimelineRange, navigateTo, setActiveTab, readerFocus } from '$stores';
+  import { get } from 'svelte/store';
+  import { setTimelineRange, navigateTo, setActiveTab, readerFocus, lastTaskWrite } from '$stores';
+  import { withTaskState } from '$lib/tasks.js';
   import { matchingLineId } from '$lib/global-search.js';
   import { getCachedPage } from '$lib/viewer/page-cache.js';
   import { pageDayGroups } from '$lib/viewer/page-sittings.js';
@@ -80,6 +87,22 @@
     }
   }
 
+  // A task state written to this page (a tick here or in the Tasks view): the
+  // same one-line change the disk got, applied to the doc held here.
+  let seenWriteN = get(lastTaskWrite)?.n || 0;
+  $: if ($lastTaskWrite && $lastTaskWrite.n !== seenWriteN) {
+    seenWriteN = $lastTaskWrite.n;
+    applyTaskWrite($lastTaskWrite);
+  }
+
+  function applyTaskWrite(w) {
+    if (!doc || !record || String(record.book) !== w.book || idOf(record) !== w.pageId) return;
+    const src = (doc.transcript && doc.transcript.lines) || [];
+    if (!src.some((l) => l.id === w.lineId)) return;
+    const next = src.map((l) => (l.id === w.lineId ? withTaskState(l, w.state) : l));
+    doc = { ...doc, transcript: { ...doc.transcript, lines: next } };
+  }
+
   // Reflect a transcript save back into the locally-held doc so display mode
   // shows the edits immediately (the parent also updates the store + cache).
   function handleSaved(b, p, savedLines) {
@@ -110,9 +133,13 @@
   $: if (!linkable) lineHighlight = null;
 
   // A search hit on this page: its line, where the page's links are trusted.
+  // A task link names its line, which is marked on any page.
   $: focus = $readerFocus && record && $readerFocus.book === String(record.book) && $readerFocus.pageId === pageId ? $readerFocus : null;
-  $: focusLineId = focus && doc && isTrustworthyTranscript(doc) ? matchingLineId(lines, focus.tokens) : null;
-  $: focusInk = focusLineId ? strokesByLine(strokes, lines).get(focusLineId) : null;
+  $: trusted = doc ? isTrustworthyTranscript(doc) : false;
+  $: focusLineId = !focus || !doc ? null
+    : focus.lineId ? (lines.some((l) => l.id === focus.lineId) ? focus.lineId : null)
+    : trusted ? matchingLineId(lines, focus.tokens) : null;
+  $: focusInk = focusLineId && trusted ? strokesByLine(strokes, lines).get(focusLineId) : null;
   $: focusHighlight = focusInk && focusInk.length ? { strokes: focusInk } : null;
 
   function hoverLine(line) {
@@ -180,6 +207,7 @@
           onHoverLine={linkable ? hoverLine : null}
           {linkNote}
           {focusLineId}
+          tasks
           onTranscribe={doc && strokes.length ? onLoadIntoEditor : null}
         />
       </div>

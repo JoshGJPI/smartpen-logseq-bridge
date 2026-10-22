@@ -151,6 +151,7 @@
       if (state.edits) lost.push(`${state.edits} point edit(s)`);
       if (state.modifications) lost.push(`${state.modifications} sketch flag change(s)`);
       if (state.deletions) lost.push(`${state.deletions} pending deletion(s)`);
+      if (state.retimes) lost.push(`${state.retimes} time change(s)`);
       if (state.transcription) lost.push('an unsaved transcription');
 
       const ok = confirm(

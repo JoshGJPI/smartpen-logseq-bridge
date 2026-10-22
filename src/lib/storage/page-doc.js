@@ -47,6 +47,9 @@ export const PAGE_DOC_VERSION = '2.0';
  * @property {number} indentLevel
  * @property {string|null} parentId
  * @property {boolean|null} checked   - null = no checkbox, true = DONE, false = TODO
+ * @property {'WAITING'|'CANCELLED'} [marker] - optional, set by hand: 'WAITING' (v3.4.0) only beside
+ *                                       `checked: false`, 'CANCELLED' (v3.5.0) only beside `checked: true`.
+ *                                      Absent otherwise; older code reads the line as TODO.
  * @property {YBounds|null} yBounds
  */
 
@@ -111,6 +114,8 @@ export const PAGE_DOC_VERSION = '2.0';
  * @property {boolean} hasTranscription
  * @property {number} transcriptLineCount
  * @property {string|null} transcriptionText - 2-space-indented transcript text (small; powers search/preview)
+ * @property {Array<{id:string,text:string,checked:boolean,marker:string|null,parentText:string|null}>} [tasks]
+ *   - v3.4.0: lines with `checked` set (electron/task-summary.cjs = lib/tasks.js buildTaskSummary)
  * @property {string} path             - Absolute path to the .json file
  */
 

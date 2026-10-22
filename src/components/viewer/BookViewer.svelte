@@ -1,6 +1,6 @@
 <!--
   BookViewer.svelte — the Library pane: LibraryBrowse (the home, a notebook's
-  or a tag's page grid, the tag manager) when no page is open, otherwise the
+  or a tag's page grid, the tag manager, the Tasks view) when no page is open, otherwise the
   reader (ReaderSpread): one page, or a two-page spread, with the page tags
   strip beside it.
 
@@ -34,6 +34,7 @@
     transcriptEditing,
     readerPages,
     clearReaderFocus,
+    readerFocus,
     readerSequence,
     setReaderSequence,
     setReaderOrder,
@@ -46,6 +47,7 @@
   import { modalOpen } from '$lib/left-panel.js';
   import LibraryBrowse from './LibraryBrowse.svelte';
   import ReaderSpread from './ReaderSpread.svelte';
+  import TaskToast from '../tasks/TaskToast.svelte';
 
   // Shared viewer state, bound by App.svelte so the pane toolbar (breadcrumb,
   // View ▾, spread toolbar) can show and drive it.
@@ -110,6 +112,14 @@
     transcriptEditing.set(false);
     readerPages.set([]);
   });
+
+  // A task's page link (v3.4.0) points at a transcript line: on Strokes the
+  // line wouldn't show, so the reader moves to Ink + text, once per request.
+  let seenFocusN = 0;
+  $: if ($readerFocus && $readerFocus.showText && $readerFocus.n !== seenFocusN) {
+    seenFocusN = $readerFocus.n;
+    if (contentMode === 'strokes') contentMode = 'inktext';
+  }
 
   // A page opened from outside (contents list, feed card, search) changes the
   // selection without openRecord(); its prompt already ran, so just drop the
@@ -278,6 +288,7 @@
       onEditingChange={reportEditing}
     />
   {/if}
+  <TaskToast />
 </div>
 
 <style>
@@ -290,5 +301,6 @@
     border-radius: 12px;
     overflow: hidden;
     border: 1px solid #e0e0e0;
+    position: relative;
   }
 </style>

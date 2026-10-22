@@ -53,6 +53,18 @@ describe('lineToMarkdown', () => {
     expect(lineToMarkdown(line('do it', 0, false))).toBe('- TODO do it');
     expect(lineToMarkdown(line('did it', 1, true))).toBe('\t- DONE did it');
   });
+
+  it('writes WAITING for a waiting task (v3.4.0), TODO / DONE otherwise', () => {
+    expect(lineToMarkdown({ ...line('vault', 1, false), marker: 'WAITING' })).toBe('\t- WAITING vault');
+    expect(lineToMarkdown({ ...line('vault', 0, true), marker: 'WAITING' })).toBe('- DONE vault');
+    expect(lineToMarkdown({ ...line('note'), marker: 'WAITING' })).toBe('- note');
+  });
+
+  it('writes CANCELLED for a cancelled task (v3.5.0), only beside checked: true', () => {
+    expect(lineToMarkdown({ ...line('scope cut', 1, true), marker: 'CANCELLED' })).toBe('\t- CANCELLED scope cut');
+    expect(lineToMarkdown({ ...line('scope cut', 0, false), marker: 'CANCELLED' })).toBe('- TODO scope cut');
+    expect(lineToMarkdown({ ...line('note'), marker: 'CANCELLED' })).toBe('- note');
+  });
 });
 
 describe('linesToLogseqMarkdown', () => {

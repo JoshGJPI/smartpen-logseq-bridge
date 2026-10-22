@@ -4,7 +4,7 @@
  * v2.0 folder-backed replacement for logseq-api.js computePageChanges().
  *
  * Returns: { strokeAdditions, strokeEdits, strokeModifications, strokeDeletions,
- *            strokeMoves, strokeTotal, hasNewTranscription, transcriptionChanged }
+ *            strokeMoves, strokeRetimes, strokeTotal, hasNewTranscription, transcriptionChanged }
  *
  * This is a SECOND implementation of the question `pendingChanges` answers, run
  * against the PageDoc on disk rather than the in-memory on-disk state index, so
@@ -42,10 +42,11 @@ function isPointEdited(canvasStroke, stored) {
  * @param {Object|null} transcription - Fresh MyScript output for this page, or null
  * @param {Set<string>} [deletedStrokeIds]
  * @param {Set<string>} [movedAwayStrokeIds] - ids leaving for another volume
+ * @param {Set<string>} [retimedAwayStrokeIds] - old ids of strokes retimed on this page
  */
 export async function computePageChangesFolder(
   book, page, activeStrokes, transcription,
-  deletedStrokeIds = new Set(), movedAwayStrokeIds = new Set()
+  deletedStrokeIds = new Set(), movedAwayStrokeIds = new Set(), retimedAwayStrokeIds = new Set()
 ) {
   try {
     const existing = await getPage(book, page);
@@ -55,6 +56,7 @@ export async function computePageChangesFolder(
     let strokeModifications = 0;
     let strokeDeletions = 0;
     let strokeMoves = 0;
+    let strokeRetimes = 0;
     let strokeTotal = activeStrokes.length;
 
     if (!existing || !existing.strokes) {
@@ -68,7 +70,14 @@ export async function computePageChangesFolder(
         if (!id) continue;
         const stored = existingById.get(id);
         if (!stored) {
-          strokeAdditions++;
+          // Retimed (lib/retime.js): the new id replaces the stored old one, so
+          // it neither adds nor removes a stroke. Same rule as pendingChanges.
+          const from = s.retimedFrom?.id;
+          if (from && !s.movedFrom && existingById.has(from) && retimedAwayStrokeIds.has(from)) {
+            strokeRetimes++;
+          } else {
+            strokeAdditions++;
+          }
         } else if (isPointEdited(s, stored)) {
           // Already on disk, but the user deleted points from it. The save
           // rewrites the stored stroke's geometry — the one case where captured
@@ -118,6 +127,7 @@ export async function computePageChangesFolder(
       strokeModifications,
       strokeDeletions,
       strokeMoves,
+      strokeRetimes,
       strokeTotal,
       hasNewTranscription,
       transcriptionChanged
@@ -130,6 +140,7 @@ export async function computePageChangesFolder(
       strokeModifications: 0,
       strokeDeletions: 0,
       strokeMoves: 0,
+      strokeRetimes: 0,
       strokeTotal: activeStrokes.length,
       hasNewTranscription: !!transcription?.text,
       transcriptionChanged: false

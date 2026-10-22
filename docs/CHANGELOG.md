@@ -6,6 +6,134 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.6.0 — Set time… for selected strokes (October 2026)
+
+**Move the earliest selected stroke to a chosen time; the rest keep their spacing.** Editor → select strokes →
+**🕒 Set time…** opens a dialog with the selection's earliest and latest times, a local date + time (seconds) field,
+±day / hour / minute nudges, the resulting shift and each page's capture days before → after. Applying is an unsaved
+Editor change (amber dot) like a sketch flag or a volume move; nothing is written until Save. Feasibility review and
+mockups: [RETIME-MOCKUPS.html](RETIME-MOCKUPS.html).
+
+**The id is the time, so a retime is a delete plus an add.** Stored ids are `s{startTime}` and saves are append-only,
+so a retimed stroke saved naively lands under its new id and the old copy stays: every stroke twice, silently. The
+fix is the `movedFrom` pattern: `shiftStroke()` stamps an in-memory `retimedFrom: { id }` (the FIRST disk id, so a
+second retime before saving still names the stored copy; shifting back to it drops the marker), and the save unions
+`getRetimedAwayStrokeIdsForPage()` into the deletion set. Two existing paths had the same blind spot and now read
+`strokeDiskId()`: deleting a retimed stroke before saving and moving one to another volume both named the new id and
+left the stored copy. A stroke that is both retimed and moved has its old id on the source page, so the move-away
+handles it there and its marker lasts until `clearMovedFromMarkers()`.
+
+**Collisions are refused, not nudged silently.** A shifted stroke landing on the exact millisecond of a stroke that
+isn't moving (on disk or on the canvas) would be dropped by the dedupe. The dialog reads the affected pages once for
+their ids and disables Apply with a "+1 ms" offer. Ids vacated by the selection itself, or by an earlier unsaved
+retime, are free.
+
+**The pen still has the old times: `pages/_retimed.json`.** Offline import dedupes by id, so re-importing pen memory
+would bring every retimed stroke back at its original time. The save records `{ "<ncodeBook>/<page>": { "s<penId>":
+"s<idNow>" } }` (physical page, since volumes share paper and the pen id doesn't depend on the volume) and import
+drops those strokes with an Activity Log note. Chains collapse to the pen id (`s1 → s2`, then `s2 → s3` = `s1 → s3`);
+a retime back to the pen time removes the entry. Written BEFORE the page: if the page write then fails the old id is
+still on disk, and dropping the pen's copy of it loses nothing; a failed sidecar write holds the page save back.
+Rejected: only warning to clear pen memory (import is exactly when a bad pen clock shows up), and remapping the
+imported stroke to its new time (the retimed copy is already on disk, so dropping is the same result with less code).
+
+**Save dialog** gains a Retiming count and a per-page "🕒 n retimed" chip; the summary row now wraps (nine counts no
+longer fit). Checked in the app on a scratch data folder with a separate profile: +2 d 1 h on six strokes → the file
+has six strokes at the new times (point timestamps shifted, force kept), `_retimed.json` maps all six; shifting back
+restores the original ids and empties the sidecar. Not checked on hardware: the import drop (unit-tested).
+Limitations: re-exporting a retimed page to LogSeq adds a second copy there; no separate undo after Apply.
+
+## v3.5.0 — CANCELLED task state (October 2026)
+
+**A fourth state, set by hand like WAITING.** A task that won't be done can be marked CANCELLED from its ⋯ menu (Tasks
+view and reader); it is never read from text. It is stored as `marker: 'CANCELLED'` beside `checked: true`, the
+mirror of WAITING beside `checked: false`. Rejected: storing it beside `checked: false`, which would make every
+older reader (and the LogSeq copy before this version) show a cancelled task as open TODO; beside `true` it reads as
+DONE, so it is at worst shown closed. `markerOf()` keeps a marker only on its own side, so a stray
+`CANCELLED`-beside-`false` is dropped like a stray WAITING-beside-`true`. A cancelled task is drawn struck through
+with a grey ✕ box / ⊘ marker and a CANCELLED chip, has its own Cancelled filter and count (the open badge is
+unchanged), and clicking its box reopens it as TODO (the menu's "Restore (back to TODO)"); the menu always offers
+the three other states. Copy all writes `- CANCELLED …`, which LogSeq treats as a closed task. Checked in the app on
+a copy of the data folder: cancel from the row menu and from the reader, the file changes only that line
+(`checked: true`, `marker`) and `lastUpdated`; reopen and Undo; saving from the transcript editor keeps the marker;
+Copy all output.
+
+## v3.4.0 — Tasks view, ticking in the reader, WAITING (October 2026)
+
+**A task list built from the scan, not from reading pages.** After v3.3.0 about 98 lines across 120 transcribed
+pages carry a TODO / DONE state, almost all under a meeting heading and most on a page with a project tag. Library ›
+**Tasks** (`libraryView` `{ kind: 'tasks' }`, from a Tasks card on the Library home and a header button with the
+open count) lists them, filtered Open / Waiting / Done / All and grouped by project tag, date written or notebook.
+Each scan record carries a small `tasks` summary (id, text, state, parent line's text; text clipped), built in main
+next to `transcriptionText` (`electron/task-summary.cjs`, mirroring `lib/tasks.js` `buildTaskSummary()`, with a
+shared fixture test so the two can't drift). Rejected: deriving tasks from `transcriptionText` (it has no line ids or
+state) and reading PageDocs when the view opens (the scan is metadata-only on purpose). The parent is the line
+`parentId` names, else the nearest shallower line, because 12 of the real tasks' `parentId`s point at lines that no
+longer exist. The project is the page's first project tag (tags are per page, so every task on a page shares it);
+the date is the page's capture days from the timeline index, since stored `lineId`s are unreliable before Aug 2026
+and a per-line date would need stroke reads. A page written over several days shows its range and groups under its
+first day.
+
+**A tick is a one-line PageDoc write.** `setTaskState()` (`lib/viewer/task-state.js`) reads the page, changes that
+one line's `checked` (and `marker`), bumps `metadata.lastUpdated` and writes through `savePage()`. It never touches
+`transcript.lastTranscribed`: that date says when MyScript last matched lines to ink, and `isTrustworthyTranscript()`
+reads it. Instead of `refreshAfterSave()` (a full rescan and timeline refresh per tick) it updates the copies that
+can change: the scan record's summary and `lastUpdated`, the reader's cached doc, and the open reader page, which
+patches its doc from `lastTaskWrite` so it follows at once. Thumbnails, search and capture dates don't depend on the
+state. It is refused on a page with an unsaved Library transcript draft (the draft's save writes every line verbatim
+and would put the old state back), on a line that no longer exists, and on a line that isn't a task; nothing is
+written then. The Editor needs no guard: its save starts from disk and keeps existing lines untouched, so a tick
+survives it, and re-transcription keeps an existing line's state. `stores/tasks.js` applies a change optimistically,
+like a tag change: an override shows it at once, writes to one page run in order, a failed write rolls back only that
+task (only if nothing changed it since) and logs why, and the last change can be undone from a toast.
+
+**WAITING is set by hand.** The third state is an optional `marker: 'WAITING'` beside `checked: false`, written only
+for WAITING, so `PAGE_DOC_VERSION` stays "2.0" and older code reads the line as an ordinary TODO. TODO and DONE clear
+it. It is set and cleared only from a task's ⋯ menu (in the Tasks view and beside a reader line), never read from
+text, which is why "☐ waiting on …" lines stay TODO. Every place that copies a line carries it (`markerField()`: the
+Library editor's clone and save, the Pages-tab editor; the transcript merge keeps existing lines as they are), and
+Copy all writes `- WAITING …`. No DOING / NOW / LATER anywhere.
+
+**Ticking in the reader.** In the Library's read-only transcript the ☐ / ☑ / ◷ marker is a button (DONE ↔ TODO) with
+the same ⋯ menu beside it on hover. A task's page link opens the reader with that line marked by id (on any page,
+not only trusted ones; its ink lights only where links are trusted) and moves Strokes to Ink + text so the line is
+visible. Edit mode is unchanged and keeps `marker`. Not built: the ink snippet on hover from the mockup, and any
+LogSeq copy or sync of tasks. Checked on a copy of the real folder after Convert task boxes: 98 tasks (82 open, 16
+done); a tick, WAITING, Undo and a reader tick each changed only that line and `metadata.lastUpdated` on disk.
+
+## v3.3.0 — Task boxes become TODO / DONE (October 2026)
+
+**Boxes are a line's state, not its text.** A transcript line has had `checked` (null | false = TODO | true = DONE)
+since v2.0, and the Library reader and Copy all already render it, but `mergeTranscript()` set it to null for every
+new MyScript line. MyScript returns a drawn box as `☐` and a ticked one as `☑` at the start of the line, so they
+stayed in the text and a paste into LogSeq gave `- ☐ Call Troy…` instead of a task. Each new line now goes through
+`parseTaskMarker()` (`lib/task-markers.js`): `☐` / `[ ]` / `TODO` → TODO, `☑` / `☒` / `[x]` / `DONE` → DONE, marker
+stripped (and a list dash written after the box). In the Oct 2026 data MyScript never read a box as O, D or 0 and
+never put one mid-line, so the rule is start-of-line glyphs only. Not markers, on purpose: a bare `✓` (one in the data,
+a remark rather than a task); lowercase or mixed-case `todo` ("Todo list for Friday" is a heading, and a typed
+marker comes from LogSeq habit, which is capitals); and `WAITING`. Rejected: reading "waiting on …" from the text as
+a third state. There were two such lines, and WAITING will be set by hand in the app instead, so those lines stay
+TODO (from their box) or plain text (typed `WAITING`). The duplicate check now compares marker-stripped text on both
+sides, so re-transcribing a page whose old line still says `☐ Call Troy` does not add a second `Call Troy`. An
+existing line's `checked` was already kept through re-transcription, so a DONE is never reset by ink that still
+shows an empty box.
+
+**Converting pages transcribed earlier.** Settings → Data Folder → **Convert task boxes…** (`ConvertTaskBoxesDialog`,
+planner in `lib/storage/convert-task-boxes.js`) reads only pages whose scan text can hold a marker, lists every line
+it would change (page, TODO / DONE, old → new) and writes nothing until Convert. Each page is then read again and
+converted from what is on disk at that moment; a line edited since the preview is skipped, not converted from stale
+text. Writes go through `savePage()`, then one `refreshAfterSave()`. Only `text` and `checked` change, plus
+`metadata.lastUpdated`. `transcript.lastTranscribed` is left alone because nothing was re-recognised, and that keeps
+`isTrustworthyTranscript()` giving the same answer (it reads only the date, line ids, yBounds and stroke links).
+Conflicts: a line whose `checked` is already set keeps it, because it was set deliberately (v1 migration, a Library
+edit) after the ink was read. If the glyph agrees, the glyph is stripped. If it disagrees (`☐` on a DONE), the line
+is left exactly as it is and listed as left alone, so the disagreement stays visible instead of being silently
+resolved. None of the real data hit this case. Convert is disabled while a Library transcript edit is open, because
+its save would write the old text back. On a copy of the real folder: 53 lines on 23 pages (41 TODO, 12 DONE).
+Rejected: converting on read (every view and the scan text would need the parser, and the LogSeq copy would
+disagree with the file) and converting silently at startup (it rewrites saved files, so it should be visible and
+confirmed).
+
 ## v3.2.0 — Tag reading order, tag manager in the Library (October 2026)
 
 **Reading a tag's pages as a book.** A tag's grid (or Untagged, or any grid with a tag filter on) only showed

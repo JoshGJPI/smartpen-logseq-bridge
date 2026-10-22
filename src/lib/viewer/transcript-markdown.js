@@ -7,6 +7,8 @@
  *    reconstructs the outline hierarchy on paste.
  *  - Task state maps to LogSeq's native markers:
  *      checked === false → `- TODO text`
+ *      checked === false, marker 'WAITING' → `- WAITING text` (v3.4.0)
+ *      checked === true, marker 'CANCELLED' → `- CANCELLED text` (v3.5.0)
  *      checked === true  → `- DONE text`
  *      otherwise         → `- text`
  *  - LogSeq property lines (`key:: value`) are stripped — only transcript text
@@ -30,14 +32,14 @@ export function isPropertyLine(text) {
 
 /**
  * Format a single line as a LogSeq bullet (no trailing newline).
- * @param {{text?:string, indentLevel?:number, checked?:boolean|null}} line
+ * @param {{text?:string, indentLevel?:number, checked?:boolean|null, marker?:string}} line
  * @returns {string}
  */
 export function lineToMarkdown(line) {
   const indent = '\t'.repeat(Math.max(0, line.indentLevel || 0));
   let marker = '';
-  if (line.checked === false) marker = 'TODO ';
-  else if (line.checked === true) marker = 'DONE ';
+  if (line.checked === false) marker = line.marker === 'WAITING' ? 'WAITING ' : 'TODO ';
+  else if (line.checked === true) marker = line.marker === 'CANCELLED' ? 'CANCELLED ' : 'DONE ';
   return `${indent}- ${marker}${line.text ?? ''}`;
 }
 

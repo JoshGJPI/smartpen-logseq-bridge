@@ -286,7 +286,8 @@ export {
   setSavedPages,
   setScanning,
   clearSavedPages,
-  applyTranscriptToRecord
+  applyTranscriptToRecord,
+  applyTaskStateToRecord
 } from './saved-pages.js';
 
 // Viewer (Book View pane)
@@ -334,7 +335,13 @@ export {
   readerPages,
   readerFocus,
   focusReaderLine,
-  clearReaderFocus
+  clearReaderFocus,
+  // Tasks (v3.4.0)
+  viewerDirtyPages,
+  isViewerPageDirty,
+  focusReaderLineId,
+  lastTaskWrite,
+  noteTaskWritten
 } from './viewer.js';
 
 // Library home + global search (reading-first package E)

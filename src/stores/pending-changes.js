@@ -7,6 +7,7 @@ import { strokes } from './strokes.js';
 import { storageStatus, markUnsavedChanges } from './storage.js';
 import { generateStrokeId } from '../lib/stroke-storage.js';
 import { BOOK_KEY_FRAGMENT, toBookKey } from '../lib/volumes.js';
+import { strokeDiskId } from '../lib/retime.js';
 
 // Set of deleted stroke indices (local only, not yet written to disk)
 export const deletedIndices = writable(new Set());
@@ -299,6 +300,9 @@ canvasPageKeys.subscribe(($keys) => {
  *                     `savePageToFolder()` syncs those onto strokes already
  *                     stored, so they are genuine unsaved changes.
  *   - deletions     — indices explicitly marked for deletion
+ *   - retimes       — id NOT on disk, but the id it had before an unsaved
+ *                     retime (`retimedFrom`) is, on this page: saving replaces
+ *                     the stored copy at its new time (lib/retime.js)
  *
  * A stroke is never counted twice. A new stroke that is also flagged or edited is
  * an addition only, since saving it writes the whole stroke anyway; a stroke that
@@ -310,7 +314,7 @@ canvasPageKeys.subscribe(($keys) => {
  * @param {Set<number>} deletedSet      stroke indices marked for deletion
  * @param {Map<string,Map<string,OnDiskStrokeState>>} onDiskIds  pageKey → on-disk stroke state
  * @param {Set<string>} savedPages      pageKeys saved this session
- * @returns {Map<string,{book:number,page:number,additions:number[],edits:number[],modifications:number[],deletions:number[],isSaved:boolean}>}
+ * @returns {Map<string,{book:number,page:number,additions:number[],edits:number[],modifications:number[],deletions:number[],retimes:number[],moves:number[],isSaved:boolean}>}
  */
 export function computePendingChangesMap(strokesArr, deletedSet, onDiskIds, savedPages) {
   const changes = new Map();
@@ -353,6 +357,7 @@ export function computePendingChangesMap(strokesArr, deletedSet, onDiskIds, save
     let additionIndices = [];
     const editIndices = [];
     const modificationIndices = [];
+    const retimeIndices = [];
     if (onDisk && onDisk.size > 0) {
       // Page exists on disk — an active stroke is an addition iff its id isn't
       // there; otherwise an edit iff its geometry shrank, else a modification iff
@@ -361,7 +366,15 @@ export function computePendingChangesMap(strokesArr, deletedSet, onDiskIds, save
         const stroke = activeStrokes[i];
         const stored = onDisk.get(generateStrokeId(stroke));
         if (!stored) {
-          additionIndices.push(canvasIndex);
+          // A retime (lib/retime.js): the stroke's new id isn't on disk, but the
+          // id it had is, on this page. Not a new stroke, so its own bucket. A
+          // stroke that also moved volume has its old id on another page, so it
+          // reads as an addition here, like any moved stroke.
+          if (stroke.retimedFrom && !stroke.movedFrom && onDisk.has(stroke.retimedFrom.id)) {
+            retimeIndices.push(canvasIndex);
+          } else {
+            additionIndices.push(canvasIndex);
+          }
           return;
         }
         // Only a known, differing count counts: an unknown stored count (null)
@@ -381,7 +394,8 @@ export function computePendingChangesMap(strokesArr, deletedSet, onDiskIds, save
     }
 
     if (additionIndices.length > 0 || editIndices.length > 0 ||
-        modificationIndices.length > 0 || deletedIndicesForPage.length > 0) {
+        modificationIndices.length > 0 || deletedIndicesForPage.length > 0 ||
+        retimeIndices.length > 0) {
       changes.set(pageKey, {
         book,
         page,
@@ -389,6 +403,7 @@ export function computePendingChangesMap(strokesArr, deletedSet, onDiskIds, save
         edits: editIndices,
         modifications: modificationIndices,
         deletions: deletedIndicesForPage,
+        retimes: retimeIndices,
         moves: [],
         isSaved: savedPages.has(pageKey)
       });
@@ -421,6 +436,7 @@ export function computePendingChangesMap(strokesArr, deletedSet, onDiskIds, save
         edits: [],
         modifications: [],
         deletions: [],
+        retimes: [],
         moves: [],
         isSaved: savedPages.has(sourceKey)
       };
@@ -453,6 +469,7 @@ export const hasPendingChanges = derived(
           pageChanges.edits.length > 0 ||
           pageChanges.modifications.length > 0 ||
           pageChanges.deletions.length > 0 ||
+          (pageChanges.retimes?.length || 0) > 0 ||
           (pageChanges.moves?.length || 0) > 0) {
         return true;
       }
@@ -505,8 +522,9 @@ export function getDeletedStrokeIdsForPage(book, page) {
     const pageInfo = stroke.pageInfo;
     if (!pageInfo || pageInfo.book !== book || pageInfo.page !== page) return;
 
-    // Generate the same ID format used in storage (s{startTime})
-    deletedIds.add(generateStrokeId(stroke));
+    // The id the stroke has ON DISK: after an unsaved retime that is the old
+    // one (`retimedFrom`), not s{startTime}, or the deletion would miss it.
+    deletedIds.add(strokeDiskId(stroke));
   });
 
   return deletedIds;
@@ -533,8 +551,38 @@ export function getMovedAwayStrokeIdsForPage(book, page) {
     const from = stroke?.movedFrom;
     if (!from || $deletedIndices.has(index)) return;
     if (toBookKey(from.book) !== bookKey || String(from.page) !== String(page)) return;
-    movedIds.add(generateStrokeId(stroke));
+    // Disk id, not s{startTime}: a stroke retimed as well is stored there under its old id.
+    movedIds.add(strokeDiskId(stroke));
   });
 
   return movedIds;
+}
+
+/**
+ * Stroke ids this page must lose because they were retimed (v3.6.0): the
+ * retimed copy is appended under its new id, and the old id would otherwise
+ * stay, leaving the stroke at both times. The save unions these with the
+ * deletions. Strokes that also moved volume are left to
+ * `getMovedAwayStrokeIdsForPage()` on their source page; deleted ones are
+ * already in `getDeletedStrokeIdsForPage()`.
+ *
+ * @param {string|number} book book key
+ * @param {number|string} page
+ * @returns {Set<string>}
+ */
+export function getRetimedAwayStrokeIdsForPage(book, page) {
+  const $strokes = get(strokes);
+  const $deletedIndices = get(deletedIndices);
+  const bookKey = toBookKey(book);
+  const ids = new Set();
+
+  $strokes.forEach((stroke, index) => {
+    const from = stroke?.retimedFrom;
+    if (!from || stroke.movedFrom || $deletedIndices.has(index)) return;
+    const pi = stroke.pageInfo;
+    if (!pi || toBookKey(pi.book) !== bookKey || String(pi.page) !== String(page)) return;
+    ids.add(from.id);
+  });
+
+  return ids;
 }

@@ -55,7 +55,7 @@
   $: seqLabel = tagOrder ? sequenceCrumb(seqIndex, $readingList.pages.length, spread) : '';
   // A tag's pages, the Untagged pages or the suggestions queue (v3.1.0).
   $: viewLabel = !open && !hasSelection && $libraryView
-    ? ({ tag: `Tag: ${$libraryView.tag}`, untagged: 'Untagged', suggestions: 'Suggestions', tags: 'Manage tags' })[$libraryView.kind] || ''
+    ? ({ tag: `Tag: ${$libraryView.tag}`, untagged: 'Untagged', suggestions: 'Suggestions', tags: 'Manage tags', tasks: 'Tasks' })[$libraryView.kind] || ''
     : '';
 
   function setSpread(on) {
