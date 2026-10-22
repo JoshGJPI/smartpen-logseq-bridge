@@ -5,7 +5,8 @@
 <script>
   import { createEventDispatcher, onMount } from 'svelte';
   import {
-    getActiveStrokesForPage, getDeletedStrokeIdsForPage, getMovedAwayStrokeIdsForPage
+    getActiveStrokesForPage, getDeletedStrokeIdsForPage, getMovedAwayStrokeIdsForPage,
+    getRetimedAwayStrokeIdsForPage
   } from '$stores/pending-changes.js';
   import { getBookAlias } from '$stores/book-aliases.js';
   import { computePageChangesFolder as computePageChanges } from '$lib/storage/page-changes.js';
@@ -25,6 +26,7 @@
   let totalStrokeModifications = 0;
   let totalStrokeDeletions = 0;
   let totalStrokeMoves = 0;
+  let totalStrokeRetimes = 0;
   let totalNewTranscriptions = 0;
   let totalChangedTranscriptions = 0;
   let totalPages = 0;
@@ -45,6 +47,9 @@
   $: selectedStrokeMoves = changesList
     .filter(item => selectedPages.has(item.pageKey))
     .reduce((sum, item) => sum + (item.strokeMoves || 0), 0);
+  $: selectedStrokeRetimes = changesList
+    .filter(item => selectedPages.has(item.pageKey))
+    .reduce((sum, item) => sum + (item.strokeRetimes || 0), 0);
   // A move source that isn't saved leaves the stroke in BOTH volumes, so the
   // dialog refuses to let one be deselected rather than warning about it.
   $: unsavedMoveSources = changesList
@@ -122,6 +127,7 @@
       // Get explicit deletion IDs for accurate deletion count
       const deletedIds = getDeletedStrokeIdsForPage(pageData.book, pageData.page);
       const movedAwayIds = getMovedAwayStrokeIdsForPage(pageData.book, pageData.page);
+      const retimedAwayIds = getRetimedAwayStrokeIdsForPage(pageData.book, pageData.page);
 
       const promise = computePageChanges(
         pageData.book,
@@ -129,7 +135,8 @@
         activeStrokes,
         transcription,
         deletedIds,
-        movedAwayIds
+        movedAwayIds,
+        retimedAwayIds
       ).then(changes => ({
         pageKey: key,
         book: pageData.book,
@@ -141,6 +148,7 @@
         strokeModifications: changes.strokeModifications,
         strokeDeletions: changes.strokeDeletions,
         strokeMoves: changes.strokeMoves,
+        strokeRetimes: changes.strokeRetimes,
         strokeTotal: changes.strokeTotal,
         hasNewTranscription: changes.hasNewTranscription,
         transcriptionChanged: changes.transcriptionChanged
@@ -160,6 +168,7 @@
           item.strokeModifications > 0 ||
           item.strokeDeletions > 0 ||
           item.strokeMoves > 0 ||
+          item.strokeRetimes > 0 ||
           item.hasNewTranscription ||
           item.transcriptionChanged
         )
@@ -174,6 +183,7 @@
       totalStrokeModifications = changesList.reduce((sum, item) => sum + item.strokeModifications, 0);
       totalStrokeDeletions = changesList.reduce((sum, item) => sum + item.strokeDeletions, 0);
       totalStrokeMoves = changesList.reduce((sum, item) => sum + item.strokeMoves, 0);
+      totalStrokeRetimes = changesList.reduce((sum, item) => sum + item.strokeRetimes, 0);
       totalNewTranscriptions = changesList.filter(item => item.hasNewTranscription).length;
       totalChangedTranscriptions = changesList.filter(item => item.transcriptionChanged).length;
       totalPages = changesList.length;
@@ -286,6 +296,10 @@
         <span class="summary-label">Restyling:</span>
         <span class="summary-value">~{selectedStrokeModifications} strokes</span>
       </div>
+      <div class="summary-item retimes" class:zero={selectedStrokeRetimes === 0}>
+        <span class="summary-label">Retiming:</span>
+        <span class="summary-value">🕒{selectedStrokeRetimes} strokes</span>
+      </div>
       <div class="summary-item moves" class:zero={selectedStrokeMoves === 0}>
         <span class="summary-label">Moving:</span>
         <span class="summary-value">→{selectedStrokeMoves} strokes</span>
@@ -337,6 +351,11 @@
             {#if item.strokeModifications > 0}
               <span class="stat modifications" title="Sketch flag changed on strokes already saved">
                 ✏️ {item.strokeModifications} restyled
+              </span>
+            {/if}
+            {#if item.strokeRetimes > 0}
+              <span class="stat retimes" title="Times changed on strokes already saved — rewritten at their new times, the copies at the old times removed">
+                🕒 {item.strokeRetimes} retimed
               </span>
             {/if}
             {#if item.strokeMoves > 0}
@@ -520,7 +539,8 @@
   
   .summary {
     display: flex;
-    gap: 24px;
+    flex-wrap: wrap;   /* nine counts no longer fit one row at the dialog's max width */
+    gap: 12px 24px;
     padding: 16px;
     background: var(--bg-secondary);
     border-radius: 8px;
@@ -564,6 +584,10 @@
 
   .summary-item.modifications .summary-value {
     color: #06b6d4;
+  }
+
+  .summary-item.retimes .summary-value {
+    color: #2dd4bf;
   }
 
   .summary-item.moves .summary-value {
@@ -662,6 +686,11 @@
   .stat.modifications {
     color: #06b6d4;
     background: rgba(6, 182, 212, 0.1);
+  }
+
+  .stat.retimes {
+    color: #2dd4bf;
+    background: rgba(45, 212, 191, 0.12);
   }
 
   .stat.moves {

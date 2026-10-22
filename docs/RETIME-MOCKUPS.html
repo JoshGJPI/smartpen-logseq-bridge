@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>smartpen-bridge stroke retime: feasibility and mockups</title>
+<style>
+  :root{
+    --bg:#12121f; --panel:#1a1a2e; --line:#2a2a4a; --text:#eaeaea; --muted:#a0a0b0;
+    --accent:#e94560; --ok:#4ade80; --warn:#fbbf24; --blue:#5b8def;
+    --a-blue:#4a7cf7; --a-blue-bg:#eef3ff; --a-blue-ink:#2c56c4; --a-line:#ddd;
+    --retime:#0e7490; --retime-bg:#e0f4f8;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-padding-top:56px}
+  body{background:var(--bg);color:var(--text);font:15px/1.6 'Segoe UI',system-ui,sans-serif;overflow-x:hidden}
+  .wrap{max-width:1120px;margin:0 auto;padding:40px 24px 120px}
+  h1{font-size:2rem;margin-bottom:6px}
+  h2{font-size:1.4rem;margin:60px 0 6px;padding-top:24px;border-top:1px solid var(--line)}
+  h3{font-size:1rem;margin:22px 0 6px;color:#fff}
+  p,li{color:#cfcfdc}
+  p{margin:8px 0}
+  ul,ol{margin:8px 0 8px 20px}
+  .sub{color:var(--muted)}
+  code{background:#23233d;padding:1px 6px;border-radius:4px;font-size:.85em;color:#ffb3c0}
+  pre{background:#0c0c17;border:1px solid var(--line);border-radius:8px;padding:12px 14px;font:12.5px/1.55 Consolas,monospace;color:#d6d6e6;overflow-x:auto;white-space:pre}
+  .note{border-left:3px solid var(--warn);background:#2a2614;padding:10px 14px;border-radius:0 8px 8px 0;margin:14px 0;color:#e8dca8}
+  .good{border-left:3px solid var(--ok);background:#14281c;padding:10px 14px;border-radius:0 8px 8px 0;margin:14px 0;color:#bfe9cd}
+  .toc{position:sticky;top:0;background:rgba(18,18,31,.92);backdrop-filter:blur(8px);padding:10px 0 10px 24px;margin:0 -24px;z-index:50;border-bottom:1px solid var(--line);display:flex;gap:14px;flex-wrap:wrap;font-size:.8rem}
+  .toc a{color:var(--muted);text-decoration:none}.toc a:hover{color:#fff}
+  table{border-collapse:collapse;width:100%;font-size:.9rem;margin:12px 0}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:.75rem;letter-spacing:.06em;text-transform:uppercase}
+  .mock{margin:14px 0 6px;border:1px solid var(--line);border-radius:12px;background:#0c0c17;padding:14px}
+  .cap{font-size:.78rem;color:var(--muted);margin:8px 2px 0}
+  .hint{display:inline-block;font-size:.72rem;background:#2a2614;color:#f6d36b;padding:1px 9px;border-radius:99px;margin-left:6px;font-weight:600;letter-spacing:.03em}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:860px){.cols{grid-template-columns:1fr}}
+  .verdict{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:16px 0}
+  .vcard{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .vcard b{display:block;font-size:.75rem;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+  .vcard .big{font-size:1.35rem;font-weight:700;color:#fff}
+  .vcard .big.ok{color:var(--ok)}.vcard .big.warn{color:var(--warn)}
+
+  /* ---------- the app, light ---------- */
+  .app{background:#f5f5f5;color:#222;border:1px solid #444;border-radius:8px;overflow:hidden;font-size:13px;line-height:1.4;position:relative}
+  .app *{color:inherit}
+  .app .mut{color:#888}
+  .tbar{display:flex;align-items:center;gap:8px;padding:7px 12px;background:#fff;border-bottom:1px solid var(--a-line);flex-wrap:wrap}
+  .tbtn{padding:4px 10px;border:1px solid var(--a-line);border-radius:6px;background:#fff;font-size:12px;color:#444;white-space:nowrap}
+  .tbtn.new{border-color:var(--retime);color:var(--retime);background:var(--retime-bg);font-weight:600;box-shadow:0 0 0 3px rgba(14,116,144,.15)}
+  .tsel{padding:3px 8px;border:1px solid var(--a-line);border-radius:6px;font-size:12px;background:#fff;color:#444}
+  .selind{font-size:12px;color:#666;margin-left:auto}
+  .canvas{height:220px;background:#fff;position:relative;overflow:hidden}
+  .canvas svg{position:absolute;inset:0;width:100%;height:100%}
+  .btn{padding:5px 12px;border:1px solid var(--a-line);border-radius:6px;background:#fff;font-size:12.5px;color:#444;cursor:pointer}
+  .btn.pri{background:var(--a-blue);border-color:var(--a-blue);color:#fff}
+  .btn.sm{padding:2px 8px;font-size:11.5px}
+  .btn:disabled{opacity:.45;cursor:default}
+
+  /* dialog */
+  .scrim{background:rgba(20,20,40,.45);padding:26px 16px;display:flex;justify-content:center}
+  .dlg{background:#fff;border-radius:10px;width:100%;max-width:560px;box-shadow:0 12px 40px rgba(0,0,0,.35);overflow:hidden}
+  .dlg header{padding:14px 18px 10px;border-bottom:1px solid #eee}
+  .dlg header h4{font-size:15px;font-weight:600;color:#222}
+  .dlg header p{font-size:12px;color:#777;margin:2px 0 0}
+  .dlg .body{padding:14px 18px}
+  .dlg footer{padding:10px 18px;border-top:1px solid #eee;display:flex;gap:8px;justify-content:flex-end;align-items:center;background:#fafafa}
+  .dlg footer .left{margin-right:auto;font-size:11.5px;color:#888}
+  .kv{display:grid;grid-template-columns:130px 1fr;gap:4px 12px;font-size:12.5px;margin-bottom:12px}
+  .kv dt{color:#888}
+  .kv dd{color:#222;font-variant-numeric:tabular-nums}
+  .field{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 4px}
+  .field label{font-size:12px;color:#555;font-weight:600;min-width:118px}
+  .field input{font:inherit;font-size:13px;padding:4px 8px;border:1px solid #ccc;border-radius:6px;color:#222;background:#fff}
+  .nudges{display:flex;gap:4px;flex-wrap:wrap;margin:6px 0 0 126px}
+  .delta{margin:12px 0 10px;padding:9px 12px;border-radius:8px;background:var(--retime-bg);color:#0b4f5f;font-size:12.5px;font-variant-numeric:tabular-nums}
+  .delta b{font-size:14px}
+  .ptable{width:100%;font-size:12px;border-collapse:collapse;margin:0}
+  .ptable th{font-size:10.5px;color:#999;padding:4px 6px;border-bottom:1px solid #eee;letter-spacing:.05em}
+  .ptable td{padding:5px 6px;border-bottom:1px solid #f2f2f2;color:#333;font-variant-numeric:tabular-nums}
+  .ptable .arrow{color:#aaa;padding:0 4px}
+  .ptable .chg{color:var(--retime);font-weight:600}
+  .warnbox{margin-top:10px;padding:8px 11px;border-radius:7px;background:#fff6e0;border:1px solid #f3d27a;font-size:12px;color:#7a5200}
+  .errbox{margin-top:10px;padding:8px 11px;border-radius:7px;background:#fdecee;border:1px solid #f2b8c0;font-size:12px;color:#8a1c2c}
+
+  /* save dialog row */
+  .srow{display:flex;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid #eee;font-size:12.5px;background:#fff}
+  .srow .pg{font-weight:600;min-width:90px}
+  .pill{display:inline-block;padding:0 8px;border-radius:99px;font-size:11px;font-weight:600}
+  .pill.add{background:#e6f6ea;color:#2f7d4f}.pill.del{background:#fdecee;color:#b4233a}
+  .pill.rt{background:var(--retime-bg);color:var(--retime)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Retime selected strokes</h1>
+<p class="sub">Feasibility review and mockups · 2026-10-22 · Editor feature, not built</p>
+<p>The ask: select strokes in the Editor, set the date and time of the <em>earliest</em> selected stroke, and shift every
+other selected stroke by the same amount so their relative timing is unchanged.</p>
+
+<nav class="toc">
+  <a href="#verdict">Verdict</a><a href="#why">The one hard part</a><a href="#touch">What a time change touches</a>
+  <a href="#m1">Mockup: toolbar</a><a href="#m2">Mockup: dialog</a><a href="#m3">Mockup: save</a>
+  <a href="#plan">Build plan</a><a href="#risks">Risks and open questions</a>
+</nav>
+
+<h2 id="verdict">Verdict</h2>
+<div class="verdict">
+  <div class="vcard"><b>Feasible</b><div class="big ok">Yes</div>No PageDoc format change. <code>PAGE_DOC_VERSION</code> stays 2.0.</div>
+  <div class="vcard"><b>Size</b><div class="big">Medium</div>About the size of volume reassign: one store action, one dialog, save-path plumbing, tests.</div>
+  <div class="vcard"><b>Main risk</b><div class="big warn">Stroke id</div>The id <em>is</em> the start time (<code>s{startTime}</code>), so a retime is a delete plus an add on disk.</div>
+  <div class="vcard"><b>Closest precedent</b><div class="big">Volume move</div><code>reassignVolume()</code> + <code>movedFrom</code> solves the same "old copy must go" problem.</div>
+</div>
+<div class="good">Everything that reads time downstream (Timeline, Dates, capture-date index, task dates, the reader's "written on")
+already derives it from stroke <code>startTime</code> at scan time, so once the PageDoc is right those views follow after
+<code>refreshAfterSave()</code>. <code>_timeline.json</code> re-reads a page whenever its mtime changes, so it needs nothing.</div>
+
+<h2 id="why">The one hard part: the id is the timestamp</h2>
+<p>Every stored stroke's id is <code>s{startTime}</code> (<code>strokeToStored()</code>, <code>generateStrokeId()</code>), and the
+save is append-only, deduped by id. If the Editor just changed <code>startTime</code> and saved:</p>
+<ol>
+  <li>The retimed stroke has a new id that isn't on disk, so the save <b>appends</b> it.</li>
+  <li>The old id is still on disk and isn't in the explicit deletion set, so the save <b>keeps</b> it.</li>
+  <li>Result: every retimed stroke exists twice, once at each time. Nothing warns.</li>
+</ol>
+<p>That's exactly the volume-move bug the <code>movedFrom</code> marker already prevents. The fix has the same shape:</p>
+<pre>// in-memory only, like movedFrom / pointsEdited (strokeToStored never copies it)
+stroke.retimedFrom = { id: 's1760447525107' }   // the id that is on disk now, kept from the FIRST retime
+
+getDeletedStrokeIdsForPage()     → delete   retimedFrom.id ?? generateStrokeId(stroke)
+getMovedAwayStrokeIdsForPage()   → move off retimedFrom.id ?? generateStrokeId(stroke)
+new getRetimedAwayStrokeIdsForPage() → unioned into deletedStrokeIds by the save, like moves</pre>
+<div class="note"><b>Two existing paths would quietly break without this.</b> Deleting a retimed stroke before saving, and moving a
+retimed stroke to another volume, both compute the disk id from the <em>current</em> <code>startTime</code>. After a retime that
+id isn't on disk, so the deletion or move-away finds nothing and the old copy survives. Both must read
+<code>retimedFrom.id</code> first.</div>
+
+<h3>Collisions</h3>
+<p>A uniform shift keeps the selected strokes distinct from each other, but a shifted stroke can land on the exact millisecond of a
+stroke that is <em>not</em> selected on the same page. The dedupe would then silently drop it. <code>onDiskStrokeIds</code> already
+holds every stored id for each canvas page, so the dialog can check before applying, plus unsaved canvas strokes. Collisions are rare
+(millisecond resolution); the proposal is to refuse with a message and offer "+1 ms" rather than silently nudging.</p>
+
+<h2 id="touch">What a time change touches</h2>
+<table>
+  <tr><th>Field / place</th><th>What happens</th><th>Work</th></tr>
+  <tr><td><code>startTime</code>, <code>endTime</code></td><td>+Δ</td><td>New store action <code>retimeStrokes(indices, deltaMs)</code></td></tr>
+  <tr><td>Point timestamps <code>[x, y, ts, f]</code></td><td>+Δ where a number; <code>null</code> stays <code>null</code>; force, sketch flag and <code>lineId</code> untouched</td><td>Same action, over <code>dotArray[].timestamp</code></td></tr>
+  <tr><td>Stroke id</td><td>Changes. Old id deleted, new id appended, in one atomic page write</td><td><code>retimedFrom</code> marker, see above</td></tr>
+  <tr><td>Stored order</td><td>The save already re-sorts by <code>startTime</code></td><td>None</td></tr>
+  <tr><td>Transcript link</td><td><code>lineId</code> is a line uuid, not time-based, so it carries over</td><td>None</td></tr>
+  <tr><td><code>pendingChanges</code> + <code>computePageChangesFolder()</code></td><td>A retimed stroke would read as an addition. Give it its own <b>retimed</b> bucket so the dialog says what's happening</td><td>Both implementations, per CLAUDE.md</td></tr>
+  <tr><td>Point edit / sketch flag on the same stroke</td><td>The new id is an addition, which writes the whole stroke as it is on the canvas, so edits and flags ride along</td><td>Test only</td></tr>
+  <tr><td>After save</td><td>Clear <code>retimedFrom</code> for that page (mirrors <code>clearMovedFromMarkers</code>)</td><td>Small</td></tr>
+  <tr><td>Reading views (Timeline, Dates, Tasks, Library)</td><td>Capture days move</td><td>Editor save already calls <code>refreshAfterSave()</code></td></tr>
+  <tr><td>Canvas day colouring</td><td><code>captureDayKey</code> reads <code>startTime</code>; redraw after the action</td><td>None or trivial</td></tr>
+</table>
+
+<h2 id="m1">Mockup 1: the Editor toolbar</h2>
+<p>A <b>🕒 Set time…</b> button in the "Selected strokes" group beside Duplicate, Edit Points and Volume. Disabled with no selection.</p>
+<div class="mock">
+  <div class="app">
+    <div class="tbar">
+      <span class="tbtn">🎨 Decorative</span>
+      <span class="tbtn">🔄 Duplicate</span>
+      <span class="tbtn">📍 Edit Points</span>
+      <span class="tsel">📚 Volume 1 (current) ▾</span>
+      <span class="tbtn new">🕒 Set time…</span>
+      <span class="selind">38 of 412 selected</span>
+    </div>
+    <div class="canvas">
+      <svg viewBox="0 0 800 220" preserveAspectRatio="none">
+        <g fill="none" stroke="#333" stroke-width="1.6" stroke-linecap="round">
+          <path d="M40 40 q20 -18 40 0 t40 0 t40 0"/><path d="M180 38 q14 12 28 0 t28 0"/>
+          <path d="M40 80 q22 -14 44 0 t44 0 t44 0 t44 0"/>
+        </g>
+        <g fill="none" stroke="#4a7cf7" stroke-width="2.2" stroke-linecap="round">
+          <path d="M40 130 q20 -18 40 0 t40 0 t40 0 t40 0 t40 0"/>
+          <path d="M40 170 q16 -14 32 0 t32 0 t32 0"/><path d="M200 168 l30 0"/>
+        </g>
+        <rect x="30" y="112" width="250" height="78" fill="rgba(74,124,247,.06)" stroke="#4a7cf7" stroke-dasharray="4 3"/>
+      </svg>
+    </div>
+  </div>
+  <p class="cap">Selected strokes (blue) were written on Oct 14 but the pen's clock had reset; the rest of the page is fine.</p>
+</div>
+
+<h2 id="m2">Mockup 2: the Set time dialog <span class="hint">interactive</span></h2>
+<p>Change the date or time, or use the nudges. The shift, the new range and the per-page capture days update live.
+Applying is an unsaved change (amber dot) like every other Editor edit; nothing touches disk until Save.</p>
+<div class="mock">
+  <div class="app">
+    <div class="scrim">
+      <div class="dlg" role="dialog" aria-modal="true">
+        <header>
+          <h4>Set time for 38 strokes</h4>
+          <p>Moves the earliest stroke to the time you pick. The others keep their spacing.</p>
+        </header>
+        <div class="body">
+          <dl class="kv">
+            <dt>Earliest stroke</dt><dd id="oldStart"></dd>
+            <dt>Latest stroke</dt><dd id="oldEnd"></dd>
+            <dt>Span</dt><dd>47 min 12 s · 2 pages (B388/P41, B388/P42)</dd>
+          </dl>
+          <div class="field">
+            <label for="newDate">New earliest time</label>
+            <input type="date" id="newDate">
+            <input type="time" id="newTime" step="1">
+          </div>
+          <div class="nudges">
+            <button class="btn sm" data-n="-86400000">−1 day</button>
+            <button class="btn sm" data-n="86400000">+1 day</button>
+            <button class="btn sm" data-n="-3600000">−1 h</button>
+            <button class="btn sm" data-n="3600000">+1 h</button>
+            <button class="btn sm" data-n="-60000">−1 min</button>
+            <button class="btn sm" data-n="60000">+1 min</button>
+            <button class="btn sm" id="reset">Reset</button>
+          </div>
+          <div class="delta" id="delta"></div>
+          <table class="ptable">
+            <tr><th>Page</th><th>Strokes</th><th>Capture days now</th><th></th><th>After</th></tr>
+            <tr><td>B388/P41</td><td>29 of 214</td><td>Oct 3</td><td class="arrow">→</td><td id="p41"></td></tr>
+            <tr><td>B388/P42</td><td>9 of 198</td><td>Oct 3</td><td class="arrow">→</td><td id="p42"></td></tr>
+          </table>
+          <div id="msg"></div>
+        </div>
+        <footer>
+          <span class="left">Unsaved until you Save the page</span>
+          <button class="btn">Cancel</button>
+          <button class="btn pri" id="apply">Apply</button>
+        </footer>
+      </div>
+    </div>
+  </div>
+  <p class="cap">Times are local (same day rule as <code>dayKeyLocal</code>). Seconds are shown because a session's strokes can be seconds apart; milliseconds are kept from the original.
+  Try setting a time in the future, or exactly 2026-10-14 13:05:00, to see the warning and the collision states.</p>
+</div>
+
+<div class="cols">
+  <div>
+    <h3>States the dialog handles</h3>
+    <ul>
+      <li><b>No change:</b> Apply disabled.</li>
+      <li><b>Into the future:</b> warning, still allowed.</li>
+      <li><b>Collision:</b> a shifted stroke would share an id with an unselected stroke on its page → Apply disabled, "+1 ms" offered.</li>
+      <li><b>Before 2000 / NaN:</b> refused (guards a typo like year 0202).</li>
+      <li><b>Pasted (unplaced) strokes</b> are excluded: they already have synthetic times and aren't saved until placed.</li>
+    </ul>
+  </div>
+  <div>
+    <h3>After Apply</h3>
+    <ul>
+      <li>Strokes keep their selection, so a second retime is easy; <code>retimedFrom</code> keeps the <em>first</em> original id.</li>
+      <li>Activity log: "Retimed 38 strokes by +11 d 4 h 53 min".</li>
+      <li>Undo before save: <b>Reset</b> in the dialog (shift back by the stored Δ), or Revert.</li>
+      <li>The Editor's Dates tab and day colours follow immediately; the Timeline and Library follow after Save.</li>
+    </ul>
+  </div>
+</div>
+
+<h2 id="m3">Mockup 3: the save dialog</h2>
+<p>A separate <b>retimed</b> count per page, so a retime isn't mistaken for 38 new strokes plus 38 deletions.</p>
+<div class="mock">
+  <div class="app">
+    <div class="srow"><span class="pg">B388/P41</span><span class="pill rt">🕒 29 retimed</span><span class="mut">Oct 3 → Oct 14</span><span class="mut" style="margin-left:auto">214 strokes</span></div>
+    <div class="srow"><span class="pg">B388/P42</span><span class="pill rt">🕒 9 retimed</span><span class="pill add">+3 new</span><span class="mut" style="margin-left:auto">201 strokes</span></div>
+    <div class="srow" style="background:#fafafa;font-size:11.5px;color:#777">Retimed strokes are rewritten with their new times; the copies at the old times are removed. Ink and transcript are unchanged.</div>
+  </div>
+</div>
+
+<h2 id="plan">Build plan</h2>
+<ol>
+  <li><b>Pure helper</b> <code>lib/retime.js</code>: <code>shiftStroke(stroke, deltaMs)</code>, <code>retimeDelta(strokes, newStartMs)</code>,
+    <code>findRetimeCollisions(shifted, onDiskIds, canvasIds)</code>, <code>daysAfterShift()</code> for the preview. Unit tests at the
+    boundaries: null point timestamps, short tuples, Δ = 0, DST transitions, a page with mixed retimed and fresh strokes.</li>
+  <li><b>Store action</b> <code>retimeStrokes(indices, deltaMs)</code> in <code>stores/strokes.js</code>: stamps <code>retimedFrom</code> once, calls
+    <code>markUnsavedChanges()</code>; <code>clearRetimedMarkers(book, page)</code> after save.</li>
+  <li><b>Id plumbing</b> in <code>pending-changes.js</code>: deletion and move-away read <code>retimedFrom.id</code>; new
+    <code>getRetimedAwayStrokeIdsForPage()</code>; a <code>retimes</code> bucket in <code>computePendingChangesMap()</code>, and the same in
+    <code>computePageChangesFolder()</code>. Save handler unions the ids into <code>deletedStrokeIds</code>.</li>
+  <li><b>Dialog</b> <code>components/canvas/RetimeDialog.svelte</code> (new file; StrokeCanvas is already over the size guideline, so it only
+    gets the button). <code>aria-modal</code>, Escape handled with <code>preventDefault()</code>.</li>
+  <li><b>Save dialog</b> row + CHANGELOG / ARCHITECTURE / TESTING updates.</li>
+</ol>
+
+<h2 id="risks">Risks and open questions</h2>
+<ul>
+  <li><b>Re-importing pen memory brings the old strokes back.</b> Offline import dedupes by id. If the pen still holds those strokes and
+    you import again, they come in at the old times with their old ids, which are no longer on disk, so they're added as duplicates.
+    Options: (a) a small <code>_retimed.json</code> sidecar of old → new ids per page that import consults, or (b) just warn in the dialog
+    and recommend clearing pen memory after import. <b>Recommendation: (a)</b>, since import is exactly when a bad pen clock shows up.
+    <em>Your call.</em></li>
+  <li><b>Already exported to LogSeq.</b> <code>mergeGraphStrokes()</code> lets the published copy win by id, so re-exporting a retimed page
+    would add the new-id copy beside the old one in the graph. Simplest: refuse retime on strokes that have been exported, or document it.
+    Worth checking whether you still use Export to graph.</li>
+  <li><b>Pen clock offsets are usually whole-batch.</b> If the typical case is "the pen's clock was wrong for a whole import", a
+    <em>Shift by…</em> field (±days/hours) might be faster than picking an absolute time. The mockup's nudges cover most of that; a
+    second mode is cheap to add later.</li>
+  <li><b>Partial page loads.</b> Only loaded strokes can be selected, and the collision check uses the full on-disk id list, so this is safe;
+    it just means retiming a whole page wants the whole page loaded.</li>
+  <li><b>Tasks and tags.</b> A task's date is its page's capture days, so retiming moves where tasks group in "date written". Tags are keyed by page,
+    not time, so they're unaffected.</li>
+</ul>
+
+</div>
+
+<script>
+(function(){
+  // Earliest selected stroke and span in the mock (local time).
+  const OLD_START = new Date(2026, 9, 3, 8, 12, 5, 107).getTime();
+  const SPAN = (47 * 60 + 12) * 1000;
+  const COLLIDE = new Date(2026, 9, 14, 13, 5, 0, 107).getTime();   // pretend an unselected stroke lives here
+  const MS_KEEP = OLD_START % 1000;
+  const $ = (id) => document.getElementById(id);
+  const fmt = (ms) => new Date(ms).toLocaleString(undefined, {weekday:'short', month:'short', day:'numeric', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  const day = (ms) => new Date(ms).toLocaleDateString(undefined, {month:'short', day:'numeric'});
+  const pad = (n) => String(n).padStart(2, '0');
+  let start = new Date(2026, 9, 14, 13, 5, 17, MS_KEEP).getTime();
+
+  function setInputs(ms){
+    const d = new Date(ms);
+    $('newDate').value = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+    $('newTime').value = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
+  function readInputs(){
+    const [y, m, dd] = ($('newDate').value || '').split('-').map(Number);
+    const [h, mi, s] = ($('newTime').value || '0:0:0').split(':').map(Number);
+    return new Date(y, m - 1, dd, h || 0, mi || 0, s || 0, MS_KEEP).getTime();
+  }
+  function human(delta){
+    const sign = delta < 0 ? '−' : '+';
+    let s = Math.round(Math.abs(delta) / 1000);
+    const d = Math.floor(s / 86400); s -= d * 86400;
+    const h = Math.floor(s / 3600); s -= h * 3600;
+    const m = Math.floor(s / 60); s -= m * 60;
+    return sign + [d && d + ' d', h && h + ' h', m && m + ' min', s && s + ' s'].filter(Boolean).join(' ');
+  }
+  function render(){
+    $('oldStart').textContent = fmt(OLD_START);
+    $('oldEnd').textContent = fmt(OLD_START + SPAN);
+    const delta = start - OLD_START;
+    const bad = !Number.isFinite(start) || new Date(start).getFullYear() < 2000;
+    let msg = '';
+    if (bad) {
+      $('delta').innerHTML = 'Pick a valid date.';
+    } else if (delta === 0) {
+      $('delta').innerHTML = 'No change.';
+    } else {
+      $('delta').innerHTML = `Shift <b>${human(delta)}</b><br>New range: ${fmt(start)} → ${fmt(start + SPAN)}`;
+    }
+    const a = day(start), b = day(start + SPAN);
+    const after = a === b ? a : `${a} – ${b}`;
+    $('p41').innerHTML = `<span class="${delta ? 'chg' : ''}">${after}</span>${delta ? ' <span class="mut">(+ Oct 3 for the 185 unselected)</span>' : ''}`;
+    $('p42').innerHTML = `<span class="${delta ? 'chg' : ''}">${after}</span>${delta ? ' <span class="mut">(+ Oct 3)</span>' : ''}`;
+    const collide = start === COLLIDE;
+    if (collide) msg = `<div class="errbox">1 stroke would land on the same millisecond as an unselected stroke on B388/P41 and be lost on save. <button class="btn sm" id="plus1">+1 ms</button></div>`;
+    else if (!bad && start + SPAN > Date.now()) msg = `<div class="warnbox">This puts strokes in the future. Allowed, but check the date.</div>`;
+    $('msg').innerHTML = msg;
+    $('apply').disabled = bad || delta === 0 || collide;
+    const p1 = $('plus1');
+    if (p1) p1.onclick = () => { start += 1; setInputs(start); render(); $('msg').innerHTML = '<div class="warnbox">Shifted 1 ms later to avoid the collision.</div>'; };
+  }
+  $('newDate').addEventListener('input', () => { start = readInputs(); render(); });
+  $('newTime').addEventListener('input', () => { start = readInputs(); render(); });
+  document.querySelectorAll('[data-n]').forEach(b => b.addEventListener('click', () => { start += Number(b.dataset.n); setInputs(start); render(); }));
+  $('reset').addEventListener('click', () => { start = OLD_START; setInputs(start); render(); });
+  setInputs(start); render();
+})();
+</script>
+</body>
+</html>

@@ -284,3 +284,32 @@ describe('computePageChangesFolder', () => {
     });
   });
 });
+
+describe('computePageChangesFolder — retimes (v3.6.0)', () => {
+  beforeEach(() => {
+    getPage.mockReset();
+  });
+
+  // Same rule as computePendingChangesMap: the new id replaces the stored old
+  // one, so it is neither an addition nor a deletion, and the total is unchanged.
+  it('counts a retimed stroke as a retime, not an addition', async () => {
+    getPage.mockResolvedValue(pageDoc([storedStroke('s1000'), storedStroke('s2000')]));
+    const moved = canvasStroke(6000, { retimedFrom: { id: 's1000' } });
+    const r = await computePageChangesFolder(1, 5, [moved, canvasStroke(2000)], null,
+      new Set(), new Set(), new Set(['s1000']));
+    expect(r.strokeRetimes).toBe(1);
+    expect(r.strokeAdditions).toBe(0);
+    expect(r.strokeDeletions).toBe(0);
+    expect(r.strokeTotal).toBe(2);
+  });
+
+  it('a retimed stroke whose old id was never saved is an addition', async () => {
+    getPage.mockResolvedValue(pageDoc([storedStroke('s2000')]));
+    const moved = canvasStroke(6000, { retimedFrom: { id: 's1000' } });
+    const r = await computePageChangesFolder(1, 5, [moved, canvasStroke(2000)], null,
+      new Set(), new Set(), new Set(['s1000']));
+    expect(r.strokeRetimes).toBe(0);
+    expect(r.strokeAdditions).toBe(1);
+    expect(r.strokeTotal).toBe(2);
+  });
+});

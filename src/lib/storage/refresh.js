@@ -26,6 +26,7 @@ import {
 import { timelineIndex, loadTimeline } from '$stores/timeline.js';
 import { loadVolumes } from '$stores/volumes.js';
 import { clearTags } from '$stores/tags.js';
+import { clearRetimed } from '$stores/retimed.js';
 import { clearTasks } from '$stores/tasks.js';
 import { clearSuggestions } from '$stores/tag-suggestions.js';
 import { refreshBackgrounds } from '$stores/backgrounds.js';
@@ -66,6 +67,7 @@ export async function resetForDataFolder() {
   thumbs.clear();
   clearSavedPages();
   clearTags();
+  clearRetimed();
   clearTasks();
   clearSuggestions();
   timelineIndex.set(null);

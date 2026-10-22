@@ -6,6 +6,7 @@ const https = require('https');
 const fs = require('fs');
 const fsp = require('fs').promises;
 const tagsSidecar = require('./tags-sidecar.cjs');
+const retimedSidecar = require('./retimed-sidecar.cjs');
 const penMatch = require('./pen-match.cjs');
 const { buildTaskSummary } = require('./task-summary.cjs');
 
@@ -365,6 +366,10 @@ function orientationPath(root) {
 
 function tagsPath(root) {
   return path.join(pagesDir(root), '_tags.json');
+}
+
+function retimedPath(root) {
+  return path.join(pagesDir(root), '_retimed.json');
 }
 
 // ----- "Publish to graph" target paths (JPI Tools plugin asset storage) -----
@@ -1002,6 +1007,56 @@ ipcMain.handle('storage:patchTags', ipcSafe(async (root, patch) => withTagsLock(
   await writeFileAtomic(tagsPath(root), tagsSidecar.serializeTagsFile(next));
   if (state === 'corrupt') console.warn('[storage] replaced the unreadable _tags.json');
   return { replacedCorrupt: state === 'corrupt' };
+})));
+
+/*
+ * Retimed strokes — `<dataRoot>/pages/_retimed.json` (v3.6.0). Pen ids that the
+ * Editor retimed away, so offline import can drop the pen's copy instead of
+ * adding it back at the old time. Same read rules and lock pattern as tags;
+ * the format and the chain rule live in electron/retimed-sidecar.cjs.
+ */
+const warnedRetimedFiles = new Set();
+async function readRetimed(root) {
+  let text = null;
+  try {
+    text = await fsp.readFile(retimedPath(root), 'utf8');
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+  }
+  const res = retimedSidecar.parseRetimedFile(text);
+  if (res.state === 'corrupt' || res.state === 'newer') {
+    const k = `${root}|${res.state}`;
+    if (!warnedRetimedFiles.has(k)) {
+      warnedRetimedFiles.add(k);
+      console.warn(res.state === 'corrupt'
+        ? '[storage] _retimed.json is unreadable; the next retime replaces it'
+        : `[storage] _retimed.json is version ${res.file.version}; reading it but not rewriting it`);
+    }
+  }
+  return res;
+}
+
+let retimedChain = Promise.resolve();
+function withRetimedLock(fn) {
+  const run = retimedChain.then(fn, fn);
+  retimedChain = run.catch(() => {});
+  return run;
+}
+
+ipcMain.handle('storage:getRetimed', ipcSafe(async (root) => {
+  const { file, state } = await readRetimed(root);
+  return { version: file.version, pages: file.pages, state };
+}));
+ipcMain.handle('storage:recordRetimes', ipcSafe(async (root, entries) => withRetimedLock(async () => {
+  const { file, state } = await readRetimed(root);
+  if (state === 'newer') {
+    throw new Error(`_retimed.json is from a newer version of the app (v${file.version}); not changing it`);
+  }
+  const base = state === 'corrupt' ? retimedSidecar.emptyRetimedFile() : file;
+  const next = retimedSidecar.applyRetimes(base, entries);
+  await writeFileAtomic(retimedPath(root), retimedSidecar.serializeRetimedFile(next));
+  if (state === 'corrupt') console.warn('[storage] replaced the unreadable _retimed.json');
+  return { version: next.version, pages: next.pages, replacedCorrupt: state === 'corrupt' };
 })));
 
 // ===== Page backgrounds — `<dataRoot>/pages/_backgrounds/<ncodeBook>/` =====

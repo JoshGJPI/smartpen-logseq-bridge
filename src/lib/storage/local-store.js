@@ -292,3 +292,27 @@ export async function patchTags(patch) {
   const res = await backend.patchTags(requireRoot(), patch);
   return unwrap(res, 'patchTags');
 }
+
+/* ============================================================
+ *  Retimed strokes (v3.6.0)
+ * ============================================================ */
+
+/**
+ * The retimed sidecar: `{ version, pages: { "<ncodeBook>/<page>": { "s<penId>": "s<idNow>" } }, state }`.
+ * Never touches a PageDoc.
+ */
+export async function getRetimed() {
+  const backend = getBackend();
+  const res = await backend.getRetimed(requireRoot());
+  return unwrap(res, 'getRetimed');
+}
+
+/**
+ * Record retimes before the page save that applies them:
+ * `[{ page: "388/41", from: "s<old>", to: "s<new>" }]`. Resolves the file as written.
+ */
+export async function recordRetimes(entries) {
+  const backend = getBackend();
+  const res = await backend.recordRetimes(requireRoot(), entries);
+  return unwrap(res, 'recordRetimes');
+}

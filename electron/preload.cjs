@@ -93,6 +93,9 @@ contextBridge.exposeInMainWorld('storageAPI', {
   // Page tags — keywords and project numbers per page, pages/_tags.json
   getTags:          (root)                       => ipcRenderer.invoke('storage:getTags', root),
   patchTags:        (root, patch)                => ipcRenderer.invoke('storage:patchTags', root, patch),
+  // Retimed strokes — pen ids moved by a retime, pages/_retimed.json
+  getRetimed:       (root)                       => ipcRenderer.invoke('storage:getRetimed', root),
+  recordRetimes:    (root, entries)              => ipcRenderer.invoke('storage:recordRetimes', root, entries),
 
   // Page backgrounds — Neo's printed pages, cached under pages/_backgrounds/ (read-only)
   listBackgrounds:       (root)               => ipcRenderer.invoke('storage:listBackgrounds', root),

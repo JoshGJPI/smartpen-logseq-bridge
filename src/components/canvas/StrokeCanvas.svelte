@@ -61,6 +61,7 @@
   import FilteredStrokesPanel from '../strokes/FilteredStrokesPanel.svelte';
   import CreatePageDialog from '../dialog/CreatePageDialog.svelte';
   import ExportSvgDialog from '../dialog/ExportSvgDialog.svelte';
+  import RetimeDialog from './RetimeDialog.svelte';
   
   let canvasElement;
   let containerElement;
@@ -191,6 +192,7 @@
   
   // Create page dialog state
   let showCreatePageDialog = false;
+  let showRetimeDialog = false;
   
   // Import renderer dynamically to avoid SSR issues
   onMount(async () => {
@@ -2158,6 +2160,18 @@
             <option value="">📚 Volume</option>
           {/if}
         </select>
+        <!-- Set time…: shift the selection so its earliest stroke starts at a
+             chosen time (lib/retime.js). -->
+        <button
+          class="tb-btn tone-accent"
+          on:click={() => showRetimeDialog = true}
+          disabled={$selectionCount === 0}
+          title={$selectionCount > 0
+            ? `Change the date and time of the ${$selectionCount} selected stroke(s), keeping their spacing`
+            : 'Select strokes to change their time'}
+        >
+          🕒 Set time…
+        </button>
       </div>
 
       {#if $pastedCount > 0}
@@ -2451,6 +2465,8 @@
 
   <!-- Export SVG Dialog -->
   <ExportSvgDialog {renderer} />
+  <!-- Times change, ids change; a full reset re-derives page order and day colours. -->
+  <RetimeDialog bind:open={showRetimeDialog} on:applied={() => renderStrokes(true)} />
 </div>
 
 <style>

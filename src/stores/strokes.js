@@ -11,6 +11,7 @@ import {
   BOOK_KEY_FRAGMENT, toBookKey, withVolume, parseBookKey
 } from '../lib/volumes.js';
 import { applyActiveVolume } from './volumes.js';
+import { isRetimable, shiftStroke } from '../lib/retime.js';
 
 // Raw stroke data
 export const strokes = writable([]);
@@ -473,9 +474,73 @@ export function clearMovedFromMarkers(book, page) {
       cleared++;
       const next = { ...stroke };
       delete next.movedFrom;
+      // A retimed stroke that also moved had its old id on the SOURCE page,
+      // which this save just removed, so the retime's marker is spent too.
+      delete next.retimedFrom;
       return next;
     })
   );
+  return cleared;
+}
+
+/**
+ * Shift strokes in time by `deltaMs` (v3.6.0, the Editor's Set time… dialog).
+ *
+ * Start, end and point timestamps move together, so a stroke's id
+ * (`s{startTime}`) changes. `shiftStroke()` stamps `retimedFrom` with the id the
+ * stroke has on disk, which is what turns the save into "delete the old id,
+ * append the new one" instead of leaving a copy at each time (see lib/retime.js).
+ * In-memory only, like `movedFrom`.
+ *
+ * Pasted and page-less strokes are skipped. Selection and deletion marks are
+ * positions, and no stroke moves position here, so they stay valid.
+ *
+ * @param {number[]|Set<number>} indices
+ * @param {number} deltaMs
+ * @returns {{ retimed: number, skipped: number }}
+ */
+export function retimeStrokes(indices, deltaMs) {
+  const target = indices instanceof Set ? indices : new Set(indices || []);
+  if (target.size === 0 || !Number.isFinite(deltaMs) || deltaMs === 0) {
+    return { retimed: 0, skipped: target.size };
+  }
+  let retimed = 0;
+  let skipped = 0;
+  strokes.update(all => all.map((stroke, index) => {
+    if (!target.has(index)) return stroke;
+    if (!isRetimable(stroke)) { skipped++; return stroke; }
+    retimed++;
+    return shiftStroke(stroke, deltaMs);
+  }));
+  if (retimed > 0) markUnsavedChanges();
+  return { retimed, skipped };
+}
+
+/**
+ * Drop the `retimedFrom` markers on a page's strokes once the page is saved:
+ * the old id is gone from disk, so the marker would make a later save delete
+ * an id that may by then belong to another stroke. Mirrors clearMovedFromMarkers.
+ *
+ * @param {string|number} book book key
+ * @param {number|string} page
+ * @returns {number} how many markers were cleared
+ */
+export function clearRetimedMarkers(book, page) {
+  const bookKey = toBookKey(book);
+  // A stroke that also moved volume keeps its marker: its old id is on the
+  // SOURCE page, whose save (move-away) reads it; clearMovedFromMarkers drops it.
+  const onPage = (s) => s.retimedFrom && !s.movedFrom && s.pageInfo &&
+    toBookKey(s.pageInfo.book) === bookKey && String(s.pageInfo.page) === String(page);
+  if (!get(strokes).some(onPage)) return 0;
+
+  let cleared = 0;
+  strokes.update(all => all.map(stroke => {
+    if (!onPage(stroke)) return stroke;
+    cleared++;
+    const next = { ...stroke };
+    delete next.retimedFrom;
+    return next;
+  }));
   return cleared;
 }
 
