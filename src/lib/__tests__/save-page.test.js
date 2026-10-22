@@ -670,6 +670,81 @@ describe('savePageToFolder — stroke→line matching across coordinate spaces',
   });
 });
 
+describe('savePageToFolder — task boxes become TODO / DONE', () => {
+  const writtenLines = () => savePage.mock.calls[0][2].transcript.lines;
+  const existingDoc = (lines) => ({
+    version: '2.0',
+    pageInfo: PAGE_INFO,
+    metadata: { lastUpdated: 'x', totalStrokes: 1, bounds: {} },
+    transcript: { lastTranscribed: 'x', lines },
+    strokes: [storedAtY(1000, 40, 43)],
+  });
+  const oldLine = (id, text, checked = null) => ({
+    id, text, indentLevel: 0, parentId: null, checked, yBounds: mmBounds(40, 43, 40),
+  });
+
+  beforeEach(() => {
+    getPage.mockReset();
+    getPage.mockResolvedValue(null);
+    savePage.mockReset();
+    savePage.mockResolvedValue({ path: '/tmp/P42.json' });
+  });
+
+  const transcribe = (lines, activeStrokes = [strokeAtY(1000, 40, 43)]) =>
+    savePageToFolder({ book: 3017, page: 42, activeStrokes, pageTranscription: { originNcodeY: 40, lines } });
+
+  it('stores a drawn box as TODO and a ticked one as DONE, without the glyph', async () => {
+    await transcribe([
+      { text: 'Coordination call', yBounds: mmBounds(40, 43, 40) },
+      { text: '☐ Call Troy', yBounds: mmBounds(50, 53, 40) },
+      { text: '☑ Check on PO', yBounds: mmBounds(60, 63, 40) },
+    ]);
+    expect(writtenLines().map((l) => [l.text, l.checked])).toEqual([
+      ['Coordination call', null],
+      ['Call Troy', false],
+      ['Check on PO', true],
+    ]);
+  });
+
+  it('leaves a bare tick as text', async () => {
+    await transcribe([{ text: '✓ Looks fine', yBounds: mmBounds(40, 43, 40) }]);
+    expect(writtenLines()[0]).toMatchObject({ text: '✓ Looks fine', checked: null });
+  });
+
+  it('does not duplicate an old line that still holds its glyph as text', async () => {
+    getPage.mockResolvedValue(existingDoc([oldLine('old', '☐ Call Troy')]));
+    await transcribe([{ text: '☐ Call Troy', yBounds: mmBounds(40, 43, 40) }]);
+    expect(writtenLines()).toHaveLength(1);
+    expect(writtenLines()[0].id).toBe('old');
+  });
+
+  it('does not duplicate when the new reading has a box the old line lacked', async () => {
+    getPage.mockResolvedValue(existingDoc([oldLine('old', 'Call Troy')]));
+    await transcribe([{ text: '☐ Call Troy', yBounds: mmBounds(40, 43, 40) }]);
+    expect(writtenLines()).toHaveLength(1);
+  });
+
+  it("keeps an existing line's state through re-transcription", async () => {
+    // Ticked DONE after the ink was read as an empty box: the re-reading still
+    // says ☐, and the line must not go back to TODO.
+    getPage.mockResolvedValue(existingDoc([oldLine('old', 'Call Troy', true)]));
+    await transcribe([{ text: '☐ Call Troy', yBounds: mmBounds(40, 43, 40) }]);
+    expect(writtenLines()).toEqual([expect.objectContaining({ id: 'old', text: 'Call Troy', checked: true })]);
+  });
+
+  it('keeps a WAITING marker on an existing line, and never sets one on a new line', async () => {
+    getPage.mockResolvedValue(existingDoc([{ ...oldLine('old', 'Vault confirmation', false), marker: 'WAITING' }]));
+    await transcribe([
+      { text: '☐ Vault confirmation', yBounds: mmBounds(40, 43, 40) },
+      { text: '☐ WAITING on the PO', yBounds: mmBounds(60, 63, 40) },
+    ]);
+    const [old, added] = writtenLines();
+    expect(old).toMatchObject({ id: 'old', checked: false, marker: 'WAITING' });
+    expect(added).toMatchObject({ text: 'WAITING on the PO', checked: false });
+    expect(added).not.toHaveProperty('marker');
+  });
+});
+
 describe('savePageToFolder — volume book keys', () => {
   const writtenDoc = () => savePage.mock.calls[0][2];
 

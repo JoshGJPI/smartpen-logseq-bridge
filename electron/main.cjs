@@ -7,6 +7,7 @@ const fs = require('fs');
 const fsp = require('fs').promises;
 const tagsSidecar = require('./tags-sidecar.cjs');
 const penMatch = require('./pen-match.cjs');
+const { buildTaskSummary } = require('./task-summary.cjs');
 
 // Must be set before 'ready' so Windows links the running process to the
 // installed shortcut and shows the correct taskbar icon (rather than grouping
@@ -453,7 +454,8 @@ function extractPageMeta(raw) {
         lastUpdated: doc?.metadata?.lastUpdated || null,
         hasTranscription: !!(lines && lines.length),
         transcriptLineCount: (lines && lines.length) || 0,
-        transcriptionText: buildTranscriptionText(lines)
+        transcriptionText: buildTranscriptionText(lines),
+        tasks: buildTaskSummary(lines)
       };
     } catch {
       // fall through to a full parse
@@ -466,7 +468,8 @@ function extractPageMeta(raw) {
     lastUpdated: doc?.metadata?.lastUpdated || null,
     hasTranscription: !!(lines && lines.length),
     transcriptLineCount: (lines && lines.length) || 0,
-    transcriptionText: buildTranscriptionText(lines)
+    transcriptionText: buildTranscriptionText(lines),
+    tasks: buildTaskSummary(lines)
   };
 }
 
@@ -554,6 +557,9 @@ async function listAllPages(root) {
         // Data Explorer preview + full-text search working without the renderer
         // ever holding stroke arrays resident.
         transcriptionText: meta.transcriptionText,
+        // Task lines (v3.4.0): id, text, state and parent line only, for the
+        // Tasks view. Mirrors src/lib/tasks.js buildTaskSummary().
+        tasks: meta.tasks,
         path: f.path
       });
     } catch (err) {

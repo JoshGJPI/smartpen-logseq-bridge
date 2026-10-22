@@ -9,6 +9,7 @@
   // Folder-backed Data Explorer
   import { importStrokesFromFolder } from '$lib/storage/load-page.js';
   import { getPage } from '$lib/storage/local-store.js';
+  import { markerField } from '$lib/tasks.js';
   import TranscriptionPreview from './TranscriptionPreview.svelte';
   import TranscriptionEditorModal from '../dialog/TranscriptionEditorModal.svelte';
   import { exportPageDocToGraph } from '$lib/storage/graph-export.js';
@@ -168,6 +169,7 @@
         indentLevel: l.indentLevel || 0,
         blockUuid: l.id,           // PageDoc TranscriptLine.id → editor blockUuid
         checked: l.checked,        // preserve TODO/DONE state
+        ...markerField(l),         // and WAITING (v3.4.0)
         parentId: l.parentId,
         syncStatus: 'synced'
       }));
@@ -229,6 +231,7 @@
         indentLevel: l.indentLevel || 0,
         parentId: null, // recomputed below
         checked: l.checked ?? null,
+        ...markerField(l),
         yBounds: l.yBounds && (l.yBounds.minY !== 0 || l.yBounds.maxY !== 0)
           ? { minY: l.yBounds.minY, maxY: l.yBounds.maxY }
           : null

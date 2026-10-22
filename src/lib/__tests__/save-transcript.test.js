@@ -85,6 +85,26 @@ describe('saveTranscriptLines', () => {
     expect(doc.metadata.lastUpdated).not.toBe('old');
   });
 
+  it('carries a WAITING marker, only beside checked: false (v3.4.0)', async () => {
+    getPage.mockResolvedValue({
+      version: '2.0',
+      pageInfo: { section: 1, owner: 1, book: 3, page: 5 },
+      metadata: { lastUpdated: 'old', totalStrokes: 0, bounds: {} },
+      transcript: { lastTranscribed: 'old', lines: [] },
+      strokes: [],
+    });
+    savePage.mockResolvedValue({ success: true });
+    await saveTranscriptLines(3, 5, [
+      { id: 'W', text: 'waiting', indentLevel: 0, checked: false, marker: 'WAITING' },
+      { id: 'D', text: 'done', indentLevel: 0, checked: true, marker: 'WAITING' },
+      { id: 'T', text: 'todo', indentLevel: 0, checked: false },
+    ]);
+    const lines = savePage.mock.calls[0][2].transcript.lines;
+    expect(lines[0]).toEqual({ id: 'W', text: 'waiting', indentLevel: 0, parentId: null, checked: false, marker: 'WAITING', yBounds: null });
+    expect(lines[1]).not.toHaveProperty('marker');
+    expect(lines[2]).not.toHaveProperty('marker');
+  });
+
   it('throws and does not save when the page is missing', async () => {
     getPage.mockResolvedValue(null);
     await expect(saveTranscriptLines(1, 1, [])).rejects.toThrow(/not found/);

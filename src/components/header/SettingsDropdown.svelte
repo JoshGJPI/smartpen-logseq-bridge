@@ -15,6 +15,7 @@
   } from '$stores';
   import { testMyScriptCredentials } from '$lib/myscript-api.js';
   import ActivityLogDialog from '../dialog/ActivityLogDialog.svelte';
+  import ConvertTaskBoxesDialog from '../dialog/ConvertTaskBoxesDialog.svelte';
   import DataFolderSettings from '../settings/DataFolderSettings.svelte';
   import GraphFolderSettings from '../settings/GraphFolderSettings.svelte';
   import BooksTab from '../books/BooksTab.svelte';
@@ -26,6 +27,7 @@
   let isOpen = false;
   let showKeys = false;
   let isTesting = false;
+  let convertBoxesOpen = false;
   // Notebooks is the longest section (a row per notebook), so it starts folded;
   // whether it was left open is remembered.
   let notebooksOpen = readString(NOTEBOOKS_OPEN_KEY) === 'true';
@@ -70,6 +72,11 @@
   $: logProblemCount = $logMessages.filter(
     e => e.level === 'error' || e.level === 'warning'
   ).length;
+
+  function handleConvertTaskBoxes() {
+    convertBoxesOpen = true;
+    isOpen = false;  // the dialog is modal
+  }
 
   function handleShowActivityLog() {
     openActivityLogDialog();
@@ -184,6 +191,16 @@
       <section class="settings-section">
         <h4>Data Folder</h4>
         <DataFolderSettings />
+
+        <!-- One-off: pages transcribed before v3.3.0 kept MyScript's ☐ / ☑ as text -->
+        <button class="btn btn-secondary tool-btn" on:click={handleConvertTaskBoxes} disabled={!$dataFolderReady}>
+          <span class="button-icon">☑</span>
+          <span class="button-text">Convert task boxes…</span>
+        </button>
+        <p class="help-text">
+          Older transcripts keep a drawn box as text (☐ Call Troy). This shows which lines would become
+          TODO / DONE, and changes nothing until you confirm.
+        </p>
       </section>
 
       <!-- Skip the Bluetooth picker for the pen used last time -->
@@ -251,6 +268,7 @@
 <!-- The dialog is mounted outside the {#if isOpen} block so it survives the
      dropdown closing behind it. -->
 <ActivityLogDialog />
+<ConvertTaskBoxesDialog bind:open={convertBoxesOpen} />
 
 <style>
   .settings-dropdown {

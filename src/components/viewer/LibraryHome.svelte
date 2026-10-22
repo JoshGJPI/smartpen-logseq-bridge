@@ -1,6 +1,6 @@
 <!--
   LibraryHome.svelte — the Library with no notebook or page open (reading-first
-  package E): a Recent pages row, then one card per notebook (NotebookCard),
+  package E): a Recent pages row, the Tasks card (v3.4.0, TasksCard), then one card per notebook (NotebookCard),
   sorted by the chips (Recently written / Name / Most pages). Grouped by Tag
   (v3.1.0) the cards are tags instead (TagCardGrid). The header row is
   LibraryHomeHead.
@@ -23,6 +23,7 @@
   import PageThumb from './PageThumb.svelte';
   import LibraryHomeHead from './LibraryHomeHead.svelte';
   import TagCardGrid from '../tags/TagCardGrid.svelte';
+  import TasksCard from '../tasks/TasksCard.svelte';
 
   /** (record) => void: open a page in the reader. */
   export let onOpen = () => {};
@@ -73,6 +74,8 @@
         </div>
       </section>
     {/if}
+
+    <TasksCard />
 
     {#if $libraryGroupBy === 'tag'}
       <TagCardGrid />
