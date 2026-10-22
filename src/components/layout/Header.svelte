@@ -1,5 +1,6 @@
 <!--
-  Header.svelte - One slim bar: name, navigation, search, pen chip, settings.
+  Header.svelte - One slim bar: name, navigation, search, Tasks (v3.4.0, with
+  the open-task count), pen chip, settings.
 
   The capture controls (Save, Undo, Delete, Clear, Transcribe, Fetch) live in
   ActionBar, which sits under this bar and is shown only when there is capture
@@ -19,6 +20,7 @@
   import PenChip from '../header/PenChip.svelte';
   import SettingsDropdown from '../header/SettingsDropdown.svelte';
   import SearchField from './SearchField.svelte';
+  import TasksButton from '../tasks/TasksButton.svelte';
 
   $: hasUnsaved = $unsavedChanges || $viewerDirty;
   $: showCaptureBar = shouldShowCaptureBar({
@@ -55,6 +57,7 @@
       </span>
     {/if}
 
+    <TasksButton />
     <PenChip />
     <SettingsDropdown />
   </div>

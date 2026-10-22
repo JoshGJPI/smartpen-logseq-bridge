@@ -11,6 +11,7 @@
 import { writable, derived } from 'svelte/store';
 import { compareBookKeys } from '../lib/volumes.js';
 import { invalidatePage } from '../lib/viewer/page-cache.js';
+import { buildTaskSummary, summaryWithState } from '../lib/tasks.js';
 
 // Page metadata records, one per PageDoc file found by the scanner
 export const savedPages = writable([]);
@@ -90,8 +91,32 @@ export function applyTranscriptToRecord(book, pageId, lines) {
     pages.map((p) => {
       const id = p.pageId != null ? String(p.pageId) : String(p.page);
       if (p.book !== book || id !== String(pageId)) return p;
-      return { ...p, transcriptionText, transcribed: !!transcriptionText, transcriptLineCount: lines.length };
+      return {
+        ...p, transcriptionText, transcribed: !!transcriptionText, transcriptLineCount: lines.length,
+        tasks: buildTaskSummary(lines)
+      };
     })
   );
   invalidatePage(book, pageId);
+}
+
+/**
+ * Reflect one task's new state (lib/viewer/task-state.js) in its scan record:
+ * the `tasks` summary and `lastUpdated`, nothing else. The reader's cached doc
+ * is dropped by the caller.
+ * @param {string} book  book key
+ * @param {string} pageId
+ * @param {string} lineId
+ * @param {'todo'|'done'|'waiting'} state
+ * @param {string} [lastUpdated]  the doc's new metadata.lastUpdated
+ */
+export function applyTaskStateToRecord(book, pageId, lineId, state, lastUpdated) {
+  savedPages.update((pages) =>
+    pages.map((p) => {
+      const id = p.pageId != null ? String(p.pageId) : String(p.page);
+      if (String(p.book) !== String(book) || id !== String(pageId)) return p;
+      const tasks = summaryWithState(p.tasks, lineId, state);
+      return { ...p, tasks, lastUpdated: lastUpdated || p.lastUpdated };
+    })
+  );
 }

@@ -6,6 +6,49 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.4.0 — Tasks view, ticking in the reader, WAITING (October 2026)
+
+**A task list built from the scan, not from reading pages.** After v3.3.0 about 98 lines across 120 transcribed
+pages carry a TODO / DONE state, almost all under a meeting heading and most on a page with a project tag. Library ›
+**Tasks** (`libraryView` `{ kind: 'tasks' }`, from a Tasks card on the Library home and a header button with the
+open count) lists them, filtered Open / Waiting / Done / All and grouped by project tag, date written or notebook.
+Each scan record carries a small `tasks` summary (id, text, state, parent line's text; text clipped), built in main
+next to `transcriptionText` (`electron/task-summary.cjs`, mirroring `lib/tasks.js` `buildTaskSummary()`, with a
+shared fixture test so the two can't drift). Rejected: deriving tasks from `transcriptionText` (it has no line ids or
+state) and reading PageDocs when the view opens (the scan is metadata-only on purpose). The parent is the line
+`parentId` names, else the nearest shallower line, because 12 of the real tasks' `parentId`s point at lines that no
+longer exist. The project is the page's first project tag (tags are per page, so every task on a page shares it);
+the date is the page's capture days from the timeline index, since stored `lineId`s are unreliable before Aug 2026
+and a per-line date would need stroke reads. A page written over several days shows its range and groups under its
+first day.
+
+**A tick is a one-line PageDoc write.** `setTaskState()` (`lib/viewer/task-state.js`) reads the page, changes that
+one line's `checked` (and `marker`), bumps `metadata.lastUpdated` and writes through `savePage()`. It never touches
+`transcript.lastTranscribed`: that date says when MyScript last matched lines to ink, and `isTrustworthyTranscript()`
+reads it. Instead of `refreshAfterSave()` (a full rescan and timeline refresh per tick) it updates the copies that
+can change: the scan record's summary and `lastUpdated`, the reader's cached doc, and the open reader page, which
+patches its doc from `lastTaskWrite` so it follows at once. Thumbnails, search and capture dates don't depend on the
+state. It is refused on a page with an unsaved Library transcript draft (the draft's save writes every line verbatim
+and would put the old state back), on a line that no longer exists, and on a line that isn't a task; nothing is
+written then. The Editor needs no guard: its save starts from disk and keeps existing lines untouched, so a tick
+survives it, and re-transcription keeps an existing line's state. `stores/tasks.js` applies a change optimistically,
+like a tag change: an override shows it at once, writes to one page run in order, a failed write rolls back only that
+task (only if nothing changed it since) and logs why, and the last change can be undone from a toast.
+
+**WAITING is set by hand.** The third state is an optional `marker: 'WAITING'` beside `checked: false`, written only
+for WAITING, so `PAGE_DOC_VERSION` stays "2.0" and older code reads the line as an ordinary TODO. TODO and DONE clear
+it. It is set and cleared only from a task's ⋯ menu (in the Tasks view and beside a reader line), never read from
+text, which is why "☐ waiting on …" lines stay TODO. Every place that copies a line carries it (`markerField()`: the
+Library editor's clone and save, the Pages-tab editor; the transcript merge keeps existing lines as they are), and
+Copy all writes `- WAITING …`. No DOING / NOW / LATER anywhere.
+
+**Ticking in the reader.** In the Library's read-only transcript the ☐ / ☑ / ◷ marker is a button (DONE ↔ TODO) with
+the same ⋯ menu beside it on hover. A task's page link opens the reader with that line marked by id (on any page,
+not only trusted ones; its ink lights only where links are trusted) and moves Strokes to Ink + text so the line is
+visible. Edit mode is unchanged and keeps `marker`. Not built: the ink snippet on hover from the mockup, and any
+LogSeq copy or sync of tasks. Checked on a copy of the real folder after Convert task boxes: 98 tasks (82 open, 16
+done); a tick, WAITING, Undo and a reader tick each changed only that line and `metadata.lastUpdated` on disk.
+
 ## v3.3.0 — Task boxes become TODO / DONE (October 2026)
 
 **Boxes are a line's state, not its text.** A transcript line has had `checked` (null | false = TODO | true = DONE)

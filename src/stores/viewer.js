@@ -37,6 +37,18 @@ const dirtyPages = writable(new Set());
 /** True when any open transcript pane has unsaved edits. */
 export const viewerDirty = derived(dirtyPages, ($set) => $set.size > 0);
 
+/**
+ * The `${book}:${pageId}` keys with an unsaved transcript draft (read-only).
+ * A task tick is refused on these pages (lib/viewer/task-state.js): the
+ * draft's save would write the old state back.
+ */
+export const viewerDirtyPages = derived(dirtyPages, ($set) => $set);
+
+/** True when that page has an unsaved transcript draft. */
+export function isViewerPageDirty(book, pageId) {
+  return get(dirtyPages).has(`${book}:${pageId}`);
+}
+
 /** @param {string} key - `${book}:${page}` */
 export function markViewerDirtyPage(key) {
   dirtyPages.update((s) => {
@@ -338,6 +350,7 @@ export const libraryNotebook = writable(null);
  *   { kind: 'untagged' }      pages with no tag
  *   { kind: 'suggestions' }   the suggested-project-number queue
  *   { kind: 'tags' }          the tag manager (v3.2.0; was a Settings dialog)
+ *   { kind: 'tasks' }         every task line (v3.4.0)
  * null = the home. Session-only.
  */
 export const libraryView = writable(null);
@@ -402,6 +415,32 @@ export const readerFocus = writable(null);
 
 export function focusReaderLine(book, pageId, tokens) {
   readerFocus.update((f) => ({ book: String(book), pageId: String(pageId), tokens: [...(tokens || [])], n: (f ? f.n : 0) + 1 }));
+}
+
+/**
+ * Point the reader at one transcript line by id (a task's page link, v3.4.0).
+ * Unlike a search hit the line is known, so it is marked on any page; its ink
+ * lights only where the page's links are trusted. `showText` asks the reader
+ * to show the transcript when it is on Strokes.
+ */
+export function focusReaderLineId(book, pageId, lineId) {
+  readerFocus.update((f) => ({
+    book: String(book), pageId: String(pageId), tokens: [], lineId: String(lineId), showText: true, n: (f ? f.n : 0) + 1
+  }));
+}
+
+/**
+ * The last task state written outside the reader's own save path (a tick in
+ * the Tasks view or the reader, v3.4.0): `{ book, pageId, lineId, state, n }`.
+ * A reader showing that page patches its doc from it, so the open transcript
+ * follows without a reload.
+ */
+export const lastTaskWrite = writable(null);
+
+export function noteTaskWritten(book, pageId, lineId, state) {
+  lastTaskWrite.update((w) => ({
+    book: String(book), pageId: String(pageId), lineId: String(lineId), state, n: (w ? w.n : 0) + 1
+  }));
 }
 
 export function clearReaderFocus() {

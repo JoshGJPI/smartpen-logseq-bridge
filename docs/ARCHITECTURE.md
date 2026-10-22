@@ -9,6 +9,7 @@ App.svelte (Root)
 ├── Header (one 44 px row: name, `nav` slot = Library | Timeline | Editor from App, search, Unsaved marker)
 │   ├── SearchField (global search, Ctrl K: words, dates, notebooks, tags)
 │   │   └── SearchResults (Tags / Pages / Notebooks / Days; Enter opens, Shift+Enter → Editor)
+│   ├── TasksButton (v3.4.0: Tasks + open-task count → Library › Tasks)
 │   ├── PenChip (pen state + battery; Connect / Disconnect; while connected, the dot + name open PenMemoryDialog)
 │   ├── ActionBar (capture bar: Fetch, Save, Delete, Undo, Clear, Transcribe; always
 │   │   mounted, `visible` from `lib/capture-bar.js`)
@@ -42,7 +43,8 @@ App.svelte (Root)
     │   └── FilteredStrokesPanel (Decorative strokes)
     ├── BookViewer (Library — read/edit saved pages as a book; ←/→ turn pages through `readingList`)
     │   ├── LibraryBrowse (no page open: picks the home, a notebook's grid, a tag's grid, the queue or Manage tags)
-    │   │   ├── LibraryHome (Recent pages row, then notebook cards or, grouped by Tag, tag cards)
+    │   │   ├── LibraryHome (Recent pages row, the Tasks card, then notebook cards or, grouped by Tag, tag cards)
+    │   │   │   ├── TasksCard (v3.4.0: open / waiting / done counts, three newest open tasks → Tasks)
     │   │   │   ├── LibraryHomeHead (summary, Group by Notebook | Tag, sort chips, Suggestions (n), Manage tags, Rescan)
     │   │   │   ├── NotebookCard ×N (fan of 3 recent pages, name, Vol badge, pages, written, transcribed %)
     │   │   │   └── TagCardGrid (Projects / Keywords headings) → TagCard ×N + dashed Untagged card
@@ -51,9 +53,12 @@ App.svelte (Root)
     │   │   │   PageGrid = TagFilterRow (tags in this grid, Any | All) · Select → BulkTagBar ·
     │   │   │              PageTile ×N (date badge, ✓, tag line, hover "+ tag" popover, amber suggestion dot)
     │   │   ├── TagSuggestionQueue (suggested project numbers by number: Tag all n, Dismiss all, Re-check)
-    │   │   └── TagManagerView (Library › Manage tags, `{kind: 'tags'}`)
-    │   │       └── TagManager (Undo bar; tag / pages / notebooks, headers sort; chip opens the tag; Rename, Merge into…, Delete; reset dismissals)
+    │   │   ├── TagManagerView (Library › Manage tags, `{kind: 'tags'}`)
+    │   │   │   └── TagManager (Undo bar; tag / pages / notebooks, headers sort; chip opens the tag; Rename, Merge into…, Delete; reset dismissals)
+    │   │   └── TasksView (v3.4.0, Library › Tasks, `{kind: 'tasks'}`: Open / Waiting / Done / All, Group by)
+    │   │       └── TaskRow ×N (TaskBox · text · under "parent" · page link · date written · project chip · TaskMenu ⋯)
     │   │   (PageThumb: lazy thumbnail via lib/viewer/thumbs.js; also in the fan, Recent row, search)
+    │   ├── TaskToast (v3.4.0: "Marked DONE · B3017 p.142  Undo", for the Tasks view and the reader)
     │   └── ReaderSpread (the open page or spread; split out of BookViewer in v3.2.0)
     │       ├── ReaderTagsLayout (wraps the spread; a container query folds the strip into a bar under 900px)
     │       │   └── PageTagsStrip (P12 | P13 · TagInput: chips + type-ahead · Suggested from transcript ✓ ✕)
@@ -65,7 +70,8 @@ App.svelte (Root)
     │       │   ├── SittingInk (highlighted day / line redrawn in ink, inside the SVG)
     │       │   └── SittingHover (hover hit-test + capture-time label; click → that day's Timeline)
     │       └── TranscriptPane (inline edit, copy LogSeq markdown)
-    │           └── TranscriptLines (read view, line → ink hover, empty state)
+    │           └── TranscriptLines (read view, line → ink hover, empty state; task markers are
+                                TaskBox glyphs + TaskMenu, v3.4.0)
     └── TimelineFeed (Timeline — the Dates range as a scrolling feed;
         │             grows the range as you scroll off its end)
         ├── TimelineHead (‹ RangeMenu › · summary · BookFilterMenu · Load range into Editor)
@@ -159,6 +165,16 @@ Library groups by Tag (`libraryGroupBy`), any page grid filters and bulk-tags
 (`PageGrid`), and project numbers in stored transcripts are suggested, never applied
 without a click (`lib/tag-suggestions.js`: no page reads, the scan records already
 carry the text). Tag components live in `components/tags/`.
+
+**Tasks (v3.4.0).** A task is a transcript line with `checked` set; WAITING is the
+optional `marker: 'WAITING'` beside `checked: false`, set by hand. The scan carries a
+small `tasks` summary per record (built in main by `electron/task-summary.cjs`, which
+mirrors `lib/tasks.js` `buildTaskSummary()`), so the Tasks view
+(`components/tasks/`) never reads a page. A tick writes one line of one PageDoc
+through `lib/viewer/task-state.js` `setTaskState()` and refreshes the scan record, the
+page cache and the open reader page (`lastTaskWrite`) without a rescan; it is refused
+on a page with an unsaved transcript draft. `stores/tasks.js` applies it
+optimistically, with Undo and per-task rollback.
 
 **Three resets, deliberately distinct.** `Reset View` (bottom bar) is zoom/pan.
 `Page Resets ▾` holds `Reset Layout` (dragged page positions) and `Reset Sizes`
@@ -255,7 +271,12 @@ All state is managed through Svelte stores located in `src/stores/`:
 **Page tags (v3.1.0):**
 - `tags.js` — `pageTags` (`{ "<bookKey>/<pageId>": ["P2026-141", "beam"] }`, untagged by absence), `dismissedTags` (suggestions turned down, per page), `tagIndex` (tag → keys), `tagStatsList` (tag, pages, notebooks: the manager and type-ahead), `loadTags()` (called by `scanLocalPages()` with the orientations; waits for writes in flight; missing / corrupt sidecar → no tags, corrupt and newer-version files logged), `clearTags()` (data-folder change), `setPageTagList()`, `addTagToPages()` / `removeTagFromPages()` (bulk, one write), `renameTag()` / `mergeTags()` / `deleteTag()`, `dismissSuggestion()`, `resetDismissed()`, `carryTagsForMoves()` (volume moves), `tagsFor()`. Every edit is optimistic and sent to main as a per-page patch; a failed write rolls back only the pages it changed, only if nothing changed them since, with an Activity Log error. Never a PageDoc, never `markUnsavedChanges()`, no `refreshAfterSave()`
 - `tag-suggestions.js` — `suggestionsFound` (key → numbers in its stored transcript, the pass's output), `pendingSuggestions` (derived: found − tags − dismissals, so a ✓ / ✕ anywhere updates every view), `suggestionCount`, `suggestionScan` (`{running, done, total}`), `ensureSuggestionScan({force})` (once per `savedPages` array; not during a scan or offline import), `cancelSuggestionScan()`, `clearSuggestions()`
-- `viewer.js` gains `libraryView` (`{kind: 'tag', tag} | {kind: 'untagged'} | {kind: 'suggestions'} | {kind: 'tags'} (v3.2.0) | null`), `showLibraryGrid(book)` and `openLibraryView(view, {confirm?})` (asks like `openNotebookInLibrary`)
+- `viewer.js` gains `libraryView` (`{kind: 'tag', tag} | {kind: 'untagged'} | {kind: 'suggestions'} | {kind: 'tags'} (v3.2.0) | {kind: 'tasks'} (v3.4.0) | null`), `showLibraryGrid(book)` and `openLibraryView(view, {confirm?})` (asks like `openNotebookInLibrary`)
+
+**Tasks (v3.4.0):**
+- `tasks.js` — `taskRows` (derived: scan records' `tasks` + `pageTags` + `libraryPageDates` + `taskOverrides` → `buildTaskRows()`), `taskCountsStore` (`{open, waiting, done, all}`), `openTaskCount` (header badge), `taskFilter` / `setTaskFilter()` (session only), `taskGroupBy` / `setTaskGroupBy()` (localStorage `smartpen-tasks-group`), `taskOverrides` (taskKey → state set but not yet in the scan), `changeTask(book, pageId, lineId, state, {from, undoable})` (optimistic; refuses on a page with an unsaved draft; writes per page in order; a failed write rolls back only that task, only if nothing changed it since, with an Activity Log error), `toggleTask()` (DONE ↔ TODO, WAITING → DONE), `taskUndo` / `undoTaskChange()` (the last change), `currentTaskState()`, `clearTasks()` (data-folder change)
+- `viewer.js` gains `viewerDirtyPages` / `isViewerPageDirty(book, pageId)` (the tick guard), `focusReaderLineId(book, pageId, lineId)` (a task's page link: marks that line on any page, lights its ink on trusted pages, and BookViewer moves Strokes to Ink + text), `lastTaskWrite` / `noteTaskWritten()` (the open reader page patches its doc)
+- `saved-pages.js` gains `applyTaskStateToRecord(book, pageId, lineId, state, lastUpdated)`; `applyTranscriptToRecord()` also rebuilds `tasks`
 
 **Page backgrounds (spike, released in 2.8.0):**
 - `backgrounds.js` — `backgroundsEnabled` (localStorage; the **Paper** toggle), `installedBackgrounds` / `backgroundsAvailable` (gate the toggle), `resolvePageBackground()` (→ `{frame, url}` or null, never throws), `refreshBackgrounds()`. Read-only: the images are put there by `scripts/fetch-neo-backgrounds.mjs`. Used by the Library and the Timeline only — **never the Editor**
@@ -325,6 +346,7 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `library-home.js` - the Library home (package E, pure): `pageDates(index)` (first / last day, day count, last time per page; untimed pages absent), `notebookCards(pagesByBook, bookIds, dates, nameOf)` (pages, transcribed %, strokes, first / last written, volume, `fan` = 3 most recently written pages topped up from the book's end), `sortNotebooks(cards, order)`, `SORT_ORDERS`, `parseSortOrder()`, `recentRecords()`, `pageTiles()`, `shortDay()`, `writtenRange()`, `relativeDay()`, `pageKeyOf()`
 - `search-query.js` - `matchTags(text, tags)` (v3.1.0: a project-number-shaped query matches that tag exactly, normalized; words by substring); `parseSearchQuery(text, {now})` → `{text, tokens, days}` (Oct 14, October 14th, 14 Oct 2025, 2026-10-14, 10/14, 10/14/26 month first, today, yesterday; no year = latest on or before today; invalid dates and a month alone stay words) and `matchNotebooks(text, notebooks)` (every word in the name, or an exact book key)
 - `global-search.js` - the header search (pure): `buildSearchIndex(records)`, `searchIndex()` (same matching as `searchPages`, ranked by words matched, whole words, recency), `runSearch(query, ctx)` → `{tags, pages, notebooks, days, order}` (v3.1.0: Tags always just above Pages), `flattenResults()`, `bestLine()`, `matchingLineId(lines, tokens)` (the reader's highlight), `snippetHtml()`, `recordsByKey()`, `isSearchShortcut(e, {editing})` (Ctrl K rule)
+- `tasks.js` - **Tasks** (v3.4.0, pure): `WAITING`, `markerField(line)` (spread into every line copy: `{marker:'WAITING'}` only beside `checked: false`), `taskStateOf()`, `withTaskState(line, state)`, `stateLabel()`, `toggledState()`, `taskMenuChoices()` (the ⋯ menu), `buildTaskSummary(lines)` (the scan summary, mirrored by `electron/task-summary.cjs`; parent = `parentId` line, else nearest shallower line; text clipped), `normalizeTaskSummary()`, `summaryWithState()`, `taskKey()`, `buildTaskRows(records, {tags, dates, overrides})`, `taskCounts()`, `filterTaskRows()`, `groupTaskRows(rows, 'project'|'date'|'book')` (newest first; "No project tag" / "No date" last), `compareTaskRows()`
 - `tags.js` - **Page tags** (v3.1.0, pure): `normalizeTag()` (project numbers → `P####-###` / `####-###`, brackets and spaces dropped, dash types tolerated, letters-for-digits not; keywords lowercase `a-z 0-9 - _`, ≤ 40), `isProjectTag()`, `compareTags()` (projects first), `normalizeTagList()`, `tagKey()` / `parseTagKey()` (the orientation key), `recordTagKey()`, `normalizeTagsFile()`; edits as map → map (`withPageList`, `addTagToKeys`, `removeTagFromKeys`, `renameTagInMap` (onto an existing tag = merge), `deleteTagFromMap`), `diffTagMaps()` (the patch main applies), `rollbackPatch()`, `planTagCarry()` (volume moves); suggestions `findProjectNumbers()`, `suggestProjectNumbers(lines, {exclude})`, `splitSuggestionLine()`; derived `buildTagIndex()`, `recordsForKeys()`, `untaggedRecords()`, `tagCards()`, `untaggedCard()`, `sortTagCards()`, `tagStats()`, `filterByTags()` / `filterChoices()` (Any / All; All offers only tags that still match), `tagOptions()` (type-ahead)
 - `task-markers.js` - **Task boxes** (v3.3.0, pure, no imports): `parseTaskMarker(text)` → `{ checked, text }` (leading `☐` / `[ ]` / `TODO` → false, `☑` / `☒` / `[x]` / `DONE` → true, marker, a colon and a stray list dash stripped; keywords whole capital words only; bare `✓`, `WAITING`, mid-line glyphs and a marker with nothing after it → `checked: null`, text unchanged), `stripTaskMarker(text)` (what two readings of a line are compared on). Used by `mergeTranscript()` and `convert-task-boxes.js`
 - `tag-suggestions.js` - the Library-wide suggestion pass (v3.1.0): `foundInText()`, `pendingFrom(found, tags, dismissed)`, `countPending()`, `groupSuggestions()` (the queue: by number, most pages first, first source line), `createSuggestionScanner({chunk, budgetMs, pause})` (per-page cache keyed by transcript text; yields by time budget; cancellable)
@@ -369,6 +391,7 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `graph-export.js` — **what** to publish. Pure core (`stripTranscriptRefs`, `mergeGraphStrokes`, `resolveGraphPageInfo`, `buildGraphPageDoc`, `groupCanvasStrokesByPage`) + facades `exportSelectionToGraph(canvasStrokes)` (fans out one merge+write per page in the selection) and `exportPageDocToGraph(book, pageId, doc)` (whole-page backfill). Two invariants: **additive** (merge into what's already published, dedupe by stroke id — re-exporting is a safe no-op) and **transcript-free** (`transcript.lines` emptied, every `lineId` cleared). Tested in `graph-export.test.js`
 - `load-page.js` — `importStrokesFromFolder()`, `importStrokesForLoadedPagesFromFolder()` — converts StoredStroke → canvas dotArray format. `canvasPageInfoFor()` + `storedStrokesToCanvas()` are split out so a caller can convert a **subset** of a page against one shared `pageInfo` (what a date-range load needs); `mergeCanvasStrokes()` is the dedupe-by-id merge
 - `load-range.js` — `importDateRangeFromFolder()` — stroke-level date filtering. Splits each touched page into in-range strokes (→ `strokes`) and the rest (→ `contextInk`). Primes `noteOnDiskStrokeIds` from the page's **full** stored list, so a partial load reports nothing pending. Merges into the canvas rather than replacing it. `importSessionFromFolder({pages, startMs, endMs})` (v2.9) is the same split over a `[startMs, endMs)` window on a sitting's pages — a Timeline card's Load into Editor; both share the private `importWindow()` core. `LARGE_LOAD_STROKES` (12,000) is the second-confirmation threshold shared by the Dates tab and the feed
+- `scan.js` — `metaToRecord()` also keeps the `tasks` summary from main (`normalizeTaskSummary()`; none from an older main)
 - `refresh.js` — keeps the reading views in step with the disk: `refreshAfterSave(pages)` (Editor and Create Page saves: invalidate those pages in the page cache and thumbnails, rescan, refresh the capture-date index) and `resetForDataFolder()` (a new folder: clear the scan, caches, index, selection and notebook, then load volumes, scan, backgrounds and dates as boot does)
 - `scan.js` — `scanLocalPages()` + `metaToRecord()` (pure, tested) — populates the `savedPages` store from disk. **Metadata-only (perf #3):** records carry summary fields ONLY (`strokeCount`, `lastUpdated`, `transcriptionText`, `transcribed`, `transcriptLineCount`, `pageId`/`suffix`) — never `strokes`/`pageDoc`/`strokeData`, so the corpus never stays resident; each page's strokes load lazily on view. Records load by `pageId`, so letter-suffixed variants (`P127.json` + `P127b.json`) don't collapse onto the integer page. (`main.cjs listAllPages` → `extractPageMeta` parses just the doc shell, skipping the strokes array, so the scan is fast; the tiny `transcriptionText` rides along to power search/preview without loading strokes.)
 - `page-changes.js` — `computePageChangesFolder()` — preview diff for the SaveConfirmDialog. Reads the PageDoc off disk rather than the `onDiskStrokeIds` index, so it is a **second implementation** of the `pendingChanges` question and has to stay in step with it — it returns `strokeAdditions`/`strokeModifications`/`strokeDeletions` on the same rules
@@ -384,7 +407,8 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `thumbs.js` — page thumbnails for the Library home, page grid and search results (package E): `createThumbLoader({read, peek, render})` and the app's `thumbs` (`get(book, pageId, rotation)`, `peekSvg()`, `clear()`). Uses a page-cache doc without bumping it, otherwise reads directly and keeps only the SVG (LRU 150), two reads at a time; never evicts the reader's spread
 - `load-into-editor.js` — `loadPageIntoEditor(record, {confirm?})`: the one guarded load of a saved page onto the Editor canvas from a reading view (page header, Transcribe in Editor, Shift+Enter on a search result)
 - `page-cache.js` — small LRU (`getCachedPage`/`invalidatePage`/`clearPageCache`/`peekCachedPage`, MAX 6) over full PageDocs. The Library reader loads strokes lazily through this (records no longer embed them, perf #3) so turning a spread doesn't re-read disk; older docs are evicted. Keyed by `B{book}/P{pageId}` (suffix-safe)
-- `transcript-markdown.js` — `linesToLogseqMarkdown()` — tab-indented `- ` bullets with `- TODO`/`- DONE` markers; `key:: value` property lines stripped (LogSeq-pasteable copy). Also `indentMarkdownBlock()`, `textToTranscriptLines()` (flat-text fallback) and `pagesToLogseqMarkdown()` (multi-page payload: one page copies bare, several nest under `- {label}` bullets) — used by the canvas text-view copy; `subtreeLines(lines, index)` (one node and its deeper lines, re-based to level 0) — the Library transcript's per-node copy
+- `transcript-markdown.js` — `linesToLogseqMarkdown()` — tab-indented `- ` bullets with `- TODO` / `- DONE` / `- WAITING` (v3.4.0) markers; `key:: value` property lines stripped (LogSeq-pasteable copy). Also `indentMarkdownBlock()`, `textToTranscriptLines()` (flat-text fallback) and `pagesToLogseqMarkdown()` (multi-page payload: one page copies bare, several nest under `- {label}` bullets) — used by the canvas text-view copy; `subtreeLines(lines, index)` (one node and its deeper lines, re-based to level 0) — the Library transcript's per-node copy
+- `task-state.js` — **the task write path** (v3.4.0): `setTaskState(book, pageId, lineId, 'todo'|'done'|'waiting')` reads the PageDoc, changes that one line (`withTaskState`), bumps `metadata.lastUpdated` only (never `lastTranscribed`) and writes via `savePage()`; then `applyTaskStateToRecord()`, `invalidatePage()`, `noteTaskWritten()`. Throws `TaskStateError` (`code` 'dirty' | 'no-page' | 'no-line' | 'not-task' | 'bad-state') with nothing written. `docWithTaskState()` is the pure core; `taskChangeLabel()` the toast text
 - `save-transcript.js` — `saveTranscriptLines(book, pageId, lines)` — writes inline transcript edits back to the PageDoc verbatim (getPage → replace `transcript.lines` → scrub deleted `lineId`s on strokes → `savePage`); `recomputeParentIds()` keeps the hierarchy consistent after indent edits
 
 ## Transcription Result (in-memory)

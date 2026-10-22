@@ -22,6 +22,7 @@ import { toBookKey, parseBookKey } from '$lib/volumes.js';
 import { listPages, getAliases } from './local-store.js';
 import { loadOrientations } from '$stores/orientation.js';
 import { loadTags } from '$stores/tags.js';
+import { normalizeTaskSummary } from '$lib/tasks.js';
 
 /**
  * Convert a lightweight PageMeta → record shape consumed by PageCard / BookViewer.
@@ -61,6 +62,9 @@ export function metaToRecord(meta) {
     // Explorer preview and full-text search. Strokes/pageDoc are intentionally
     // absent — consumers fetch them lazily via getPage / page-cache.
     transcriptionText,
+    // Task lines (v3.4.0): built in main (electron/task-summary.cjs, mirroring
+    // lib/tasks.js buildTaskSummary). Small: text and parent line, no strokes.
+    tasks: normalizeTaskSummary(meta.tasks),
     syncStatus: 'clean'
   };
 }

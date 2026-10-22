@@ -25,12 +25,14 @@ node scripts/fetch-neo-backgrounds.mjs <data-root> 3_27_388   # cache Neo page i
 electron/main.cjs, preload.cjs   all disk IO + MyScript proxy, exposed as window.storageAPI
 src/stores/        one store per concern (strokes, selection, pending-changes, viewer, timeline, volumes, tags, ...)
 src/lib/           pure logic, no UI, testable without DOM (tags.js, tag-suggestions.js: page tags, v3.1.0;
-                   task-markers.js: ☐ / ☑ → TODO / DONE, v3.3.0)
+                   task-markers.js: ☐ / ☑ → TODO / DONE, v3.3.0; tasks.js: task state, WAITING, task list, v3.4.0)
 src/lib/storage/   PageDoc layer: local-store (IPC facade), save-page, load-page, load-range, scan, page-changes, graph-export,
                    convert-task-boxes (one-off conversion of old transcripts)
-src/lib/viewer/    reader helpers: SVG render, page cache, thumbnails, transcript markdown/save, feed loader
+src/lib/viewer/    reader helpers: SVG render, page cache, thumbnails, transcript markdown/save, feed loader,
+                   task-state.js (the one task write path, v3.4.0)
 src/components/    grouped by feature (canvas, dialog, header, viewer, dates, books, tags, transcription, ...)
 electron/tags-sidecar.cjs   pure parse / patch of pages/_tags.json for main (tested from Vitest)
+electron/task-summary.cjs   the scan's per-page task summary; mirrors lib/tasks.js buildTaskSummary (tested together)
 ```
 
 Data flow: **pen → `strokes` store → canvas / MyScript → `savePageToFolder()` → PageDoc on disk.**
@@ -54,7 +56,11 @@ each page's corner, and ←/→ page turns (`lib/viewer/page-reader.js` `pageTur
 Pages turn through `readingList` (v3.2.0, `lib/viewer/reading-order.js`): a page opened from a tag's pages, Untagged or a
 filtered grid carries that grid's pages (`readerSequence`, notebook then page) and the reader starts in **Tag** order
 (Book | Tag toggle in `SpreadToolbar`); anything else reads in Book order. The tag manager is a Library view
-(`libraryView` `{ kind: 'tags' }`, Manage tags on the home). The open page, reading order and grid filters are
+(`libraryView` `{ kind: 'tags' }`, Manage tags on the home). So is **Tasks** (v3.4.0, `{ kind: 'tasks' }`, from the
+Library home's Tasks card or the header's Tasks button with the open count; `components/tasks/`): every line with a
+TODO / DONE / WAITING state from the scan's `tasks` summaries, Open / Waiting / Done / All, grouped by project tag,
+date written or notebook; a row's page link opens the reader on that line (`focusReaderLineId`). The reader's
+transcript markers tick too, a ⋯ menu beside each task sets / clears WAITING, and a toast offers Undo. The open page, reading order and grid filters are
 session-only: each launch opens the Library on its home. Full component tree, store and library inventory:
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -79,6 +85,7 @@ session-only: each launch opens the Library on its home. Full component tree, st
     "lastTranscribed": "…",
     "lines": [{ "id": "…", "text": "…", "indentLevel": 0, "parentId": null,
                 "checked": null /* null | true (DONE) | false (TODO); the box is not in text */,
+                /* "marker": "WAITING"   optional (v3.4.0): only beside checked: false, set by hand */
                 "yBounds": { "minY": 1.6, "maxY": 8.6 } }]
   },
   "strokes": [
@@ -93,6 +100,9 @@ session-only: each launch opens the Library on its home. Full component tree, st
   read back fine and render at a constant `flatWidth`.
 - `PAGE_DOC_VERSION` stays `"2.0"`. `validatePageDoc()` rejects anything else, so changes must be
   backward-compatible additions.
+- `marker` (v3.4.0) is written only as `"WAITING"` beside `checked: false` and is absent otherwise; older code reads
+  the line as TODO. Anything that copies a transcript line carries it with `lib/tasks.js` `markerField()`. The UI
+  offers TODO, DONE and WAITING only (never DOING / NOW / LATER), and WAITING is never read from text.
 - Letter-suffixed pages (`P151b.json`) are real: the integer `pageInfo.page` is the NCode page, the suffix is the
   user's variant label and is preserved.
 - Sidecar files in `pages/`: `_aliases.json` (book names, keyed by book key), `_volumes.json` (active volume per
@@ -145,6 +155,19 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   `finalizePageMoves().emptied` → `carryTagsForMoves()` (whole-page moves only, never onto a page that has tags).
 - **Suggestions are never stored**, only dismissals; they are computed from stored transcript text
   (`record.transcriptionText`, so no page read) and never applied without a click.
+
+### Tasks (v3.4.0)
+
+- **One write path for a task's state:** `lib/viewer/task-state.js` `setTaskState()` (from the UI through
+  `stores/tasks.js` `changeTask()`). It changes one line's `checked` / `marker` and `metadata.lastUpdated`, nothing
+  else: never `transcript.lastTranscribed` (`isTrustworthyTranscript()` reads it), text, other lines or strokes.
+- **Refused on a page with an unsaved Library transcript draft** (`isViewerPageDirty`): the draft's save writes every
+  line verbatim and would undo the tick. A line id that is gone or is not a task → error, no write.
+- It refreshes its own copies instead of calling `refreshAfterSave()`: the scan record (`applyTaskStateToRecord`), the
+  page cache (`invalidatePage`) and the open reader page (`noteTaskWritten` → `lastTaskWrite`). Keep that list in step
+  if another view starts showing task state from its own copy.
+- The scan's `tasks` summary is built in main (`electron/task-summary.cjs`) and mirrors `lib/tasks.js`
+  `buildTaskSummary()`; change both (`task-summary.test.js` runs them over one fixture). Keep it scalar-small.
 
 ### Book keys and volumes
 
@@ -297,6 +320,9 @@ then looks broken when it isn't). Launch with `--disable-backgrounding-occluded-
   Project names aren't shown on chips; no tags on Timeline cards or in the Editor; tags aren't exported to LogSeq.
   Tags on a page that is later deleted stay in `_tags.json` (hidden everywhere except the Manage Tags counts).
   "Recently written" in tag grouping uses the newest capture date under the tag (no tag timestamps are stored).
+- **Tasks (v3.4.0).** A task's date is its page's capture days (no per-line date; stored `lineId`s are unreliable
+  before Aug 2026), and its project is the page's first project tag. Only transcribed pages have tasks. A tick in
+  the app doesn't change the ink. No ink snippet on hover, no LogSeq copy or sync of tasks.
 - Main-process and renderer tracing is behind `lib/debug.js` (`localStorage['smartpen-debug'] = '1'`, or the dev
   server). Never log MyScript keys or the HMAC, not even fragments.
 - Timeline: no transcripts on cards (stored `lineId`s are unreliable); `SESSION_GAP_MS` is a constant.

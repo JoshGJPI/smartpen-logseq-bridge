@@ -1,8 +1,9 @@
 <!--
   TranscriptPane.svelte — view / edit / copy a page's transcript in the Library reader.
 
-  Display mode: TranscriptLines (indented lines, TODO/DONE markers, the empty
-                state, and in Ink + text the line → ink hover).
+  Display mode: TranscriptLines (indented lines, TODO/DONE/WAITING markers,
+                clickable with `tasks` (v3.4.0), the empty state, and in Ink +
+                text the line → ink hover).
   Edit mode:    inline structured editor — edit text, Tab/Shift+Tab to
                 indent/outdent, click a checkbox to cycle (none → TODO → DONE),
                 Enter adds a line below, Backspace on an empty line deletes it.
@@ -16,9 +17,10 @@
 -->
 <script>
   import { tick, onDestroy } from 'svelte';
-  import { log, markViewerDirtyPage, clearViewerDirtyPage } from '$stores';
+  import { log, markViewerDirtyPage, clearViewerDirtyPage, viewerDirtyPages } from '$stores';
   import { linesToLogseqMarkdown, subtreeLines } from '$lib/viewer/transcript-markdown.js';
   import { saveTranscriptLines } from '$lib/viewer/save-transcript.js';
+  import { markerField } from '$lib/tasks.js';
   import TranscriptLines from '../transcription/TranscriptLines.svelte';
 
   /** @type {Array<{id:string,text:string,indentLevel:number,checked:boolean|null}>} */
@@ -39,6 +41,11 @@
   export let onTranscribe = null;
   /** A global search hit's line (trusted pages only), passed to TranscriptLines. */
   export let focusLineId = null;
+  /** Task markers are clickable (v3.4.0): ticks write the PageDoc at once. */
+  export let tasks = false;
+
+  // A draft on this page would write the old state back over a tick.
+  $: taskLock = $viewerDirtyPages.has(pageKey) ? 'This page has unsaved transcript edits. Save or cancel them first.' : '';
 
   let editing = false;
   let saving = false;
@@ -66,6 +73,7 @@
       indentLevel: Math.max(0, l.indentLevel || 0),
       parentId: l.parentId ?? null,
       checked: l.checked === true || l.checked === false ? l.checked : null,
+      ...markerField(l),
       yBounds: l.yBounds ?? null,
     }));
   }
@@ -284,7 +292,8 @@
         </div>
       {/each}
     {:else}
-      <TranscriptLines {lines} onCopyLine={copyBranch} {onHoverLine} {linkNote} {onTranscribe} onAddTranscript={startEdit} focusId={focusLineId} />
+      <TranscriptLines {lines} onCopyLine={copyBranch} {onHoverLine} {linkNote} {onTranscribe} onAddTranscript={startEdit} focusId={focusLineId}
+        taskBook={tasks ? book : null} taskPageId={tasks ? page : null} {taskLock} />
     {/if}
   </div>
 </div>

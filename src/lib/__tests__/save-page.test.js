@@ -731,6 +731,18 @@ describe('savePageToFolder — task boxes become TODO / DONE', () => {
     await transcribe([{ text: '☐ Call Troy', yBounds: mmBounds(40, 43, 40) }]);
     expect(writtenLines()).toEqual([expect.objectContaining({ id: 'old', text: 'Call Troy', checked: true })]);
   });
+
+  it('keeps a WAITING marker on an existing line, and never sets one on a new line', async () => {
+    getPage.mockResolvedValue(existingDoc([{ ...oldLine('old', 'Vault confirmation', false), marker: 'WAITING' }]));
+    await transcribe([
+      { text: '☐ Vault confirmation', yBounds: mmBounds(40, 43, 40) },
+      { text: '☐ WAITING on the PO', yBounds: mmBounds(60, 63, 40) },
+    ]);
+    const [old, added] = writtenLines();
+    expect(old).toMatchObject({ id: 'old', checked: false, marker: 'WAITING' });
+    expect(added).toMatchObject({ text: 'WAITING on the PO', checked: false });
+    expect(added).not.toHaveProperty('marker');
+  });
 });
 
 describe('savePageToFolder — volume book keys', () => {
