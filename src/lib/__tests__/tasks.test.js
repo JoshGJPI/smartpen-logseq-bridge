@@ -5,17 +5,20 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  markerField, taskStateOf, withTaskState, toggledState, stateLabel, buildTaskRows, taskCounts,
+  markerField, markerOf, isClosedState, taskStateOf, withTaskState, toggledState, stateLabel, buildTaskRows, taskCounts,
   filterTaskRows, groupTaskRows, summaryWithState, taskMenuChoices, taskKey, parseTaskFilter,
   parseTaskGroup, NO_PROJECT, NO_DATE
 } from '../tasks.js';
 
 describe('task state', () => {
-  it('reads the three states, and null for a plain line', () => {
+  it('reads the four states, and null for a plain line', () => {
     expect(taskStateOf({ checked: false })).toBe('todo');
     expect(taskStateOf({ checked: false, marker: 'WAITING' })).toBe('waiting');
     expect(taskStateOf({ checked: true })).toBe('done');
+    expect(taskStateOf({ checked: true, marker: 'CANCELLED' })).toBe('cancelled');
     expect(taskStateOf({ checked: true, marker: 'WAITING' })).toBe('done');
+    expect(taskStateOf({ checked: false, marker: 'CANCELLED' })).toBe('todo');
+    expect(taskStateOf({ checked: null, marker: 'CANCELLED' })).toBeNull();
     expect(taskStateOf({ checked: null, marker: 'WAITING' })).toBeNull();
     expect(taskStateOf(null)).toBeNull();
   });
@@ -25,6 +28,24 @@ describe('task state', () => {
     expect(markerField({ checked: true, marker: 'WAITING' })).toEqual({});
     expect(markerField({ checked: false, marker: 'DOING' })).toEqual({});
     expect(markerField({ checked: false })).toEqual({});
+  });
+
+  it('markerField carries CANCELLED only beside checked: true (v3.5.0)', () => {
+    expect(markerField({ checked: true, marker: 'CANCELLED' })).toEqual({ marker: 'CANCELLED' });
+    expect(markerField({ checked: false, marker: 'CANCELLED' })).toEqual({});
+    expect(markerField({ checked: null, marker: 'CANCELLED' })).toEqual({});
+    expect(markerField({ checked: true, marker: 'cancelled' })).toEqual({});
+    expect(markerOf(null)).toBeNull();
+    expect(markerOf({ checked: true, marker: 'CANCELLED' })).toBe('CANCELLED');
+  });
+
+  it('CANCELLED is stored as checked: true, so older code reads it as closed', () => {
+    const line = { id: 'a', text: 'x', checked: false, marker: 'WAITING' };
+    const c = withTaskState(line, 'cancelled');
+    expect(c).toEqual({ id: 'a', text: 'x', checked: true, marker: 'CANCELLED' });
+    expect(withTaskState(c, 'done')).not.toHaveProperty('marker');
+    expect(withTaskState(c, 'todo')).toEqual({ id: 'a', text: 'x', checked: false });
+    expect(withTaskState(c, 'waiting')).toEqual({ id: 'a', text: 'x', checked: false, marker: 'WAITING' });
   });
 
   it('withTaskState sets checked, adds or clears marker, keeps the rest', () => {
@@ -40,16 +61,22 @@ describe('task state', () => {
   });
 
   it('labels and toggles', () => {
-    expect(['todo', 'done', 'waiting'].map(stateLabel)).toEqual(['TODO', 'DONE', 'WAITING']);
+    expect(['todo', 'done', 'waiting', 'cancelled'].map(stateLabel)).toEqual(['TODO', 'DONE', 'WAITING', 'CANCELLED']);
     expect(toggledState('todo')).toBe('done');
     expect(toggledState('waiting')).toBe('done');
     expect(toggledState('done')).toBe('todo');
+    expect(toggledState('cancelled')).toBe('todo'); // a click reopens it
+    expect(['todo', 'waiting', 'done', 'cancelled'].map(isClosedState)).toEqual([false, false, true, true]);
   });
 
-  it('the menu offers the two other states, never DOING / NOW / LATER', () => {
-    expect(taskMenuChoices('todo').map((c) => c.state)).toEqual(['done', 'waiting']);
-    expect(taskMenuChoices('waiting').map((c) => c.state)).toEqual(['done', 'todo']);
-    expect(taskMenuChoices('done').map((c) => c.state)).toEqual(['todo', 'waiting']);
+  it('the menu offers the three other states, never DOING / NOW / LATER', () => {
+    expect(taskMenuChoices('todo').map((c) => c.state)).toEqual(['done', 'waiting', 'cancelled']);
+    expect(taskMenuChoices('waiting').map((c) => c.state)).toEqual(['done', 'todo', 'cancelled']);
+    expect(taskMenuChoices('done').map((c) => c.state)).toEqual(['todo', 'waiting', 'cancelled']);
+    expect(taskMenuChoices('cancelled').map((c) => c.state)).toEqual(['todo', 'done', 'waiting']);
+    for (const s of ['todo', 'waiting', 'done', 'cancelled']) {
+      expect(taskMenuChoices(s).map((c) => c.state)).not.toContain(s);
+    }
     const labels = ['todo', 'done', 'waiting'].flatMap((s) => taskMenuChoices(s).map((c) => c.label)).join(' ');
     expect(labels).not.toMatch(/DOING|NOW|LATER/);
   });
@@ -63,6 +90,7 @@ describe('task state', () => {
     expect(next[1]).toEqual({ id: 'b', text: 'y', checked: false, marker: 'WAITING', parentText: 'h' });
     expect(next[0]).toBe(tasks[0]);
     expect(summaryWithState(next, 'b', 'done')[1].marker).toBeNull();
+    expect(summaryWithState(next, 'b', 'cancelled')[1]).toMatchObject({ checked: true, marker: 'CANCELLED' });
     expect(summaryWithState(tasks, 'zz', 'done')).toBe(tasks);
     expect(summaryWithState(undefined, 'a', 'done')).toBeUndefined();
   });
@@ -109,12 +137,18 @@ describe('buildTaskRows', () => {
   });
 
   it('counts and filters', () => {
-    expect(taskCounts(rows)).toEqual({ open: 3, waiting: 1, done: 1, all: 5 });
-    expect(taskCounts([])).toEqual({ open: 0, waiting: 0, done: 0, all: 0 });
+    expect(taskCounts(rows)).toEqual({ open: 3, waiting: 1, done: 1, cancelled: 0, all: 5 });
+    expect(taskCounts([])).toEqual({ open: 0, waiting: 0, done: 0, cancelled: 0, all: 0 });
     expect(filterTaskRows(rows, 'open').map((r) => r.lineId)).toEqual(['a', 'd', 'e']);
     expect(filterTaskRows(rows, 'waiting').map((r) => r.lineId)).toEqual(['c']);
     expect(filterTaskRows(rows, 'done').map((r) => r.lineId)).toEqual(['b']);
     expect(filterTaskRows(rows, 'all')).toHaveLength(5);
+    expect(filterTaskRows(rows, 'cancelled')).toEqual([]);
+    const withCancelled = [...rows, { ...rows[0], key: 'x', lineId: 'x', state: 'cancelled' }];
+    expect(taskCounts(withCancelled)).toMatchObject({ open: 3, done: 1, cancelled: 1, all: 6 });
+    expect(filterTaskRows(withCancelled, 'cancelled').map((r) => r.lineId)).toEqual(['x']);
+    expect(filterTaskRows(withCancelled, 'done').map((r) => r.lineId)).toEqual(['b']);
+    expect(parseTaskFilter('cancelled')).toBe('cancelled');
     expect(filterTaskRows(rows, 'bogus').map((r) => r.lineId)).toEqual(['a', 'd', 'e']);
     expect(parseTaskFilter('nope')).toBe('open');
     expect(parseTaskGroup('nope')).toBe('project');

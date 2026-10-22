@@ -107,7 +107,7 @@ export function applyTranscriptToRecord(book, pageId, lines) {
  * @param {string} book  book key
  * @param {string} pageId
  * @param {string} lineId
- * @param {'todo'|'done'|'waiting'} state
+ * @param {'todo'|'done'|'waiting'|'cancelled'} state
  * @param {string} [lastUpdated]  the doc's new metadata.lastUpdated
  */
 export function applyTaskStateToRecord(book, pageId, lineId, state, lastUpdated) {

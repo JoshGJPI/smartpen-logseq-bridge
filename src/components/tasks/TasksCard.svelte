@@ -22,6 +22,7 @@
       <span class="tc-n"><b>{c.open}</b> open</span>
       {#if c.waiting}<span class="tc-n wait"><b>{c.waiting}</b> waiting</span>{/if}
       <span class="tc-n done"><b>{c.done}</b> done</span>
+      {#if c.cancelled}<span class="tc-n cancel"><b>{c.cancelled}</b> cancelled</span>{/if}
       <span class="grow"></span>
       <span class="tc-go">View all {c.all} {plural(c.all, 'task')} →</span>
     </span>
@@ -58,6 +59,7 @@
   .tc-n b { color: #b45309; font-weight: 700; }
   .tc-n.wait b { color: #6d28d9; }
   .tc-n.done b { color: #2f7d4f; }
+  .tc-n.cancel b { color: #5f6368; }
   .grow { flex: 1; }
   .tc-go { font-size: 12px; color: #2c56c4; }
   .tc-list { display: flex; flex-direction: column; gap: 3px; }

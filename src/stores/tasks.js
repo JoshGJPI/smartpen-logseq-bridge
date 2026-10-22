@@ -21,7 +21,7 @@ import { libraryPageDates } from './library.js';
 import { isViewerPageDirty } from './viewer.js';
 import { log } from './ui.js';
 import {
-  buildTaskRows, taskCounts, taskKey, parseTaskFilter, parseTaskGroup, isTaskState, TASK_GROUP_KEY
+  buildTaskRows, taskCounts, taskKey, parseTaskFilter, parseTaskGroup, isTaskState, toggledState, TASK_GROUP_KEY
 } from '$lib/tasks.js';
 import { setTaskState, taskChangeLabel } from '$lib/viewer/task-state.js';
 import { readString, write } from '$lib/safe-storage.js';
@@ -36,13 +36,13 @@ export const taskRows = derived(
   ([$pages, $tags, $dates, $over]) => buildTaskRows($pages, { tags: $tags, dates: $dates, overrides: $over })
 );
 
-/** `{ open, waiting, done, all }` */
+/** `{ open, waiting, done, cancelled, all }` */
 export const taskCountsStore = derived(taskRows, ($rows) => taskCounts($rows));
 
 /** The header badge: open (TODO) tasks. */
 export const openTaskCount = derived(taskCountsStore, ($c) => $c.open);
 
-/** The Tasks view's state filter: 'open' | 'waiting' | 'done' | 'all'. Session-only. */
+/** The Tasks view's state filter: 'open' | 'waiting' | 'done' | 'cancelled' | 'all'. Session-only. */
 export const taskFilter = writable('open');
 
 export function setTaskFilter(id) {
@@ -98,7 +98,7 @@ export function currentTaskState(book, pageId, lineId) {
  * @param {string} book  book key
  * @param {string} pageId
  * @param {string} lineId
- * @param {'todo'|'done'|'waiting'} state
+ * @param {'todo'|'done'|'waiting'|'cancelled'} state
  * @param {{ from?: string, undoable?: boolean }} [opts]  `from`: the state the
  *   caller shows, for a line the scan doesn't list yet
  * @returns {Promise<boolean>} true when the page holds the new state
@@ -137,10 +137,10 @@ export function changeTask(book, pageId, lineId, state, { from = null, undoable 
   });
 }
 
-/** Tick ↔ untick: DONE goes back to TODO, TODO or WAITING to DONE. */
+/** Tick ↔ untick: DONE or CANCELLED goes back to TODO, TODO or WAITING to DONE. */
 export function toggleTask(book, pageId, lineId, { from = null } = {}) {
   const now = currentTaskState(book, pageId, lineId) || from;
-  return changeTask(book, pageId, lineId, now === 'done' ? 'todo' : 'done', { from });
+  return changeTask(book, pageId, lineId, toggledState(now), { from });
 }
 
 /**

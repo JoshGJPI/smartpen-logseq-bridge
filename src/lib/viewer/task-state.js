@@ -3,7 +3,7 @@
  * Tasks view or on a reader transcript line.
  *
  * Reads the PageDoc fresh, changes that ONE line (`checked`, and `marker` for
- * WAITING), bumps `metadata.lastUpdated` and writes through local-store
+ * WAITING / CANCELLED), bumps `metadata.lastUpdated` and writes through local-store
  * savePage() (atomic in main). Never touches strokes, the line's text, any
  * other line, or `transcript.lastTranscribed`: that date says when MyScript
  * last matched lines to ink, and isTrustworthyTranscript() (ink-text.js)
@@ -64,7 +64,7 @@ export function docWithTaskState(doc, lineId, state, now = new Date().toISOStrin
  * @param {string} book  book key ("388", "388v2")
  * @param {string} pageId  incl. any suffix
  * @param {string} lineId
- * @param {'todo'|'done'|'waiting'} state
+ * @param {'todo'|'done'|'waiting'|'cancelled'} state
  * @returns {Promise<{ changed: boolean, prev: string, state: string, lastUpdated: string|null }>}
  * @throws {TaskStateError} a refusal (nothing written), or the write's own error
  */

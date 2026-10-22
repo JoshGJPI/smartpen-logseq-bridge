@@ -105,6 +105,24 @@ describe('saveTranscriptLines', () => {
     expect(lines[2]).not.toHaveProperty('marker');
   });
 
+  it('carries a CANCELLED marker, only beside checked: true (v3.5.0)', async () => {
+    getPage.mockResolvedValue({
+      version: '2.0',
+      pageInfo: { section: 1, owner: 1, book: 3, page: 5 },
+      metadata: { lastUpdated: 'old', totalStrokes: 0, bounds: {} },
+      transcript: { lastTranscribed: 'old', lines: [] },
+      strokes: [],
+    });
+    savePage.mockResolvedValue({ success: true });
+    await saveTranscriptLines(3, 5, [
+      { id: 'C', text: 'dropped', indentLevel: 0, checked: true, marker: 'CANCELLED' },
+      { id: 'O', text: 'open', indentLevel: 0, checked: false, marker: 'CANCELLED' },
+    ]);
+    const lines = savePage.mock.calls[0][2].transcript.lines;
+    expect(lines[0]).toEqual({ id: 'C', text: 'dropped', indentLevel: 0, parentId: null, checked: true, marker: 'CANCELLED', yBounds: null });
+    expect(lines[1]).not.toHaveProperty('marker');
+  });
+
   it('throws and does not save when the page is missing', async () => {
     getPage.mockResolvedValue(null);
     await expect(saveTranscriptLines(1, 1, [])).rejects.toThrow(/not found/);
