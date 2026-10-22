@@ -24,8 +24,10 @@ node scripts/fetch-neo-backgrounds.mjs <data-root> 3_27_388   # cache Neo page i
 ```
 electron/main.cjs, preload.cjs   all disk IO + MyScript proxy, exposed as window.storageAPI
 src/stores/        one store per concern (strokes, selection, pending-changes, viewer, timeline, volumes, tags, ...)
-src/lib/           pure logic, no UI, testable without DOM (tags.js, tag-suggestions.js: page tags, v3.1.0)
-src/lib/storage/   PageDoc layer: local-store (IPC facade), save-page, load-page, load-range, scan, page-changes, graph-export
+src/lib/           pure logic, no UI, testable without DOM (tags.js, tag-suggestions.js: page tags, v3.1.0;
+                   task-markers.js: ☐ / ☑ → TODO / DONE, v3.3.0)
+src/lib/storage/   PageDoc layer: local-store (IPC facade), save-page, load-page, load-range, scan, page-changes, graph-export,
+                   convert-task-boxes (one-off conversion of old transcripts)
 src/lib/viewer/    reader helpers: SVG render, page cache, thumbnails, transcript markdown/save, feed loader
 src/components/    grouped by feature (canvas, dialog, header, viewer, dates, books, tags, transcription, ...)
 electron/tags-sidecar.cjs   pure parse / patch of pages/_tags.json for main (tested from Vitest)
@@ -76,7 +78,7 @@ session-only: each launch opens the Library on its home. Full component tree, st
   "transcript": {
     "lastTranscribed": "…",
     "lines": [{ "id": "…", "text": "…", "indentLevel": 0, "parentId": null,
-                "checked": null /* null | true (DONE) | false (TODO) */,
+                "checked": null /* null | true (DONE) | false (TODO); the box is not in text */,
                 "yBounds": { "minY": 1.6, "maxY": 8.6 } }]
   },
   "strokes": [
@@ -190,6 +192,13 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   The batch origin is never stored, so line → ink in the Library's Ink + text uses the stored `lineId`s, and only
   where `isTrustworthyTranscript()` (`lib/viewer/ink-text.js`) says the page was matched by the fixed code; a
   date check alone is wrong (Library transcript edits bump `lastTranscribed`).
+- **Task boxes are parsed on transcription** (v3.3.0): `mergeTranscript()` runs each new MyScript line through
+  `parseTaskMarker()` (`lib/task-markers.js`), so a leading `☐` / `[ ]` / `TODO` becomes `checked: false` and
+  `☑` / `☒` / `[x]` / `DONE` becomes `checked: true`, with the marker stripped from `text`. A bare `✓`, `WAITING`
+  and lowercase `todo` stay text. The duplicate check compares marker-stripped text on both sides. Pages
+  transcribed earlier are converted once from Settings → Data Folder → Convert task boxes… (preview first;
+  `lib/storage/convert-task-boxes.js`), which bumps `metadata.lastUpdated` but never `lastTranscribed`, and never
+  overrides a `checked` already set (a glyph that disagrees is left in the text as a conflict).
 - MyScript only sees strokes that are loaded, so transcribing a partially loaded page covers those strokes only.
 - Free tier is 2,000 requests/month, HMAC-authenticated; process page by page.
 

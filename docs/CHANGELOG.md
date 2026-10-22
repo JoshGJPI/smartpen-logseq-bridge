@@ -6,6 +6,39 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.3.0 — Task boxes become TODO / DONE (October 2026)
+
+**Boxes are a line's state, not its text.** A transcript line has had `checked` (null | false = TODO | true = DONE)
+since v2.0, and the Library reader and Copy all already render it, but `mergeTranscript()` set it to null for every
+new MyScript line. MyScript returns a drawn box as `☐` and a ticked one as `☑` at the start of the line, so they
+stayed in the text and a paste into LogSeq gave `- ☐ Call Troy…` instead of a task. Each new line now goes through
+`parseTaskMarker()` (`lib/task-markers.js`): `☐` / `[ ]` / `TODO` → TODO, `☑` / `☒` / `[x]` / `DONE` → DONE, marker
+stripped (and a list dash written after the box). In the Oct 2026 data MyScript never read a box as O, D or 0 and
+never put one mid-line, so the rule is start-of-line glyphs only. Not markers, on purpose: a bare `✓` (one in the data,
+a remark rather than a task); lowercase or mixed-case `todo` ("Todo list for Friday" is a heading, and a typed
+marker comes from LogSeq habit, which is capitals); and `WAITING`. Rejected: reading "waiting on …" from the text as
+a third state. There were two such lines, and WAITING will be set by hand in the app instead, so those lines stay
+TODO (from their box) or plain text (typed `WAITING`). The duplicate check now compares marker-stripped text on both
+sides, so re-transcribing a page whose old line still says `☐ Call Troy` does not add a second `Call Troy`. An
+existing line's `checked` was already kept through re-transcription, so a DONE is never reset by ink that still
+shows an empty box.
+
+**Converting pages transcribed earlier.** Settings → Data Folder → **Convert task boxes…** (`ConvertTaskBoxesDialog`,
+planner in `lib/storage/convert-task-boxes.js`) reads only pages whose scan text can hold a marker, lists every line
+it would change (page, TODO / DONE, old → new) and writes nothing until Convert. Each page is then read again and
+converted from what is on disk at that moment; a line edited since the preview is skipped, not converted from stale
+text. Writes go through `savePage()`, then one `refreshAfterSave()`. Only `text` and `checked` change, plus
+`metadata.lastUpdated`. `transcript.lastTranscribed` is left alone because nothing was re-recognised, and that keeps
+`isTrustworthyTranscript()` giving the same answer (it reads only the date, line ids, yBounds and stroke links).
+Conflicts: a line whose `checked` is already set keeps it, because it was set deliberately (v1 migration, a Library
+edit) after the ink was read. If the glyph agrees, the glyph is stripped. If it disagrees (`☐` on a DONE), the line
+is left exactly as it is and listed as left alone, so the disagreement stays visible instead of being silently
+resolved. None of the real data hit this case. Convert is disabled while a Library transcript edit is open, because
+its save would write the old text back. On a copy of the real folder: 53 lines on 23 pages (41 TODO, 12 DONE).
+Rejected: converting on read (every view and the scan text would need the parser, and the LogSeq copy would
+disagree with the file) and converting silently at startup (it rewrites saved files, so it should be visible and
+confirmed).
+
 ## v3.2.0 — Tag reading order, tag manager in the Library (October 2026)
 
 **Reading a tag's pages as a book.** A tag's grid (or Untagged, or any grid with a tag filter on) only showed
