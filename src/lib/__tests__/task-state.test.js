@@ -99,6 +99,25 @@ describe('setTaskState', () => {
     expect(written().transcript.lines[1].checked).toBe(false);
   });
 
+  it('CANCELLED writes checked: true with the marker; reopening clears it (v3.5.0)', async () => {
+    const doc = makeDoc();
+    vi.mocked(getPage).mockResolvedValue(doc);
+    const res = await setTaskState('3017', '142', 'a', 'cancelled');
+    expect(res).toMatchObject({ changed: true, prev: 'todo', state: 'cancelled' });
+    expect(written().transcript.lines[1]).toEqual({ ...doc.transcript.lines[1], checked: true, marker: 'CANCELLED' });
+    expect(written().transcript.lastTranscribed).toBe(LAST_TRANSCRIBED);
+    expect(get(savedPages)[0].tasks[0]).toMatchObject({ id: 'a', checked: true, marker: 'CANCELLED' });
+
+    const cancelled = makeDoc();
+    Object.assign(cancelled.transcript.lines[1], { checked: true, marker: 'CANCELLED' });
+    vi.mocked(savePage).mockClear();
+    vi.mocked(getPage).mockResolvedValue(cancelled);
+    const back = await setTaskState('3017', '142', 'a', 'todo');
+    expect(back.prev).toBe('cancelled');
+    expect(written().transcript.lines[1]).not.toHaveProperty('marker');
+    expect(written().transcript.lines[1].checked).toBe(false);
+  });
+
   it('refreshes the scan record, the page cache and the open reader', async () => {
     vi.mocked(getPage).mockResolvedValue(makeDoc());
     const before = get(lastTaskWrite);

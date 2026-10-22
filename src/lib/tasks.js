@@ -2,16 +2,19 @@
  * tasks — transcript lines as tasks (v3.4.0). Pure: no DOM, no stores, no I/O.
  *
  * A task is a transcript line whose `checked` is set. Its state is one of
- * three, and only three (no DOING / NOW / LATER, anywhere):
+ * four, and only four (no DOING / NOW / LATER, anywhere):
  *
- *   checked: false                       TODO
- *   checked: false, marker: 'WAITING'    WAITING (set by hand in the app)
- *   checked: true                        DONE
+ *   checked: false                        TODO
+ *   checked: false, marker: 'WAITING'     WAITING   (set by hand in the app)
+ *   checked: true                         DONE
+ *   checked: true,  marker: 'CANCELLED'   CANCELLED (set by hand, v3.5.0)
  *
- * `marker` is an optional, additive TranscriptLine field: it is written only
- * for WAITING and only beside `checked: false`, so older code reads a WAITING
- * line as an ordinary TODO and PAGE_DOC_VERSION stays "2.0". DONE and TODO
- * clear it. Every place that copies a line carries it with `markerField()`.
+ * `marker` is an optional, additive TranscriptLine field, written only for
+ * WAITING (beside `checked: false`) and CANCELLED (beside `checked: true`).
+ * Older code ignores it, so it reads a WAITING line as an open TODO and a
+ * CANCELLED line as closed (DONE), never as open; PAGE_DOC_VERSION stays "2.0".
+ * TODO and DONE clear it. Every place that copies a line carries it with
+ * `markerField()`.
  *
  * The task list is built from the metadata-only scan: each record carries a
  * small `tasks` summary (`buildTaskSummary()`, mirrored in main by
@@ -24,30 +27,46 @@ import { compareBookKeys } from './volumes.js';
 import { isProjectTag } from './tags.js';
 
 export const WAITING = 'WAITING';
+export const CANCELLED = 'CANCELLED';
 
-/** The three states, as the UI and setTaskState() name them. */
-export const TASK_STATES = ['todo', 'done', 'waiting'];
+/** The four states, as the UI and setTaskState() name them. */
+export const TASK_STATES = ['todo', 'done', 'waiting', 'cancelled'];
 
 /** Longest text a scan summary keeps (the record is display data, not the line). */
 export const TASK_TEXT_MAX = 300;
 export const TASK_PARENT_MAX = 120;
 
 /**
- * `{ marker: 'WAITING' }` for a WAITING line, else `{}`: spread into any copy
- * of a line so the field is carried where it belongs and nowhere else.
+ * The marker a line legitimately carries: 'WAITING' beside `checked: false`,
+ * 'CANCELLED' beside `checked: true`, else null (a marker on the wrong side,
+ * or any other value, is dropped).
  * @param {{checked?: boolean|null, marker?: string|null}} line
+ * @returns {'WAITING'|'CANCELLED'|null}
  */
-export function markerField(line) {
-  return line && line.checked === false && line.marker === WAITING ? { marker: WAITING } : {};
+export function markerOf(line) {
+  if (!line) return null;
+  if (line.checked === false && line.marker === WAITING) return WAITING;
+  if (line.checked === true && line.marker === CANCELLED) return CANCELLED;
+  return null;
 }
 
 /**
- * 'todo' | 'done' | 'waiting', or null for a line that is not a task.
+ * `{ marker }` for a WAITING or CANCELLED line, else `{}`: spread into any
+ * copy of a line so the field is carried where it belongs and nowhere else.
+ * @param {{checked?: boolean|null, marker?: string|null}} line
+ */
+export function markerField(line) {
+  const m = markerOf(line);
+  return m ? { marker: m } : {};
+}
+
+/**
+ * 'todo' | 'done' | 'waiting' | 'cancelled', or null for a line that is not a task.
  * @param {{checked?: boolean|null, marker?: string|null}} line
  */
 export function taskStateOf(line) {
   if (!line) return null;
-  if (line.checked === true) return 'done';
+  if (line.checked === true) return line.marker === CANCELLED ? 'cancelled' : 'done';
   if (line.checked === false) return line.marker === WAITING ? 'waiting' : 'todo';
   return null;
 }
@@ -58,11 +77,11 @@ export function isTaskState(state) {
 }
 
 /**
- * A copy of the line in that state: `checked` set, `marker` only for WAITING.
- * Every other field is kept.
+ * A copy of the line in that state: `checked` set, `marker` only for WAITING
+ * and CANCELLED. Every other field is kept.
  * @template T
  * @param {T} line
- * @param {'todo'|'done'|'waiting'} state
+ * @param {'todo'|'done'|'waiting'|'cancelled'} state
  * @returns {T}
  */
 export function withTaskState(line, state) {
@@ -70,17 +89,29 @@ export function withTaskState(line, state) {
   const { marker, ...rest } = line || {};
   if (state === 'done') return { ...rest, checked: true };
   if (state === 'waiting') return { ...rest, checked: false, marker: WAITING };
+  if (state === 'cancelled') return { ...rest, checked: true, marker: CANCELLED };
   return { ...rest, checked: false };
 }
 
-/** The label a state is shown with: TODO, DONE, WAITING. */
+/** The label a state is shown with: TODO, DONE, WAITING, CANCELLED. */
 export function stateLabel(state) {
-  return state === 'done' ? 'DONE' : state === 'waiting' ? 'WAITING' : 'TODO';
+  if (state === 'done') return 'DONE';
+  if (state === 'waiting') return 'WAITING';
+  if (state === 'cancelled') return 'CANCELLED';
+  return 'TODO';
 }
 
-/** What a click on the box does: DONE goes back to TODO, anything else to DONE. */
+/** True for the two closed states, DONE and CANCELLED (drawn struck through). */
+export function isClosedState(state) {
+  return state === 'done' || state === 'cancelled';
+}
+
+/**
+ * What a click on the box does: a closed task (DONE or CANCELLED) reopens as
+ * TODO, an open one (TODO or WAITING) is ticked DONE.
+ */
 export function toggledState(state) {
-  return state === 'done' ? 'todo' : 'done';
+  return isClosedState(state) ? 'todo' : 'done';
 }
 
 const clip = (s, max) => {
@@ -98,7 +129,7 @@ const clip = (s, max) => {
  * Change both; task-summary.test.js runs them over one fixture.
  *
  * @param {Array<{id?: string, text?: string, indentLevel?: number, parentId?: string|null, checked?: boolean|null, marker?: string}>} lines
- * @returns {Array<{id: string, text: string, checked: boolean, marker: string|null, parentText: string|null}>}
+ * @returns {Array<{id: string, text: string, checked: boolean, marker: 'WAITING'|'CANCELLED'|null, parentText: string|null}>}
  */
 export function buildTaskSummary(lines) {
   if (!Array.isArray(lines) || !lines.length) return [];
@@ -118,7 +149,7 @@ export function buildTaskSummary(lines) {
         id: l.id,
         text: clip(l.text, TASK_TEXT_MAX),
         checked: l.checked,
-        marker: l.checked === false && l.marker === WAITING ? WAITING : null,
+        marker: markerOf(l),
         parentText: parent ? clip(parent, TASK_PARENT_MAX) : null
       });
     }
@@ -130,7 +161,7 @@ export function buildTaskSummary(lines) {
 /**
  * A scan summary as the renderer keeps it: anything malformed is dropped, so
  * a record from an older main (no `tasks`) simply has none.
- * @returns {Array<{id: string, text: string, checked: boolean, marker: string|null, parentText: string|null}>}
+ * @returns {Array<{id: string, text: string, checked: boolean, marker: 'WAITING'|'CANCELLED'|null, parentText: string|null}>}
  */
 export function normalizeTaskSummary(tasks) {
   if (!Array.isArray(tasks)) return [];
@@ -140,7 +171,7 @@ export function normalizeTaskSummary(tasks) {
       id: t.id,
       text: typeof t.text === 'string' ? t.text : '',
       checked: t.checked,
-      marker: t.checked === false && t.marker === WAITING ? WAITING : null,
+      marker: markerOf(t),
       parentText: typeof t.parentText === 'string' && t.parentText ? t.parentText : null
     }));
 }
@@ -191,11 +222,12 @@ export function buildTaskRows(records, { tags = {}, dates = null, overrides = nu
   return rows;
 }
 
-/** The filter chips: Open (TODO), Waiting, Done, All. */
+/** The filter chips: Open (TODO), Waiting, Done, Cancelled, All. */
 export const TASK_FILTERS = [
   { id: 'open', label: 'Open' },
   { id: 'waiting', label: 'Waiting' },
   { id: 'done', label: 'Done' },
+  { id: 'cancelled', label: 'Cancelled' },
   { id: 'all', label: 'All' }
 ];
 
@@ -203,14 +235,15 @@ export function parseTaskFilter(raw) {
   return TASK_FILTERS.some((f) => f.id === raw) ? raw : 'open';
 }
 
-/** `{ open, waiting, done, all }` */
+/** `{ open, waiting, done, cancelled, all }` */
 export function taskCounts(rows) {
-  const c = { open: 0, waiting: 0, done: 0, all: 0 };
+  const c = { open: 0, waiting: 0, done: 0, cancelled: 0, all: 0 };
   for (const r of rows || []) {
     c.all++;
     if (r.state === 'todo') c.open++;
     else if (r.state === 'waiting') c.waiting++;
     else if (r.state === 'done') c.done++;
+    else if (r.state === 'cancelled') c.cancelled++;
   }
   return c;
 }
@@ -295,11 +328,16 @@ export function summaryWithState(tasks, lineId, state) {
 }
 
 /**
- * The row / line menu: the two states a task can move to from `state`, as
- * `[{ state, label }]`. WAITING is only ever set here, by hand.
+ * The row / line menu: the three states a task can move to from `state`, as
+ * `[{ state, label }]`. WAITING and CANCELLED are only ever set here, by hand.
  */
 export function taskMenuChoices(state) {
-  if (state === 'done') return [{ state: 'todo', label: 'Mark TODO' }, { state: 'waiting', label: 'Mark WAITING' }];
-  if (state === 'waiting') return [{ state: 'done', label: 'Mark DONE' }, { state: 'todo', label: 'Clear WAITING (back to TODO)' }];
-  return [{ state: 'done', label: 'Mark DONE' }, { state: 'waiting', label: 'Mark WAITING' }];
+  const TODO = { state: 'todo', label: 'Mark TODO' };
+  const DONE = { state: 'done', label: 'Mark DONE' };
+  const WAIT = { state: 'waiting', label: 'Mark WAITING' };
+  const CANCEL = { state: 'cancelled', label: 'Mark CANCELLED' };
+  if (state === 'done') return [TODO, WAIT, CANCEL];
+  if (state === 'waiting') return [DONE, { state: 'todo', label: 'Clear WAITING (back to TODO)' }, CANCEL];
+  if (state === 'cancelled') return [{ state: 'todo', label: 'Restore (back to TODO)' }, DONE, WAIT];
+  return [DONE, WAIT, CANCEL];
 }

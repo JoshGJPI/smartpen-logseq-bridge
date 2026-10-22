@@ -43,6 +43,7 @@
     open: 'No open tasks. Boxes you draw (☐) become tasks when a page is transcribed.',
     waiting: 'Nothing is waiting. Use a task’s ⋯ menu to mark it WAITING.',
     done: 'No finished tasks yet.',
+    cancelled: 'Nothing is cancelled. Use a task’s ⋯ menu to mark it CANCELLED.',
     all: 'No tasks yet. Boxes you draw (☐) become tasks when a page is transcribed.'
   };
 

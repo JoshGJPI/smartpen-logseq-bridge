@@ -2,13 +2,14 @@
   TaskRow.svelte — one task in the Tasks view (v3.4.0): tick box, text, the
   line it sits under, a link to its page (opens the reader on that line), the
   date written, the project chip (left out when grouped by project, where the
-  group heading names it) and the ⋯ menu that sets / clears WAITING.
+  group heading names it) and the ⋯ menu that sets / clears WAITING and CANCELLED.
 -->
 <script>
   import { viewerDirtyPages, bookAliases } from '$stores';
   import { toggleTask, changeTask } from '$stores/tasks.js';
   import { formatBookName } from '$utils/formatting.js';
   import { dayStart } from '$lib/timeline.js';
+  import { isClosedState } from '$lib/tasks.js';
   import TaskBox from './TaskBox.svelte';
   import TaskMenu from './TaskMenu.svelte';
   import TagChip from '../tags/TagChip.svelte';
@@ -38,12 +39,13 @@
   $: when = dayLabel(row.day, row.lastDay);
 </script>
 
-<div class="row" class:done={row.state === 'done'}>
+<div class="row" class:done={isClosedState(row.state)}>
   <TaskBox state={row.state} {lock} onToggle={() => toggleTask(row.book, row.pageId, row.lineId)} />
   <span class="tx">{row.text}</span>
   <span class="meta">
     {#if row.state === 'waiting'}<span class="mk wait">WAITING</span>{/if}
     {#if row.state === 'done'}<span class="mk done">DONE</span>{/if}
+    {#if row.state === 'cancelled'}<span class="mk cancel">CANCELLED</span>{/if}
     {#if !hideProject}
       {#each row.projects as p (p)}<TagChip tag={p} />{/each}
     {/if}
@@ -93,4 +95,5 @@
   .mk { font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; padding: 0 6px; border-radius: 4px; }
   .mk.wait { background: #f1eafe; color: #6d28d9; }
   .mk.done { background: #e8f5ec; color: #2f7d4f; }
+  .mk.cancel { background: #eef0f3; color: #5f6368; }
 </style>

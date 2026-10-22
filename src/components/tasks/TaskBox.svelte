@@ -1,14 +1,15 @@
 <!--
   TaskBox.svelte — a task's tick box (v3.4.0): empty for TODO, ticked for
-  DONE, dashed purple for WAITING. A click ticks / unticks (DONE ↔ TODO; a
-  WAITING task is ticked DONE). `lock` (a reason) disables it with that
+  DONE, dashed purple for WAITING, grey ✕ for CANCELLED. A click ticks /
+  unticks (DONE ↔ TODO; a WAITING task is ticked DONE, a CANCELLED one reopens
+  as TODO). `lock` (a reason) disables it with that
   tooltip: the page has an unsaved transcript draft.
 
-  `variant="glyph"` draws it as the transcript's ☐ / ☑ / ◷ marker instead of
+  `variant="glyph"` draws it as the transcript's ☐ / ☑ / ◷ / ⊘ marker instead of
   a box, for the reader's read-only lines.
 -->
 <script>
-  /** 'todo' | 'done' | 'waiting' */
+  /** 'todo' | 'done' | 'waiting' | 'cancelled' */
   export let state = 'todo';
   /** () => void */
   export let onToggle = () => {};
@@ -17,8 +18,8 @@
   /** 'box' | 'glyph' */
   export let variant = 'box';
 
-  $: title = lock || (state === 'done' ? 'Mark TODO' : 'Mark DONE');
-  $: glyph = state === 'done' ? '☑' : state === 'waiting' ? '◷' : '☐';
+  $: title = lock || (state === 'cancelled' ? 'Reopen as TODO' : state === 'done' ? 'Mark TODO' : 'Mark DONE');
+  $: glyph = state === 'done' ? '☑' : state === 'waiting' ? '◷' : state === 'cancelled' ? '⊘' : '☐';
 </script>
 
 <button
@@ -26,13 +27,14 @@
   class="tb {variant}"
   class:done={state === 'done'}
   class:waiting={state === 'waiting'}
+  class:cancelled={state === 'cancelled'}
   disabled={!!lock}
   role="checkbox"
   aria-checked={state === 'done'}
   aria-label={title}
   {title}
   on:click|stopPropagation={() => onToggle()}
->{#if variant === 'glyph'}{glyph}{:else if state === 'done'}✓{/if}</button>
+>{#if variant === 'glyph'}{glyph}{:else if state === 'done'}✓{:else if state === 'cancelled'}✕{/if}</button>
 
 <style>
   .tb {
@@ -61,6 +63,7 @@
   .tb.box:hover:not(:disabled) { border-color: #2f7d4f; }
   .tb.box.done { background: #2f7d4f; border-color: #2f7d4f; }
   .tb.box.waiting { border-color: #6d28d9; border-style: dashed; }
+  .tb.box.cancelled { background: #9aa0a6; border-color: #9aa0a6; }
 
   .tb.glyph {
     width: 1.1em;
@@ -73,6 +76,7 @@
   }
   .tb.glyph.done { color: #2e9e54; }
   .tb.glyph.waiting { color: #6d28d9; }
+  .tb.glyph.cancelled { color: #8a8f98; }
   .tb.glyph:hover:not(:disabled) { background: #f1f1f4; transform: scale(1.15); }
   .tb:focus-visible { outline: 2px solid #4a7cf7; outline-offset: 1px; }
 </style>

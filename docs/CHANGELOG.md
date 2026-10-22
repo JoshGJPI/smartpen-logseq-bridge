@@ -6,6 +6,21 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.5.0 — CANCELLED task state (October 2026)
+
+**A fourth state, set by hand like WAITING.** A task that won't be done can be marked CANCELLED from its ⋯ menu (Tasks
+view and reader); it is never read from text. It is stored as `marker: 'CANCELLED'` beside `checked: true`, the
+mirror of WAITING beside `checked: false`. Rejected: storing it beside `checked: false`, which would make every
+older reader (and the LogSeq copy before this version) show a cancelled task as open TODO; beside `true` it reads as
+DONE, so it is at worst shown closed. `markerOf()` keeps a marker only on its own side, so a stray
+`CANCELLED`-beside-`false` is dropped like a stray WAITING-beside-`true`. A cancelled task is drawn struck through
+with a grey ✕ box / ⊘ marker and a CANCELLED chip, has its own Cancelled filter and count (the open badge is
+unchanged), and clicking its box reopens it as TODO (the menu's "Restore (back to TODO)"); the menu always offers
+the three other states. Copy all writes `- CANCELLED …`, which LogSeq treats as a closed task. Checked in the app on
+a copy of the data folder: cancel from the row menu and from the reader, the file changes only that line
+(`checked: true`, `marker`) and `lastUpdated`; reopen and Undo; saving from the transcript editor keeps the marker;
+Copy all output.
+
 ## v3.4.0 — Tasks view, ticking in the reader, WAITING (October 2026)
 
 **A task list built from the scan, not from reading pages.** After v3.3.0 about 98 lines across 120 transcribed

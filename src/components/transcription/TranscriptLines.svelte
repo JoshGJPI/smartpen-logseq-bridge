@@ -1,6 +1,6 @@
 <!--
   TranscriptLines.svelte — a page's transcript as read (not edited) in the
-  Library: indented lines with TODO/DONE/WAITING markers, or the empty state.
+  Library: indented lines with TODO/DONE/WAITING/CANCELLED markers, or the empty state.
 
   With `taskBook` / `taskPageId` (v3.4.0) a task line's marker is a button
   (TaskBox: TODO ↔ DONE) with a ⋯ menu beside it (TaskMenu: set / clear
@@ -23,7 +23,7 @@
 <script>
   import { hasMyScriptCredentials } from '$stores';
   import { taskOverrides, toggleTask, changeTask } from '$stores/tasks.js';
-  import { taskStateOf, taskKey } from '$lib/tasks.js';
+  import { taskStateOf, taskKey, isClosedState } from '$lib/tasks.js';
   import TaskBox from '../tasks/TaskBox.svelte';
   import TaskMenu from '../tasks/TaskMenu.svelte';
 
@@ -65,6 +65,7 @@
   function markerSymbol(state) {
     if (state === 'done') return '☑';
     if (state === 'waiting') return '◷';
+    if (state === 'cancelled') return '⊘';
     if (state === 'todo') return '☐';
     return '•';
   }
@@ -93,9 +94,9 @@
             onToggle={() => toggleTask(taskBook, taskPageId, line.id, { from: stateOf(line) })} />
         {:else}
           <span class="tl-marker" class:todo={stateOf(line) === 'todo'} class:waiting={stateOf(line) === 'waiting'}
-            class:done={stateOf(line) === 'done'}>{markerSymbol(stateOf(line))}</span>
+            class:done={stateOf(line) === 'done'} class:cancelled={stateOf(line) === 'cancelled'}>{markerSymbol(stateOf(line))}</span>
         {/if}
-        <span class="tl-text" class:done={stateOf(line) === 'done'}>{#if stateOf(line) === 'waiting'}<span class="tl-wait">WAITING</span> {/if}{line.text}</span>
+        <span class="tl-text" class:done={isClosedState(stateOf(line))}>{#if stateOf(line) === 'waiting'}<span class="tl-wait">WAITING</span> {:else if stateOf(line) === 'cancelled'}<span class="tl-cancel">CANCELLED</span> {/if}{line.text}</span>
         {#if interactive && stateOf(line)}
           <span class="tl-task-menu">
             <TaskMenu state={stateOf(line)} lock={taskLock}
@@ -158,7 +159,10 @@
   .tl-marker.todo { color: #e07b00; }
   .tl-marker.done { color: #2e9e54; }
   .tl-marker.waiting { color: #6d28d9; }
+  .tl-marker.cancelled { color: #8a8f98; }
   .tl-wait { font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; padding: 0 5px; border-radius: 4px; background: #f1eafe; color: #6d28d9; }
+  /* The chip sits inside the struck-through text; keep it legible. */
+  .tl-cancel { display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; padding: 0 5px; border-radius: 4px; background: #eef0f3; color: #5f6368; }
   /* The task menu, like the copy button, stays out of the way until hovered. */
   .tl-task-menu { flex-shrink: 0; align-self: center; opacity: 0; }
   .tl-line:hover .tl-task-menu,

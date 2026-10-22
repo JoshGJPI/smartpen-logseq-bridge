@@ -8,18 +8,26 @@
  * both over one fixture. src/lib/tasks.js is the authority.
  *
  * One entry per transcript line with `checked` set:
- *   { id, text, checked, marker: 'WAITING'|null, parentText: string|null }
+ *   { id, text, checked, marker: 'WAITING'|'CANCELLED'|null, parentText: string|null }
  * Scalar-small on purpose (text clipped); never strokes.
  */
 'use strict';
 
 const WAITING = 'WAITING';
+const CANCELLED = 'CANCELLED';
 const TASK_TEXT_MAX = 300;
 const TASK_PARENT_MAX = 120;
 
 function clip(s, max) {
   const t = typeof s === 'string' ? s.trim() : '';
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+}
+
+/** 'WAITING' beside checked:false, 'CANCELLED' beside checked:true, else null (markerOf in tasks.js). */
+function markerOf(l) {
+  if (l.checked === false && l.marker === WAITING) return WAITING;
+  if (l.checked === true && l.marker === CANCELLED) return CANCELLED;
+  return null;
 }
 
 function buildTaskSummary(lines) {
@@ -40,7 +48,7 @@ function buildTaskSummary(lines) {
         id: l.id,
         text: clip(l.text, TASK_TEXT_MAX),
         checked: l.checked,
-        marker: l.checked === false && l.marker === WAITING ? WAITING : null,
+        marker: markerOf(l),
         parentText: parent ? clip(parent, TASK_PARENT_MAX) : null
       });
     }

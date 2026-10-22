@@ -47,7 +47,8 @@ export const PAGE_DOC_VERSION = '2.0';
  * @property {number} indentLevel
  * @property {string|null} parentId
  * @property {boolean|null} checked   - null = no checkbox, true = DONE, false = TODO
- * @property {'WAITING'} [marker]     - v3.4.0, optional: only beside `checked: false`, set by hand.
+ * @property {'WAITING'|'CANCELLED'} [marker] - optional, set by hand: 'WAITING' (v3.4.0) only beside
+ *                                       `checked: false`, 'CANCELLED' (v3.5.0) only beside `checked: true`.
  *                                      Absent otherwise; older code reads the line as TODO.
  * @property {YBounds|null} yBounds
  */

@@ -13,6 +13,8 @@
     { "id": "t6", "text": "  Deeper, under a sub-heading  ", "indentLevel": 2, "parentId": null, "checked": false, "yBounds": null },
     { "id": "t7", "text": "Top-level task", "indentLevel": 0, "parentId": null, "checked": false, "yBounds": null },
     { "text": "No id: skipped", "indentLevel": 0, "checked": false },
-    { "id": "t8", "text": "A very long line that keeps going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going on", "indentLevel": 0, "parentId": null, "checked": false, "yBounds": null }
+    { "id": "t8", "text": "A very long line that keeps going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going and going on", "indentLevel": 0, "parentId": null, "checked": false, "yBounds": null },
+    { "id": "t9", "text": "Cancelled by the client", "indentLevel": 0, "parentId": null, "checked": true, "marker": "CANCELLED", "yBounds": null },
+    { "id": "t10", "text": "Stray CANCELLED on an open line", "indentLevel": 0, "parentId": null, "checked": false, "marker": "CANCELLED", "yBounds": null }
   ]
 }

@@ -74,7 +74,7 @@ describe('derived rows', () => {
     expect(rows.map((r) => [r.lineId, r.state])).toEqual([['a', 'todo'], ['b', 'done'], ['c', 'waiting']]);
     expect(rows[0]).toMatchObject({ project: 'P2026-141', day: '2026-10-14', parentText: 'Meeting' });
     expect(rows[2]).toMatchObject({ project: null, day: null });
-    expect(get(taskCountsStore)).toEqual({ open: 1, waiting: 1, done: 1, all: 3 });
+    expect(get(taskCountsStore)).toEqual({ open: 1, waiting: 1, done: 1, cancelled: 0, all: 3 });
     expect(get(openTaskCount)).toBe(1);
   });
 

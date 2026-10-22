@@ -1,6 +1,6 @@
 <!--
   TaskMenu.svelte — a task's "⋯" menu (v3.4.0): the two other states it can
-  take (lib/tasks.js taskMenuChoices). The only way to set or clear WAITING.
+  take (lib/tasks.js taskMenuChoices). The only way to set or clear WAITING and CANCELLED.
   OverflowMenu handles outside click, scroll and Escape (which it
   preventDefaults, so the reader behind leaves the key alone).
 -->
@@ -8,7 +8,7 @@
   import OverflowMenu from '../viewer/OverflowMenu.svelte';
   import { taskMenuChoices } from '$lib/tasks.js';
 
-  /** 'todo' | 'done' | 'waiting' */
+  /** 'todo' | 'done' | 'waiting' | 'cancelled' */
   export let state = 'todo';
   /** (state) => void */
   export let onSet = () => {};

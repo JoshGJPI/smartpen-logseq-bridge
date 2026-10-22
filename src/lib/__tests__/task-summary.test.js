@@ -32,7 +32,7 @@ describe('buildTaskSummary', () => {
   const byId = Object.fromEntries(out.map((t) => [t.id, t]));
 
   it('lists only lines with checked set and an id, in transcript order', () => {
-    expect(out.map((t) => t.id)).toEqual(['t1', 't2', 't3', 't4', 't5', 't6', 't7', 't8']);
+    expect(out.map((t) => t.id)).toEqual(['t1', 't2', 't3', 't4', 't5', 't6', 't7', 't8', 't9', 't10']);
   });
 
   it('keeps the state and WAITING only beside checked: false', () => {
@@ -40,6 +40,11 @@ describe('buildTaskSummary', () => {
     expect(byId.t2).toMatchObject({ checked: true, marker: null });
     expect(byId.t3).toMatchObject({ checked: false, marker: 'WAITING' });
     expect(byId.t4).toMatchObject({ checked: true, marker: null });
+  });
+
+  it('keeps CANCELLED only beside checked: true (v3.5.0)', () => {
+    expect(byId.t9).toMatchObject({ checked: true, marker: 'CANCELLED' });
+    expect(byId.t10).toMatchObject({ checked: false, marker: null });
   });
 
   it('names the parent line, falling back to the nearest shallower line', () => {
@@ -72,12 +77,16 @@ describe('normalizeTaskSummary / metaToRecord', () => {
     expect(normalizeTaskSummary([
       { id: 'a', text: 'x', checked: false, marker: 'WAITING', parentText: '' },
       { id: 'b', text: 'y', checked: true, marker: 'WAITING' },
+      { id: 'k', text: 'w', checked: true, marker: 'CANCELLED' },
+      { id: 'm', text: 'v', checked: false, marker: 'CANCELLED' },
       { id: 'c', text: 'z', checked: null },
       { text: 'no id', checked: false },
       null
     ])).toEqual([
       { id: 'a', text: 'x', checked: false, marker: 'WAITING', parentText: null },
-      { id: 'b', text: 'y', checked: true, marker: null, parentText: null }
+      { id: 'b', text: 'y', checked: true, marker: null, parentText: null },
+      { id: 'k', text: 'w', checked: true, marker: 'CANCELLED', parentText: null },
+      { id: 'm', text: 'v', checked: false, marker: null, parentText: null }
     ]);
   });
 });
