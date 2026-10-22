@@ -325,8 +325,7 @@ then looks broken when it isn't). Launch with `--disable-backgrounding-occluded-
   "Recently written" in tag grouping uses the newest capture date under the tag (no tag timestamps are stored).
 - **Tasks (v3.4.0).** A task's date is its page's capture days (no per-line date; stored `lineId`s are unreliable
   before Aug 2026), and its project is the page's first project tag. Only transcribed pages have tasks. A tick in
-  the app doesn't change the ink. No ink snippet on hover, no LogSeq copy or sync of tasks. Copy all writes
-  `- CANCELLED …` (LogSeq accepts it), which is outside the TODO / DONE / WAITING set the OG graph otherwise uses.
+  the app doesn't change the ink. No ink snippet on hover, no LogSeq copy or sync of tasks.
 - Main-process and renderer tracing is behind `lib/debug.js` (`localStorage['smartpen-debug'] = '1'`, or the dev
   server). Never log MyScript keys or the HMAC, not even fragments.
 - Timeline: no transcripts on cards (stored `lineId`s are unreliable); `SESSION_GAP_MS` is a constant.
