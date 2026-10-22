@@ -15,7 +15,8 @@
     "icons": "node scripts/create-icons.cjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "mcp": "node mcp/server.js"
+    "mcp": "node mcp/server.js",
+    "mcp:sync": "node scripts/sync-mcp-copy.mjs"
   },
   "dependencies": {
     "svelte-dnd-action": "^0.9.69",

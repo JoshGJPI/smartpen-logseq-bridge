@@ -17,14 +17,32 @@ SMARTPEN_DATA_ROOT=<data folder> node mcp/drive.mjs render_days '{"from":"2026-1
 
 The server exits with a message on stderr when the folder is missing or has no `pages/`.
 
+## Its own checkout
+
+The registered server runs from a second worktree of this repo, `../smartpen-mcp`, detached at `main` with its own
+`node_modules`, not from the development checkout. Branch switches, reinstalls and unfinished work here then never
+reach the server, and the server never locks files in this checkout's `node_modules` (a running server holds
+`@resvg/resvg-js`'s native file open, which makes `npm install` fail with EBUSY on Windows).
+
+- **Set up once:** `git worktree add --detach ../smartpen-mcp main`, then `npm ci --ignore-scripts` in that folder
+  (no Electron download; the server needs only the dev dependencies above).
+- **Kept on `main` by git hooks:** `.git/hooks/post-merge` and `post-rewrite` (local, not versioned) run
+  `scripts/sync-mcp-copy.mjs --hook`, which moves the copy to `main` whenever `main` changes in the development
+  checkout, and reinstalls its packages only when `package.json` / `package-lock.json` changed. Restart Claude Code to
+  load the new code.
+- **By hand:** `npm run mcp:sync` (any branch). If a reinstall is needed while Claude Code is running, it fails on the
+  locked file and leaves the copy where it was: quit Claude Code, run `npm run mcp:sync`, start Claude Code again.
+- `SMARTPEN_MCP_DIR` points the script at another folder. Never edit files in the copy; it is only for running.
+
 ## Register
 
-Point the client at `node` and `server.js` directly (not `npm run mcp`, whose banner goes to stdout). Use absolute paths.
+Point the client at `node` and `server.js` directly (not `npm run mcp`, whose banner goes to stdout). Use absolute paths,
+in the `smartpen-mcp` copy (see above).
 
 **Claude Code** (all projects; drop `--scope user` for this project only):
 
 ```bash
-claude mcp add smartpen-bridge --scope user -e SMARTPEN_DATA_ROOT="C:\Users\joshg\Documents\stroke-data" -- node "C:\Users\joshg\Documents\Claude Access\smartpen-logseq-bridge\mcp\server.js"
+claude mcp add smartpen-bridge --scope user -e SMARTPEN_DATA_ROOT="C:\Users\joshg\Documents\stroke-data" -- node "C:\Users\joshg\Documents\Claude Access\smartpen-mcp\mcp\server.js"
 ```
 
 **Claude Desktop**: add to `%APPDATA%\Claude\claude_desktop_config.json` (macOS:
@@ -35,7 +53,7 @@ claude mcp add smartpen-bridge --scope user -e SMARTPEN_DATA_ROOT="C:\Users\josh
   "mcpServers": {
     "smartpen-bridge": {
       "command": "node",
-      "args": ["C:\\Users\\joshg\\Documents\\Claude Access\\smartpen-logseq-bridge\\mcp\\server.js"],
+      "args": ["C:\\Users\\joshg\\Documents\\Claude Access\\smartpen-mcp\\mcp\\server.js"],
       "env": { "SMARTPEN_DATA_ROOT": "C:\\Users\\joshg\\Documents\\stroke-data" }
     }
   }
