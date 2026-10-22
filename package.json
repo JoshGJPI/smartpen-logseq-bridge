@@ -14,13 +14,16 @@
     "electron:build:win": "vite build && set CSC_IDENTITY_AUTO_DISCOVERY=false&& electron-builder --win",
     "icons": "node scripts/create-icons.cjs",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "mcp": "node mcp/server.js"
   },
   "dependencies": {
     "svelte-dnd-action": "^0.9.69",
     "web_pen_sdk": "^0.7.8"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@resvg/resvg-js": "^2.6.2",
     "@sveltejs/vite-plugin-svelte": "^3.1.1",
     "browserify-zlib": "^0.2.0",
     "buffer": "^6.0.3",
@@ -38,7 +41,8 @@
     "vite": "^5.4.0",
     "vite-plugin-electron": "^0.29.0",
     "vitest": "^4.1.1",
-    "wait-on": "^9.0.3"
+    "wait-on": "^9.0.3",
+    "zod": "^4.6.7"
   },
   "build": {
     "appId": "com.jpi.smartpen-logseq-bridge",

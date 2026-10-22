@@ -27,7 +27,7 @@
  * Tested in `src/lib/__tests__/convert-task-boxes.test.js`.
  */
 
-import { parseTaskMarker } from '$lib/task-markers.js';
+import { parseTaskMarker } from '../task-markers.js';
 
 /**
  * Cheap pre-filter on a scan record's `transcriptionText` (lines joined by

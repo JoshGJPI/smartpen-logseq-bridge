@@ -33,6 +33,7 @@ src/lib/viewer/    reader helpers: SVG render, page cache, thumbnails, transcrip
                    task-state.js (the one task write path, v3.4.0)
 src/components/    grouped by feature (canvas, dialog, header, viewer, dates, books, tags, transcription, ...)
 electron/tags-sidecar.cjs   pure parse / patch of pages/_tags.json for main (tested from Vitest)
+mcp/               read-only stdio MCP server over the data folder, imports src/lib unchanged (mcp/README.md)
 electron/task-summary.cjs   the scan's per-page task summary; mirrors lib/tasks.js buildTaskSummary (tested together)
 electron/retimed-sidecar.cjs  pure parse / record of pages/_retimed.json for main (tested from Vitest)
 ```
