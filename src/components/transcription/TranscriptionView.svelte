@@ -69,6 +69,14 @@
   let isLoadingEditor = false;
 
   async function handleEditStructure(pageData) {
+    // Already confirmed in the dialog once: its lines are the whole transcript
+    // (saved lines carry their blockUuid), so reopen on them as they are.
+    // Merging the file in again would list an edited saved line twice.
+    if (Array.isArray(pageData.editorBaseIds)) {
+      editingPageData = { ...pageData, mergedLines: pageData.lines || [] };
+      showEditorModal = true;
+      return;
+    }
     isLoadingEditor = true;
     let existingLines = [];
 
@@ -131,8 +139,18 @@
     if (!editingPageData) return;
 
     // Update the transcription lines in the local store only
-    // The file write happens when the user clicks Save
-    updatePageTranscriptionLines(editingPageData.pageKey, lines);
+    // The file write happens when the user clicks Save. The dialog's result is
+    // the whole transcript (saved lines + new), so record which saved lines it
+    // opened with: the save updates those in place instead of appending copies.
+    // A reopen keeps the first opening's ids, so a line removed then stays removed.
+    const editorBaseIds = [...new Set([
+      ...(editingPageData.editorBaseIds || []),
+      ...(editingPageData.mergedLines || []).map(l => l.blockUuid).filter(Boolean)
+    ])];
+    updatePageTranscriptionLines(editingPageData.pageKey, lines, {
+      editorBaseIds,
+      mergedBlockPairs: [...(editingPageData.mergedBlockPairs || []), ...(mergedBlockPairs || [])]
+    });
 
     log(`Updated structure for Book ${book}/Page ${page} (use Save to persist changes)`, 'success');
 

@@ -32,8 +32,24 @@
  *     - Skip duplicate lines whose text+yBounds match an existing line.
  *     - Existing transcript.lines are preserved.
  *
- *   Editor-driven full transcript rewrites bypass this module and call
- *   savePage() directly (see PageCard.svelte handleSaveEditor).
+ *   Transcript (confirmed in the Editor's Edit Transcription dialog):
+ *     - The dialog opens on the page's saved lines plus the new ones, so its
+ *       result is the whole transcript, not new lines. The Review tab records
+ *       which saved line ids it was opened with (`editorBaseIds`). A line that
+ *       carries a saved id (`blockUuid`) updates that line in place (text,
+ *       indent; its id, checked / marker and yBounds stay); a line without one
+ *       is new; a saved line the dialog dropped (merged or deleted) is removed,
+ *       and strokes linked to a merged-away line follow the survivor
+ *       (`mergedBlockPairs`). Saved lines the dialog never saw are kept.
+ *       See applyEditorLines. Before Oct 2026 these lines went through the
+ *       append-merge, which appended an edited line beside its original.
+ *
+ *   planTranscript() is the one place that decides the written transcript,
+ *   and the save dialog (page-changes.js) asks it too, so "will this save
+ *   change the transcript?" has the same answer as the save.
+ *
+ *   The Pages tab's Edit structure (PageCard.svelte handleSaveEditor) still
+ *   rewrites a saved transcript directly with savePage().
  */
 
 import { getPage, savePage, deletePage } from './local-store.js';
@@ -328,6 +344,136 @@ function mergeTranscript(existingLines, myscriptLines, storedStrokes, originNcod
   return { lines: [...existing, ...newLines], lineIdAssignments };
 }
 
+const sameLine = (a, b) =>
+  a.id === b.id && a.text === b.text && (a.indentLevel || 0) === (b.indentLevel || 0)
+  && (a.parentId ?? null) === (b.parentId ?? null) && (a.checked ?? null) === (b.checked ?? null)
+  && (a.marker ?? null) === (b.marker ?? null);
+
+/** Do two transcripts hold the same lines (ids, text, structure, task state)? */
+export function transcriptLinesEqual(a, b) {
+  const x = a || [], y = b || [];
+  return x.length === y.length && x.every((l, i) => sameLine(l, y[i]));
+}
+
+/**
+ * Apply the Edit Transcription dialog's result to the saved lines (see the
+ * header). Pure; strokes are matched only for lines new in this result.
+ *
+ * @param {Array} existingLines  transcript.lines on disk
+ * @param {Object} pageTranscription  `{ lines, editorBaseIds, mergedBlockPairs, ... }`
+ * @returns {{ lines: Array, lineIdAssignments: Map<string,string>, lineIdRemap: Map<string,string> }}
+ */
+function applyEditorLines(existingLines, pageTranscription, storedStrokes, originNcodeY) {
+  const byId = new Map(existingLines.map((l) => [l.id, l]));
+  const base = new Set(pageTranscription.editorBaseIds || []);
+  const unseen = existingLines.filter((l) => !base.has(l.id));
+  const used = new Set();
+  const out = [];
+  const reparent = new Set(); // ids whose parentId is worked out again from indents
+  const lineIdAssignments = new Map();
+  const bestOverlap = new Map();
+
+  for (const el of pageTranscription.lines || []) {
+    const raw = (el.text || '').trim();
+    const indentLevel = Math.max(0, Number(el.indentLevel) || 0);
+    const ex = el.blockUuid ? byId.get(el.blockUuid) : null;
+    if (ex && !used.has(ex.id)) {
+      used.add(ex.id);
+      if (!raw) continue; // emptied in the dialog: removed
+      if (raw === ex.text && indentLevel === (ex.indentLevel || 0)) {
+        out.push(ex);
+        continue;
+      }
+      let next = { ...ex, text: raw, indentLevel };
+      // A box typed onto a plain line makes it a task, as on transcription.
+      if (raw !== ex.text && ex.checked == null) {
+        const parsed = parseTaskMarker(raw);
+        if (parsed.checked != null) next = { ...next, text: parsed.text.trim(), checked: parsed.checked };
+      }
+      if (indentLevel !== (ex.indentLevel || 0)) reparent.add(ex.id);
+      out.push(next);
+      continue;
+    }
+    if (!raw) continue;
+    const { checked, text } = parseTaskMarker(raw);
+    const rec = {
+      id: randomUUID(),
+      text: text.trim(),
+      indentLevel,
+      parentId: null,
+      checked,
+      yBounds: el.yBounds && (el.yBounds.minY !== 0 || el.yBounds.maxY !== 0)
+        ? { minY: el.yBounds.minY, maxY: el.yBounds.maxY }
+        : null
+    };
+    // Already saved since the dialog opened (a repeat save of the same result):
+    // the saved copy is kept below, so don't add it twice.
+    if (isDuplicate(rec, unseen)) continue;
+    reparent.add(rec.id);
+    out.push(rec);
+    // Only lines from this transcription run are in its batch's coordinate
+    // space; a merge that mixed in a saved line's bounds is not.
+    if (el.fromBatch === false) continue;
+    for (const { id, overlap } of strokesIntersectingLine(rec, storedStrokes, originNcodeY)) {
+      const held = bestOverlap.get(id);
+      if (held === undefined || overlap > held) {
+        bestOverlap.set(id, overlap);
+        lineIdAssignments.set(id, rec.id);
+      }
+    }
+  }
+
+  // Saved lines the dialog never had (written since it opened): kept, at the end.
+  for (const l of existingLines) if (!used.has(l.id) && !base.has(l.id)) out.push(l);
+
+  // parentId: kept unless the line moved, is new, or its parent is gone.
+  const live = new Set(out.map((l) => l.id));
+  const lines = out.map((l, i) => {
+    if (!reparent.has(l.id) && (l.parentId == null || live.has(l.parentId))) return l;
+    let parentId = null;
+    for (let j = i - 1; j >= 0 && l.indentLevel > 0; j--) {
+      if ((out[j].indentLevel || 0) < l.indentLevel) { parentId = out[j].id; break; }
+    }
+    return (l.parentId ?? null) === parentId ? l : { ...l, parentId };
+  });
+
+  const lineIdRemap = new Map();
+  for (const { deletedBlockUuid, survivingBlockUuid } of pageTranscription.mergedBlockPairs || []) {
+    if (deletedBlockUuid && live.has(survivingBlockUuid) && !live.has(deletedBlockUuid)) {
+      lineIdRemap.set(deletedBlockUuid, survivingBlockUuid);
+    }
+  }
+  return { lines, lineIdAssignments, lineIdRemap };
+}
+
+/**
+ * The transcript a save of `pageTranscription` would write over
+ * `existingLines`: the append-merge for a MyScript result, applyEditorLines for
+ * a result confirmed in the Edit Transcription dialog. Pure, so the save dialog
+ * can ask the same question without writing (pass no strokes).
+ *
+ * @returns {{ lines: Array, changed: boolean, linesAdded: number,
+ *   lineIdAssignments: Map<string,string>, lineIdRemap: Map<string,string> }}
+ */
+export function planTranscript(existingLines, pageTranscription, storedStrokes = [], originNcodeY = null) {
+  const existing = Array.isArray(existingLines) ? existingLines : [];
+  const none = { lines: existing, changed: false, linesAdded: 0, lineIdAssignments: new Map(), lineIdRemap: new Map() };
+  if (!pageTranscription || !Array.isArray(pageTranscription.lines) || !pageTranscription.lines.length) return none;
+
+  const fromEditor = Array.isArray(pageTranscription.editorBaseIds);
+  const { lines, lineIdAssignments, lineIdRemap = new Map() } = fromEditor
+    ? applyEditorLines(existing, pageTranscription, storedStrokes, originNcodeY)
+    : mergeTranscript(existing, pageTranscription.lines, storedStrokes, originNcodeY);
+  const before = new Set(existing.map((l) => l.id));
+  return {
+    lines,
+    changed: !transcriptLinesEqual(existing, lines),
+    linesAdded: lines.filter((l) => !before.has(l.id)).length,
+    lineIdAssignments,
+    lineIdRemap
+  };
+}
+
 /**
  * Stored strokes as the transcription saw them: turned upright when the page
  * was sent rotated (ActionBar records the rotation on the transcription), so
@@ -460,33 +606,36 @@ export async function savePageToFolder(input) {
 
     merged.sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
 
-    // ----- Transcript: append-merge -----
+    // ----- Transcript: append-merge, or the Edit Transcription result -----
     let transcript = existing.transcript || { lastTranscribed: null, lines: [] };
     let linesAdded = 0;
+    let transcriptChanged = false;
 
     if (pageTranscription && Array.isArray(pageTranscription.lines) && pageTranscription.lines.length > 0) {
-      const before = transcript.lines.length;
       const frameStrokes = strokesInTranscriptionFrame(merged, pageTranscription.rotation);
-      const { lines, lineIdAssignments } = mergeTranscript(
+      const plan = planTranscript(
         transcript.lines || [],
-        pageTranscription.lines,
+        pageTranscription,
         frameStrokes,
         transcriptionOriginY(pageTranscription, frameStrokes)
       );
-      linesAdded = lines.length - before;
+      linesAdded = plan.linesAdded;
+      transcriptChanged = plan.changed;
 
-      if (linesAdded > 0 || lineIdAssignments.size > 0) {
-        // Attach new lineIds to strokes that didn't already have one
+      if (plan.changed || plan.lineIdAssignments.size > 0) {
         merged = merged.map(s => {
+          // A line merged away in the dialog hands its strokes to the survivor.
+          const remapped = s.lineId && plan.lineIdRemap.get(s.lineId);
+          if (remapped) return { ...s, lineId: remapped };
           if (s.lineId) return s; // already linked — leave it alone
-          const newLineId = lineIdAssignments.get(s.id);
+          const newLineId = plan.lineIdAssignments.get(s.id);
           if (newLineId) return { ...s, lineId: newLineId };
           return s;
         });
 
         transcript = {
           lastTranscribed: new Date().toISOString(),
-          lines
+          lines: plan.lines
         };
       }
     }
@@ -525,6 +674,7 @@ export async function savePageToFolder(input) {
       total: merged.length,
       lineCount: doc.transcript.lines.length,
       linesAdded,
+      transcriptChanged,
       path: result.path
     };
   } catch (err) {

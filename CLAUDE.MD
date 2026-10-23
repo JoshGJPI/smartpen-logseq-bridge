@@ -145,7 +145,11 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   of them would evict the reader's spread), and only when on screen. `onDiskStrokeIds` (canvas pages only) holds scalar-sized records, so keep
   any new field as small.
 - **Transcript merge:** existing lines keep their order; new lines are sorted among themselves and appended;
-  `checked` survives when text matches; dangling `lineId`s are scrubbed.
+  `checked` survives when text matches; dangling `lineId`s are scrubbed. A result confirmed in the Editor's Edit
+  Transcription dialog (`editorBaseIds` on the page transcription) is the whole transcript instead: saved lines are
+  updated in place by id, dropped ones removed (`applyEditorLines`). `save-page.js` `planTranscript()` decides both,
+  and the save dialog (`page-changes.js`) asks it too, so never compare transcript text there. A saved page's
+  transcription is cleared from `pageTranscriptions` (otherwise it stays "changed" and pending in Review).
 - Deletions marked but unsaved have a 15-minute undo window.
 - Settings and display prefs → localStorage. Where you are in the Library (open page, reading order, grid filters,
   `libraryView`) is session-only on purpose. Stroke and transcript data → PageDoc only. Read localStorage through

@@ -12,6 +12,7 @@
  */
 
 import { getPage } from './local-store.js';
+import { planTranscript } from './save-page.js';
 
 function getStrokeId(s) {
   return s.id || (s.startTime ? `s${s.startTime}` : null);
@@ -110,14 +111,14 @@ export async function computePageChangesFolder(
     let hasNewTranscription = false;
     let transcriptionChanged = false;
     if (transcription && Array.isArray(transcription.lines) && transcription.lines.length > 0) {
+      // Asks the save's own planner, not a text comparison: the save parses task
+      // boxes, skips lines already saved and keeps saved lines the batch didn't
+      // cover, so comparing raw text called a saved page "changed" forever.
       const existingLines = existing?.transcript?.lines || [];
-      if (existingLines.length === 0) {
-        hasNewTranscription = true;
-      } else {
-        // Compare by joined text (same heuristic as v1 computePageChanges)
-        const newText = transcription.lines.map(l => (l.text || '').trim()).join('\n');
-        const oldText = existingLines.map(l => (l.text || '').trim()).join('\n');
-        if (newText !== oldText) transcriptionChanged = true;
+      const { changed } = planTranscript(existingLines, transcription);
+      if (changed) {
+        if (existingLines.length === 0) hasNewTranscription = true;
+        else transcriptionChanged = true;
       }
     }
 

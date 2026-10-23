@@ -184,8 +184,12 @@ export function setIsTranscribing(transcribing) {
  * Used when editing structure in TranscriptionEditorModal
  * @param {string} pageKey - Page identifier
  * @param {Array} updatedLines - New lines array
+ * @param {{editorBaseIds: string[], mergedBlockPairs?: Array}|null} [editor] - the
+ *   saved line ids the dialog opened with, and its merges. Their presence makes
+ *   the save apply these lines as the whole transcript (save-page.js
+ *   applyEditorLines) rather than append them as new.
  */
-export function updatePageTranscriptionLines(pageKey, updatedLines) {
+export function updatePageTranscriptionLines(pageKey, updatedLines, editor = null) {
   pageTranscriptions.update(pt => {
     const newMap = new Map(pt);
     const pageData = newMap.get(pageKey);
@@ -202,6 +206,10 @@ export function updatePageTranscriptionLines(pageKey, updatedLines) {
       ...pageData,
       lines: updatedLines,
       text: updatedText,
+      ...(editor ? {
+        editorBaseIds: [...(editor.editorBaseIds || [])],
+        mergedBlockPairs: [...(editor.mergedBlockPairs || [])]
+      } : {}),
       timestamp: Date.now()
     });
     

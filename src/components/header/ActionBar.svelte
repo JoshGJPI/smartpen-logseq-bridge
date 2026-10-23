@@ -30,6 +30,7 @@
     setTranscription,
     setPageTranscription,
     clearTranscription,
+    clearPageTranscription,
     setIsTranscribing,
     setActiveTab,
     getMyScriptCredentials,
@@ -507,6 +508,10 @@
             // The old ids are gone from disk; a marker left behind would make a
             // later save delete an id that may belong to another stroke by then.
             clearRetimedMarkers(book, page);
+            // The transcription is in the file now. Left in the store, the save
+            // dialog kept listing the page as a transcript change and the Review
+            // tab kept it pending, however often it was saved.
+            if (pageTranscription) clearPageTranscription(pageKey);
 
             // Same reasoning for move markers: the source page has now lost the
             // strokes on disk, so "still needs deleting here" would be a lie —
@@ -531,11 +536,12 @@
             if (movedAwayIds.size > 0) parts.push(`→${movedAwayIds.size} moved to another volume`);
             if (deleted > 0) parts.push(`-${deleted} deleted`);
             if (result.linesAdded > 0) parts.push(`+${result.linesAdded} transcript line(s)`);
+            else if (result.transcriptChanged) parts.push('transcript updated');
             const changes = parts.length > 0 ? parts.join(', ') + ', ' : '';
 
             log(`Saved B${book}/P${page}: ${changes}${result.total} stroke(s) total`, 'success');
             savedStrokesCount++;
-            if (pageTranscription && result.linesAdded > 0) savedTranscriptionCount++;
+            if (pageTranscription && result.transcriptChanged) savedTranscriptionCount++;
           } else {
             recordStorageError(result.error);
             log(`Failed to save B${book}/P${page}: ${result.error}`, 'error');
