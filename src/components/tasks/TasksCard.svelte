@@ -6,11 +6,11 @@
 <script>
   import { openLibraryView } from '$stores';
   import { taskRows, taskCountsStore } from '$stores/tasks.js';
-  import { filterTaskRows, compareTaskRows } from '$lib/tasks.js';
+  import { latestTaskRows } from '$lib/tasks.js';
   import { plural } from '$lib/plural.js';
 
   $: c = $taskCountsStore;
-  $: latest = filterTaskRows($taskRows, 'open').sort(compareTaskRows).slice(0, 3);
+  $: latest = latestTaskRows($taskRows, 'open', 3);
 
   const open = () => openLibraryView({ kind: 'tasks' });
 </script>

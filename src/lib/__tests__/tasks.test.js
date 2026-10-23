@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import {
   markerField, markerOf, isClosedState, taskStateOf, withTaskState, toggledState, stateLabel, buildTaskRows, taskCounts,
   filterTaskRows, groupTaskRows, summaryWithState, taskMenuChoices, taskKey, parseTaskFilter,
-  parseTaskGroup, NO_PROJECT, NO_DATE
+  parseTaskGroup, latestTaskRows, NO_PROJECT, NO_DATE
 } from '../tasks.js';
 
 describe('task state', () => {
@@ -180,5 +180,31 @@ describe('buildTaskRows', () => {
   it('groups by notebook in book order (a volume after its book)', () => {
     const more = buildTaskRows([...records, { book: '388', page: 1, pageId: '1', tasks: [t('f', false)] }], { tags, dates });
     expect(groupTaskRows(more, 'book').map((x) => x.id)).toEqual(['388', '388v2', '3017']);
+  });
+});
+
+describe('latestTaskRows (the Library home card)', () => {
+  const row = (book, pageId, order, day, lastDay, state = 'todo') =>
+    ({ key: `${book}/${pageId}#${order}`, book, pageId, order, day, lastDay, state });
+
+  it('newest capture day first, so a long-running page with new tasks ranks by its last day', () => {
+    const rows = [
+      row('3017', '10', 0, '2026-10-01', '2026-10-01'),
+      row('3017', '11', 0, '2026-09-01', '2026-10-20'), // started long ago, written on yesterday
+      row('388', '4', 0, '2026-10-15', '2026-10-15')
+    ];
+    expect(latestTaskRows(rows).map((r) => r.key)).toEqual(['3017/11#0', '388/4#0', '3017/10#0']);
+  });
+
+  it('on one page, the lower (later) line first; only open tasks; at most n', () => {
+    const rows = [0, 1, 2, 3].map((i) => row('3017', '12', i, '2026-10-20', '2026-10-20'));
+    rows.push(row('3017', '12', 4, '2026-10-20', '2026-10-20', 'done'));
+    expect(latestTaskRows(rows, 'open', 3).map((r) => r.order)).toEqual([3, 2, 1]);
+  });
+
+  it('undated pages last, and falls back to the first day when there is no last day', () => {
+    const rows = [row('388', '1', 0, null, null), row('388', '2', 0, '2026-10-02', null)];
+    expect(latestTaskRows(rows).map((r) => r.pageId)).toEqual(['2', '1']);
+    expect(latestTaskRows([])).toEqual([]);
   });
 });

@@ -23,6 +23,7 @@
   import { formatBookName, filterTranscriptionProperties } from '$utils/formatting.js';
 
   import TranscriptionEditorModal from '$components/dialog/TranscriptionEditorModal.svelte';
+  import PageTagsInline from '$components/tags/PageTagsInline.svelte';
 
   let isSending = false;
   // Track which pages are expanded - using object for better reactivity
@@ -290,6 +291,11 @@
             {/if}
           </div>
           
+          <!-- Page tags: tag the page right after transcribing (saved at once, not by Save) -->
+          <div class="page-tags">
+            <PageTagsInline book={pageData.pageInfo.book} pageId={pageData.pageInfo.page} lines={pageData.lines || []} />
+          </div>
+
           <!-- Expanded Details -->
           {#if isExpanded}
             <div class="page-details">
@@ -704,4 +710,9 @@
   .text-output::-webkit-scrollbar-thumb:hover {
     background: var(--accent);
   }
+  .page-tags {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
 </style>

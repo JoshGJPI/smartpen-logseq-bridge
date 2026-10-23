@@ -2,13 +2,16 @@
   Header.svelte - One slim bar: name, navigation, search, Tasks (v3.4.0, with
   the open-task count), pen chip, settings.
 
-  The capture controls (Save, Undo, Delete, Clear, Transcribe, Fetch) live in
-  ActionBar, which sits under this bar and is shown only when there is capture
-  work to do (see lib/capture-bar.js). It stays mounted either way: it owns the
-  save dialog and the in-flight save/transcribe/import handlers.
+  The capture controls (Save, Delete, Undo, Clear, Transcribe) live in
+  ActionBar, drawn inline in this row (compact) and only when there is capture
+  work to do (see lib/capture-bar.js), so a connected pen never adds a second
+  header line. It stays mounted either way: it owns the save dialog and the
+  in-flight save/transcribe handlers. Fetch Notes is in the pen chip's menu.
 
-  The unsaved dot is here, not in ActionBar, so it is visible from every view
-  even with the capture bar hidden.
+  The unsaved marker is here, not in ActionBar, so it is visible from every view
+  even with the capture bar hidden. While the bar is showing, the Save button's
+  own dot says the same about canvas changes, so the marker only stays for an
+  unsaved Library transcript draft.
 -->
 <script>
   import {
@@ -30,6 +33,7 @@
     viewerDirty: $viewerDirty,
     busy: $isTranscribing || $transferProgress.active
   });
+  $: showUnsavedMarker = showCaptureBar ? $viewerDirty : hasUnsaved;
 </script>
 
 <header class="header">
@@ -44,7 +48,9 @@
 
     <span class="grow"></span>
 
-    {#if hasUnsaved}
+    <ActionBar visible={showCaptureBar} />
+
+    {#if showUnsavedMarker}
       <span
         class="unsaved"
         role="status"
@@ -61,8 +67,6 @@
     <PenChip />
     <SettingsDropdown />
   </div>
-
-  <ActionBar visible={showCaptureBar} />
 </header>
 
 <style>
@@ -77,6 +81,13 @@
     align-items: center;
     gap: 14px;
     height: 44px;
+  }
+
+  /* With the capture buttons in this row too, a narrow window needs the room. */
+  @media (max-width: 1200px) {
+    .header-row {
+      gap: 9px;
+    }
   }
 
   .grow {

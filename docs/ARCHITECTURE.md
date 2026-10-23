@@ -10,9 +10,11 @@ App.svelte (Root)
 │   ├── SearchField (global search, Ctrl K: words, dates, notebooks, tags)
 │   │   └── SearchResults (Tags / Pages / Notebooks / Days; Enter opens, Shift+Enter → Editor)
 │   ├── TasksButton (v3.4.0: Tasks + open-task count → Library › Tasks)
-│   ├── PenChip (pen state + battery; Connect / Disconnect; while connected, the dot + name open PenMemoryDialog)
-│   ├── ActionBar (capture bar: Fetch, Save, Delete, Undo, Clear, Transcribe; always
-│   │   mounted, `visible` from `lib/capture-bar.js`)
+│   ├── ActionBar (capture buttons inline in the header row, compact: Save, Delete, Undo, Clear,
+│   │   Transcribe; labels drop to icons on a narrow window; always mounted, `visible` from
+│   │   `lib/capture-bar.js`; also draws the offline-transfer progress popup)
+│   ├── PenChip (pen state + battery; Connect; while connected, the dot + name open the pen menu:
+│   │   Fetch notes (offline import) · Manage pen memory… (PenMemoryDialog) · Disconnect)
 │   └── SettingsDropdown (gear, warning dot when the data folder is not ready; MyScript, Data Folder,
 │       │                 Notebooks (folds, state remembered), Graph Folder, Troubleshooting)
 │       ├── BooksTab (Settings → Notebooks: per-notebook aliases + volume routing)
@@ -22,7 +24,8 @@ App.svelte (Root)
 │   ├── LibraryContents ("Contents", Library — notebooks and pages from the scan, ● = transcribed)
 │   ├── StrokeList ("Strokes", Editor — browse by book/page)
 │   ├── TranscriptsPanel ("Transcripts", every destination)
-│   │   ├── TranscriptionView (Review — incoming MyScript results)
+│   │   ├── TranscriptionView (Review — incoming MyScript results; each page card has a
+│   │   │   PageTagsInline row, as does TranscriptionEditorModal's footer)
 │   │   └── TranscriptSearch (Search — full-text over saved pages on disk)
 │   │       └── SearchResultCard (per-result import / open in the Library)
 │   ├── SavedPagesTab ("Pages", Editor — folder-backed page list: import, export, edit structure)

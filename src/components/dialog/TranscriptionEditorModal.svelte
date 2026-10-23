@@ -8,6 +8,7 @@
   import { createEventDispatcher } from 'svelte';
   import { reassignStrokes, getStrokesSnapshot, updateStrokeBlockUuids, getStrokesInYRange } from '$stores/strokes.js';
   import TranscriptStrokePreview from './TranscriptStrokePreview.svelte';
+  import PageTagsInline from '../tags/PageTagsInline.svelte';
 
   export let book;
   export let page;
@@ -403,6 +404,8 @@
   // Handle keyboard shortcuts
   function handleKeydown(event) {
     if (!visible) return;
+    // The page-tags field (footer) keeps its own Tab, Ctrl+A / Z and Escape.
+    if (event.target?.closest?.('[data-own-keys]')) return;
     // In a line's text field, select-all and undo/redo are the field's own.
     if (isTypingTarget(event.target) && (event.ctrlKey || event.metaKey) && ['a', 'z', 'y'].includes(event.key.toLowerCase())) return;
 
@@ -692,6 +695,9 @@
     </div>
 
     <div class="modal-footer">
+      <div class="footer-tags">
+        <PageTagsInline {book} pageId={previewPageId} lines={editedLines} dropUp />
+      </div>
       <div class="footer-info">
         {#if stats.selected > 0}
           <span class="selection-info">{stats.selected} selected</span>
@@ -1110,6 +1116,12 @@
     padding: 14px 24px;
     background: var(--bg-secondary);
     border-top: 1px solid var(--border);
+  }
+
+  .footer-tags {
+    flex: 1;
+    min-width: 0;
+    margin-right: 20px;
   }
 
   .footer-info {

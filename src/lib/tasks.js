@@ -297,6 +297,26 @@ export function compareTaskRows(a, b) {
     || a.order - b.order;
 }
 
+/**
+ * Most recently written first, for the Library home's short list. No line has
+ * its own date, so this is the page's NEWEST capture day (a page written over
+ * several weeks counts as recent), then the lower line on the page first
+ * (written later), then notebook / page. Undated last.
+ */
+export function compareTaskRowsRecent(a, b) {
+  const da = a.lastDay || a.day || '';
+  const db = b.lastDay || b.day || '';
+  if (da !== db) return da < db ? 1 : -1;
+  if (a.book === b.book && String(a.pageId) === String(b.pageId)) return b.order - a.order;
+  return compareBookKeys(a.book, b.book)
+    || String(a.pageId).localeCompare(String(b.pageId), undefined, { numeric: true });
+}
+
+/** The `n` most recently written tasks in `filter` (compareTaskRowsRecent). */
+export function latestTaskRows(rows, filter = 'open', n = 3) {
+  return filterTaskRows(rows, filter).sort(compareTaskRowsRecent).slice(0, n);
+}
+
 export const NO_PROJECT = 'No project tag';
 export const NO_DATE = 'No date';
 

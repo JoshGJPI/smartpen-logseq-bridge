@@ -1,10 +1,14 @@
 <!--
-  ActionBar.svelte - The capture bar: Fetch Notes, Save, Delete, Undo, Clear, Transcribe.
+  ActionBar.svelte - The capture controls: Save, Delete, Undo, Clear, Transcribe.
+
+  Sits inline in the header row (compact buttons, labels drop to icons on a
+  narrow window) so a connected pen doesn't add a second header line.
 
   Always mounted (it owns the save dialog, the progress popups and the in-flight
-  save / transcribe / import handlers); `visible` only decides whether the row of
-  buttons is drawn. Header computes it with lib/capture-bar.js. Connect and
-  Disconnect moved to the pen chip (PenChip.svelte).
+  save / transcribe handlers); `visible` only decides whether the buttons are
+  drawn. Header computes it with lib/capture-bar.js. Connect, Disconnect and
+  Fetch Notes moved to the pen chip's menu (PenChip.svelte); the offline
+  transfer's progress popup is still drawn here.
 -->
 <script>
   import { 
@@ -65,7 +69,7 @@
     errorCount: 0,
     elapsedSeconds: 0
   });
-  import { fetchOfflineData, cancelOfflineTransfer } from '$lib/pen-sdk.js';
+  import { cancelOfflineTransfer } from '$lib/pen-sdk.js';
   import { transcribeStrokes } from '$lib/myscript-api.js';
   // v2.0: sole save path is the local folder
   import { savePageToFolder, finalizePageMoves } from '$lib/storage/save-page.js';
@@ -85,18 +89,17 @@
   /** Whether the bar's row is drawn. The dialog and popups' logic run regardless. */
   export let visible = true;
 
-  let isFetchingOffline = false;
   let isSaving = false;
   let showSaveConfirmDialog = false;
   
   // Determine what data is available to save
   $: hasSaveableData = $strokeCount > 0;
   $: canDelete = $hasSelection;
-  $: saveButtonText = (() => {
-    if (isSaving) return 'Saving…';
-    if ($hasPendingChanges) return 'Save Changes';
-    if ($hasPageTranscriptions || $hasTranscription) return 'Save (Strokes + Text)';
-    return 'Save (Strokes)';
+  $: saveButtonText = isSaving ? 'Saving…' : 'Save';
+  $: saveWhat = (() => {
+    if ($hasPendingChanges) return 'Save changes';
+    if ($hasPageTranscriptions || $hasTranscription) return 'Save strokes and transcription';
+    return 'Save strokes';
   })();
   
   // Determine which strokes to transcribe (selected or all)
@@ -109,20 +112,14 @@
   $: untranscribedStrokes = getUntranscribedStrokes($strokes);
   $: untranscribedCount = untranscribedStrokes.length;
   $: allTranscribed = $strokeCount > 0 && untranscribedCount === 0;
+  $: transcribeTitle = allTranscribed
+    ? 'All strokes already transcribed'
+    : `Transcribe ${selectedUntranscribedCount} untranscribed stroke(s)`
+      + (hasStrokes && untranscribedCount !== $strokeCount
+        ? ` (${$strokeCount - untranscribedCount}/${$strokeCount} already transcribed)` : '');
   
   // For selected strokes, count how many are untranscribed
   $: selectedUntranscribedCount = $hasSelection ? getUntranscribedStrokes($selectedStrokes).length : untranscribedCount;
-  
-  async function handleFetchOffline() {
-    isFetchingOffline = true;
-    try {
-      await fetchOfflineData();
-    } catch (error) {
-      log(`Failed to fetch offline data: ${error.message}`, 'error');
-    } finally {
-      isFetchingOffline = false;
-    }
-  }
   
   function handleClearCanvas() {
     clearStrokes();
@@ -693,80 +690,66 @@
     </div>
   {/if}
 
-  <button 
-    class="action-btn"
-    on:click={handleFetchOffline}
-    disabled={!$penConnected || !$penAuthorized || isFetchingOffline || $transferProgress.active}
-    title="Fetch offline notes from pen memory"
-  >
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-      <polyline points="7 10 12 15 17 10"/>
-      <line x1="12" y1="15" x2="12" y2="3"/>
-    </svg>
-    {#if isFetchingOffline || $transferProgress.active}
-      Fetching...
-    {:else}
-      Fetch Notes
-    {/if}
-  </button>
-  
   <button
     class="action-btn save-btn"
     class:dirty={$unsavedChanges}
     on:click={handleShowSaveDialog}
     disabled={!hasSaveableData || isSaving || !$dataFolderReady}
-    title={$unsavedChanges ? 'You have unsaved changes — click to save' : 'Save strokes and transcription to the data folder'}
+    title={$unsavedChanges ? `You have unsaved changes — click to save (${saveWhat.toLowerCase()})` : `${saveWhat} to the data folder`}
+    aria-label={saveWhat}
   >
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
       <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
       <polyline points="17 21 17 13 7 13 7 21"/>
       <polyline points="7 3 7 8 15 8"/>
     </svg>
-    {saveButtonText}
+    <span class="lbl">{saveButtonText}</span>
     {#if $unsavedChanges}
       <span class="dirty-dot" aria-label="unsaved changes"></span>
     {/if}
   </button>
   
   <button 
-    class="action-btn delete-btn"
+    class="action-btn delete-btn minor"
     on:click={handleDeleteSelected}
     disabled={!canDelete}
-    title="Delete selected strokes (can be undone)"
+    title="Delete {$selectionCount} selected stroke(s) (can be undone)"
+    aria-label="Delete selected strokes"
   >
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
       <polyline points="3 6 5 6 21 6"/>
       <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
       <line x1="10" y1="11" x2="10" y2="17"/>
       <line x1="14" y1="11" x2="14" y2="17"/>
     </svg>
-    Delete ({$selectionCount})
+    <span class="lbl">Delete</span>{#if $selectionCount}<span class="count">{$selectionCount}</span>{/if}
   </button>
   
   <button 
-    class="action-btn undo-btn"
+    class="action-btn undo-btn minor"
     on:click={handleUndo}
     disabled={!$canUndo}
     title="Undo last deletion"
+    aria-label="Undo last deletion"
   >
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
       <path d="M3 7v6h6"/>
       <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>
     </svg>
-    Undo
+    <span class="lbl">Undo</span>
   </button>
   
   <button 
-    class="action-btn"
+    class="action-btn minor"
     on:click={handleClearCanvas}
     title="Clear all strokes from canvas"
+    aria-label="Clear canvas"
   >
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
       <polyline points="3 6 5 6 21 6"/>
       <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
     </svg>
-    Clear
+    <span class="lbl">Clear</span>
   </button>
   
   <div class="divider"></div>
@@ -776,37 +759,32 @@
     class:all-transcribed={allTranscribed}
     on:click={handleTranscribe}
     disabled={!canTranscribe}
-    title={allTranscribed ? 'All strokes already transcribed' : `Transcribe ${selectedUntranscribedCount} untranscribed stroke(s)`}
+    title={transcribeTitle}
+    aria-label="Transcribe"
   >
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
       <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
     </svg>
-    {#if $isTranscribing}
-      Transcribing...
-    {:else if allTranscribed}
-      Transcribed ✓
-    {:else}
-      Transcribe ({selectedUntranscribedCount}/{transcribeCount})
-    {/if}
+    <span class="lbl">
+      {#if $isTranscribing}
+        Transcribing…
+      {:else if allTranscribed}
+        Transcribed ✓
+      {:else}
+        Transcribe {selectedUntranscribedCount}/{transcribeCount}
+      {/if}
+    </span>
   </button>
   
-  {#if hasStrokes && untranscribedCount !== $strokeCount}
-  <div class="transcription-status" title="{$strokeCount - untranscribedCount} strokes already transcribed">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="M20 6L9 17l-5-5"/>
-    </svg>
-    <span>{$strokeCount - untranscribedCount}/{$strokeCount} transcribed</span>
-  </div>
-  {/if}
 </div>
 
 <style>
   .action-bar {
     display: flex;
-    gap: 8px;
+    gap: 5px;
     align-items: center;
     position: relative;
-    padding: 4px 0 10px;
+    flex-shrink: 0;
   }
 
   .action-bar.hidden {
@@ -816,11 +794,12 @@
   .action-btn {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 8px 16px;
+    gap: 5px;
+    height: 28px;
+    padding: 0 10px;
     border: none;
     border-radius: 6px;
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s;
@@ -833,7 +812,6 @@
   .action-btn:hover:not(:disabled) {
     background: var(--bg-tertiary);
     border-color: var(--accent);
-    transform: translateY(-1px);
   }
 
   .action-btn:disabled {
@@ -913,7 +891,7 @@
 
   .divider {
     width: 1px;
-    height: 24px;
+    height: 20px;
     background: var(--border);
     margin: 0 4px;
   }
@@ -1066,22 +1044,25 @@
     color: var(--success);
   }
   
-  /* Transcription Status Indicator */
-  .transcription-status {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--success);
-    border-radius: 6px;
-    font-size: 0.8rem;
-    color: var(--success);
-    font-weight: 500;
+  .count {
+    min-width: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.22);
+    font-size: 0.6875rem;
+    line-height: 16px;
+    text-align: center;
   }
-  
-  .transcription-status svg {
-    flex-shrink: 0;
+
+  /* The header row is shared with navigation, search, Tasks and the pen chip:
+     on a narrower window the minor buttons go icon-only first, then all. */
+  @media (max-width: 1560px) {
+    .action-btn.minor { padding: 0 8px; }
+    .action-btn.minor .lbl { display: none; }
   }
-  
+
+  @media (max-width: 1280px) {
+    .action-btn { padding: 0 8px; }
+    .action-btn .lbl { display: none; }
+  }
 </style>
