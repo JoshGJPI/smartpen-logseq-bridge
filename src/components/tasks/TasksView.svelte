@@ -15,14 +15,16 @@
   import { dataFolderReady } from '$stores/settings.js';
   import { taskRows, taskCountsStore, taskFilter, setTaskFilter, taskGroupBy, setTaskGroupBy } from '$stores/tasks.js';
   import { scanLocalPages } from '$lib/storage/scan.js';
-  import { filterTaskRows, groupTaskRows, TASK_FILTERS, TASK_GROUPS, NO_PROJECT } from '$lib/tasks.js';
+  import { filterTaskRows, searchTaskRows, groupTaskRows, TASK_FILTERS, TASK_GROUPS, NO_PROJECT } from '$lib/tasks.js';
   import { dayStart } from '$lib/timeline.js';
   import { formatBookName } from '$utils/formatting.js';
   import { plural } from '$lib/plural.js';
   import TaskRow from './TaskRow.svelte';
   import TagChip from '../tags/TagChip.svelte';
 
-  $: shown = filterTaskRows($taskRows, $taskFilter);
+  let query = '';
+  $: byState = filterTaskRows($taskRows, $taskFilter);
+  $: shown = searchTaskRows(byState, query, (b) => formatBookName(b, $bookAliases, 'full'));
   $: groups = groupTaskRows(shown, $taskGroupBy);
   $: counts = $taskCountsStore;
 
@@ -62,6 +64,8 @@
           on:click={() => setTaskFilter(f.id)}>{f.label} <span class="c">{counts[f.id]}</span></button>
       {/each}
     </div>
+    <input class="q" type="search" placeholder="Find in tasks, notebook, page, tag, date…" aria-label="Find tasks"
+      bind:value={query} on:keydown={(e) => { if (e.key === 'Escape' && query) { query = ''; e.preventDefault(); } }} />
     <span class="grow"></span>
     <label class="sel">Group by
       <select value={$taskGroupBy} on:change={(e) => setTaskGroupBy(e.currentTarget.value)}>
@@ -75,7 +79,7 @@
   {:else if $isScanning && !$taskRows.length}
     <div class="empty">Reading your notebooks…</div>
   {:else if !shown.length}
-    <div class="empty">{emptyText[$taskFilter]}</div>
+    <div class="empty">{query.trim() && byState.length ? `No ${$taskFilter === 'all' ? '' : $taskFilter + ' '}tasks match “${query.trim()}”.` : emptyText[$taskFilter]}</div>
   {:else}
     {#each groups as g (g.kind + ':' + g.id)}
       <section class="grp">
@@ -114,6 +118,8 @@
   .ch:hover { border-color: #bbb; color: #222; }
   .ch.on { background: #eef3ff; border-color: #4a7cf7; color: #2c56c4; font-weight: 600; }
   .c { font-variant-numeric: tabular-nums; color: #999; font-weight: 400; }
+  .q { flex: 0 1 320px; min-width: 160px; font: inherit; font-size: 12px; padding: 5px 9px; border: 1px solid #ddd; border-radius: 14px; background: #fff; }
+  .q:focus { outline: none; border-color: #4a7cf7; }
   .sel { font-size: 12px; color: #666; display: inline-flex; align-items: center; gap: 6px; }
   .sel select { font: inherit; font-size: 12px; padding: 3px 6px; border: 1px solid #ddd; border-radius: 6px; background: #fff; }
 

@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   markerField, markerOf, isClosedState, taskStateOf, withTaskState, toggledState, stateLabel, buildTaskRows, taskCounts,
-  filterTaskRows, groupTaskRows, summaryWithState, taskMenuChoices, taskKey, parseTaskFilter,
+  filterTaskRows, groupTaskRows, searchTaskRows, summaryWithState, taskMenuChoices, taskKey, parseTaskFilter,
   parseTaskGroup, latestTaskRows, NO_PROJECT, NO_DATE
 } from '../tasks.js';
 
@@ -166,10 +166,22 @@ describe('buildTaskRows', () => {
     expect(parseTaskGroup('nope')).toBe('project');
   });
 
-  it('groups by project: newest project first, untagged last', () => {
+  it('groups by project: numbers first then A to Z, untagged last', () => {
     const g = groupTaskRows(rows, 'project');
     expect(g.map((x) => x.label)).toEqual(['2327-018', 'P2026-141', NO_PROJECT]);
     expect(g[1].rows.map((r) => r.lineId)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('searches text, under, notebook, page, tag and date; all words must match', () => {
+    const r = rows[0];
+    const hit = (q) => searchTaskRows(rows, q, (b) => `Book ${b}`).some((x) => x.key === r.key);
+    expect(searchTaskRows(rows, '  ')).toHaveLength(rows.length);
+    expect(hit(r.text.slice(0, 5).toUpperCase())).toBe(true);
+    expect(hit(`p.${r.pageId}`)).toBe(true);
+    expect(hit(`book ${r.book}`)).toBe(true);
+    expect(hit(r.project)).toBe(true);
+    expect(hit(r.day)).toBe(true);
+    expect(hit(`${r.day} zzzz-nomatch`)).toBe(false);
   });
 
   it('groups by date: newest day first, undated last', () => {

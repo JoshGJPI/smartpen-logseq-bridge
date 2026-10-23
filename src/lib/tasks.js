@@ -24,7 +24,7 @@
  */
 
 import { compareBookKeys } from './volumes.js';
-import { isProjectTag, findProjectNumbers } from './tags.js';
+import { isProjectTag, findProjectNumbers, compareTags } from './tags.js';
 
 export const WAITING = 'WAITING';
 export const CANCELLED = 'CANCELLED';
@@ -275,6 +275,35 @@ export function filterTaskRows(rows, filter) {
   return (rows || []).filter((r) => r.state === want);
 }
 
+const dayWords = (iso) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+  if (!m) return '';
+  const d = new Date(+m[1], +m[2] - 1, +m[3]);
+  const f = (month) => d.toLocaleDateString('en-US', { month, day: 'numeric', year: 'numeric' });
+  return `${iso} ${f('short')} ${f('long')}`;
+};
+
+/**
+ * Rows whose text, "under" line, notebook, page, tags or dates contain every
+ * word of `query` (case-insensitive; blank = all rows). `bookLabel(bookKey)`
+ * names the notebook as the UI shows it. A new array.
+ * @param {Array<object>} rows
+ * @param {string} query
+ * @param {(book: string) => string} [bookLabel]
+ */
+export function searchTaskRows(rows, query, bookLabel = (b) => b) {
+  const words = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return [...(rows || [])];
+  return (rows || []).filter((r) => {
+    const hay = [
+      r.text, r.parentText, bookLabel(r.book), r.book,
+      `p.${r.pageId} page ${r.pageId}`, ...(r.projects || []), r.project,
+      dayWords(r.day), dayWords(r.lastDay)
+    ].filter(Boolean).join(' | ').toLowerCase();
+    return words.every((w) => hay.includes(w));
+  });
+}
+
 export const TASK_GROUPS = [
   { id: 'project', label: 'Project tag' },
   { id: 'date', label: 'Date written' },
@@ -323,7 +352,7 @@ export const NO_DATE = 'No date';
 /**
  * Rows in groups: `[{ id, label, kind, rows }]`.
  *   project  by the row's project (its nearest tagged project number, else the page's
- *            first project tag; newest group first; untagged last)
+ *            first project tag; numbers first, then A to Z; untagged last)
  *   date     by the page's first written day (newest first; undated last)
  *   book     by notebook (book order)
  * @param {Array<object>} rows
@@ -341,13 +370,11 @@ export function groupTaskRows(rows, by) {
     groups.get(id).rows.push(r);
   }
   const list = [...groups.values()];
-  const newest = (g) => g.rows[0].day || '';
   list.sort((a, b) => {
     if (!a.id !== !b.id) return a.id ? -1 : 1; // the "none" group last
     if (mode === 'book') return compareBookKeys(a.id, b.id);
     if (mode === 'date') return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
-    const na = newest(a), nb = newest(b);
-    return na !== nb ? (na < nb ? 1 : -1) : a.id.localeCompare(b.id, undefined, { numeric: true });
+    return compareTags(a.id, b.id);
   });
   return list.map((g) => ({
     ...g,
