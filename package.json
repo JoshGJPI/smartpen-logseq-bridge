@@ -1,6 +1,6 @@
 {
   "name": "smartpen-logseq-bridge",
-  "version": "3.6.1",
+  "version": "3.6.2",
   "description": "Desktop application for capturing NeoSmartpen strokes into a local JSON folder",
   "type": "module",
   "main": "electron/main.cjs",
@@ -15,8 +15,7 @@
     "icons": "node scripts/create-icons.cjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "mcp": "node mcp/server.js",
-    "mcp:sync": "node scripts/sync-mcp-copy.mjs"
+    "mcp": "node mcp/server.js"
   },
   "dependencies": {
     "svelte-dnd-action": "^0.9.69",
@@ -24,7 +23,7 @@
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
-    "@resvg/resvg-js": "^2.6.2",
+    "@resvg/resvg-wasm": "^2.6.2",
     "@sveltejs/vite-plugin-svelte": "^3.1.1",
     "browserify-zlib": "^0.2.0",
     "buffer": "^6.0.3",

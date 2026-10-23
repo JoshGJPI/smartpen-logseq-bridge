@@ -3,19 +3,23 @@
  * Every handler returns `{ content: [{type:'text',text} | {type:'image',data,mimeType}], isError? }`.
  * All are read-only.
  *
- * Output cost is capped three ways: images per call (paged with `offset`), pixel
- * width per tool, and bytes per call (`maxBytes`, counting PNG bytes and SVG
- * text). Whatever is left out is named in the reply with the offset to ask for next.
+ * Images are budgeted by pixels, not bytes: Claude reads an image as
+ * ceil(w/28) x ceil(h/28) visual tokens whatever its file size. Rule: at most
+ * LIMITS.images (4) per call, each within MAX_EDGE px on its long edge and
+ * MAX_IMAGE_TOKENS visual tokens (render.js fitWidth). Worst case 4 x 2,000 =
+ * 8,000 tokens of images plus the text block, under Claude Code's 10,000-token
+ * warning for one MCP result (its hard cap is 25,000, images included). Whatever
+ * is left out is named in the reply with the offset to ask for next.
  */
 import { Store, bookName } from './store.js';
-import { renderPageSvg, pngWithin, composeSheet } from './render.js';
+import { renderPageSvg, svgToPng, fitWidth, visualTokens, MAX_EDGE } from './render.js';
 import { viewBounds } from './bounds.js';
 import { createSearch } from './search.js';
 import { requireBookKey, requirePageId } from './paths.js';
 import { parseBookKey } from '../../src/lib/volumes.js';
 import { dayKey, dayStart, rangeBoundsMs, pagesInRange, pagesOnDay, eachDay, inRange } from '../../src/lib/timeline.js';
 import { pageDayGroups, formatSittingLabel } from '../../src/lib/viewer/page-sittings.js';
-import { rotationFor, normalizeRotation } from '../../src/lib/page-orientation.js';
+import { rotationFor } from '../../src/lib/page-orientation.js';
 import { isTrustworthyTranscript } from '../../src/lib/viewer/ink-text.js';
 import { buildTagIndex, tagStats, normalizeTag } from '../../src/lib/tags.js';
 import { taskStateOf, stateLabel, groupTaskRows } from '../../src/lib/tasks.js';
@@ -24,14 +28,12 @@ import {
   TASK_GROUP_ARGS
 } from './tasks.js';
 
-/** Per-tool size defaults and caps (px are PNG widths). */
+/** Per-tool defaults and caps (px are PNG widths; a width above the long-edge cap is lowered to it). */
 export const LIMITS = Object.freeze({
-  page: { width: 1000, maxWidth: 2000 },
-  pages: { width: 700, maxWidth: 1400, images: 4, maxImages: 12 },
-  composite: { width: 1200, maxWidth: 2000, pages: 12, maxPages: 24 },
-  by_day: { width: 1200, maxWidth: 2000, days: 4, maxDays: 8, pagesPerDay: 12 },
-  bytes: { default: 1_000_000, min: 1_000, max: 4_000_000 },
-  strokes: { limit: 300, maxLimit: 3000, points: 2_000, maxPoints: 60_000 },
+  page: { width: 1000 },
+  pages: { width: 700 },
+  images: 4,               // per call: render_days' default and maximum `limit`
+  maxEdge: MAX_EDGE,
   tasks: { limit: 50, maxLimit: 200 },
   minWidth: 200
 });
@@ -39,12 +41,10 @@ export const LIMITS = Object.freeze({
 const text = (t) => ({ type: 'text', text: t });
 const fail = (msg) => ({ content: [text(`Error: ${msg}`)], isError: true });
 const png = (buf) => ({ type: 'image', data: buf.toString('base64'), mimeType: 'image/png' });
-const kb = (n) => `${Math.round(n / 1024)} KB`;
 const pageKey = (p) => `${p.book}/${p.pageId}`;
 const label = (aliases, p) => `${bookName(aliases, p.book)} (${p.book}) p.${p.pageId}`;
 const clampInt = (v, dflt, lo, hi) => Math.max(lo, Math.min(hi, Math.round(Number.isFinite(Number(v)) && v !== null && v !== undefined ? Number(v) : dflt)));
-const widthFor = (args, lim) => clampInt(args.width, lim.width, LIMITS.minWidth, lim.maxWidth);
-const budgetFor = (args) => clampInt(args.maxBytes, LIMITS.bytes.default, LIMITS.bytes.min, LIMITS.bytes.max);
+const widthFor = (args, lim) => clampInt(args.width, lim.width, LIMITS.minWidth, LIMITS.maxEdge);
 const rangeText = (r) => `${r.from}${r.to !== r.from ? ` to ${r.to}` : ''}`;
 
 function dayRange(from, to) {
@@ -77,35 +77,16 @@ const inMs = (s, r) => {
   return Number.isFinite(t) && t >= r.startMs && t < r.endMs;
 };
 
-/**
- * Turn rendered SVGs into content blocks inside a byte budget. The first image
- * may shrink to fit; a later one that does not fit stops the run.
- * @returns {{blocks: Array, notes: string[], used: number, stoppedAt: number|null}}
- */
-function emitImages(items, { format, width, budget, describe }) {
+/** Rendered SVGs → PNG blocks plus one note each, every image within the pixel caps. */
+function emitImages(items, { width, describe }) {
   const blocks = [];
   const notes = [];
-  let used = 0;
-  for (let i = 0; i < items.length; i++) {
-    const it = items[i];
-    const left = budget - used;
-    if (format === 'svg') {
-      if (it.svg.length > left && i > 0) return { blocks, notes, used, stoppedAt: i };
-      blocks.push(text(it.svg));
-      used += it.svg.length;
-      notes.push(`${describe(it)} [SVG ${kb(it.svg.length)}]`);
-      continue;
-    }
-    const out = i === 0 ? pngWithin(it.svg, width, left) : pngWithin(it.svg, width, Infinity);
-    if (!out || (i > 0 && out.png.length > left)) {
-      if (i === 0) notes.push(`${describe(it)}: too large for maxBytes=${budget} even at the smallest size; raise maxBytes or narrow the request.`);
-      return { blocks, notes, used, stoppedAt: i };
-    }
+  for (const it of items) {
+    const out = svgToPng(it.svg, fitWidth(it.height / it.width, width));
     blocks.push(png(out.png));
-    used += out.png.length;
-    notes.push(`${describe(it)} [PNG ${out.width}x${out.height}, ${kb(out.png.length)}${out.shrunk ? ', shrunk to fit maxBytes' : ''}]`);
+    notes.push(`${describe(it)} [PNG ${out.width}x${out.height}, ~${visualTokens(out.width, out.height)} visual tokens]`);
   }
-  return { blocks, notes, used, stoppedAt: null };
+  return { blocks, notes };
 }
 
 export function createTools(root) {
@@ -114,10 +95,6 @@ export function createTools(root) {
 
   function pageRef(args) {
     return { book: requireBookKey(args.book), page: requirePageId(args.page) };
-  }
-
-  function rotationFrom(scan, args, book, pageId) {
-    return args.rotation != null ? normalizeRotation(args.rotation) : rotationFor(scan.orientations, book, pageId);
   }
 
   /** One page's in-set strokes dark over the rest greyed, laid out on its paper. */
@@ -129,8 +106,8 @@ export function createTools(root) {
     const fit = args.fit === 'ink' ? 'ink' : 'paper';
     const view = viewBounds({ strokes: fit === 'ink' ? mine : all, frame: store.paperFrame(h.book, h.pageId), fit });
     if (!view) return null;
-    const rotation = rotationFrom(scan, args, h.book, h.pageId);
-    const r = renderPageSvg(mine, { context: args.context === false ? [] : other, rotation, bounds: view.bounds });
+    const rotation = rotationFor(scan.orientations, h.book, h.pageId);
+    const r = renderPageSvg(mine, { context: other, rotation, bounds: view.bounds });
     if (!r) return null;
     const sittings = pageDayGroups(mine).groups
       .map((g) => `${formatSittingLabel(g.startTime, g.endTime)} (${g.strokes.length})`).join('; ');
@@ -221,14 +198,12 @@ export function createTools(root) {
       const fit = args.fit === 'ink' ? 'ink' : 'paper';
       const view = viewBounds({ strokes, frame: store.paperFrame(book, page), fit });
       if (!view) return { content: [text(`Page ${book}/${page} has no ink.`)] };
-      const rotation = rotationFrom(scan, args, book, page);
+      const rotation = rotationFor(scan.orientations, book, page);
       const r = renderPageSvg(strokes, { rotation, bounds: view.bounds });
       const meta = `${label(scan.aliases, { book, pageId: page })}: ${strokes.length} strokes, rotation ${rotation}, `
         + `laid out on ${view.source === 'paper' ? 'the printed page' : 'the ink'}`
         + (view.clipped ? `; ${view.clipped} stray stroke(s) off the page not drawn` : '');
-      const { blocks, notes } = emitImages([r], {
-        format: args.format, width: widthFor(args, LIMITS.page), budget: budgetFor(args), describe: () => meta
-      });
+      const { blocks, notes } = emitImages([r], { width: widthFor(args, LIMITS.page), describe: () => meta });
       return { content: [text(notes.join('\n')), ...blocks] };
     },
 
@@ -253,20 +228,10 @@ export function createTools(root) {
       try { range = dayRange(args.from, args.to); } catch (e) { return fail(e.message); }
       const scan = store.scan();
       const index = filterIndex(scan, args);
-      const mode = ['composite', 'by_day'].includes(args.mode) ? args.mode : 'pages';
       const offset = clampInt(args.offset, 0, 0, 1e9);
-      const budget = budgetFor(args);
-      const ctxNote = args.context === false ? '.' : '. Dark ink = written in range, grey = the rest of the page.';
-
-      if (mode === 'by_day') return renderByDay(scan, index, range, args, offset, budget, ctxNote);
-
       const hits = pagesInRange(index, range.from, range.to);
       if (!hits.length) return { content: [text(`No ink written ${rangeText(range)}.`)] };
-      const lim = LIMITS[mode];
-      const cap = mode === 'composite'
-        ? clampInt(args.limit, lim.pages, 1, lim.maxPages)
-        : clampInt(args.limit, lim.images, 1, lim.maxImages);
-      const slice = hits.slice(offset, offset + cap);
+      const slice = hits.slice(offset, offset + clampInt(args.limit, LIMITS.images, 1, LIMITS.images));
       const rendered = [];
       for (const h of slice) {
         const doc = store.getPage(h.book, h.pageId);
@@ -275,83 +240,14 @@ export function createTools(root) {
       }
       const describe = (r) => `${label(scan.aliases, r.h)}: ${r.mine} of ${r.total} strokes in range. ${r.sittings}`
         + (r.view.clipped ? ` (${r.view.clipped} stray stroke(s) off the page not drawn)` : '');
-
-      let shown, blocks, notes;
-      if (mode === 'composite') {
-        const sheet = composeSheet(rendered, { title: `${rangeText(range)}` });
-        const em = emitImages([sheet], { format: args.format, width: widthFor(args, lim), budget, describe: () => 'composite' });
-        blocks = em.blocks;
-        notes = [...em.notes, ...rendered.map(describe)];
-        shown = em.blocks.length ? slice.length : 0;
-      } else {
-        const em = emitImages(rendered, { format: args.format, width: widthFor(args, lim), budget, describe });
-        blocks = em.blocks;
-        notes = em.notes;
-        if (args.transcript) {
-          notes = notes.flatMap((n, i) => [n, transcriptNote(rendered[i].doc)]);
-        }
-        // Pages that rendered to nothing still count as shown; a byte stop does not.
-        shown = em.stoppedAt === null ? slice.length : slice.indexOf(rendered[em.stoppedAt].h);
-      }
-      const left = hits.length - offset - shown;
-      notes.unshift(`${rangeText(range)}: ${hits.length} page(s) with ink in range; showing ${shown} (offset ${offset})`
-        + (left > 0 ? `; ${left} more, call again with offset=${offset + shown}` : '') + ctxNote);
-      return { content: [text(notes.join('\n')), ...blocks] };
-    },
-
-    get_strokes(args) {
-      const scan = store.scan();
-      let range = null;
-      if (args.from) {
-        try { range = dayRange(args.from, args.to); } catch (e) { return fail(e.message); }
-      } else if (!(args.book && args.page)) {
-        return fail('Give from (and to) for a day range, or book + page for one whole page');
-      }
-      let targets;
-      if (args.book && args.page) {
-        const { book, page } = pageRef(args);
-        targets = [{ book, pageId: page }];
-      } else {
-        targets = pagesInRange(filterIndex(scan, args), range.from, range.to);
-      }
-      const limit = clampInt(args.limit, LIMITS.strokes.limit, 1, LIMITS.strokes.maxLimit);
-      const maxPoints = clampInt(args.maxPoints, LIMITS.strokes.points, 100, LIMITS.strokes.maxPoints);
-      const offset = clampInt(args.offset, 0, 0, 1e9);
-      const dp = clampInt(args.decimals, 1, 0, 3);
-      const f = 10 ** dp;
-      const r = (v) => Math.round(v * f) / f;
-
-      // One flat, ordered stroke list across the target pages, so offset pages through it.
-      let seen = 0, sent = 0, points = 0, more = 0, total = 0;
-      const out = [];
-      for (const t of targets) {
-        const doc = store.getPage(t.book, t.pageId);
-        if (!doc) continue;
-        const list = (doc.strokes || []).filter((s) => !range || inMs(s, range));
-        total += list.length;
-        let page = null;
-        for (const s of list) {
-          if (seen++ < offset) continue;
-          const pts = (s.points || []).filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
-          if (sent >= limit || points + pts.length > maxPoints) { more++; continue; }
-          if (!page) {
-            page = { page: `${t.book}/${t.pageId}`, rotation: rotationFor(scan.orientations, t.book, t.pageId), paper: store.paperFrame(t.book, t.pageId), strokes: [] };
-            out.push(page);
-          }
-          const xy = [];
-          for (const p of pts) xy.push(r(p[0]), r(p[1]));
-          const row = { t0: s.startTime, t1: s.endTime, xy };
-          if (s.sketch) row.sketch = true;
-          if (args.force) row.f = pts.map((p) => (Number.isFinite(p[3]) ? p[3] : null));
-          page.strokes.push(row);
-          points += pts.length;
-          sent++;
-        }
-      }
-      const head = `${range ? rangeText(range) : `${args.book}/${args.page}`}: ${total} stroke(s); returning ${sent} from offset ${offset} (${points} points)`
-        + (more ? `; ${more} more, call again with offset=${offset + sent}` : '')
-        + `. Units: Ncode (~2.4 mm), unrotated page coordinates; xy is flat [x0,y0,x1,y1,...]; t0/t1 are Unix ms; \`paper\` is Neo's printed frame when known; \`rotation\` is display-only.`;
-      return { content: [text(`${head}\n${JSON.stringify(out)}`)] };
+      const { blocks, notes } = emitImages(rendered, { width: widthFor(args, LIMITS.pages), describe });
+      const lines = args.transcript ? notes.flatMap((n, i) => [n, transcriptNote(rendered[i].doc)]) : notes;
+      // Pages that rendered to nothing still count as shown.
+      const left = hits.length - offset - slice.length;
+      lines.unshift(`${rangeText(range)}: ${hits.length} page(s) with ink in range; showing ${slice.length} (offset ${offset})`
+        + (left > 0 ? `; ${left} more, call again with offset=${offset + slice.length}` : '')
+        + '. Dark ink = written in range, grey = the rest of the page.');
+      return { content: [text(lines.join('\n')), ...blocks] };
     },
 
     list_tags(args) {
@@ -454,45 +350,6 @@ ${JSON.stringify(body)}`)] };
       return { content: [text(`${head}\n${JSON.stringify(out)}`)] };
     }
   };
-
-  /** by_day: one contact sheet per day with ink, that day's strokes dark (pageDayGroups split). */
-  function renderByDay(scan, index, range, args, offset, budget, ctxNote) {
-    const lim = LIMITS.by_day;
-    const days = eachDay(range.from, range.to).filter((d) => pagesOnDay(index, d).length);
-    if (!days.length) return { content: [text(`No ink written ${rangeText(range)}.`)] };
-    const cap = clampInt(args.limit, lim.days, 1, lim.maxDays);
-    const slice = days.slice(offset, offset + cap);
-    const sheets = [];
-    for (const day of slice) {
-      const entries = pagesOnDay(index, day);
-      const items = [];
-      for (const e of entries.slice(0, lim.pagesPerDay)) {
-        const doc = store.getPage(e.book, e.pageId);
-        if (!doc) continue;
-        const group = pageDayGroups(doc.strokes || []).groups.find((g) => g.day === day);
-        if (!group) continue;
-        const mineSet = new Set(group.strokes);
-        const r = renderSubset(scan, args, e, doc, (s) => mineSet.has(s));
-        if (r) items.push(r);
-      }
-      if (!items.length) continue;
-      const sheet = composeSheet(items, { cols: items.length > 4 ? 3 : Math.min(items.length, 2), title: `${day}: ${items.length} page(s)` });
-      sheet.day = day;
-      sheet.lines = items.map((r) => `  ${label(scan.aliases, r.h)}: ${r.mine} of ${r.total} strokes. ${r.sittings}`);
-      sheet.extra = Math.max(0, entries.length - lim.pagesPerDay);
-      sheets.push(sheet);
-    }
-    const em = emitImages(sheets, {
-      format: args.format, width: widthFor(args, lim), budget,
-      describe: (s) => `${s.day}${s.extra ? ` (${s.extra} more page(s) that day not drawn; ask for them with mode "pages")` : ''}`
-    });
-    const notes = em.notes.flatMap((n, i) => [n, ...sheets[i].lines]);
-    const shown = em.stoppedAt === null ? slice.length : slice.indexOf(sheets[em.stoppedAt].day);
-    const left = days.length - offset - shown;
-    notes.unshift(`${rangeText(range)}: ${days.length} day(s) with ink; showing ${shown} (offset ${offset})`
-      + (left > 0 ? `; ${left} more, call again with offset=${offset + shown}` : '') + ctxNote);
-    return { content: [text(notes.join('\n')), ...em.blocks] };
-  }
 
   // Wrap so a thrown validation error becomes a tool error, not a crash.
   return Object.fromEntries(Object.entries(tools).map(([name, fn]) => [name, (args = {}) => {

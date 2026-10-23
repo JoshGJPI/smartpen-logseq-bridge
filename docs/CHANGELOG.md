@@ -6,6 +6,37 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.6.2 — MCP server trimmed: wasm renderer, pixel budget, nine tools (October 2026)
+
+A third-party review found the read-only MCP server (`mcp/`) over-built around cost and deployment. This release takes
+out what existed only to work around those two problems, and records why so it isn't added back.
+
+**The renderer is `@resvg/resvg-wasm`, not the native `@resvg/resvg-js`.** While Claude Code ran the server, Windows
+kept resvg's native `.node` file open, so `npm install` in the checkout failed with EBUSY. The workaround (a second
+worktree `../smartpen-mcp` for the server, local `post-merge` / `post-rewrite` git hooks, `scripts/sync-mcp-copy.mjs`
+and the `mcp:sync` script) is deleted: the server runs from the development checkout again, and `npm ci` succeeds with
+it running (checked). The wasm build gives the same pixels (0 differing RGBA bytes on four real pages of 1,068–1,621
+strokes, at 700 and 1000 px) at ~210–350 ms per dense page against ~75–105 ms native; a dense page renders in about
+0.5 s end to end. Fonts stay off (the SVGs have no text).
+
+**Images are budgeted by pixels, not bytes.** Claude's cost for an image is ceil(w/28) × ceil(h/28) visual tokens,
+whatever its file size, so the `maxBytes` budget, the shrink-the-first-image logic and the custom 4-bit grayscale PNG
+encoder (`core/png.js`) bought nothing; resvg's own `asPng()` is used. The rule: at most 4 images per call, each within
+a 1,500 px long edge and 2,000 visual tokens (`fitWidth()`), defaults 1000 px (`render_page`) and 700 px
+(`render_days`). The long edge alone was not enough: four square `fit: "ink"` crops at 1,500 px would be 11,664 tokens,
+past Claude Code's 10,000-token warning for one tool result; with the token ceiling the worst case is 8,000 plus text.
+
+**Tool surface: nine tools, PNG only.** Removed: `get_strokes` (raw coordinates were never needed to read notes, and
+were the largest text results); `format: "svg"` (a dense page's SVG is hundreds of KB of path text, many times the
+tokens of its PNG, and Claude reads it as text rather than seeing the ink); `render_days` modes `composite` and `by_day` (contact sheets shrink every page to a thumbnail, so they
+cost as much as the pages they replace and read worse; with them went the caption fonts and clip-id rewriting); the
+`rotation` override and `context: false` (the stored orientation and the grey context are what the app shows). Kept:
+`fit: "ink"`, `transcript`, offset paging, the path guard, never-writes / no-network, the search and tasks parity tests.
+
+**Startup line on stderr:** version (read from `package.json`), git commit (`unknown` without git) and the newest page
+file's write time, so a stale checkout or a `SMARTPEN_DATA_ROOT` that has drifted from the app's folder setting shows
+in Claude Code's MCP log.
+
 ## v3.6.1 — A task's project is the nearest project number (October 2026)
 
 **Tasks file under the project they were written under, not just the page's first tag.** A page often holds two

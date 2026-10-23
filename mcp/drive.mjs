@@ -6,8 +6,8 @@
  *   node mcp/drive.mjs <tool> '<json args>' [outDir]
  *
  * Uses SMARTPEN_DATA_ROOT (SMARTPEN_MCP_SERVER points at another server.js, to
- * compare builds). Text blocks print to stdout (images are summarised: size and
- * PNG dimensions); with outDir, image blocks are also written there as PNGs.
+ * compare builds). Text blocks print to stdout (images are summarised: PNG
+ * dimensions and Claude's visual-token estimate, ceil(w/28) x ceil(h/28)); with outDir, image blocks are also written there as PNGs.
  */
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -27,7 +27,7 @@ if (!tool) {
   const t0 = Date.now();
   const res = await client.callTool({ name: tool, arguments: JSON.parse(argJson) });
   const ms = Date.now() - t0;
-  let imgs = 0, bytes = 0, b64 = 0, textChars = 0;
+  let imgs = 0, bytes = 0, b64 = 0, textChars = 0, tokens = 0;
   const dims = [];
   for (const c of res.content) {
     if (c.type === 'text') { textChars += c.text.length; console.log(c.text.length > 6000 ? c.text.slice(0, 6000) + '\n…[truncated]' : c.text); }
@@ -35,7 +35,9 @@ if (!tool) {
       imgs++;
       const buf = Buffer.from(c.data, 'base64');
       bytes += buf.length; b64 += c.data.length;
-      dims.push(`${buf.readUInt32BE(16)}x${buf.readUInt32BE(20)}/${Math.round(buf.length / 1024)}KB`);
+      const w = buf.readUInt32BE(16), h = buf.readUInt32BE(20);
+      tokens += Math.ceil(w / 28) * Math.ceil(h / 28);
+      dims.push(`${w}x${h}/${Math.round(buf.length / 1024)}KB`);
       if (outDir) {
         fs.mkdirSync(outDir, { recursive: true });
         fs.writeFileSync(path.join(outDir, `${tool}-${imgs}.png`), buf);
@@ -43,6 +45,7 @@ if (!tool) {
     }
   }
   console.log(`\n--- ${tool}: ${ms} ms, ${textChars} text chars, ${imgs} image(s) ${dims.join(' ')}; `
-    + `${Math.round(bytes / 1024)} KB PNG (${Math.round(b64 / 1024)} KB base64)${res.isError ? ', ERROR' : ''}`);
+    + `${Math.round(bytes / 1024)} KB PNG (${Math.round(b64 / 1024)} KB base64), ~${tokens} visual tokens + ~${Math.round(textChars / 4)} text tokens`
+    + `${res.isError ? ', ERROR' : ''}`);
 }
 await client.close();

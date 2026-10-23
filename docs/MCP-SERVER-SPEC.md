@@ -2,8 +2,13 @@
 
 **Status:** built (branch `mcp-server-v2`, on the proof of concept): every tool below, with the caps and choices
 in [mcp/README.md](../mcp/README.md). Differences from this plan: renders lay pages out on Neo's printed frame (manifest
-geometry only) rather than the ink box, PNGs are 4-bit grayscale, and search needed no extraction (`global-search.js` /
-`search-query.js` already import under plain Node). Decided 2026-10-21 (Josh): an MCP server over the data folder, not
+geometry only) rather than the ink box, and search needed no extraction (`global-search.js` / `search-query.js` already
+import under plain Node). **Trimmed in v3.6.2** after a review found the server over-built around cost and deployment
+(reasons in [CHANGELOG.md](CHANGELOG.md)): nine tools, PNG only, images capped by pixels (at most 4 per call, each within
+a 1,500 px long edge and 2,000 visual tokens) instead of bytes, `@resvg/resvg-wasm` instead of the native renderer, and
+the server runs from the development checkout. Gone: `get_strokes`, `format: "svg"`, the `composite` / `by_day` sheets,
+the `rotation` override, `context: false`, `maxBytes` and the custom PNG encoder. The plan below is kept as written,
+marked where it no longer holds. Decided 2026-10-21 (Josh): an MCP server over the data folder, not
 an HTTP port inside the app and not a Claude Code skill.
 
 ## Goal
@@ -20,7 +25,7 @@ and **see the ink** as an image. Read-only. Works with the Electron app closed.
 | Not an HTTP port in Electron | Rejected | Needs the app running and a token / Host check; adds a network surface for sensitive handwriting |
 | Not a skill + script | Rejected | Images go through files and a Read, no cold-start cache, Claude Code only. Guidance text can live in tool descriptions |
 | Code location | `mcp/` in this repo, importing `src/lib/*` directly | One copy of rotation, pressure-width and search logic. The project is `"type": "module"` and these files are pure ESM |
-| PNG | `@resvg/resvg-js` on the SVG | No browser needed. JPG is skipped: line art gains nothing, PNG is the default |
+| PNG | `@resvg/resvg-wasm` on the SVG (v3.6.2; was the native `@resvg/resvg-js`) | No browser needed, and no native file for Windows to lock while the server runs. Same pixels. JPG is skipped: line art gains nothing |
 
 ## Data root
 
@@ -35,13 +40,12 @@ config with that env var.
 | `list_notebooks` | Book keys (`388`, `388v2`), alias names, page counts, date range, active volume |
 | `list_pages` | Pages of one notebook: page id, stroke count, capture day(s), tags, transcribed y/n. Optional tag / date-range filter |
 | `get_transcript` | Transcript lines (text, indent, DONE/TODO state) for one page; plain text or markdown. Notes whether the page predates the line-matching fix |
-| `render_page` | SVG text, or PNG as an MCP image. Options: `format`, `width` (default ~1000px, capped), `rotation` (default: the stored orientation), `background` (default off) |
+| `render_page` | PNG as an MCP image, in the stored orientation. Options: `width` (default 1000px, capped), `fit`. (Built without `format: "svg"`, a `rotation` override or `background`, v3.6.2) |
 | `search` | Same semantics as the app's global search: words, dates, notebook names, tags. Returns page keys, snippets, dates |
 | `list_tags` | Tags with page counts (and open tasks); optionally the pages under one tag |
 | `list_tasks` | Task lines (TODO / DONE / WAITING / CANCELLED) as the app's Tasks view rows them: `state` (`open` = TODO + WAITING, default), `project` (the page tag nearest the task in the transcript, else the first project tag; or `untagged`), `tag` (any page tag, several = all), `book`, `from` / `to`, `text`, `group_by`, `limit` / `offset`. Counts per state for the scope. See "Tasks" |
 | `days_summary` | For a day or range: per-day stroke counts and the pages touched (page, strokes that day, strokes on the page in total, notebook name). Cheap; call it before rendering |
 | `render_days` | The strokes written on the given day(s), rendered. See "Date-based strokes" |
-| `get_strokes` | Raw stroke data for a day range (compact tuples, per page, capped) for when Claude needs coordinates, not a picture |
 
 Page references are always `{ book: "388v2", page: "151b" }` strings, validated with `lib/volumes.js` helpers
 (`BOOK_KEY_FRAGMENT`, `compareBookKeys`) and a path guard equivalent to `requireBookKey()` / `requirePageId()`, so
@@ -53,7 +57,7 @@ Date does not line up with pages (the app's own corpus: about half of all pages 
 this filters at **stroke** level on `startTime`, exactly like `storage/load-range.js`, and never by whole page.
 
 - **Input:** `from`, `to` as local calendar days (`YYYY-MM-DD`; `to` optional = single day), optional `book` /
-  `tag` filter, `mode`, `format` (`svg` | `png`), `width`.
+  `tag` filter, `fit`, `transcript`, `limit` / `offset`, `width`. (Planned `mode` and `format` were dropped in v3.6.2.)
 - **Day rule:** a stroke belongs to the local day of its `startTime`. Ranges are half-open `[startMs, endMs)` via
   `rangeBoundsMs()`; `dayKey` is the same local-day function the app uses (it must agree with `main.cjs`
   `dayKeyLocal` and `canvas-renderer` `captureDayKey`). Do not use `metadata.lastUpdated`.
@@ -62,14 +66,13 @@ this filters at **stroke** level on `startTime`, exactly like `storage/load-rang
 - **Modes:**
   - `pages` (default): one image per touched page, in notebook then page order. The day's strokes are drawn in full
     ink; the page's other strokes are drawn halftoned as context (same idea as the app's `contextInk`), so partial
-    pages stay readable in place. `context: false` drops the halftone.
-  - `composite`: all the day's strokes from all pages as one image, grouped by page into a contact-sheet grid with a
-    page label under each (not overlaid; different pages share coordinates).
-  - `by_day`: with a multi-day range, one image per day instead of per page, split by `pageDayGroups()` logic.
+    pages stay readable in place. This is the only mode.
+  - `composite` (contact sheet) and `by_day` (one sheet per day) were built and removed in v3.6.2: a sheet shrinks every
+    page to a thumbnail, so it cost as many tokens as the pages it replaced while being harder to read.
 - **Output:** images as MCP image content plus a text block listing day, notebook, page, stroke count and sitting
-  times (`formatSittingLabel`). A hard cap on images per call (default 8, with `offset` paging) and on strokes per
-  render; the reply says what was left out so Claude can ask for the next set.
-- **Rotation / background:** same as `render_page`: stored orientation per page, backgrounds off by default.
+  times (`formatSittingLabel`). At most 4 images per call, with `offset` paging; the reply says what was left out so
+  Claude can ask for the next set.
+- **Rotation / background:** same as `render_page`: stored orientation per page, no backgrounds.
 - **Transcript tie-in:** the text block can include the page's transcript lines, flagged as whole-page (stroke
   `lineId`s are unreliable on older pages, so lines are not claimed to belong to the day's strokes).
 - **Sizes to expect** (app's reference corpus): a median week is about 7,900 strokes and a busy month about 50,000, so
@@ -121,7 +124,9 @@ These come from CLAUDE.md invariants; they apply even though the server never wr
   is fine.
 - Neo page backgrounds are Neo's images: off by default, opt-in per call, never cached outside `_backgrounds/`.
 - Never log or return MyScript keys (the server does not need them; it never calls MyScript).
-- Cap output: max strokes / pixels per render, default downscale above ~2,000 strokes, search and list results paged.
+- Cap output by pixels (Claude's cost is ceil(w/28) × ceil(h/28) tokens per image, whatever the bytes): at most 4
+  images per call, 1,500 px long edge, 2,000 visual tokens each, so a call stays under Claude Code's 10,000-token
+  warning. Search and list results paged.
 
 ## Build order
 
@@ -130,8 +135,8 @@ These come from CLAUDE.md invariants; they apply even though the server never wr
 2. **Transcript + list + tags tools**, stdio server with `@modelcontextprotocol/sdk`, data-root handling.
 3. **`render_page`:** SVG first, verified against the Library reader's output for the same page (including a rotated
    one); then PNG via resvg with size caps.
-4. **Date tools:** `days_summary`, then `render_days` in `pages` mode, then `composite` and `by_day`, then
-   `get_strokes`. Verify the day split against the app's Dates tab on the same data, including a page with ink from
+4. **Date tools:** `days_summary`, then `render_days` in `pages` mode (`composite`, `by_day` and `get_strokes`
+   followed and were removed in v3.6.2). Verify the day split against the app's Dates tab on the same data, including a page with ink from
    two days and a stroke written just after local midnight.
 5. **`search`:** extract or port the store-free search, verify results match the app's global search on the same data.
 6. **Wire-up:** `npm run mcp` script, registration snippet for Claude Code / desktop (`SMARTPEN_DATA_ROOT`), a short
@@ -151,8 +156,8 @@ app closed and ask Claude to read a known page and describe the ink.
   size of step 3).
 - Extracting search without dragging in Svelte-store imports may touch several files; keep the app's behavior and
   tests unchanged.
-- resvg is a native-binary dependency: confirm it installs cleanly on Windows and does not bloat the Electron
-  installer (keep it in `mcp/` dev/optional deps, excluded from `electron:build`).
+- resvg: the native build held its `.node` file open while the server ran, so `npm install` failed with EBUSY on
+  Windows; v3.6.2 uses the WebAssembly build (dev dependency, not in the Electron installer).
 - Handwriting is sensitive: the server is local stdio only, exposes no network port, and returns only what a tool
   call asks for.
 - Planner / calendar ideas in CLAUDE.md are out of scope here.

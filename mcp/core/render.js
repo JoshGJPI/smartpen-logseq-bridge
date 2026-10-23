@@ -9,24 +9,53 @@
  * page-svg.js untouched.
  *
  * Two stroke sets: `strokes` in full ink, `context` halftoned underneath.
- * PNGs are grayscale (png.js): line art loses nothing and the bytes drop ~4x.
+ *
+ * PNGs come from resvg's WebAssembly build: no native file for Windows to lock
+ * while the server runs (the native @resvg/resvg-js .node file made `npm install`
+ * fail with EBUSY), and the same pixels at a few hundred ms per page.
  */
 import fs from 'node:fs';
-import path from 'node:path';
-import { Resvg } from '@resvg/resvg-js';
+import { createRequire } from 'node:module';
+import { Resvg, initWasm } from '@resvg/resvg-wasm';
 import {
   NCODE_SCALE, DEFAULT_STROKE_WIDTH, computeStrokeBounds, strokeToPathD, strokeToWidthRuns
 } from '../../src/lib/viewer/page-svg.js';
 import { DEFAULT_SKETCH_PROFILE } from '../../src/lib/sketch-width.js';
 import { rotateFrame, svgRotationTransform, normalizeRotation } from '../../src/lib/page-orientation.js';
 import { strokeBox } from './bounds.js';
-import { rgbaToGray, encodeGrayPng } from './png.js';
+
+// Once per process; the module-level await keeps every render synchronous.
+const wasmFile = createRequire(import.meta.url).resolve('@resvg/resvg-wasm/index_bg.wasm');
+try {
+  await initWasm(fs.readFileSync(wasmFile));
+} catch (e) {
+  if (!/Already initialized/.test(e.message)) throw e;
+}
 
 export const INK = '#1a1a2e';
 export const CONTEXT_INK = '#c3c7d4';   // the grey the reader dims to
 const PAD = 8;                          // user units around the page
-/** Smallest width the byte guard will shrink an image to before giving up on it. */
-export const MIN_FIT_WIDTH = 320;
+
+/** Longest edge of any image the server returns, px. */
+export const MAX_EDGE = 1500;
+/** Visual tokens per image, at most: 4 per call stay under Claude Code's 10,000-token warning with room for text. */
+export const MAX_IMAGE_TOKENS = 2000;
+
+/** Claude's image cost: one visual token per 28 x 28 px tile. */
+export const visualTokens = (w, h) => Math.ceil(w / 28) * Math.ceil(h / 28);
+
+/**
+ * The width to render an image of this aspect (height / width) at: the asked
+ * width, lowered until the long edge is within MAX_EDGE and the image within
+ * MAX_IMAGE_TOKENS. A square page at 1500 px would be 2,916 tokens, so the long
+ * edge alone does not hold 4 images under the warning.
+ */
+export function fitWidth(aspect, width) {
+  const a = aspect > 0 && Number.isFinite(aspect) ? aspect : 1;
+  let w = Math.min(Math.round(width), Math.floor(MAX_EDGE / Math.max(1, a)));
+  while (w > 64 && visualTokens(w, Math.ceil(w * a)) > MAX_IMAGE_TOKENS) w = Math.floor(w * 0.98);
+  return w;
+}
 
 const outside = (b, v) => b.maxX < v.minX || b.minX > v.maxX || b.maxY < v.minY || b.minY > v.maxY;
 
@@ -79,85 +108,21 @@ export function renderPageSvg(strokes, opts = {}) {
   return { svg, width: W, height: H, strokes: strokes.length };
 }
 
-/** One sans font for captions, if the OS has a usual one (else resvg's own system scan). */
-const CAPTION_FONTS = [
-  'C:/Windows/Fonts/arial.ttf', 'C:/Windows/Fonts/segoeui.ttf',
-  '/System/Library/Fonts/Supplemental/Arial.ttf', '/Library/Fonts/Arial.ttf',
-  '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
-];
-let captionFont;
-
 /**
- * Loading every system font costs ~250 ms per render, so ink-only SVGs load none
- * and captioned sheets load one file.
- */
-function fontOptions(svg) {
-  if (!svg.includes('<text')) return { loadSystemFonts: false };
-  if (captionFont === undefined) captionFont = CAPTION_FONTS.find((p) => fs.existsSync(p)) || null;
-  return captionFont
-    ? { loadSystemFonts: false, fontFiles: [captionFont], defaultFontFamily: path.basename(captionFont, '.ttf') }
-    : { loadSystemFonts: true };
-}
-
-/**
- * Rasterise an SVG to a grayscale PNG at `width` px (height follows the aspect ratio).
- * @param {{bits?: 8|4|2}} [opts]  grey bits per pixel (default 4)
+ * Rasterise an SVG to a PNG `width` px wide (height follows the aspect ratio).
+ * Fonts stay off: these SVGs are ink only, with no text to shape.
  * @returns {{png: Buffer, width: number, height: number}}
  */
-export function svgToPng(svg, width = 1000, { bits = 4 } = {}) {
+export function svgToPng(svg, width = 1000) {
   const r = new Resvg(svg, {
     fitTo: { mode: 'width', value: Math.max(64, Math.round(width)) }, background: '#ffffff',
-    font: fontOptions(svg)
+    font: { loadSystemFonts: false }
   });
   const img = r.render();
-  const gray = rgbaToGray(img.pixels, img.width, img.height);
-  return { png: encodeGrayPng(gray, img.width, img.height, bits), width: img.width, height: img.height };
-}
-
-/**
- * svgToPng, shrunk until it fits `maxBytes` (never below MIN_FIT_WIDTH).
- * @returns {{png: Buffer, width: number, height: number, shrunk: boolean}|null} null when even the smallest is too big
- */
-export function pngWithin(svg, width, maxBytes, opts) {
-  let w = width;
-  for (let i = 0; i < 4; i++) {
-    const out = svgToPng(svg, w, opts);
-    if (out.png.length <= maxBytes) return { ...out, shrunk: w !== width };
-    if (w <= MIN_FIT_WIDTH) return null;
-    w = Math.max(MIN_FIT_WIDTH, Math.floor(w * Math.sqrt(maxBytes / out.png.length) * 0.95));
+  try {
+    return { png: Buffer.from(img.asPng()), width: img.width, height: img.height };
+  } finally {
+    img.free();
+    r.free();
   }
-  return null;
-}
-
-const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
-
-/**
- * Contact sheet: rendered pages in a grid, each with a caption (composite / by_day).
- * Cells take the tallest item's aspect ratio, so pages on one paper size share a scale.
- * @param {Array<{svg: string, width: number, height: number, label: string}>} items
- * @param {{cols?: number, cell?: number, title?: string}} [opts]
- */
-export function composeSheet(items, { cols = 3, cell = 360, title = '' } = {}) {
-  const n = items.length;
-  const c = Math.min(cols, n) || 1;
-  const rows = Math.ceil(n / c);
-  const labelH = 22;
-  const titleH = title ? 28 : 0;
-  const aspect = Math.min(1.6, Math.max(0.6, ...items.map((it) => it.height / it.width)));
-  const cellH = Math.round((cell - 10) * aspect) + 10 + labelH;
-  let out = title
-    ? `<text x="8" y="20" font-family="sans-serif" font-size="16" font-weight="bold" fill="#222">${esc(title)}</text>` : '';
-  items.forEach((it, i) => {
-    const x = (i % c) * cell, y = titleH + Math.floor(i / c) * cellH;
-    const k = Math.min((cell - 10) / it.width, (cellH - labelH - 10) / it.height);
-    const inner = it.svg.replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '').replace(/id="page"/, `id="page${i}"`).replace('url(#page)', `url(#page${i})`);
-    out += `<g transform="translate(${x + 5} ${y + 5}) scale(${k.toFixed(4)})">${inner}</g>`
-      + `<rect x="${x + 5}" y="${y + 5}" width="${(it.width * k).toFixed(1)}" height="${(it.height * k).toFixed(1)}" fill="none" stroke="#bbb" stroke-width="1"/>`
-      + `<text x="${x + 6}" y="${y + cellH - 6}" font-family="sans-serif" font-size="13" fill="#333">${esc(it.label)}</text>`;
-  });
-  const W = c * cell, H = titleH + rows * cellH;
-  return {
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><rect width="100%" height="100%" fill="#fff"/>${out}</svg>`,
-    width: W, height: H
-  };
 }

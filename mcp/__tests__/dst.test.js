@@ -72,14 +72,10 @@ describe('DST-change days (America/Chicago)', () => {
   it('spring-forward: 01:59 and 03:00 are one day; the next local midnight is not', () => {
     expect(summary('2026-03-08', '2026-03-09').map((d) => [d.day, d.strokes])).toEqual([['2026-03-08', 3], ['2026-03-09', 1]]);
   });
-  it('render_days and get_strokes use the same half-open local day', () => {
+  it('render_days uses the same half-open local day', () => {
     const tools = createTools(root);
-    expect(tools.get_strokes({ from: '2026-11-01' }).content[0].text).toMatch(/^2026-11-01: 4 stroke\(s\)/);
-    expect(tools.get_strokes({ from: '2026-11-02' }).content[0].text).toMatch(/^2026-11-02: 1 stroke\(s\)/);
-    expect(tools.render_days({ from: '2026-11-01', format: 'svg' }).content[0].text).toMatch(/p\.1: 4 of 5 strokes in range/);
-    const byDay = tools.render_days({ from: '2026-10-31', to: '2026-11-02', mode: 'by_day', format: 'svg' }).content[0].text;
-    expect(byDay).toMatch(/2 day\(s\) with ink/);
-    expect(byDay).toMatch(/2026-11-01[^\n]*\n\s+B388 \(388\) p\.1: 4 of 5 strokes/);
-    expect(byDay).toMatch(/2026-11-02[^\n]*\n\s+B388 \(388\) p\.1: 1 of 5 strokes/);
+    expect(tools.render_days({ from: '2026-11-01' }).content[0].text).toMatch(/p\.1: 4 of 5 strokes in range/);
+    expect(tools.render_days({ from: '2026-11-02' }).content[0].text).toMatch(/p\.1: 1 of 5 strokes in range/);
+    expect(tools.render_days({ from: '2026-10-31' }).content[0].text).toMatch(/^No ink written/);
   });
 });

@@ -33,8 +33,8 @@ src/lib/viewer/    reader helpers: SVG render, page cache, thumbnails, transcrip
                    task-state.js (the one task write path, v3.4.0)
 src/components/    grouped by feature (canvas, dialog, header, viewer, dates, books, tags, transcription, ...)
 electron/tags-sidecar.cjs   pure parse / patch of pages/_tags.json for main (tested from Vitest)
-mcp/               read-only stdio MCP server over the data folder, imports src/lib unchanged; registered from its
-                   own worktree ../smartpen-mcp, kept on main by git hooks + scripts/sync-mcp-copy.mjs (mcp/README.md)
+mcp/               read-only stdio MCP server over the data folder (9 tools, PNG via @resvg/resvg-wasm, images capped
+                   by pixels), imports src/lib unchanged; registered from this checkout's mcp/server.js (mcp/README.md)
 electron/task-summary.cjs   the scan's per-page task summary; mirrors lib/tasks.js buildTaskSummary (tested together)
 electron/retimed-sidecar.cjs  pure parse / record of pages/_retimed.json for main (tested from Vitest)
 ```

@@ -10,8 +10,16 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { resolveDataRoot } from './core/paths.js';
+import { Store } from './core/store.js';
 import { createTools, LIMITS } from './core/tools.js';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const { version } = JSON.parse(fs.readFileSync(path.join(here, '..', 'package.json'), 'utf8'));
 
 let root;
 try {
@@ -21,19 +29,15 @@ try {
   process.exit(1);
 }
 const tools = createTools(root);
-const server = new McpServer({ name: 'smartpen-bridge', version: '0.3.0' });
+const server = new McpServer({ name: 'smartpen-bridge', version });
 
 const RO = { readOnlyHint: true, openWorldHint: false };
 const book = z.string().describe('Book key: "388", or "388v2" for volume 2');
 const page = z.string().describe('Page id: "42", or "151b" for a letter-suffixed page');
 const day = z.string().describe('Local calendar day, YYYY-MM-DD');
-const width = (lim) => z.number().int().optional().describe(`PNG width in px (default ${lim.width}, max ${lim.maxWidth})`);
-const format = z.enum(['png', 'svg']).optional().describe('png (grayscale image, default) or svg (text)');
-const maxBytes = z.number().int().optional()
-  .describe(`Byte budget for this call's images (default ${LIMITS.bytes.default}, max ${LIMITS.bytes.max}); what does not fit is left for offset`);
+const width = (dflt) => z.number().int().optional().describe(`PNG width in px (default ${dflt}; long edge capped at ${LIMITS.maxEdge})`);
 const fit = z.enum(['paper', 'ink']).optional()
   .describe('paper (default): the printed page, same scale on every page; ink: crop to the ink (or the day\'s ink) to zoom in');
-const rotation = z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]).optional().describe('Override the stored rotation');
 const offset = z.number().int().optional();
 
 function reg(name, description, inputSchema, title) {
@@ -54,32 +58,21 @@ reg('get_transcript',
   'Handwriting-recognition transcript of one page (text, indentation, TODO/DONE/WAITING/CANCELLED). Cheap; prefer this over an image when the text is enough. Many pages are untranscribed: use render_page for those.',
   { book, page }, 'Get transcript');
 reg('render_page',
-  `See a page: its ink as a grayscale PNG (or SVG text), in the stored orientation, laid out on the printed page. Default ${LIMITS.page.width}px wide.`,
-  { book, page, format, width: width(LIMITS.page), rotation, fit, maxBytes }, 'Render page');
+  `See a page: its ink as a PNG, in the stored orientation, laid out on the printed page. Default ${LIMITS.page.width}px wide. `
+  + 'Costs image tokens: try get_transcript first when the page is transcribed.',
+  { book, page, width: width(LIMITS.page.width), fit }, 'Render page');
 reg('days_summary',
   'What was written on a day or range (local days): per-day stroke counts and the pages touched. Cheap; call before render_days.',
   { from: day, to: day.optional(), book: book.optional(), tag: z.string().optional() }, 'Summarize days');
 reg('render_days',
-  'See what was written on a day or range: strokes written in range are dark, the rest of each page grey. '
-  + `mode "pages" (default): one image per page, ${LIMITS.pages.images} per call at ${LIMITS.pages.width}px; `
-  + `"composite": one contact sheet of up to ${LIMITS.composite.pages} pages; "by_day": one sheet per day (${LIMITS.by_day.days} days per call). `
-  + 'Page through the rest with offset; the reply says what is left.',
-  { from: day, to: day.optional(), book: book.optional(), tag: z.string().optional(),
-    mode: z.enum(['pages', 'composite', 'by_day']).optional(), format,
-    width: z.number().int().optional().describe(`PNG width in px (pages ${LIMITS.pages.width}/max ${LIMITS.pages.maxWidth}; sheets ${LIMITS.composite.width}/max ${LIMITS.composite.maxWidth})`),
-    fit, rotation, maxBytes,
-    context: z.boolean().optional().describe('Draw the page\'s other strokes grey (default true)'),
-    transcript: z.boolean().optional().describe('pages mode: include each page\'s whole-page transcript text'),
-    limit: z.number().int().optional().describe('Images (pages), pages per sheet (composite) or days (by_day) per call'), offset },
+  'See what was written on a day or range: one PNG per page, strokes written in range dark, the rest of the page grey. '
+  + `${LIMITS.images} images per call at ${LIMITS.pages.width}px; page through the rest with offset (the reply says what is left). `
+  + 'Call days_summary first to see which pages were touched.',
+  { from: day, to: day.optional(), book: book.optional(), tag: z.string().optional(), fit,
+    transcript: z.boolean().optional().describe('Include each page\'s whole-page transcript text'),
+    limit: z.number().int().optional().describe(`Images per call (at most ${LIMITS.images})`), offset,
+    width: width(LIMITS.pages.width) },
   'Render days');
-reg('get_strokes',
-  'Raw stroke geometry when coordinates matter, not a picture: per page, each stroke\'s start/end time and flat xy points (Ncode units). '
-  + `For a day range (from/to, optional book/tag) or one whole page (book + page). Capped (${LIMITS.strokes.limit} strokes / ${LIMITS.strokes.points} points by default); page with offset.`,
-  { from: day.optional(), to: day.optional(), book: book.optional(), page: page.optional(), tag: z.string().optional(),
-    limit: z.number().int().optional(), maxPoints: z.number().int().optional(), offset,
-    decimals: z.number().int().optional().describe('Coordinate decimals (default 1, max 3)'),
-    force: z.boolean().optional().describe('Include per-point pen force') },
-  'Get strokes');
 reg('list_tasks',
   'Tasks written in the notebooks (transcript lines with a box: TODO, DONE, WAITING, CANCELLED), the same rows as the app\'s Tasks view. '
   + 'Default: open tasks (TODO + WAITING), newest page first. Filter by project (the page tag nearest the task in the transcript, else the page\'s first project tag; "untagged" for none), '
@@ -101,4 +94,21 @@ reg('search',
   { query: z.string() }, 'Search');
 
 await server.connect(new StdioServerTransport());
-console.error(`smartpen-bridge MCP: reading ${root}`);
+
+// Startup line on stderr (stdout carries the protocol): which folder, which code, how fresh the data is.
+// SMARTPEN_DATA_ROOT is set at registration and does not follow the app's folder setting.
+function gitCommit() {
+  try {
+    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: here, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000 }).trim();
+  } catch {
+    return 'unknown';
+  }
+}
+function newestPage() {
+  let newest = 0;
+  for (const f of new Store(root).walk()) {
+    try { newest = Math.max(newest, fs.statSync(f.path).mtimeMs); } catch { /* gone since the walk */ }
+  }
+  return newest ? new Date(newest).toISOString() : 'none';
+}
+console.error(`smartpen-bridge MCP ${version} (commit ${gitCommit()}): reading ${root}; newest page written ${newestPage()}`);
