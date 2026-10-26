@@ -177,7 +177,7 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
 - **Refused on a page with an unsaved Library transcript draft** (`isViewerPageDirty`): the draft's save writes every
   line verbatim and would undo the tick. A line id that is gone or is not a task → error, no write. Undo is kept, not
   spent, while it would be refused.
-- **Not a task** (`NOT_A_TASK = 'none'`, ⋯ menu) makes a task a plain line (`checked: null`) through the same path. It
+- **Not a task** (v3.7.0, `NOT_A_TASK = 'none'`, ⋯ menu) makes a task a plain line (`checked: null`) through the same path. It
   is not a fifth state: no row, count or filter shows it. Only its Undo may make a plain line a task (`allowPlain`).
 - **Edits never change task state.** The Edit Transcription dialog's merge / split carry it (`lib/editor-lines.js`),
   and every editor save takes the disk's state for lines whose state it didn't change (`keepDiskTaskState`: Library

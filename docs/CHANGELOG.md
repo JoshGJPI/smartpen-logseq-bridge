@@ -6,7 +6,7 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
-## Unreleased — tag and task fixes from the UX review; Not a task (October 2026)
+## v3.7.0 — tag and task fixes from the UX review; Not a task (October 2026)
 
 From the tags and tasks UX review (`docs/TAGS-TASKS-UX-REVIEW.html`), the fixes that could lose state or catch the
 keyboard. Each has a unit test.
