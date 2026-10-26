@@ -54,6 +54,8 @@
   let inputEls = [];
   /** working copy while editing */
   let draft = [];
+  /** the lines Edit opened on (task state on save: keepDiskTaskState) */
+  let base = [];
   /** index of the line whose input currently has focus (-1 = none selected) */
   let activeIndex = -1;
 
@@ -86,6 +88,7 @@
 
   function startEdit() {
     draft = cloneLines(lines);
+    base = cloneLines(lines);
     if (draft.length === 0) draft = [blankLine()];
     editing = true;
     activeIndex = -1;
@@ -105,11 +108,12 @@
   async function save() {
     saving = true;
     try {
-      const result = await saveTranscriptLines(book, page, draft);
+      const result = await saveTranscriptLines(book, page, draft, { base });
       if (!result || result.success === false) {
         throw new Error((result && result.error) || 'save failed');
       }
-      const saved = cloneLines(draft);
+      // As written: a task change made since Edit opened is kept, not the draft's copy.
+      const saved = cloneLines(result.lines || draft);
       editing = false;
       setDirty(false);
       onEditingChange(false);

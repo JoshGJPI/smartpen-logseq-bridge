@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   markerField, markerOf, isClosedState, taskStateOf, withTaskState, toggledState, stateLabel, buildTaskRows, taskCounts,
-  filterTaskRows, groupTaskRows, searchTaskRows, summaryWithState, taskMenuChoices, taskKey, parseTaskFilter,
+  filterTaskRows, groupTaskRows, searchTaskRows, summaryWithState, taskMenuChoices, NOT_A_TASK, isTaskState, isLineState, taskKey, parseTaskFilter,
   parseTaskGroup, latestTaskRows, NO_PROJECT, NO_DATE
 } from '../tasks.js';
 
@@ -69,16 +69,29 @@ describe('task state', () => {
     expect(['todo', 'waiting', 'done', 'cancelled'].map(isClosedState)).toEqual([false, false, true, true]);
   });
 
-  it('the menu offers the three other states, never DOING / NOW / LATER', () => {
-    expect(taskMenuChoices('todo').map((c) => c.state)).toEqual(['done', 'waiting', 'cancelled']);
-    expect(taskMenuChoices('waiting').map((c) => c.state)).toEqual(['done', 'todo', 'cancelled']);
-    expect(taskMenuChoices('done').map((c) => c.state)).toEqual(['todo', 'waiting', 'cancelled']);
-    expect(taskMenuChoices('cancelled').map((c) => c.state)).toEqual(['todo', 'done', 'waiting']);
+  it('the menu offers the three other states then Not a task, never DOING / NOW / LATER', () => {
+    expect(taskMenuChoices('todo').map((c) => c.state)).toEqual(['done', 'waiting', 'cancelled', 'none']);
+    expect(taskMenuChoices('waiting').map((c) => c.state)).toEqual(['done', 'todo', 'cancelled', 'none']);
+    expect(taskMenuChoices('done').map((c) => c.state)).toEqual(['todo', 'waiting', 'cancelled', 'none']);
+    expect(taskMenuChoices('cancelled').map((c) => c.state)).toEqual(['todo', 'done', 'waiting', 'none']);
+    expect(taskMenuChoices('todo').at(-1)).toEqual({ state: NOT_A_TASK, label: 'Not a task' });
     for (const s of ['todo', 'waiting', 'done', 'cancelled']) {
       expect(taskMenuChoices(s).map((c) => c.state)).not.toContain(s);
     }
     const labels = ['todo', 'done', 'waiting'].flatMap((s) => taskMenuChoices(s).map((c) => c.label)).join(' ');
     expect(labels).not.toMatch(/DOING|NOW|LATER/);
+  });
+
+  it('Not a task: a plain line, dropped from the summary and the rows, never a task state', () => {
+    const w = { id: 'a', text: 'x', checked: false, marker: 'WAITING', yBounds: null };
+    expect(withTaskState(w, NOT_A_TASK)).toEqual({ id: 'a', text: 'x', checked: null, yBounds: null });
+    expect(isTaskState(NOT_A_TASK)).toBe(false);
+    expect(isLineState(NOT_A_TASK)).toBe(true);
+    expect(isLineState('doing')).toBe(false);
+    const tasks = [{ id: 'a', checked: false, marker: null }, { id: 'b', checked: true, marker: null }];
+    expect(summaryWithState(tasks, 'a', NOT_A_TASK).map((t) => t.id)).toEqual(['b']);
+    const rows = buildTaskRows([{ book: '3', page: 1, pageId: '1', tasks }], { overrides: new Map([['3/1#a', NOT_A_TASK]]) });
+    expect(rows.map((r) => r.lineId)).toEqual(['b']);
   });
 
   it('summaryWithState changes one entry, or returns the same array', () => {

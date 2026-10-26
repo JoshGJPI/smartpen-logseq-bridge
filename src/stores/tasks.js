@@ -21,7 +21,7 @@ import { libraryPageDates } from './library.js';
 import { isViewerPageDirty } from './viewer.js';
 import { log } from './ui.js';
 import {
-  buildTaskRows, taskCounts, taskKey, parseTaskFilter, parseTaskGroup, isTaskState, toggledState, TASK_GROUP_KEY
+  buildTaskRows, taskCounts, taskKey, parseTaskFilter, parseTaskGroup, isLineState, toggledState, TASK_GROUP_KEY
 } from '$lib/tasks.js';
 import { setTaskState, taskChangeLabel } from '$lib/viewer/task-state.js';
 import { readString, write } from '$lib/safe-storage.js';
@@ -98,15 +98,16 @@ export function currentTaskState(book, pageId, lineId) {
  * @param {string} book  book key
  * @param {string} pageId
  * @param {string} lineId
- * @param {'todo'|'done'|'waiting'|'cancelled'} state
- * @param {{ from?: string, undoable?: boolean }} [opts]  `from`: the state the
- *   caller shows, for a line the scan doesn't list yet
+ * @param {'todo'|'done'|'waiting'|'cancelled'|'none'} state  'none' (NOT_A_TASK): a plain line again
+ * @param {{ from?: string, undoable?: boolean, restore?: boolean }} [opts]  `from`: the state the
+ *   caller shows, for a line the scan doesn't list yet; `restore`: an Undo, which may
+ *   make a plain line a task again
  * @returns {Promise<boolean>} true when the page holds the new state
  */
-export function changeTask(book, pageId, lineId, state, { from = null, undoable = true } = {}) {
+export function changeTask(book, pageId, lineId, state, { from = null, undoable = true, restore = false } = {}) {
   book = String(book);
   pageId = String(pageId);
-  if (!isTaskState(state)) return Promise.resolve(false);
+  if (!isLineState(state)) return Promise.resolve(false);
   if (isViewerPageDirty(book, pageId)) {
     log(`B${book}/P${pageId} has unsaved transcript edits. Save or cancel them before changing a task there.`, 'warning');
     return Promise.resolve(false);
@@ -123,7 +124,7 @@ export function changeTask(book, pageId, lineId, state, { from = null, undoable 
 
   return enqueue(`${book}/${pageId}`, async () => {
     try {
-      await setTaskState(book, pageId, lineId, state);
+      await setTaskState(book, pageId, lineId, state, { allowPlain: restore });
       // The scan record holds it now (task-state.js updated it).
       if (get(taskOverrides).get(key) === state) setOverride(key, null);
       debug('[tasks] set', key, state);
@@ -150,8 +151,14 @@ export function toggleTask(book, pageId, lineId, { from = null } = {}) {
 export function undoTaskChange() {
   const u = get(taskUndo);
   if (!u) return Promise.resolve(false);
+  // Refused on a page with a draft: keep the undo so it can be used after the
+  // draft is saved or cancelled (changeTask would refuse it and lose it).
+  if (isViewerPageDirty(u.book, u.pageId)) {
+    log(`B${u.book}/P${u.pageId} has unsaved transcript edits. Save or cancel them, then Undo.`, 'warning');
+    return Promise.resolve(false);
+  }
   taskUndo.set(null);
-  return changeTask(u.book, u.pageId, u.lineId, u.prev, { undoable: false });
+  return changeTask(u.book, u.pageId, u.lineId, u.prev, { undoable: false, restore: true });
 }
 
 /** Forget pending state (a data-folder change). Writes in flight still finish. */

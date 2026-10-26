@@ -2,11 +2,13 @@
   TaskToast.svelte — "Marked DONE · B3017 p.142  Undo" after a task change
   (v3.4.0), for the Tasks view and the reader alike (mounted once in
   BookViewer). Shows the last undoable change (`taskUndo`) for a few seconds;
-  Undo puts it back. A failed write clears `taskUndo`, which hides it.
+  Undo puts it back. A failed write clears `taskUndo`, which hides it. Undo is
+  disabled while the page has an unsaved Library draft (the write would be refused).
 -->
 <script>
   import { onDestroy } from 'svelte';
   import { taskUndo, undoTaskChange } from '$stores/tasks.js';
+  import { viewerDirtyPages } from '$stores';
 
   const SHOW_MS = 6000;
   let shown = null;
@@ -20,9 +22,12 @@
     if (u) timer = setTimeout(() => { if (shown === u) shown = null; }, SHOW_MS);
   }
 
+  // A draft on the page refuses the undo; it stays offered for when it's gone.
+  $: locked = !!shown && $viewerDirtyPages.has(`${shown.book}:${shown.pageId}`);
+
+  // A successful undo clears taskUndo, which hides the toast.
   function undo() {
-    shown = null;
-    undoTaskChange();
+    if (!locked) undoTaskChange();
   }
 
   onDestroy(() => clearTimeout(timer));
@@ -31,7 +36,8 @@
 {#if shown}
   <div class="toast" role="status">
     <span>{shown.label}</span>
-    <button type="button" on:click={undo}>Undo</button>
+    <button type="button" on:click={undo} disabled={locked}
+      title={locked ? 'This page has unsaved transcript edits. Save or cancel them first.' : null}>Undo</button>
   </div>
 {/if}
 

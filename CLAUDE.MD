@@ -175,7 +175,13 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   `stores/tasks.js` `changeTask()`). It changes one line's `checked` / `marker` and `metadata.lastUpdated`, nothing
   else: never `transcript.lastTranscribed` (`isTrustworthyTranscript()` reads it), text, other lines or strokes.
 - **Refused on a page with an unsaved Library transcript draft** (`isViewerPageDirty`): the draft's save writes every
-  line verbatim and would undo the tick. A line id that is gone or is not a task → error, no write.
+  line verbatim and would undo the tick. A line id that is gone or is not a task → error, no write. Undo is kept, not
+  spent, while it would be refused.
+- **Not a task** (`NOT_A_TASK = 'none'`, ⋯ menu) makes a task a plain line (`checked: null`) through the same path. It
+  is not a fifth state: no row, count or filter shows it. Only its Undo may make a plain line a task (`allowPlain`).
+- **Edits never change task state.** The Edit Transcription dialog's merge / split carry it (`lib/editor-lines.js`),
+  and every editor save takes the disk's state for lines whose state it didn't change (`keepDiskTaskState`: Library
+  Edit via `saveTranscriptLines(…, { base })`, Editor Pages tab via `buildEditedTranscript`).
 - It refreshes its own copies instead of calling `refreshAfterSave()`: the scan record (`applyTaskStateToRecord`), the
   page cache (`invalidatePage`) and the open reader page (`noteTaskWritten` → `lastTaskWrite`). Keep that list in step
   if another view starts showing task state from its own copy.

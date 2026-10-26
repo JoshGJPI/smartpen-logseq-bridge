@@ -9,6 +9,9 @@
  * last matched lines to ink, and isTrustworthyTranscript() (ink-text.js)
  * reads it.
  *
+ * "Not a task" (NOT_A_TASK) makes the line plain again (`checked: null`); its
+ * Undo is the one call that may make a plain line a task (`allowPlain`).
+ *
  * Refused, with nothing written:
  *   - the page has an unsaved transcript draft in the reader (the draft's save
  *     would write the old state back over the tick),
@@ -24,7 +27,9 @@
 import { getPage, savePage } from '$lib/storage/local-store.js';
 import { invalidatePage } from '$lib/viewer/page-cache.js';
 import { isViewerPageDirty, noteTaskWritten, applyTaskStateToRecord } from '$stores';
-import { isTaskState, taskStateOf, withTaskState, stateLabel } from '$lib/tasks.js';
+import {
+  isLineState, taskStateOf, withTaskState, stateLabel, NOT_A_TASK, buildTaskSummary, normalizeTaskSummary
+} from '$lib/tasks.js';
 
 /** An expected refusal; `code` is 'dirty' | 'no-page' | 'no-line' | 'not-task' | 'bad-state'. */
 export class TaskStateError extends Error {
@@ -38,14 +43,16 @@ export class TaskStateError extends Error {
 /**
  * The PageDoc with one line in a new state, or null when it is already there.
  * Pure (exported for tests).
- * @returns {{ doc: object, prev: string } | null}
+ * @param {{ allowPlain?: boolean }} [opts]  `allowPlain`: a plain line may be
+ *   made a task (only an Undo of Not a task does this)
+ * @returns {{ doc: object, prev: string } | null}  `prev` is NOT_A_TASK for a plain line
  */
-export function docWithTaskState(doc, lineId, state, now = new Date().toISOString()) {
+export function docWithTaskState(doc, lineId, state, now = new Date().toISOString(), { allowPlain = false } = {}) {
   const lines = (doc && doc.transcript && Array.isArray(doc.transcript.lines)) ? doc.transcript.lines : [];
   const idx = lines.findIndex((l) => l && l.id === lineId);
   if (idx < 0) throw new TaskStateError('no-line', 'That line is no longer in the page’s transcript.');
-  const prev = taskStateOf(lines[idx]);
-  if (!prev) throw new TaskStateError('not-task', 'That line is not a task.');
+  const prev = taskStateOf(lines[idx]) || NOT_A_TASK;
+  if (prev === NOT_A_TASK && !allowPlain) throw new TaskStateError('not-task', 'That line is not a task.');
   if (prev === state) return null;
   const next = lines.slice();
   next[idx] = withTaskState(lines[idx], state);
@@ -60,17 +67,18 @@ export function docWithTaskState(doc, lineId, state, now = new Date().toISOStrin
 }
 
 /**
- * Set one task line's state on disk.
+ * Set one task line's state on disk, or make it a plain line (NOT_A_TASK).
  * @param {string} book  book key ("388", "388v2")
  * @param {string} pageId  incl. any suffix
  * @param {string} lineId
- * @param {'todo'|'done'|'waiting'|'cancelled'} state
+ * @param {'todo'|'done'|'waiting'|'cancelled'|'none'} state
+ * @param {{ allowPlain?: boolean }} [opts]  see docWithTaskState
  * @returns {Promise<{ changed: boolean, prev: string, state: string, lastUpdated: string|null }>}
  * @throws {TaskStateError} a refusal (nothing written), or the write's own error
  */
-export async function setTaskState(book, pageId, lineId, state) {
+export async function setTaskState(book, pageId, lineId, state, { allowPlain = false } = {}) {
   const where = `B${book}/P${pageId}`;
-  if (!isTaskState(state)) throw new TaskStateError('bad-state', `Unknown task state: ${state}`);
+  if (!isLineState(state)) throw new TaskStateError('bad-state', `Unknown task state: ${state}`);
   if (isViewerPageDirty(String(book), String(pageId))) {
     throw new TaskStateError('dirty', `${where} has unsaved transcript edits. Save or cancel them first.`);
   }
@@ -78,7 +86,7 @@ export async function setTaskState(book, pageId, lineId, state) {
   if (!doc) throw new TaskStateError('no-page', `${where} is no longer in the data folder.`);
 
   const now = new Date().toISOString();
-  const out = docWithTaskState(doc, lineId, state, now);
+  const out = docWithTaskState(doc, lineId, state, now, { allowPlain });
   if (!out) return { changed: false, prev: state, state, lastUpdated: doc.metadata?.lastUpdated || null };
 
   // The draft check again: a draft could have started while the page was read.
@@ -87,13 +95,19 @@ export async function setTaskState(book, pageId, lineId, state) {
   }
   await savePage(book, pageId, out.doc);
 
-  applyTaskStateToRecord(book, pageId, lineId, state, now);
+  // A line leaving or joining the tasks changes the summary's membership (and
+  // other tasks' parent text), so rebuild it from the page as written.
+  const rebuilt = state === NOT_A_TASK || out.prev === NOT_A_TASK
+    ? normalizeTaskSummary(buildTaskSummary(out.doc.transcript.lines))
+    : null;
+  applyTaskStateToRecord(book, pageId, lineId, state, now, rebuilt);
   invalidatePage(String(book), String(pageId));
   noteTaskWritten(book, pageId, lineId, state);
   return { changed: true, prev: out.prev, state, lastUpdated: now };
 }
 
-/** "Marked DONE · B3017 p.142" for the toast. */
+/** "Marked DONE · B3017 p.142" (or "Not a task · …") for the toast. */
 export function taskChangeLabel(state, book, pageId) {
-  return `Marked ${stateLabel(state)} · B${book} p.${pageId}`;
+  const what = state === NOT_A_TASK ? 'Not a task' : `Marked ${stateLabel(state)}`;
+  return `${what} · B${book} p.${pageId}`;
 }

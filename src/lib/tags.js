@@ -560,8 +560,8 @@ export function filterChoices(items, chosen = [], mode = 'any') {
 }
 
 /**
- * Type-ahead for the tag editor: existing tags containing the typed text (most
- * used first), minus those already on the page, and whether to offer creating
+ * Type-ahead for the tag editor: existing tags containing the typed text (the
+ * exact tag first, then most used first), minus those already on the page, and whether to offer creating
  * the typed tag.
  * @param {string} input
  * @param {Array<{tag: string, pages: number}>} stats  tagStats()
@@ -572,10 +572,34 @@ export function tagOptions(input, stats, have = [], limit = 6) {
   const q = normalizeTag(input);
   const typed = String(input || '').trim();
   const has = new Set(have);
-  const needle = typed ? (q || '').toLowerCase() : '';
-  const options = (stats || [])
-    .filter((s) => !has.has(s.tag) && (!needle || s.tag.toLowerCase().includes(needle)))
-    .slice(0, limit);
+  // Typed text that is no tag at all ("??") matches nothing.
+  if (typed && !q) return { options: [], create: null };
+  const needle = typed ? q.toLowerCase() : '';
+  const matches = (stats || [])
+    .filter((s) => !has.has(s.tag) && (!needle || s.tag.toLowerCase().includes(needle)));
+  // The exact tag first, so the highlighted row is what Enter adds.
+  const exact = matches.findIndex((s) => s.tag === q);
+  if (exact > 0) matches.unshift(matches.splice(exact, 1)[0]);
+  const options = matches.slice(0, limit);
   const exists = q && (stats || []).some((s) => s.tag === q);
   return { options, create: q && !exists && !has.has(q) ? q : null };
+}
+
+/**
+ * The tag Enter adds in a tag field: the highlighted row when the user moved
+ * to it with ↑ ↓, else exactly what was typed (normalized), never a longer
+ * tag that merely starts with it. null when there is nothing to add.
+ * @param {Array<{tag: string}>} items  the list as shown
+ * @param {number} hi  highlighted index
+ * @param {boolean} navigated  ↑ / ↓ used since the last add
+ * @param {string} text  the field's text
+ */
+export function tagEnterChoice(items, hi, navigated, text) {
+  if (navigated && items && items[hi]) return items[hi].tag;
+  return normalizeTag(text) || null;
+}
+
+/** Backspace in an empty tag field removes the last tag, once per key press (not on auto-repeat). */
+export function backspaceRemovesTag(e, text) {
+  return !!e && e.key === 'Backspace' && !e.repeat && text === '';
 }

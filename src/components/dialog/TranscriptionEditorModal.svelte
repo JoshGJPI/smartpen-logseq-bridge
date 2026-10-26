@@ -4,6 +4,7 @@
 -->
 <script>
   import { debug } from '$lib/debug.js';
+  import { mergeEditorLines, splitEditorLine } from '$lib/editor-lines.js';
   import { isTypingTarget } from '$lib/left-panel.js';
   import { createEventDispatcher } from 'svelte';
   import { reassignStrokes, getStrokesSnapshot, updateStrokeBlockUuids, getStrokesInYRange } from '$stores/strokes.js';
@@ -127,32 +128,7 @@
     // Get lines to merge
     const linesToMerge = indices.map(i => editedLines[i]);
 
-    // Track ALL block UUIDs for proper stroke reassignment and deletion
-    const allBlockUuids = linesToMerge
-      .map(l => l.blockUuid)
-      .filter(Boolean);
-
-    const mergedLine = {
-      text: linesToMerge.map(l => l.text).join(' '),
-      canonical: linesToMerge.map(l => l.canonical).join(' '),
-      yBounds: {
-        minY: Math.min(...linesToMerge.map(l => l.yBounds.minY)),
-        maxY: Math.max(...linesToMerge.map(l => l.yBounds.maxY))
-      },
-      mergedLineCount: linesToMerge.reduce((sum, l) => sum + (l.mergedLineCount || 1), 0),
-      indentLevel: linesToMerge[0].indentLevel || 0,
-      // Only if every part came from the batch — a merged yBounds spanning a
-      // disk line and a fresh one belongs to neither origin.
-      fromBatch: linesToMerge.every(l => l.fromBatch),
-      blockUuid: linesToMerge[0].blockUuid,
-      mergedBlockUuids: allBlockUuids,
-      blocksToDelete: allBlockUuids.slice(1),
-      syncStatus: 'modified',
-      id: linesToMerge[0].id,
-      originalIndex: linesToMerge[0].originalIndex,
-      userModified: true,
-      sourceLines: linesToMerge.map(l => l.originalIndex)
-    };
+    const mergedLine = mergeEditorLines(linesToMerge);
 
     // Build new lines array
     const newLines = [];
@@ -177,38 +153,7 @@
 
   // Split a line at cursor position
   function splitLine(index, splitText1, splitText2) {
-    const line = editedLines[index];
-
-    const midY = (line.yBounds.minY + line.yBounds.maxY) / 2;
-
-    const line1 = {
-      text: splitText1.trim(),
-      canonical: splitText1.trim(),
-      yBounds: { minY: line.yBounds.minY, maxY: midY },
-      mergedLineCount: 1,
-      indentLevel: line.indentLevel || 0,
-      fromBatch: line.fromBatch,
-      blockUuid: line.blockUuid,
-      syncStatus: line.blockUuid ? 'modified' : (line.syncStatus || 'synced'),
-      id: line.id,
-      originalIndex: line.originalIndex,
-      userModified: true
-    };
-
-    const line2 = {
-      text: splitText2.trim(),
-      canonical: splitText2.trim(),
-      yBounds: { minY: midY, maxY: line.yBounds.maxY },
-      mergedLineCount: 1,
-      indentLevel: line.indentLevel || 0,
-      // Halves of a split inherit the parent's coordinate space. 'new' here
-      // means "no block yet", which is not the same question.
-      fromBatch: line.fromBatch,
-      syncStatus: 'new',
-      id: `${line.id}-split`,
-      originalIndex: line.originalIndex,
-      userModified: true
-    };
+    const [line1, line2] = splitEditorLine(editedLines[index], splitText1, splitText2);
 
     editedLines = [
       ...editedLines.slice(0, index),

@@ -7,10 +7,12 @@
   The list is position: fixed under the button: cards clip their overflow (for
   the rounded corners), and an absolutely placed menu would be cut off. It
   closes on outside click, Escape, or any scroll, since a fixed menu would
-  otherwise float away from its card.
+  otherwise float away from its card. While open, ↑ ↓ Home End move between
+  items and ←/→ are kept from the page behind (lib/menu-keys.js).
 -->
 <script>
   import { tick } from 'svelte';
+  import { menuKeyAction, menuFocusIndex } from '$lib/menu-keys.js';
 
   /** @type {Array<{label: string, onSelect: () => void, disabled?: boolean, title?: string}>} */
   export let items = [];
@@ -45,18 +47,25 @@
     open = false;
   }
 
+  // Capture phase (menu-keys.js): handled keys never reach the reader or grid behind.
   function onKey(e) {
-    if (open && e.key === 'Escape') {
+    const action = menuKeyAction(e, open);
+    if (!action) return;
+    e.preventDefault();
+    if (action === 'close') {
       open = false;
-      e.preventDefault();
       btnEl?.focus();
+    } else if (action !== 'swallow') {
+      const btns = [...(menuEl?.querySelectorAll('button:not(:disabled)') || [])];
+      const i = menuFocusIndex(btns.indexOf(document.activeElement), btns.length, action);
+      if (i >= 0) btns[i].focus();
     }
   }
 </script>
 
 <svelte:window
   on:pointerdown={onWindowPointer}
-  on:keydown={onKey}
+  on:keydown|capture={onKey}
   on:scroll|capture={() => (open = false)}
   on:resize={() => (open = false)}
 />

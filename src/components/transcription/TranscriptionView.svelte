@@ -20,6 +20,7 @@
   import { bookAliases, viewerMode } from '$stores';
   // v2.0: folder-backed transcript edits
   import { getPage } from '$lib/storage/local-store.js';
+  import { markerField } from '$lib/tasks.js';
   import { formatBookName, filterTranscriptionProperties } from '$utils/formatting.js';
 
   import TranscriptionEditorModal from '$components/dialog/TranscriptionEditorModal.svelte';
@@ -90,6 +91,9 @@
           yBounds: l.yBounds || { minY: 0, maxY: 0 },
           indentLevel: l.indentLevel || 0,
           blockUuid: l.id,
+          // Task state, so a merge or split in the dialog carries it (editor-lines.js)
+          checked: l.checked ?? null,
+          ...markerField(l),
           syncStatus: 'synced'
         }));
         log(`Loaded ${existingLines.length} existing transcript line(s) from folder`, 'info');

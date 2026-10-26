@@ -6,6 +6,39 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Unreleased — tag and task fixes from the UX review; Not a task (October 2026)
+
+From the tags and tasks UX review (`docs/TAGS-TASKS-UX-REVIEW.html`), the fixes that could lose state or catch the
+keyboard. Each has a unit test.
+
+**Task state survives every transcript edit.** Merging or splitting lines in the Edit Transcription dialog rebuilt
+the lines without `checked` / `marker`, so a merged or split task was saved as a plain line, and a task merged under
+a plain line lost its state in `applyEditorLines`. The merge and split now live in `lib/editor-lines.js`: a merged
+line takes the state of its first part that is a task, and the first half of a split keeps it. The Editor Transcripts
+tab's dialog lines now carry the state too.
+
+**Editor saves no longer write back a stale copy.** The Editor Pages tab's save wrote the snapshot taken when the dialog
+opened and never refreshed, so a tick made meanwhile was undone and Tasks kept listing deleted lines. The Library's Edit
+mode had the same problem for a task change made after Edit opened (it only locks the page on the first keystroke).
+Both now take the disk's state for any line whose state the edit didn't change (`keepDiskTaskState`). The Pages tab
+also refuses to save over a Library draft and calls `refreshAfterSave()`. Locking the page from the moment Edit opens
+was rejected: an untouched Edit would then trigger the unsaved-changes prompt.
+
+**Undo isn't lost on a locked page.** Undo cleared `taskUndo` before the write, which the draft check then refused, so
+the undo was gone without notice. It is now checked first and kept, and the toast's Undo is disabled with the reason.
+
+**Keys.** In a tag field, Enter adds exactly what was typed unless a row was chosen with ↑ ↓. It used to add the
+most-used tag starting with the text, so `beam` could become `beam-check`. The exact tag is listed first, and input
+that normalizes to nothing lists nothing. Holding Backspace removes one tag, not all of them. Menus (the ⋯
+OverflowMenu, the bulk bar's Remove a tag ▾) handle their keys in the window's capture phase and preventDefault them
+(`lib/menu-keys.js`). As a result, ←/→ no longer turn the page under an open task menu, Escape no longer also leaves
+Select or clears the reader's line highlight, and ↑ ↓ Home End move between items.
+
+**Not a task.** The task ⋯ menu ends with Not a task, which makes the line plain (`checked: null`). It goes through
+`setTaskState()` like the other states, the scan record's summary is rebuilt from the written page, and the toast
+offers Undo. Only that Undo may turn a plain line back into a task; making a plain line a task by hand is still
+open (review finding T6).
+
 ## v3.6.2 — MCP server trimmed: wasm renderer, pixel budget, nine tools (October 2026)
 
 A third-party review found the read-only MCP server (`mcp/`) over-built around cost and deployment. This release takes

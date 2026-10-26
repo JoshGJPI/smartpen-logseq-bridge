@@ -32,6 +32,13 @@ export const CANCELLED = 'CANCELLED';
 /** The four states, as the UI and setTaskState() name them. */
 export const TASK_STATES = ['todo', 'done', 'waiting', 'cancelled'];
 
+/**
+ * "Not a task": the line goes back to plain text (`checked: null`, no marker).
+ * Not a fifth task state: no row, count or filter ever shows it. Only the ⋯
+ * menu sets it, and only setTaskState() writes it (or its Undo).
+ */
+export const NOT_A_TASK = 'none';
+
 /** Longest text a scan summary keeps (the record is display data, not the line). */
 export const TASK_TEXT_MAX = 300;
 export const TASK_PARENT_MAX = 120;
@@ -71,22 +78,28 @@ export function taskStateOf(line) {
   return null;
 }
 
-/** True for a state setTaskState() accepts. */
+/** True for one of the four task states. */
 export function isTaskState(state) {
   return TASK_STATES.includes(state);
 }
 
+/** True for a state setTaskState() accepts: a task state or NOT_A_TASK. */
+export function isLineState(state) {
+  return isTaskState(state) || state === NOT_A_TASK;
+}
+
 /**
  * A copy of the line in that state: `checked` set, `marker` only for WAITING
- * and CANCELLED. Every other field is kept.
+ * and CANCELLED, `checked: null` for NOT_A_TASK. Every other field is kept.
  * @template T
  * @param {T} line
- * @param {'todo'|'done'|'waiting'|'cancelled'} state
+ * @param {'todo'|'done'|'waiting'|'cancelled'|'none'} state
  * @returns {T}
  */
 export function withTaskState(line, state) {
-  if (!isTaskState(state)) throw new Error(`Unknown task state: ${state}`);
+  if (!isLineState(state)) throw new Error(`Unknown task state: ${state}`);
   const { marker, ...rest } = line || {};
+  if (state === NOT_A_TASK) return { ...rest, checked: null };
   if (state === 'done') return { ...rest, checked: true };
   if (state === 'waiting') return { ...rest, checked: false, marker: WAITING };
   if (state === 'cancelled') return { ...rest, checked: true, marker: CANCELLED };
@@ -221,7 +234,7 @@ export function buildTaskRows(records, { tags = {}, dates = null, overrides = nu
     r.tasks.forEach((t, order) => {
       const key = taskKey(r.book, pageId, t.id);
       const state = (overrides && overrides.get(key)) || taskStateOf(t);
-      if (!state) return;
+      if (!state || state === NOT_A_TASK) return;
       rows.push({
         key,
         book: String(r.book),
@@ -383,11 +396,12 @@ export function groupTaskRows(rows, by) {
 }
 
 /**
- * A scan summary with one task's state changed, or the same array when the
- * line isn't in it.
+ * A scan summary with one task's state changed (NOT_A_TASK drops it), or the
+ * same array when the line isn't in it.
  */
 export function summaryWithState(tasks, lineId, state) {
   if (!Array.isArray(tasks) || !tasks.some((t) => t.id === lineId)) return tasks;
+  if (state === NOT_A_TASK) return tasks.filter((t) => t.id !== lineId);
   return tasks.map((t) => {
     if (t.id !== lineId) return t;
     const next = withTaskState(t, state);
@@ -396,16 +410,18 @@ export function summaryWithState(tasks, lineId, state) {
 }
 
 /**
- * The row / line menu: the three states a task can move to from `state`, as
- * `[{ state, label }]`. WAITING and CANCELLED are only ever set here, by hand.
+ * The row / line menu: the three states a task can move to from `state`, then
+ * Not a task, as `[{ state, label }]`. WAITING, CANCELLED and Not a task are
+ * only ever set here, by hand.
  */
 export function taskMenuChoices(state) {
   const TODO = { state: 'todo', label: 'Mark TODO' };
   const DONE = { state: 'done', label: 'Mark DONE' };
   const WAIT = { state: 'waiting', label: 'Mark WAITING' };
   const CANCEL = { state: 'cancelled', label: 'Mark CANCELLED' };
-  if (state === 'done') return [TODO, WAIT, CANCEL];
-  if (state === 'waiting') return [DONE, { state: 'todo', label: 'Clear WAITING (back to TODO)' }, CANCEL];
-  if (state === 'cancelled') return [{ state: 'todo', label: 'Restore (back to TODO)' }, DONE, WAIT];
-  return [DONE, WAIT, CANCEL];
+  const NONE = { state: NOT_A_TASK, label: 'Not a task' };
+  if (state === 'done') return [TODO, WAIT, CANCEL, NONE];
+  if (state === 'waiting') return [DONE, { state: 'todo', label: 'Clear WAITING (back to TODO)' }, CANCEL, NONE];
+  if (state === 'cancelled') return [{ state: 'todo', label: 'Restore (back to TODO)' }, DONE, WAIT, NONE];
+  return [DONE, WAIT, CANCEL, NONE];
 }

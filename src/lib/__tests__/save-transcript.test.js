@@ -46,6 +46,24 @@ describe('saveTranscriptLines', () => {
     savePage.mockReset();
   });
 
+  it('with base: a task state changed on disk after Edit opened is kept, and returned', async () => {
+    // Edit opened on TODO / WAITING; meanwhile a was ticked DONE and b made plain.
+    getPage.mockResolvedValue({
+      version: '2.0', pageInfo: { section: 1, owner: 1, book: 3, page: 5 }, metadata: {},
+      transcript: { lines: [{ id: 'a', text: 'a', checked: true }, { id: 'b', text: 'b', checked: null }, { id: 'c', text: 'c', checked: true, marker: 'CANCELLED' }] },
+      strokes: []
+    });
+    savePage.mockResolvedValue({ success: true });
+    const base = [{ id: 'a', text: 'a', checked: false }, { id: 'b', text: 'b', checked: false, marker: 'WAITING' }, { id: 'c', text: 'c', checked: true, marker: 'CANCELLED' }];
+    const draft = [{ id: 'a', text: 'a edited', checked: false }, { id: 'b', text: 'b', checked: false, marker: 'WAITING' }, { id: 'c', text: 'c', checked: true, marker: 'CANCELLED' }];
+    const res = await saveTranscriptLines(3, 5, draft, { base });
+    const written = savePage.mock.calls[0][2].transcript.lines;
+    expect(written.map((l) => [l.id, l.text, l.checked, l.marker])).toEqual([
+      ['a', 'a edited', true, undefined], ['b', 'b', null, undefined], ['c', 'c', true, 'CANCELLED']
+    ]);
+    expect(res.lines).toEqual(written);
+  });
+
   it('writes edited lines verbatim and scrubs deleted lineIds', async () => {
     getPage.mockResolvedValue({
       version: '2.0',

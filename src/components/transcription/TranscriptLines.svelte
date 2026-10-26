@@ -23,7 +23,7 @@
 <script>
   import { hasMyScriptCredentials } from '$stores';
   import { taskOverrides, toggleTask, changeTask } from '$stores/tasks.js';
-  import { taskStateOf, taskKey, isClosedState } from '$lib/tasks.js';
+  import { taskStateOf, taskKey, isClosedState, NOT_A_TASK } from '$lib/tasks.js';
   import TaskBox from '../tasks/TaskBox.svelte';
   import TaskMenu from '../tasks/TaskMenu.svelte';
 
@@ -48,7 +48,12 @@
   export let taskLock = '';
 
   $: interactive = taskBook != null && taskPageId != null;
-  $: stateOf = (line) => (interactive && $taskOverrides.get(taskKey(taskBook, taskPageId, line.id))) || taskStateOf(line);
+  // An override of Not a task shows the line plain while the write runs.
+  $: stateOf = (line) => {
+    const over = interactive && $taskOverrides.get(taskKey(taskBook, taskPageId, line.id));
+    if (over) return over === NOT_A_TASK ? null : over;
+    return taskStateOf(line);
+  };
 
   // After layout settles (the page's ink fits in the same frame), so the line
   // lands mid-pane rather than where it was before the pane had its height.

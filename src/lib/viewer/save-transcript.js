@@ -13,6 +13,7 @@
 
 import { getPage, savePage } from '$lib/storage/local-store.js';
 import { markerField } from '$lib/tasks.js';
+import { keepDiskTaskState } from '$lib/editor-lines.js';
 
 /**
  * Recompute each line's parentId from its indentLevel: the parent is the
@@ -55,15 +56,20 @@ function normaliseLine(line) {
  * @param {number} book
  * @param {number} page
  * @param {Array<Object>} lines - editor line objects ({id, text, indentLevel, checked, yBounds})
- * @returns {Promise<import('$lib/storage/page-doc.js').SaveResult>}
+ * @param {{ base?: Array<Object> }} [opts]  `base`: the lines the edit started
+ *   from. A line whose task state the edit didn't change takes the state on
+ *   disk, so a task change made after Edit was opened is not written back.
+ * @returns {Promise<import('$lib/storage/page-doc.js').SaveResult & { lines: Array<Object> }>}
+ *   `lines` as written
  */
-export async function saveTranscriptLines(book, page, lines) {
+export async function saveTranscriptLines(book, page, lines, { base = null } = {}) {
   const doc = await getPage(book, page);
   if (!doc) {
     throw new Error(`Cannot save transcript: page B${book}/P${page} not found`);
   }
 
-  const normalised = recomputeParentIds(lines.map(normaliseLine));
+  let normalised = recomputeParentIds(lines.map(normaliseLine));
+  if (base) normalised = keepDiskTaskState(normalised, base, doc.transcript?.lines || []);
 
   // Scrub dangling lineId references on strokes whose line was deleted.
   const keptIds = new Set(normalised.map((l) => l.id));
@@ -86,5 +92,6 @@ export async function saveTranscriptLines(book, page, lines) {
     },
   };
 
-  return savePage(book, page, next);
+  const result = await savePage(book, page, next);
+  return result && typeof result === 'object' ? { ...result, lines: normalised } : result;
 }

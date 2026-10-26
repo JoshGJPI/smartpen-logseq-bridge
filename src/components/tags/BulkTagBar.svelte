@@ -7,6 +7,7 @@
 <script>
   import { pageTags, addTagToPages, removeTagFromPages } from '$stores/tags.js';
   import { compareTags } from '$lib/tags.js';
+  import { menuKeyAction } from '$lib/menu-keys.js';
   import { plural } from '$lib/plural.js';
   import TagInput from './TagInput.svelte';
   import TagChip from './TagChip.svelte';
@@ -40,15 +41,16 @@
     if (await removeTagFromPages(keys, tag)) status = `Removed “${tag}” from ${n} ${plural(n, 'page')}`;
   }
 
+  // Capture phase, so PageGrid's Escape (leave Select) sees it handled.
   function onKey(e) {
-    if (e.key === 'Escape' && removeOpen) {
+    if (menuKeyAction(e, removeOpen) === 'close') {
       e.preventDefault();
       removeOpen = false;
     }
   }
 </script>
 
-<svelte:window on:keydown={onKey} />
+<svelte:window on:keydown|capture={onKey} />
 
 <div class="btb" role="toolbar" aria-label="Tag selected pages">
   <b>{keys.length} selected</b>

@@ -1,8 +1,9 @@
 <!--
-  TaskMenu.svelte — a task's "⋯" menu (v3.4.0): the two other states it can
-  take (lib/tasks.js taskMenuChoices). The only way to set or clear WAITING and CANCELLED.
-  OverflowMenu handles outside click, scroll and Escape (which it
-  preventDefaults, so the reader behind leaves the key alone).
+  TaskMenu.svelte — a task's "⋯" menu (v3.4.0): the three other states it can
+  take, then Not a task (lib/tasks.js taskMenuChoices). The only way to set or
+  clear WAITING and CANCELLED, or to make a task a plain line again.
+  OverflowMenu handles outside click, scroll and its keys (which it
+  preventDefaults, so the reader behind leaves them alone).
 -->
 <script>
   import OverflowMenu from '../viewer/OverflowMenu.svelte';

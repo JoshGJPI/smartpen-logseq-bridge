@@ -59,6 +59,7 @@ import { yBoundsToNcode } from '$lib/myscript-api.js';
 import { normalizeRotation, rotateStoredPoints } from '$lib/page-orientation.js';
 import { noteOnDiskStrokeIds } from '$stores/pending-changes.js';
 import { parseTaskMarker, stripTaskMarker } from '$lib/task-markers.js';
+import { taskStateOf, withTaskState } from '$lib/tasks.js';
 
 /* -----------------------------------------------------------------
  *  Stroke shape conversion
@@ -389,6 +390,8 @@ function applyEditorLines(existingLines, pageTranscription, storedStrokes, origi
       if (raw !== ex.text && ex.checked == null) {
         const parsed = parseTaskMarker(raw);
         if (parsed.checked != null) next = { ...next, text: parsed.text.trim(), checked: parsed.checked };
+        // A task merged under this plain line: the merged line keeps its state.
+        else if (taskStateOf(el)) next = withTaskState(next, taskStateOf(el));
       }
       if (indentLevel !== (ex.indentLevel || 0)) reparent.add(ex.id);
       out.push(next);
@@ -396,12 +399,14 @@ function applyEditorLines(existingLines, pageTranscription, storedStrokes, origi
     }
     if (!raw) continue;
     const { checked, text } = parseTaskMarker(raw);
+    // No box in the text, but a saved task was merged in: keep its state.
+    const carried = checked == null && taskStateOf(el) ? withTaskState({}, taskStateOf(el)) : { checked };
     const rec = {
       id: randomUUID(),
       text: text.trim(),
       indentLevel,
       parentId: null,
-      checked,
+      ...carried,
       yBounds: el.yBounds && (el.yBounds.minY !== 0 || el.yBounds.maxY !== 0)
         ? { minY: el.yBounds.minY, maxY: el.yBounds.maxY }
         : null

@@ -109,13 +109,15 @@ export function applyTranscriptToRecord(book, pageId, lines) {
  * @param {string} lineId
  * @param {'todo'|'done'|'waiting'|'cancelled'} state
  * @param {string} [lastUpdated]  the doc's new metadata.lastUpdated
+ * @param {Array|null} [summary]  a rebuilt `tasks` summary to use instead (a
+ *   line made Not a task, or its Undo)
  */
-export function applyTaskStateToRecord(book, pageId, lineId, state, lastUpdated) {
+export function applyTaskStateToRecord(book, pageId, lineId, state, lastUpdated, summary = null) {
   savedPages.update((pages) =>
     pages.map((p) => {
       const id = p.pageId != null ? String(p.pageId) : String(p.page);
       if (String(p.book) !== String(book) || id !== String(pageId)) return p;
-      const tasks = summaryWithState(p.tasks, lineId, state);
+      const tasks = Array.isArray(summary) ? summary : summaryWithState(p.tasks, lineId, state);
       return { ...p, tasks, lastUpdated: lastUpdated || p.lastUpdated };
     })
   );

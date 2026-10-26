@@ -6,14 +6,16 @@
   The popover lists existing tags containing what is typed, most-used first
   with page counts (from the sidecar: tagStatsList), and a Create "…" row for a
   new one; a project-number shape is normalized (p2026-141 → P2026-141).
-  ↑ ↓ choose, Enter adds, Esc closes the list (then leaves the field),
-  Backspace on an empty field removes the last chip. Escape is
+  ↑ ↓ choose, Enter adds the chosen row or else exactly what was typed (the
+  exact tag is listed first), Esc closes the list (then leaves the field),
+  Backspace on an empty field removes the last chip (one per press, not on
+  auto-repeat). Escape is
   preventDefault()-ed so the reader behind leaves it alone; every other
   window shortcut already stands down while typing (isTypingTarget).
 -->
 <script>
   import { tagStatsList } from '$stores/tags.js';
-  import { tagOptions, normalizeTag, isProjectTag } from '$lib/tags.js';
+  import { tagOptions, normalizeTag, isProjectTag, tagEnterChoice, backspaceRemovesTag } from '$lib/tags.js';
   import { plural } from '$lib/plural.js';
   import TagChip from './TagChip.svelte';
 
@@ -68,11 +70,9 @@
       if (items.length) hi = (hi + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length;
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      const pick = items[hi];
-      const q = normalizeTag(text);
-      if (pick && (navigated || (q && pick.tag.toLowerCase().startsWith(q.toLowerCase())))) add(pick.tag);
-      else if (q) add(q);
-    } else if (e.key === 'Backspace' && text === '' && showChips && onRemove && tags.length) {
+      const t = tagEnterChoice(items, hi, navigated, text);
+      if (t) add(t);
+    } else if (backspaceRemovesTag(e, text) && showChips && onRemove && tags.length) {
       onRemove(tags[tags.length - 1]);
     } else if (e.key === 'Escape') {
       e.preventDefault();

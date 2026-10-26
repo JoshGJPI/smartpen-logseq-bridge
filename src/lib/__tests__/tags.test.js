@@ -9,7 +9,7 @@ import {
   normalizeTagsFile, withPageList, addTagToKeys, removeTagFromKeys, renameTagInMap,
   deleteTagFromMap, tagExists, diffTagMaps, rollbackPatch, findProjectNumbers,
   suggestProjectNumbers, splitSuggestionLine, buildTagIndex, recordsForKeys, untaggedRecords,
-  tagCards, untaggedCard, sortTagCards, tagStats, filterByTags, filterChoices, tagOptions,
+  tagCards, untaggedCard, sortTagCards, tagStats, filterByTags, filterChoices, tagOptions, tagEnterChoice, backspaceRemovesTag,
   parseTagSort, parseGroupBy, planTagCarry, MAX_TAG_LENGTH
 } from '$lib/tags.js';
 
@@ -354,6 +354,44 @@ describe('filters', () => {
     for (const { tag } of filterChoices(items, ['beam'], 'all')) {
       expect(filterByTags(items, ['beam', tag], 'all').length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('tag field: Enter adds what was typed (G1), Backspace once per press (G3)', () => {
+  const stats = [{ tag: 'beam-check', pages: 14 }, { tag: 'beam', pages: 6 }, { tag: 'beams', pages: 2 }];
+
+  it('lists the exact tag first even when a longer one is used more', () => {
+    expect(tagOptions('beam', stats).options.map((o) => o.tag)).toEqual(['beam', 'beam-check', 'beams']);
+    expect(tagOptions('Beam', stats).options[0].tag).toBe('beam');
+  });
+
+  it('Enter without ↑ ↓ adds exactly the typed tag, never a longer match', () => {
+    const items = tagOptions('beam', stats).options;
+    expect(tagEnterChoice(items, 0, false, 'beam')).toBe('beam');
+    const only = [{ tag: 'beams', pages: 2 }];
+    expect(tagEnterChoice(only, 0, false, 'beam')).toBe('beam');
+    expect(tagEnterChoice([], 0, false, 'p2026-141')).toBe('P2026-141');
+  });
+
+  it('Enter after ↑ ↓ adds the highlighted row', () => {
+    const items = tagOptions('beam', stats).options;
+    expect(tagEnterChoice(items, 1, true, 'beam')).toBe('beam-check');
+  });
+
+  it('Enter on text that is no tag adds nothing', () => {
+    expect(tagEnterChoice([], 0, false, '  ')).toBeNull();
+    expect(tagEnterChoice([], 0, false, '??')).toBeNull();
+  });
+
+  it('input that normalizes to nothing lists no tags', () => {
+    expect(tagOptions('??', stats)).toEqual({ options: [], create: null });
+  });
+
+  it('Backspace removes a tag only on a fresh press in an empty field', () => {
+    expect(backspaceRemovesTag({ key: 'Backspace', repeat: false }, '')).toBe(true);
+    expect(backspaceRemovesTag({ key: 'Backspace', repeat: true }, '')).toBe(false);
+    expect(backspaceRemovesTag({ key: 'Backspace', repeat: false }, 'b')).toBe(false);
+    expect(backspaceRemovesTag({ key: 'Delete', repeat: false }, '')).toBe(false);
   });
 });
 

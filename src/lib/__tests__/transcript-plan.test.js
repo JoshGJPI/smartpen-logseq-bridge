@@ -129,6 +129,31 @@ describe('planTranscript: the Edit Transcription result', () => {
     expect(plan.linesAdded).toBe(1);
   });
 
+  it('a task merged under a plain saved line keeps its state (WAITING too)', () => {
+    const saved = [line('L1', 'Smith'), line('L2', 'geotech report', { checked: false, marker: 'WAITING' })];
+    // The dialog's merged line carries the task part's state (editor-lines.js mergeEditorLines).
+    const plan = planTranscript(saved, editor([
+      { text: 'Smith geotech report', blockUuid: 'L1', checked: false, marker: 'WAITING' }
+    ], ['L1', 'L2'], [{ deletedBlockUuid: 'L2', survivingBlockUuid: 'L1' }]));
+    expect(plan.lines).toHaveLength(1);
+    expect(plan.lines[0]).toMatchObject({ id: 'L1', text: 'Smith geotech report', checked: false, marker: 'WAITING' });
+  });
+
+  it('a saved task merged into a new MyScript line keeps its state', () => {
+    const saved = [line('L2', 'call city', { checked: true, marker: 'CANCELLED' })];
+    const plan = planTranscript(saved, editor([
+      { text: 'call city about permit', checked: true, marker: 'CANCELLED', yBounds: { minY: 1, maxY: 9 } }
+    ], ['L2']));
+    expect(plan.lines.map((l) => [l.text, l.checked, l.marker])).toEqual([['call city about permit', true, 'CANCELLED']]);
+  });
+
+  it('a saved task keeps its own state on disk over the dialog copy', () => {
+    // Ticked DONE while the dialog was open on the TODO copy.
+    const plan = planTranscript([line('L1', 'call Troy', { checked: true })],
+      editor([{ text: 'call Troy today', blockUuid: 'L1', checked: false }], ['L1']));
+    expect(plan.lines[0]).toMatchObject({ text: 'call Troy today', checked: true });
+  });
+
   it('a box typed onto a plain saved line makes it a task', () => {
     const plan = planTranscript([line('L1', 'call Troy')], editor([{ text: '☐ call Troy', blockUuid: 'L1' }], ['L1']));
     expect(plan.lines[0]).toMatchObject({ id: 'L1', text: 'call Troy', checked: false });

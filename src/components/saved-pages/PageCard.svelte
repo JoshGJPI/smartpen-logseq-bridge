@@ -10,6 +10,8 @@
   import { importStrokesFromFolder } from '$lib/storage/load-page.js';
   import { getPage } from '$lib/storage/local-store.js';
   import { markerField } from '$lib/tasks.js';
+  import { buildEditedTranscript } from '$lib/editor-lines.js';
+  import { refreshAfterSave } from '$lib/storage/refresh.js';
   import TranscriptionPreview from './TranscriptionPreview.svelte';
   import TranscriptionEditorModal from '../dialog/TranscriptionEditorModal.svelte';
   import { exportPageDocToGraph } from '$lib/storage/graph-export.js';
@@ -20,6 +22,7 @@
     clearStrokeBlockUuids,
     getActiveStrokesForPageFromStore,
     canvasPageKeys,
+    isViewerPageDirty,
     log
   } from '$stores';
 
@@ -36,6 +39,8 @@
   let editedTranscription = page.transcriptionText || '';
   let showEditorModal = false;
   let editorLines = [];
+  /** transcript.lines when the dialog opened, for keepDiskTaskState */
+  let editorBase = [];
   let loadingLines = false;
   let transcriptExpanded = false;
   let exportingToGraph = false;
@@ -162,6 +167,7 @@
 
       // Map TranscriptLine[] → editor's expected line shape.
       // blockUuid keeps the editor's existing semantics (stable line ID).
+      editorBase = doc.transcript.lines;
       editorLines = doc.transcript.lines.map(l => ({
         text: l.text || '',
         canonical: (l.text || '').trim().toLowerCase(),
@@ -210,6 +216,11 @@
 
   async function handleSaveEditor(event) {
     const { lines: editedLines } = event.detail;
+    // A Library draft on this page would write its own copy over this one.
+    if (isViewerPageDirty(String(page.book), String(pageRef))) {
+      alert(`B${page.book}/P${pageRef} has unsaved transcript edits in the Library. Save or cancel them first.`);
+      return;
+    }
     try {
       // v2.0: rewrite the PageDoc's transcript section and atomic-write the file.
       const doc = await getPage(page.book, pageRef);
@@ -218,51 +229,12 @@
         return;
       }
 
-      // Track which old line IDs survived so we can also fix up stroke.lineId
-      // references when a line is merged into another (one survivor inherits).
-      const oldLineIds = new Set((doc.transcript?.lines || []).map(l => l.id));
-
-      // Build new TranscriptLine[] from editor output.
-      // Editor's blockUuid is the stable line ID; preserve it for unchanged
-      // lines so stroke.lineId references stay intact.
-      const newLines = editedLines.map(l => ({
-        id: l.blockUuid || randomId(),
-        text: (l.text || '').trim(),
-        indentLevel: l.indentLevel || 0,
-        parentId: null, // recomputed below
-        checked: l.checked ?? null,
-        ...markerField(l),
-        yBounds: l.yBounds && (l.yBounds.minY !== 0 || l.yBounds.maxY !== 0)
-          ? { minY: l.yBounds.minY, maxY: l.yBounds.maxY }
-          : null
-      }));
-
-      // Recompute parentId from indentLevel sequence (parent = nearest preceding
-      // line with a lower indentLevel).
-      for (let i = 0; i < newLines.length; i++) {
-        const lvl = newLines[i].indentLevel;
-        if (lvl === 0) {
-          newLines[i].parentId = null;
-        } else {
-          for (let j = i - 1; j >= 0; j--) {
-            if ((newLines[j].indentLevel || 0) < lvl) {
-              newLines[i].parentId = newLines[j].id;
-              break;
-            }
-          }
-        }
-      }
-
-      // Handle merged lines: if an editor entry has blocksToDelete + survivor blockUuid,
-      // redirect deleted-line strokes to the survivor.
-      const lineIdRemap = new Map();
-      for (const l of editedLines) {
-        if (Array.isArray(l.blocksToDelete) && l.blockUuid) {
-          for (const dead of l.blocksToDelete) {
-            if (dead && dead !== l.blockUuid) lineIdRemap.set(dead, l.blockUuid);
-          }
-        }
-      }
+      // The dialog's lines, task state from disk where the dialog didn't change
+      // it (a tick made while it was open is kept), merged-away lines' strokes
+      // handed to the survivor.
+      const { lines: newLines, lineIdRemap } = buildEditedTranscript(
+        editedLines, editorBase, doc.transcript?.lines || [], randomId
+      );
 
       // Apply lineId remap + scrub references to lines that no longer exist
       const liveIds = new Set(newLines.map(l => l.id));
@@ -292,6 +264,9 @@
       // transcript.
       const { savePage } = await import('$lib/storage/local-store.js');
       await savePage(page.book, pageRef, nextDoc);
+      // The Library, Tasks and the reader's cache hold copies of this page.
+      refreshAfterSave([{ book: page.book, pageId: pageRef }])
+        .catch((e) => log(`Could not refresh the Library after the save: ${e.message}`, 'warning'));
 
       // Update lightweight record fields only — don't stash the full doc back
       // onto the record (that's the residency removed in perf #3).

@@ -179,6 +179,38 @@ describe('setTaskState', () => {
   });
 });
 
+describe('Not a task', () => {
+  beforeEach(() => {
+    let disk = makeDoc();
+    vi.mocked(getPage).mockImplementation(async () => structuredClone(disk));
+    vi.mocked(savePage).mockImplementation(async (b, p, d) => { disk = d; return { success: true }; });
+    savedPages.set([record()]);
+  });
+
+  it('makes the line plain, keeps its text, and drops it from the scan record', async () => {
+    const res = await setTaskState('3017', '142', 'a', 'none');
+    expect(res).toMatchObject({ changed: true, prev: 'todo', state: 'none' });
+    const written = vi.mocked(savePage).mock.calls[0][2];
+    expect(written.transcript.lines[1]).toEqual({ ...makeDoc().transcript.lines[1], checked: null });
+    expect(written.transcript.lastTranscribed).toBe(LAST_TRANSCRIBED);
+    expect(get(savedPages)[0].tasks.map((t) => t.id)).toEqual(['b']);
+    expect(get(lastTaskWrite)).toMatchObject({ lineId: 'a', state: 'none' });
+  });
+
+  it('a plain line is refused unless it is an Undo (allowPlain), which restores the task', async () => {
+    await setTaskState('3017', '142', 'a', 'none');
+    await expect(setTaskState('3017', '142', 'a', 'todo')).rejects.toMatchObject({ code: 'not-task' });
+    const res = await setTaskState('3017', '142', 'a', 'waiting', { allowPlain: true });
+    expect(res).toMatchObject({ changed: true, prev: 'none' });
+    expect(get(savedPages)[0].tasks.map((t) => [t.id, t.marker])).toEqual([['a', 'WAITING'], ['b', null]]);
+  });
+
+  it('Not a task on a plain line is refused (the header is not a task)', async () => {
+    await expect(setTaskState('3017', '142', 'h', 'none')).rejects.toMatchObject({ code: 'not-task' });
+    expect(savePage).not.toHaveBeenCalled();
+  });
+});
+
 describe('docWithTaskState', () => {
   it('is pure', () => {
     const doc = makeDoc();

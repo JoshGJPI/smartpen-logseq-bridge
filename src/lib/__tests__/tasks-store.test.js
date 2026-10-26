@@ -182,6 +182,30 @@ describe('undoTaskChange', () => {
     expect(await undoTaskChange()).toBe(false);
   });
 
+  it('a draft on the page refuses the undo but keeps it for later', async () => {
+    await changeTask('3017', '170', 'c', 'done');
+    const pending = get(taskUndo);
+    markViewerDirtyPage('3017:170');
+    expect(await undoTaskChange()).toBe(false);
+    expect(get(taskUndo)).toBe(pending);
+    expect(lastLog().message).toMatch(/unsaved transcript edits/);
+    expect(disk['3017/170'].transcript.lines[0]).toMatchObject({ checked: true });
+    clearAllViewerDirty();
+    expect(await undoTaskChange()).toBe(true);
+    expect(disk['3017/170'].transcript.lines[0]).toMatchObject({ checked: false, marker: 'WAITING' });
+  });
+
+  it('Not a task removes the row at once, and Undo brings the task back', async () => {
+    expect(await changeTask('3017', '170', 'c', 'none')).toBe(true);
+    expect(stateOf('c')).toBeUndefined();
+    expect(disk['3017/170'].transcript.lines[0].checked).toBeNull();
+    expect(disk['3017/170'].transcript.lines[0]).not.toHaveProperty('marker');
+    expect(get(taskUndo)).toMatchObject({ prev: 'waiting', state: 'none', label: 'Not a task · B3017 p.170' });
+    expect(await undoTaskChange()).toBe(true);
+    expect(stateOf('c')).toBe('waiting');
+    expect(disk['3017/170'].transcript.lines[0]).toMatchObject({ checked: false, marker: 'WAITING' });
+  });
+
   it('only the latest change is undoable', async () => {
     await changeTask('3017', '142', 'a', 'done');
     await changeTask('3017', '142', 'b', 'todo');
