@@ -6,7 +6,9 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
-## Unreleased — Merge in Library Edit; transcript lines wrap (October 2026)
+## v3.7.1 — Merge in Library Edit, transcript lines wrap; Make task without ink (October 2026)
+
+### Merge in Library Edit; transcript lines wrap
 
 Prose written across several pen lines (thoughts, not shortcut bullets) is transcribed one line per written line.
 Joining them already worked in the Editor's Edit Transcription dialog, but not in the Library, and in both editors a
@@ -24,7 +26,7 @@ line: Enter keeps its old job (new line in Library Edit, nothing in the dialog),
 (`oneLine`). The edit row moved to `TranscriptEditRow.svelte` (TranscriptPane was over the size guideline), and Library
 Edit's toolbar wraps in a half-width spread page.
 
-## Unreleased — Make task without ink (October 2026)
+### Make task without ink
 
 Review finding T6: a plain line could become a task only by re-writing the ink. Not a task (v3.7.0) covered the
 other direction.
