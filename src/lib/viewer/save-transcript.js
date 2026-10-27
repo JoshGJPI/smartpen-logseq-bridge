@@ -9,7 +9,8 @@
  *   3. normalises each line to the TranscriptLine shape, and makes a plain line
  *      a task when a box was typed in front of it (`TODO`, `[ ]`, ☐, `DONE`,
  *      `[x]`, ☑: parseTypedTasks, as the Editor's dialog and transcription do),
- *   4. scrubs `lineId` on strokes whose line was deleted,
+ *   4. points a merged-away line's strokes at the line it was merged into, and
+ *      scrubs `lineId` on strokes whose line was deleted,
  *   5. bumps timestamps and writes atomically via savePage().
  */
 
@@ -96,11 +97,18 @@ export async function saveTranscriptLines(book, page, lines, { base = null } = {
   let normalised = recomputeParentIds(parseTypedTasks(lines.map(normaliseLine), base));
   if (base) normalised = keepDiskTaskState(normalised, base, doc.transcript?.lines || []);
 
-  // Scrub dangling lineId references on strokes whose line was deleted.
+  // A merged-away line's strokes go to the line it was merged into
+  // (mergeTranscriptLines' in-memory mergedIds); any other lineId whose line
+  // was deleted is scrubbed.
   const keptIds = new Set(normalised.map((l) => l.id));
-  const strokes = (doc.strokes || []).map((s) =>
-    s.lineId && !keptIds.has(s.lineId) ? { ...s, lineId: null } : s
-  );
+  const remap = new Map();
+  for (const l of lines) {
+    for (const dead of l.mergedIds || []) if (dead !== l.id && !keptIds.has(dead)) remap.set(dead, l.id);
+  }
+  const strokes = (doc.strokes || []).map((s) => {
+    if (!s.lineId || keptIds.has(s.lineId)) return s;
+    return { ...s, lineId: remap.get(s.lineId) ?? null };
+  });
 
   const now = new Date().toISOString();
   const next = {

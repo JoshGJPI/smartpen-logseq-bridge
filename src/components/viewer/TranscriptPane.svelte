@@ -6,7 +6,11 @@
                 text the line → ink hover).
   Edit mode:    inline structured editor — edit text, Tab/Shift+Tab to
                 indent/outdent, Enter adds a line below, Backspace on an empty
-                line deletes it. Task state isn't edited here: typing `TODO`,
+                line deletes it, Merge (Ctrl+J) joins the ticked lines (or the
+                focused line and the next) into the first, for prose written
+                across several lines (lib/editor-lines.js mergeTranscriptLines;
+                the merged-away lines' strokes follow on save). Long lines wrap
+                (TranscriptEditRow). Task state isn't edited here: typing `TODO`,
                 `[ ]` or ☐ (`DONE`, `[x]`, ☑) in front of a plain line makes it a
                 task on save (save-transcript.js parseTypedTasks); a task's own
                 state is kept (keepDiskTaskState). Ticks, WAITING, CANCELLED,
@@ -25,7 +29,9 @@
   import { linesToLogseqMarkdown, subtreeLines } from '$lib/viewer/transcript-markdown.js';
   import { saveTranscriptLines } from '$lib/viewer/save-transcript.js';
   import { markerField } from '$lib/tasks.js';
+  import { mergeTranscriptLines } from '$lib/editor-lines.js';
   import TranscriptLines from '../transcription/TranscriptLines.svelte';
+  import TranscriptEditRow from './TranscriptEditRow.svelte';
 
   /** @type {Array<{id:string,text:string,indentLevel:number,checked:boolean|null}>} */
   export let lines = [];
@@ -54,8 +60,10 @@
   let editing = false;
   let saving = false;
   let dirty = false;
-  /** @type {Array<HTMLInputElement>} */
+  /** @type {Array<TranscriptEditRow>} */
   let inputEls = [];
+  /** ids of the lines ticked for Merge */
+  let selectedIds = new Set();
   /** working copy while editing */
   let draft = [];
   /** the lines Edit opened on (task state on save: keepDiskTaskState) */
@@ -96,6 +104,7 @@
     if (draft.length === 0) draft = [blankLine()];
     editing = true;
     activeIndex = -1;
+    selectedIds = new Set();
     setDirty(false);
     onEditingChange(true);
   }
@@ -215,14 +224,38 @@
     inputEls[insertAt]?.focus();
   }
   async function deleteLine(i) {
+    if (selectedIds.has(draft[i]?.id)) toggleSelect(draft[i].id);
     draft.splice(i, 1);
     draft = draft;
     setDirty(true);
     await tick();
     inputEls[Math.max(0, i - 1)]?.focus();
   }
+  function toggleSelect(id) {
+    const next = new Set(selectedIds);
+    next.has(id) ? next.delete(id) : next.add(id);
+    selectedIds = next;
+  }
+  // Ticked lines (two or more), else the focused line and the one after it.
+  // The merged line keeps the first line's id and indent (mergeTranscriptLines).
+  async function merge() {
+    const indices = selectedIds.size >= 2
+      ? draft.map((l, i) => (selectedIds.has(l.id) ? i : -1)).filter((i) => i >= 0)
+      : activeIndex >= 0 && activeIndex < draft.length - 1 ? [activeIndex, activeIndex + 1] : [];
+    if (indices.length < 2) return;
+    draft = mergeTranscriptLines(draft, indices);
+    selectedIds = new Set();
+    setDirty(true);
+    await tick();
+    inputEls[indices[0]]?.focus();
+  }
+  $: canMerge = selectedIds.size >= 2 || (activeIndex >= 0 && activeIndex < draft.length - 1);
+
   function onKey(e, i) {
-    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.altKey) {
+    if ((e.key === 'j' || e.key === 'J') && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      merge();
+    } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.altKey) {
       e.preventDefault();
       e.key === 'ArrowUp' ? moveLineUp(i) : moveLineDown(i);
     } else if (e.key === 'Tab') {
@@ -264,6 +297,13 @@
           disabled={activeIndex < 0 || draft.length <= 1}
           title="Delete the selected block"
         >🗑 Delete</button>
+        <button
+          class="tp-btn"
+          on:mousedown|preventDefault
+          on:click={merge}
+          disabled={!canMerge}
+          title={selectedIds.size >= 2 ? 'Join the ticked lines into one, in the first one\'s place (Ctrl+J)' : 'Join the selected line with the next one, or tick lines to join (Ctrl+J)'}
+        >Merge{selectedIds.size >= 2 ? ` (${selectedIds.size})` : ''}</button>
         <span class="tp-toolbar-divider"></span>
         <button class="tp-btn" on:click={copy} title="Copy the whole transcript as LogSeq markdown">Copy all</button>
         <button class="tp-btn primary" on:click={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
@@ -277,27 +317,25 @@
 
   <div class="tp-body">
     {#if editing}
-      <div class="tp-edit-hint">Tab / Shift+Tab to indent · Alt+↑ / Alt+↓ to reorder · Enter for a new line</div>
+      <div class="tp-edit-hint">Tab / Shift+Tab to indent · Alt+↑ / Alt+↓ to reorder · Enter for a new line · tick lines and Merge (Ctrl+J) to join them</div>
       {#each draft as line, i (line.id)}
-        <div class="tp-edit-row" style="margin-left: {(line.indentLevel || 0) * 1.5}rem">
-          <input
-            class="tp-input"
-            type="text"
-            bind:value={line.text}
-            bind:this={inputEls[i]}
-            on:input={() => setDirty(true)}
-            on:keydown={(e) => onKey(e, i)}
-            on:focus={() => (activeIndex = i)}
-            on:blur={() => { if (activeIndex === i) activeIndex = -1; }}
-            placeholder="(empty line)"
-          />
-          <div class="tp-row-actions">
-            <button class="tp-icon" on:click={() => moveLineUp(i)} disabled={i === 0} title="Move up (Alt+↑)">↑</button>
-            <button class="tp-icon" on:click={() => moveLineDown(i)} disabled={i === draft.length - 1} title="Move down (Alt+↓)">↓</button>
-            <button class="tp-icon" on:click={() => outdentLine(i)} title="Outdent (Shift+Tab)">⇤</button>
-            <button class="tp-icon" on:click={() => indentLine(i)} title="Indent (Tab)">⇥</button>
-          </div>
-        </div>
+        <TranscriptEditRow
+          bind:text={line.text}
+          bind:this={inputEls[i]}
+          indentLevel={line.indentLevel}
+          selected={selectedIds.has(line.id)}
+          isFirst={i === 0}
+          isLast={i === draft.length - 1}
+          onEdit={() => setDirty(true)}
+          onKey={(e) => onKey(e, i)}
+          onFocus={() => (activeIndex = i)}
+          onBlur={() => { if (activeIndex === i) activeIndex = -1; }}
+          onToggleSelect={() => toggleSelect(line.id)}
+          onMoveUp={() => moveLineUp(i)}
+          onMoveDown={() => moveLineDown(i)}
+          onOutdent={() => outdentLine(i)}
+          onIndent={() => indentLine(i)}
+        />
       {/each}
     {:else}
       <TranscriptLines {lines} onCopyLine={copyBranch} {onHoverLine} {linkNote} {onTranscribe} onAddTranscript={startEdit} focusId={focusLineId}
@@ -319,6 +357,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 8px;
     padding: 8px 14px;
     border-bottom: 1px solid #ececec;
     flex-shrink: 0;
@@ -330,10 +369,12 @@
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
-  .tp-actions { display: flex; gap: 6px; }
+  /* Edit mode's buttons wrap onto a second row in a half-width spread page. */
+  .tp-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 
   .tp-btn {
     padding: 4px 12px;
+    white-space: nowrap;
     border: 1px solid #ddd;
     border-radius: 5px;
     background: #fff;
@@ -368,59 +409,4 @@
     border-bottom: 1px dashed #eee;
   }
 
-  /* ---- edit ---- */
-  .tp-edit-row {
-    position: relative;
-    display: flex;
-    align-items: center;
-    margin-bottom: 4px;
-  }
-  .tp-input {
-    flex: 1;
-    min-width: 0;
-    padding: 5px 8px;
-    border: 1px solid #e0e0e0;
-    border-radius: 5px;
-    font-size: 14px;
-    color: #222;
-    font-family: inherit;
-  }
-  .tp-input:focus { outline: none; border-color: #4a7cf7; }
-  /* The action group floats over the right edge of the (full-width) text input,
-     revealed on hover / keyboard focus. Its white background + feathered shadow
-     covers the text underneath so the controls stay legible; at rest the row
-     gives its whole width to the transcript text. */
-  .tp-row-actions {
-    position: absolute;
-    right: 5px;
-    top: 50%;
-    transform: translateY(-50%);
-    display: flex;
-    gap: 2px;
-    padding: 2px 3px;
-    border-radius: 6px;
-    background: #fff;
-    box-shadow: 0 0 7px 5px #fff;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.15s;
-  }
-  .tp-edit-row:hover .tp-row-actions,
-  .tp-edit-row:focus-within .tp-row-actions {
-    opacity: 1;
-    pointer-events: auto;
-  }
-  .tp-icon {
-    width: 24px;
-    height: 26px;
-    border: 1px solid transparent;
-    border-radius: 5px;
-    background: transparent;
-    cursor: pointer;
-    color: #888;
-    font-size: 13px;
-    line-height: 1;
-  }
-  .tp-icon:hover:not(:disabled) { background: #f0f0f0; color: #333; }
-  .tp-icon:disabled { opacity: 0.3; cursor: not-allowed; }
 </style>

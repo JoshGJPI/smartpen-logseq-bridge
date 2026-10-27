@@ -1,7 +1,8 @@
 /**
  * editor-lines — the Edit Transcription dialog's line operations (merge,
- * split) and the rule for task state when an edited transcript is written
- * back. Pure; TranscriptionEditorModal, PageCard and save-transcript use it.
+ * split; the Library reader's merge) and the rule for task state when an
+ * edited transcript is written back. Pure; TranscriptionEditorModal, PageCard,
+ * TranscriptPane and save-transcript use it.
  *
  * Task state (`checked`, `marker`) is not editable in the dialog or the
  * reader's Edit mode, so it must survive every edit there:
@@ -51,6 +52,38 @@ export function mergeEditorLines(parts) {
     sourceLines: parts.map((l) => l.originalIndex),
     ...taskFieldsOf(parts)
   };
+}
+
+/**
+ * The Library reader's Edit mode merge: the lines at `indices` become one, in
+ * the first one's place. The first line is the survivor (id, indent); texts
+ * are joined with spaces in page order, yBounds span the parts that have
+ * them, task state is the first task's (taskFieldsOf). The survivor lists the
+ * ids merged into it in `mergedIds` (in-memory only; the save points those
+ * lines' strokes at it). Fewer than two valid indices → `lines` unchanged.
+ * @template {{id: string, text?: string, yBounds?: {minY: number, maxY: number}|null, mergedIds?: string[]}} T
+ * @param {T[]} lines
+ * @param {number[]} indices
+ * @returns {T[]}
+ */
+export function mergeTranscriptLines(lines, indices) {
+  const idx = [...new Set(indices)].filter((i) => i >= 0 && i < lines.length).sort((a, b) => a - b);
+  if (idx.length < 2) return lines;
+  const parts = idx.map((i) => lines[i]);
+  const bounds = parts.map((l) => l.yBounds).filter(Boolean);
+  const { checked, marker, ...first } = parts[0];
+  const merged = {
+    ...first,
+    text: parts.map((l) => (l.text || '').trim()).filter(Boolean).join(' '),
+    yBounds: bounds.length
+      ? { minY: Math.min(...bounds.map((b) => b.minY)), maxY: Math.max(...bounds.map((b) => b.maxY)) }
+      : null,
+    checked: null,
+    ...taskFieldsOf(parts),
+    mergedIds: [...(first.mergedIds || []), ...parts.slice(1).flatMap((l) => [l.id, ...(l.mergedIds || [])])],
+  };
+  const drop = new Set(idx.slice(1));
+  return lines.flatMap((l, i) => (i === idx[0] ? [merged] : drop.has(i) ? [] : [l]));
 }
 
 /**

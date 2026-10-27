@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { mergeEditorLines, splitEditorLine, keepDiskTaskState, taskFieldsOf, buildEditedTranscript } from '../editor-lines.js';
+import { mergeEditorLines, splitEditorLine, keepDiskTaskState, taskFieldsOf, buildEditedTranscript, mergeTranscriptLines } from '../editor-lines.js';
 
 const el = (i, text, extra = {}) => ({
   id: `line-${i}`, originalIndex: i, text, canonical: text.toLowerCase(),
@@ -102,5 +102,45 @@ describe('buildEditedTranscript (the Editor Pages tab save)', () => {
     ], [disk('L0', 'Smith')], [disk('L0', 'Smith')], newId);
     expect(lines[1]).toMatchObject({ text: 'beam', parentId: 'L0', checked: null, yBounds: null });
     expect(lines[1].id).toMatch(/^new-/);
+  });
+});
+
+describe('mergeTranscriptLines (Library Edit merge)', () => {
+  const tl = (id, text, extra = {}) => ({ id, text, indentLevel: 0, parentId: null, checked: null, yBounds: null, ...extra });
+
+  it('joins the lines into the first, keeping its id and indent, with yBounds over the parts that have them', () => {
+    const lines = [
+      tl('a', 'Before'),
+      tl('p1', '  The footing was poured ', { indentLevel: 1, yBounds: { minY: 10, maxY: 14 } }),
+      tl('p2', 'before the rebar was', { yBounds: { minY: 15, maxY: 19 } }),
+      tl('p3', 'inspected.'),
+      tl('z', 'After'),
+    ];
+    const out = mergeTranscriptLines(lines, [3, 1, 2]);
+    expect(out.map((l) => l.id)).toEqual(['a', 'p1', 'z']);
+    expect(out[1]).toMatchObject({
+      text: 'The footing was poured before the rebar was inspected.',
+      indentLevel: 1, yBounds: { minY: 10, maxY: 19 }, checked: null, mergedIds: ['p2', 'p3'],
+    });
+    expect(out[1]).not.toHaveProperty('marker');
+  });
+
+  it('merges ticked lines that are not next to each other into the first one\'s place', () => {
+    const out = mergeTranscriptLines([tl('a', 'x'), tl('b', 'y'), tl('c', 'z')], [0, 2]);
+    expect(out.map((l) => [l.id, l.text])).toEqual([['a', 'x z'], ['b', 'y']]);
+  });
+
+  it('takes the first task\'s state, drops empty parts, and carries earlier merges', () => {
+    const first = tl('a', 'plain', { mergedIds: ['old'] });
+    const out = mergeTranscriptLines([first, tl('b', ''), tl('c', 'call', { checked: false, marker: 'WAITING', mergedIds: ['c0'] })], [0, 1, 2]);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ text: 'plain call', checked: false, marker: 'WAITING', mergedIds: ['old', 'b', 'c', 'c0'], yBounds: null });
+  });
+
+  it('fewer than two valid indices leaves the lines alone', () => {
+    const lines = [tl('a', 'x'), tl('b', 'y')];
+    expect(mergeTranscriptLines(lines, [1])).toBe(lines);
+    expect(mergeTranscriptLines(lines, [1, 1, 7])).toBe(lines);
+    expect(mergeTranscriptLines([], [])).toEqual([]);
   });
 });

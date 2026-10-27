@@ -6,6 +6,7 @@
   import { debug } from '$lib/debug.js';
   import { mergeEditorLines, splitEditorLine } from '$lib/editor-lines.js';
   import { isTypingTarget } from '$lib/left-panel.js';
+  import { autosize, oneLine } from '$lib/autosize.js';
   import { createEventDispatcher } from 'svelte';
   import { reassignStrokes, getStrokesSnapshot, updateStrokeBlockUuids, getStrokesInYRange } from '$stores/strokes.js';
   import TranscriptStrokePreview from './TranscriptStrokePreview.svelte';
@@ -559,14 +560,19 @@
               <span class="bullet">&#8226;</span>
 
               <!-- Editable text -->
-              <input
-                type="text"
+              <!-- Wraps instead of scrolling: a one-row textarea that grows
+                   (lib/autosize.js). The line stays one line: Enter is not a
+                   newline, and pasted breaks become spaces. -->
+              <textarea
                 class="line-text"
+                rows="1"
                 value={line.text}
-                on:input={(e) => handleLineInput(index, e.target.value)}
+                use:autosize={line.text}
+                on:input={(e) => handleLineInput(index, oneLine(e.target.value))}
+                on:keydown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
                 on:blur={() => addToHistory()}
                 placeholder="Empty line..."
-              />
+              ></textarea>
 
               <!-- Trailing cluster: actions then status. The status slot is a
                    fixed width so a line changing from NEW to MODIFIED can't
@@ -884,13 +890,19 @@
     border-left: 3px solid var(--accent);
   }
 
+  /* Top-aligned: a long line wraps, and the box, bullet and buttons stay on
+     its first row. */
   .line-row {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 6px;
     padding: 6px 8px;
     position: relative;
   }
+  /* centred on the text's first row (about 32px tall) */
+  .line-row > .line-checkbox,
+  .line-row > .bullet { margin-top: 8px; }
+  .line-row > .line-trailing { margin-top: 3px; }
 
   .line-checkbox {
     width: 16px;
@@ -936,6 +948,10 @@
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     font-size: 0.9rem;
     line-height: 1.5;
+    resize: none;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    box-sizing: border-box;
     transition: border-color 0.15s, background 0.15s;
   }
 

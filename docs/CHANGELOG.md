@@ -6,6 +6,24 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Unreleased — Merge in Library Edit; transcript lines wrap (October 2026)
+
+Prose written across several pen lines (thoughts, not shortcut bullets) is transcribed one line per written line.
+Joining them already worked in the Editor's Edit Transcription dialog, but not in the Library, and in both editors a
+long line ran off the right of its single-line field.
+
+**Merge in Library Edit.** Each line has a select box; Merge (Ctrl+J) joins the ticked lines, or the focused line and
+the next, into the first one's place (`lib/editor-lines.js` `mergeTranscriptLines`). The merged line keeps the first
+line's id and indent (Josh indents a paragraph's first line, so the paragraph may need one outdent; kept on purpose
+until tested), joins texts with spaces, spans the parts' yBounds and takes the first task's state. The save points the
+merged-away lines' strokes at the survivor (in-memory `mergedIds`, never written) instead of scrubbing them, so Ink +
+text still finds the paragraph's ink. No hyphen repair at line ends (not needed for Josh's handwriting).
+
+**Wrapping.** Both editors' text fields are one-row textareas that grow to fit (`lib/autosize.js`). A line is still one
+line: Enter keeps its old job (new line in Library Edit, nothing in the dialog), and pasted line breaks become spaces
+(`oneLine`). The edit row moved to `TranscriptEditRow.svelte` (TranscriptPane was over the size guideline), and Library
+Edit's toolbar wraps in a half-width spread page.
+
 ## Unreleased — Make task without ink (October 2026)
 
 Review finding T6: a plain line could become a task only by re-writing the ink. Not a task (v3.7.0) covered the

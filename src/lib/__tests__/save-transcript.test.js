@@ -107,6 +107,22 @@ describe('saveTranscriptLines', () => {
     expect(res.lines[0]).toMatchObject({ text: 'order bolts', checked: false });
   });
 
+  it('a merge: the merged-away lines\' strokes point at the survivor, and mergedIds is not written', async () => {
+    getPage.mockResolvedValue({
+      version: '2.0', pageInfo: { section: 1, owner: 1, book: 3, page: 5 }, metadata: {},
+      transcript: { lines: [{ id: 'a', text: 'one' }, { id: 'b', text: 'two' }, { id: 'c', text: 'three' }, { id: 'd', text: 'gone' }] },
+      strokes: [
+        { id: 's1', lineId: 'a', points: [] }, { id: 's2', lineId: 'b', points: [] },
+        { id: 's3', lineId: 'c', points: [] }, { id: 's4', lineId: 'd', points: [] },
+      ],
+    });
+    savePage.mockResolvedValue({ success: true });
+    await saveTranscriptLines(3, 5, [{ id: 'a', text: 'one two three', indentLevel: 1, checked: null, mergedIds: ['b', 'c'] }]);
+    const doc = savePage.mock.calls[0][2];
+    expect(doc.strokes.map((s) => s.lineId)).toEqual(['a', 'a', 'a', null]);
+    expect(doc.transcript.lines[0]).not.toHaveProperty('mergedIds');
+  });
+
   it('writes edited lines verbatim and scrubs deleted lineIds', async () => {
     getPage.mockResolvedValue({
       version: '2.0',
