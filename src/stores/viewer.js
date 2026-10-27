@@ -74,7 +74,7 @@ export function clearAllViewerDirty() {
 
 /**
  * Live pen ink belongs on the Editor canvas, so Book View steps aside when the
- * pen starts writing. Unsaved transcript edits win: switching would unmount
+ * pen starts writing or an offline import starts. Unsaved transcript edits win: switching would unmount
  * them, so the pane stays put (the strokes are still captured either way).
  * @returns {'switched' | 'blocked' | 'already'}
  */

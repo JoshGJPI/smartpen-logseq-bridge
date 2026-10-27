@@ -890,7 +890,13 @@ async function handleOfflineNoteList(noteList) {
     transferCancelled = false;
     receivedStrokesTotal = 0;
     transferStartTime = Date.now();
-    
+
+    // Imported strokes land on the Editor canvas, so bring it up before the
+    // first batch (its fitContent() runs on that batch).
+    if (showEditorForLiveInk() === 'blocked') {
+      log('Importing from the pen — switch to the Editor to see the strokes (unsaved transcript edits are open in the Library)', 'warning');
+    }
+
     updateTransferProgress({
       active: true,
       currentBook: 0,
