@@ -82,6 +82,11 @@ describe('task state', () => {
     expect(labels).not.toMatch(/DOING|NOW|LATER/);
   });
 
+  it('a plain line\'s menu offers only Make task (TODO)', () => {
+    expect(taskMenuChoices(null)).toEqual([{ state: 'todo', label: 'Make task' }]);
+    expect(taskMenuChoices(NOT_A_TASK)).toEqual([{ state: 'todo', label: 'Make task' }]);
+  });
+
   it('Not a task: a plain line, dropped from the summary and the rows, never a task state', () => {
     const w = { id: 'a', text: 'x', checked: false, marker: 'WAITING', yBounds: null };
     expect(withTaskState(w, NOT_A_TASK)).toEqual({ id: 'a', text: 'x', checked: null, yBounds: null });

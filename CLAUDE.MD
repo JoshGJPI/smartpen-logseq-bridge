@@ -178,7 +178,9 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   line verbatim and would undo the tick. A line id that is gone or is not a task → error, no write. Undo is kept, not
   spent, while it would be refused.
 - **Not a task** (v3.7.0, `NOT_A_TASK = 'none'`, ⋯ menu) makes a task a plain line (`checked: null`) through the same path. It
-  is not a fifth state: no row, count or filter shows it. Only its Undo may make a plain line a task (`allowPlain`).
+  is not a fifth state: no row, count or filter shows it. Making a plain line a task needs `allowPlain`: the reader's
+  ⋯ Make task on a plain line, and the Undo of Not a task. In Library Edit, a box typed in front of a new or edited
+  plain line (`TODO`, `[ ]`, ☐, `DONE`, `[x]`, ☑) makes it a task on save (`parseTypedTasks`), as in the Editor's dialog.
 - **Edits never change task state.** The Edit Transcription dialog's merge / split carry it (`lib/editor-lines.js`),
   and every editor save takes the disk's state for lines whose state it didn't change (`keepDiskTaskState`: Library
   Edit via `saveTranscriptLines(…, { base })`, Editor Pages tab via `buildEditedTranscript`).

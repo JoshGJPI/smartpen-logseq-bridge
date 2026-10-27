@@ -411,10 +411,12 @@ export function summaryWithState(tasks, lineId, state) {
 
 /**
  * The row / line menu: the three states a task can move to from `state`, then
- * Not a task, as `[{ state, label }]`. WAITING, CANCELLED and Not a task are
- * only ever set here, by hand.
+ * Not a task, as `[{ state, label }]`; for a plain line (`state` null or
+ * NOT_A_TASK), Make task (TODO). WAITING, CANCELLED, Not a task and Make task
+ * are only ever set here, by hand.
  */
 export function taskMenuChoices(state) {
+  if (!state || state === NOT_A_TASK) return [{ state: 'todo', label: 'Make task' }];
   const TODO = { state: 'todo', label: 'Mark TODO' };
   const DONE = { state: 'done', label: 'Mark DONE' };
   const WAIT = { state: 'waiting', label: 'Mark WAITING' };

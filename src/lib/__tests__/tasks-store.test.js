@@ -206,6 +206,19 @@ describe('undoTaskChange', () => {
     expect(disk['3017/170'].transcript.lines[0]).toMatchObject({ checked: false, marker: 'WAITING' });
   });
 
+  it('Make task turns a plain line into a TODO, listed at once after the write, and Undo makes it plain again', async () => {
+    // The header 'h' on 3017/142 is a plain line.
+    expect(await changeTask('3017', '142', 'h', 'todo', { from: 'none' })).toBe(false); // refused without allowPlain
+    expect(disk['3017/142'].transcript.lines[0].checked).toBeNull();
+    expect(await changeTask('3017', '142', 'h', 'todo', { from: 'none', allowPlain: true })).toBe(true);
+    expect(disk['3017/142'].transcript.lines[0].checked).toBe(false);
+    expect(stateOf('h')).toBe('todo');
+    expect(get(taskUndo)).toMatchObject({ prev: 'none', state: 'todo', label: 'Made a task · B3017 p.142' });
+    expect(await undoTaskChange()).toBe(true);
+    expect(disk['3017/142'].transcript.lines[0].checked).toBeNull();
+    expect(stateOf('h')).toBeUndefined();
+  });
+
   it('only the latest change is undoable', async () => {
     await changeTask('3017', '142', 'a', 'done');
     await changeTask('3017', '142', 'b', 'todo');

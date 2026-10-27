@@ -17,7 +17,7 @@ vi.mock('$lib/storage/local-store.js', () => ({
 }));
 
 import { getPage, savePage } from '$lib/storage/local-store.js';
-import { recomputeParentIds, saveTranscriptLines } from '../viewer/save-transcript.js';
+import { recomputeParentIds, saveTranscriptLines, parseTypedTasks } from '../viewer/save-transcript.js';
 
 describe('recomputeParentIds', () => {
   it('assigns each line its nearest shallower ancestor', () => {
@@ -37,6 +37,37 @@ describe('recomputeParentIds', () => {
       { id: 'b', indentLevel: 0 },
     ]);
     expect(out.map((l) => l.parentId)).toEqual([null, null]);
+  });
+});
+
+describe('parseTypedTasks (a box typed in Library Edit)', () => {
+  const ln = (id, text, checked = null, extra = {}) => ({ id, text, checked, ...extra });
+
+  it('a box typed in front of an edited or new plain line makes it a task, stripped from the text', () => {
+    const base = [ln('a', 'order anchor bolts'), ln('b', 'call city')];
+    const out = parseTypedTasks([
+      ln('a', 'TODO order anchor bolts'), ln('b', '[x] call city'), ln('n', '☐ send photos to Troy')
+    ], base);
+    expect(out.map((l) => [l.id, l.text, l.checked])).toEqual([
+      ['a', 'order anchor bolts', false], ['b', 'call city', true], ['n', 'send photos to Troy', false]
+    ]);
+  });
+
+  it('leaves unedited lines, tasks, WAITING / lowercase todo, and a bare box alone', () => {
+    const base = [ln('a', 'TODO list for Monday'), ln('t', 'call Troy', false)];
+    const lines = [
+      ln('a', 'TODO list for Monday'),          // not edited: kept as text
+      ln('t', 'DONE call Troy', false),          // already a task: state never changed here
+      ln('w', 'WAITING on geotech'),             // WAITING is never read from text
+      ln('l', 'todo lowercase'),
+      ln('x', '☐')
+    ];
+    const out = parseTypedTasks(lines, base);
+    out.forEach((l, i) => expect(l).toBe(lines[i]));
+  });
+
+  it('with no base, every plain line counts as new', () => {
+    expect(parseTypedTasks([ln('a', '[ ] check beam')], null)[0]).toMatchObject({ text: 'check beam', checked: false });
   });
 });
 
@@ -62,6 +93,18 @@ describe('saveTranscriptLines', () => {
       ['a', 'a edited', true, undefined], ['b', 'b', null, undefined], ['c', 'c', true, 'CANCELLED']
     ]);
     expect(res.lines).toEqual(written);
+  });
+
+  it('a typed TODO is saved as a task and returned that way', async () => {
+    getPage.mockResolvedValue({
+      version: '2.0', pageInfo: { section: 1, owner: 1, book: 3, page: 5 }, metadata: {},
+      transcript: { lines: [{ id: 'a', text: 'order bolts', checked: null }] }, strokes: []
+    });
+    savePage.mockResolvedValue({ success: true });
+    const res = await saveTranscriptLines(3, 5, [{ id: 'a', text: 'TODO order bolts', checked: null }],
+      { base: [{ id: 'a', text: 'order bolts', checked: null }] });
+    expect(savePage.mock.calls[0][2].transcript.lines[0]).toMatchObject({ id: 'a', text: 'order bolts', checked: false });
+    expect(res.lines[0]).toMatchObject({ text: 'order bolts', checked: false });
   });
 
   it('writes edited lines verbatim and scrubs deleted lineIds', async () => {

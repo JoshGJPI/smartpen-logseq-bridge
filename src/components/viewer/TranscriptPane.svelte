@@ -5,8 +5,12 @@
                 clickable with `tasks` (v3.4.0), the empty state, and in Ink +
                 text the line → ink hover).
   Edit mode:    inline structured editor — edit text, Tab/Shift+Tab to
-                indent/outdent, click a checkbox to cycle (none → TODO → DONE),
-                Enter adds a line below, Backspace on an empty line deletes it.
+                indent/outdent, Enter adds a line below, Backspace on an empty
+                line deletes it. Task state isn't edited here: typing `TODO`,
+                `[ ]` or ☐ (`DONE`, `[x]`, ☑) in front of a plain line makes it a
+                task on save (save-transcript.js parseTypedTasks); a task's own
+                state is kept (keepDiskTaskState). Ticks, WAITING, CANCELLED,
+                Not a task and Make task are display mode's ⋯ menu.
   Copy all:     the whole transcript; each top- and second-level line also has
                 its own copy (that line and everything under it, subtreeLines).
                 Both as LogSeq-pasteable markdown (tab indents, - TODO/- DONE, properties

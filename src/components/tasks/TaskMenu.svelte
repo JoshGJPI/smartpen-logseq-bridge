@@ -1,7 +1,8 @@
 <!--
   TaskMenu.svelte — a task's "⋯" menu (v3.4.0): the three other states it can
   take, then Not a task (lib/tasks.js taskMenuChoices). The only way to set or
-  clear WAITING and CANCELLED, or to make a task a plain line again.
+  clear WAITING and CANCELLED, or to make a task a plain line again. On a plain
+  line (`state` null) it offers Make task.
   OverflowMenu handles outside click, scroll and its keys (which it
   preventDefaults, so the reader behind leaves them alone).
 -->
@@ -9,7 +10,7 @@
   import OverflowMenu from '../viewer/OverflowMenu.svelte';
   import { taskMenuChoices } from '$lib/tasks.js';
 
-  /** 'todo' | 'done' | 'waiting' | 'cancelled' */
+  /** 'todo' | 'done' | 'waiting' | 'cancelled', or null for a plain line */
   export let state = 'todo';
   /** (state) => void */
   export let onSet = () => {};
@@ -24,7 +25,7 @@
   }));
 </script>
 
-<span class="tm-wrap"><OverflowMenu {items} label="Task state" /></span>
+<span class="tm-wrap"><OverflowMenu {items} label={state ? 'Task state' : 'Make task'} /></span>
 
 <style>
   .tm-wrap { display: inline-flex; flex-shrink: 0; }

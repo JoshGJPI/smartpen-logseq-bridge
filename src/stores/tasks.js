@@ -99,12 +99,12 @@ export function currentTaskState(book, pageId, lineId) {
  * @param {string} pageId
  * @param {string} lineId
  * @param {'todo'|'done'|'waiting'|'cancelled'|'none'} state  'none' (NOT_A_TASK): a plain line again
- * @param {{ from?: string, undoable?: boolean, restore?: boolean }} [opts]  `from`: the state the
- *   caller shows, for a line the scan doesn't list yet; `restore`: an Undo, which may
- *   make a plain line a task again
+ * @param {{ from?: string, undoable?: boolean, allowPlain?: boolean }} [opts]  `from`: the state the
+ *   caller shows, for a line the scan doesn't list yet (NOT_A_TASK for a plain line);
+ *   `allowPlain`: a plain line may become a task (Make task, or an Undo)
  * @returns {Promise<boolean>} true when the page holds the new state
  */
-export function changeTask(book, pageId, lineId, state, { from = null, undoable = true, restore = false } = {}) {
+export function changeTask(book, pageId, lineId, state, { from = null, undoable = true, allowPlain = false } = {}) {
   book = String(book);
   pageId = String(pageId);
   if (!isLineState(state)) return Promise.resolve(false);
@@ -118,13 +118,13 @@ export function changeTask(book, pageId, lineId, state, { from = null, undoable 
 
   setOverride(key, state);
   const change = undoable && prev
-    ? { label: taskChangeLabel(state, book, pageId), book, pageId, lineId, prev, state }
+    ? { label: taskChangeLabel(state, book, pageId, prev), book, pageId, lineId, prev, state }
     : null;
   taskUndo.set(change);
 
   return enqueue(`${book}/${pageId}`, async () => {
     try {
-      await setTaskState(book, pageId, lineId, state, { allowPlain: restore });
+      await setTaskState(book, pageId, lineId, state, { allowPlain });
       // The scan record holds it now (task-state.js updated it).
       if (get(taskOverrides).get(key) === state) setOverride(key, null);
       debug('[tasks] set', key, state);
@@ -158,7 +158,7 @@ export function undoTaskChange() {
     return Promise.resolve(false);
   }
   taskUndo.set(null);
-  return changeTask(u.book, u.pageId, u.lineId, u.prev, { undoable: false, restore: true });
+  return changeTask(u.book, u.pageId, u.lineId, u.prev, { undoable: false, allowPlain: true });
 }
 
 /** Forget pending state (a data-folder change). Writes in flight still finish. */

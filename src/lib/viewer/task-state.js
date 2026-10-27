@@ -9,8 +9,9 @@
  * last matched lines to ink, and isTrustworthyTranscript() (ink-text.js)
  * reads it.
  *
- * "Not a task" (NOT_A_TASK) makes the line plain again (`checked: null`); its
- * Undo is the one call that may make a plain line a task (`allowPlain`).
+ * "Not a task" (NOT_A_TASK) makes the line plain again (`checked: null`).
+ * Making a plain line a task needs `allowPlain`: the reader's Make task, and the
+ * Undo of Not a task.
  *
  * Refused, with nothing written:
  *   - the page has an unsaved transcript draft in the reader (the draft's save
@@ -44,7 +45,7 @@ export class TaskStateError extends Error {
  * The PageDoc with one line in a new state, or null when it is already there.
  * Pure (exported for tests).
  * @param {{ allowPlain?: boolean }} [opts]  `allowPlain`: a plain line may be
- *   made a task (only an Undo of Not a task does this)
+ *   made a task (Make task, or the Undo of Not a task)
  * @returns {{ doc: object, prev: string } | null}  `prev` is NOT_A_TASK for a plain line
  */
 export function docWithTaskState(doc, lineId, state, now = new Date().toISOString(), { allowPlain = false } = {}) {
@@ -106,8 +107,10 @@ export async function setTaskState(book, pageId, lineId, state, { allowPlain = f
   return { changed: true, prev: out.prev, state, lastUpdated: now };
 }
 
-/** "Marked DONE · B3017 p.142" (or "Not a task · …") for the toast. */
-export function taskChangeLabel(state, book, pageId) {
-  const what = state === NOT_A_TASK ? 'Not a task' : `Marked ${stateLabel(state)}`;
+/** "Marked DONE · B3017 p.142" (or "Not a task · …", "Made a task · …") for the toast. */
+export function taskChangeLabel(state, book, pageId, prev = null) {
+  const what = state === NOT_A_TASK ? 'Not a task'
+    : prev === NOT_A_TASK ? 'Made a task'
+      : `Marked ${stateLabel(state)}`;
   return `${what} · B${book} p.${pageId}`;
 }

@@ -6,7 +6,9 @@
  * existing transcript), this writes the user's edited lines verbatim. It:
  *   1. reads the current PageDoc (so we never clobber strokes),
  *   2. recomputes parentId from indentLevel so the hierarchy stays consistent,
- *   3. normalises each line to the TranscriptLine shape,
+ *   3. normalises each line to the TranscriptLine shape, and makes a plain line
+ *      a task when a box was typed in front of it (`TODO`, `[ ]`, ☐, `DONE`,
+ *      `[x]`, ☑: parseTypedTasks, as the Editor's dialog and transcription do),
  *   4. scrubs `lineId` on strokes whose line was deleted,
  *   5. bumps timestamps and writes atomically via savePage().
  */
@@ -14,6 +16,7 @@
 import { getPage, savePage } from '$lib/storage/local-store.js';
 import { markerField } from '$lib/tasks.js';
 import { keepDiskTaskState } from '$lib/editor-lines.js';
+import { parseTaskMarker } from '$lib/task-markers.js';
 
 /**
  * Recompute each line's parentId from its indentLevel: the parent is the
@@ -52,6 +55,28 @@ function normaliseLine(line) {
 }
 
 /**
+ * A typed task box makes a plain line a task: a leading `TODO` / `[ ]` / ☐
+ * (TODO) or `DONE` / `[x]` / ☑ (DONE) becomes `checked`, and is stripped from
+ * the text. Only on lines new in the edit or whose text the edit changed, so a
+ * saved line that happens to begin with "TODO" isn't converted by an unrelated
+ * edit; a task's own state is never changed. WAITING / CANCELLED are never read
+ * from text. Pure (exported for tests).
+ * @template {{id: string, text: string, checked: boolean|null}} T
+ * @param {T[]} lines  normalised lines
+ * @param {Array<{id: string, text?: string}>|null} base  the lines the edit started from
+ * @returns {T[]}
+ */
+export function parseTypedTasks(lines, base) {
+  const baseText = new Map((base || []).filter((l) => l && l.id).map((l) => [l.id, l.text || '']));
+  return lines.map((l) => {
+    if (l.checked != null) return l;
+    if (baseText.has(l.id) && baseText.get(l.id) === l.text) return l;
+    const parsed = parseTaskMarker(l.text);
+    return parsed.checked == null ? l : { ...l, text: parsed.text, checked: parsed.checked };
+  });
+}
+
+/**
  * Save edited transcript lines for a page.
  * @param {number} book
  * @param {number} page
@@ -68,7 +93,7 @@ export async function saveTranscriptLines(book, page, lines, { base = null } = {
     throw new Error(`Cannot save transcript: page B${book}/P${page} not found`);
   }
 
-  let normalised = recomputeParentIds(lines.map(normaliseLine));
+  let normalised = recomputeParentIds(parseTypedTasks(lines.map(normaliseLine), base));
   if (base) normalised = keepDiskTaskState(normalised, base, doc.transcript?.lines || []);
 
   // Scrub dangling lineId references on strokes whose line was deleted.

@@ -102,10 +102,12 @@
             class:done={stateOf(line) === 'done'} class:cancelled={stateOf(line) === 'cancelled'}>{markerSymbol(stateOf(line))}</span>
         {/if}
         <span class="tl-text" class:done={isClosedState(stateOf(line))}>{#if stateOf(line) === 'waiting'}<span class="tl-wait">WAITING</span> {:else if stateOf(line) === 'cancelled'}<span class="tl-cancel">CANCELLED</span> {/if}{line.text}</span>
-        {#if interactive && stateOf(line)}
+        {#if interactive && (stateOf(line) || (line.text || '').trim())}
+          <!-- A plain line's menu offers Make task. -->
           <span class="tl-task-menu">
             <TaskMenu state={stateOf(line)} lock={taskLock}
-              onSet={(s) => changeTask(taskBook, taskPageId, line.id, s, { from: stateOf(line) })} />
+              onSet={(s) => changeTask(taskBook, taskPageId, line.id, s,
+                { from: stateOf(line) || NOT_A_TASK, allowPlain: !stateOf(line) })} />
           </span>
         {/if}
         {#if onCopyLine && (line.indentLevel || 0) <= COPY_LEVELS && (line.text || '').trim()}

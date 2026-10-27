@@ -6,6 +6,22 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Unreleased — Make task without ink (October 2026)
+
+Review finding T6: a plain line could become a task only by re-writing the ink. Not a task (v3.7.0) covered the
+other direction.
+
+**Make task.** In the Library reader, a plain line with text now has the same hover ⋯ menu as a task, with one item:
+Make task (TODO). It goes through `setTaskState()` with `allowPlain`, the scan's summary is rebuilt so the line shows in
+Tasks at once, and the toast ("Made a task") offers Undo. WAITING etc. are then set from the task's own menu. The menu
+is offered only on lines with text, and only where task markers are clickable.
+
+**Typed boxes in Library Edit.** Saving Library Edit now parses a leading `TODO` / `[ ]` / ☐ (or `DONE` / `[x]` / ☑)
+on a plain line, as the Editor's dialog and transcription already did; before, it was saved as literal text. Only
+new lines or lines whose text the edit changed are parsed, so an unrelated edit never converts a saved line that
+happens to start with "TODO". A task's own state is never changed by text, and WAITING / CANCELLED are never read
+from it. TranscriptPane's header no longer promises a checkbox control that didn't exist.
+
 ## v3.7.0 — tag and task fixes from the UX review; Not a task (October 2026)
 
 From the tags and tasks UX review (`docs/TAGS-TASKS-UX-REVIEW.html`), the fixes that could lose state or catch the
