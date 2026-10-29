@@ -19,6 +19,7 @@ refused (with a warning only in the Activity Log). The tap is real ink (a period
 zero-length line the renderers may drop. Only `x` / `y` change; times, id, force, timestamp and sketch flag are kept,
 and it uses the same `pointsEdited` marker and save path as deletion. Full drag-to-move was considered and set aside:
 far more canvas code (hit-testing, rotation-aware screen→Ncode, undo) for no extra help with the origin-dot problem.
+Verified in the app on the three B553 P3 / P4 strokes (Josh, 2026-10-29).
 
 **Change detection had to learn about moves.** Both diffs compared point counts only, since deleting was the only edit;
 a snap keeps the count and would have gone unsaved. The save dialog (`page-changes.js`) now also compares coordinates
