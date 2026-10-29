@@ -7,7 +7,11 @@
   zoom — so the panel lists each suspect point with its coordinates and jumps
   the view to it on click.
 
-  Deletion actions live here rather than in the canvas header: they are modal
+  Snap (move the point onto its neighbour) is the default, loudest action: it fixes
+  every origin dot, including a pen tap's, where deletion would leave one point
+  and is refused. Delete stays as the quieter alternative.
+
+  Edit actions live here rather than in the canvas header: they are modal
   (they only mean anything while point editing) and the header is already at its
   width limit.
 -->
@@ -26,6 +30,7 @@
     deleteSelectedPoints,
     deleteStrayPoints,
     snapSelectedPoints,
+    snapStrayPoints,
     exitPointEditMode
   } from '$stores/point-edit.js';
   import { formatPointCoords, pointKey, strokeDots } from '$lib/point-edit.js';
@@ -93,17 +98,28 @@
     report(deleteStrayPoints(), 'suspect points');
   }
 
-  function handleSnapSelected() {
-    const result = snapSelectedPoints();
+  function reportSnap(result, what) {
+    if (result.movedPoints === 0 && result.refused.length === 0) {
+      log('No points snapped', 'info');
+      return;
+    }
     if (result.movedPoints > 0) {
       const pts = `${result.movedPoints} point${result.movedPoints !== 1 ? 's' : ''}`;
       const strokesTouched = `${result.editedStrokes} stroke${result.editedStrokes !== 1 ? 's' : ''}`;
-      log(`Snapped ${pts} on ${strokesTouched} to a neighbour — save to write it to disk`, 'success');
+      log(`Snapped ${pts} on ${strokesTouched}${what ? ` (${what})` : ''} to a neighbour — save to write it to disk`, 'success');
     }
     if (result.refused.length > 0) {
       log(`${result.refused.length} stroke(s) left untouched — every point was selected, so none was left to snap to`, 'warning');
     }
-    if (result.movedPoints > 0 || result.refused.length > 0) dispatch('edited', result);
+    dispatch('edited', result);
+  }
+
+  function handleSnapSelected() {
+    reportSnap(snapSelectedPoints(), null);
+  }
+
+  function handleSnapStrays() {
+    reportSnap(snapStrayPoints(), 'suspect points');
   }
 
   function handleSelectStrays() {
@@ -128,8 +144,11 @@
         <span class="pp-warn">⚠️ {$strayPoints.length} suspect</span>
         <div class="pp-section-actions">
           <button class="pp-btn" on:click={handleSelectStrays} title="Select every suspect point">Select</button>
-          <button class="pp-btn danger" on:click={handleDeleteStrays} title="Delete every suspect point">
-            Delete all
+          <button class="pp-btn primary" on:click={handleSnapStrays} title="Move every suspect point onto its neighbour">
+            Snap all
+          </button>
+          <button class="pp-btn danger" on:click={handleDeleteStrays} title="Delete every suspect point instead">
+            Delete
           </button>
         </div>
       </div>
@@ -161,20 +180,20 @@
 
   <div class="pp-actions">
     <button
-      class="pp-btn danger wide"
-      on:click={handleDeleteSelected}
-      disabled={$selectedPointCount === 0}
-      title={$selectedPointCount > 0 ? 'Delete the selected points (Del)' : 'Click a point handle to select it'}
-    >
-      🗑️ Delete selected{$selectedPointCount > 0 ? ` (${$selectedPointCount})` : ''}
-    </button>
-    <button
-      class="pp-btn"
+      class="pp-btn primary wide"
       on:click={handleSnapSelected}
       disabled={$selectedPointCount === 0}
-      title="Move the selected points onto their nearest unselected neighbour (for a tap deletion would leave with one point)"
+      title={$selectedPointCount > 0 ? 'Move the selected points onto their nearest unselected neighbour' : 'Click a point handle to select it'}
     >
-      Snap
+      📍 Snap selected{$selectedPointCount > 0 ? ` (${$selectedPointCount})` : ''}
+    </button>
+    <button
+      class="pp-btn danger"
+      on:click={handleDeleteSelected}
+      disabled={$selectedPointCount === 0}
+      title="Delete the selected points instead (Del)"
+    >
+      Delete
     </button>
     <button
       class="pp-btn"
@@ -252,6 +271,7 @@
 
   .pp-section-head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 6px;
@@ -354,6 +374,18 @@
   .pp-btn:hover:not(:disabled) {
     background: #f3f4f6;
     border-color: #9ca3af;
+  }
+
+  .pp-btn.primary {
+    background: #16a34a;
+    border-color: #16a34a;
+    color: white;
+    font-weight: 600;
+  }
+
+  .pp-btn.primary:hover:not(:disabled) {
+    background: #15803d;
+    border-color: #15803d;
   }
 
   .pp-btn.danger:hover:not(:disabled) {

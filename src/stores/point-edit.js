@@ -222,20 +222,24 @@ export function deleteSelectedPoints() {
  * @returns {PointDeleteResult}
  */
 export function deleteStrayPoints() {
-  const strays = get(strayPoints);
-  if (strays.length === 0) {
+  const edits = strayEdits();
+  if (edits.size === 0) {
     return { removedPoints: 0, editedStrokes: 0, editedIds: [], refused: [] };
-  }
-
-  const edits = new Map();
-  for (const { strokeIndex, pointIndex } of strays) {
-    if (!edits.has(strokeIndex)) edits.set(strokeIndex, new Set());
-    edits.get(strokeIndex).add(pointIndex);
   }
 
   const result = removeStrokePoints(edits);
   clearPointSelection();
   return result;
+}
+
+/** Detected stray points as strokeIndex → point indices. */
+function strayEdits() {
+  const edits = new Map();
+  for (const { strokeIndex, pointIndex } of get(strayPoints)) {
+    if (!edits.has(strokeIndex)) edits.set(strokeIndex, new Set());
+    edits.get(strokeIndex).add(pointIndex);
+  }
+  return edits;
 }
 
 /* -----------------------------------------------------------------
@@ -257,6 +261,23 @@ export function snapSelectedPoints() {
   const result = snapStrokePoints(groupPointKeys(keys));
   // Indices still name the same points, but the selected ones now sit on their
   // neighbours, where a second click would be ambiguous.
+  clearPointSelection();
+  return result;
+}
+
+/**
+ * Snap every detected stray point onto its neighbour in one action. The panel's
+ * default for the origin-dot artifact: unlike deletion it also fixes a pen tap
+ * (one real dot + the stray), and it never loses a point.
+ * @returns {{movedPoints:number, editedStrokes:number, editedIds:string[], refused:Array<{strokeIndex:number}>}}
+ */
+export function snapStrayPoints() {
+  const edits = strayEdits();
+  if (edits.size === 0) {
+    return { movedPoints: 0, editedStrokes: 0, editedIds: [], refused: [] };
+  }
+
+  const result = snapStrokePoints(edits);
   clearPointSelection();
   return result;
 }

@@ -21,6 +21,11 @@ and it uses the same `pointsEdited` marker and save path as deletion. Full drag-
 far more canvas code (hit-testing, rotation-aware screen→Ncode, undo) for no extra help with the origin-dot problem.
 Verified in the app on the three B553 P3 / P4 strokes (Josh, 2026-10-29).
 
+**Snap is the default.** The panel's filled (green) buttons are now **Snap all** for the suspect points and **📍 Snap
+selected**; Delete sits beside each as the quieter alternative, and the Del key still deletes. Snap fixes every origin
+dot, a tap's included, and never loses a point, so it is the safer first choice; deletion is for a point that is truly
+junk in a stroke with points to spare.
+
 **Change detection had to learn about moves.** Both diffs compared point counts only, since deleting was the only edit;
 a snap keeps the count and would have gone unsaved. The save dialog (`page-changes.js`) now also compares coordinates
 at their stored 2 decimals. The dirty diff (`computePendingChangesMap`) has only scalar per-stroke state, so it reads
