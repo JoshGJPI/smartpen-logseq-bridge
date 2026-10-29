@@ -160,6 +160,22 @@ describe('computePageChangesFolder', () => {
       expect(out.strokeModifications).toBe(0);
     });
 
+    it('counts a snapped stroke (same count, moved point) as an edit', async () => {
+      getPage.mockResolvedValue(pageDoc([storedWithPoints('s1000', 2)])); // [0,0], [1,1]
+      const snapped = withPoints(1000, 2);
+      snapped.dotArray[0] = { ...snapped.dotArray[0], x: 1.05, y: 1 };
+      const out = await computePageChangesFolder(1, 5, [snapped], null);
+      expect(out.strokeEdits).toBe(1);
+    });
+
+    it('ignores coordinate differences the 2-decimal storage rounds away', async () => {
+      getPage.mockResolvedValue(pageDoc([storedWithPoints('s1000', 2)]));
+      const canvas = withPoints(1000, 2);
+      canvas.dotArray[1] = { ...canvas.dotArray[1], x: 1.0004 };
+      const out = await computePageChangesFolder(1, 5, [canvas], null);
+      expect(out.strokeEdits).toBe(0);
+    });
+
     it('counts nothing once the point counts agree', async () => {
       getPage.mockResolvedValue(pageDoc([storedWithPoints('s1000', 56)]));
       const out = await computePageChangesFolder(1, 5, [withPoints(1000, 56)], null);

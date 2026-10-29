@@ -26,6 +26,7 @@ export {
   unmarkStrokesAsSketch,
   // Point editing (the one path that mutates captured geometry)
   removeStrokePoints,
+  snapStrokePoints,
   clearPointEditMarkers
 } from './strokes.js';
 

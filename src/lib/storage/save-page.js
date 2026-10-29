@@ -14,7 +14,8 @@
  *     - Never infer deletions from count differences.
  *     - ONE exception to immutable geometry: rewrite a stored stroke's `points`
  *       when the canvas copy carries the `pointsEdited` marker, which only
- *       `removeStrokePoints()` in stores/strokes.js sets. See mergeEditedPoints
+ *       `removeStrokePoints()` / `snapStrokePoints()` in stores/strokes.js
+ *       set. See mergeEditedPoints
  *       below for why the marker rather than a count comparison.
  *
  *   Transcript (incremental append):
@@ -65,7 +66,7 @@ import { taskStateOf, withTaskState } from '$lib/tasks.js';
  *  Stroke shape conversion
  * ----------------------------------------------------------------- */
 
-function round2(n) {
+export function round2(n) {
   return Math.round(n * 100) / 100;
 }
 
@@ -559,7 +560,7 @@ export async function savePageToFolder(input) {
     let editedCount = 0;
     const newById = new Map(newStored.map(s => [s.id, s]));
 
-    // Ids whose captured geometry the user edited (points deleted). Derived from
+    // Ids whose captured geometry the user edited (points deleted or snapped). Derived from
     // the canvas strokes we were handed rather than passed in separately, so the
     // intent travels with the stroke it belongs to and can't be mismatched.
     //

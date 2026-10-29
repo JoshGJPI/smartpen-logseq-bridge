@@ -261,6 +261,57 @@ export function removePointsFromStroke(stroke, pointIndices) {
 }
 
 /**
+ * How far from its anchor a snapped point lands, in Ncode units (~0.12 mm).
+ * Not zero: a stroke whose points all coincide is a zero-length line, which the
+ * renderers may drop. Large enough to survive the 2-decimal rounding on disk.
+ */
+export const SNAP_OFFSET = 0.05;
+
+/**
+ * Move points of a stroke onto their nearest kept neighbour, returning a new
+ * stroke object.
+ *
+ * The alternative to deletion when deletion would leave too few points: a pen
+ * tap is often one real dot plus a stray origin dot, and removing the stray
+ * leaves nothing to draw. Snapping keeps the point count, so the tap stays a
+ * (tiny) visible line.
+ *
+ * The anchor for each point is the nearest point by index that is NOT itself
+ * being snapped (earlier wins a tie). Only `x` / `y` change: the dot's
+ * timestamp, force and dotType are kept, and so are the stroke's times and id.
+ *
+ * @param {Object} stroke
+ * @param {Set<number>|number[]} pointIndices
+ * @returns {{stroke: Object|null, moved: number}}
+ *   `stroke` is null when every point is being snapped (no anchor) — nothing is
+ *   changed in that case. `moved` is 0 when no index was in range.
+ */
+export function snapPointsToNeighbour(stroke, pointIndices) {
+  const snap = pointIndices instanceof Set ? pointIndices : new Set(pointIndices || []);
+  const dots = stroke?.dotArray || [];
+  const targets = [...snap].filter(i => i >= 0 && i < dots.length);
+
+  if (targets.length === 0) return { stroke, moved: 0 };
+  if (targets.length >= dots.length) return { stroke: null, moved: 0 };
+
+  const next = dots.slice();
+  for (const i of targets) {
+    let anchor = -1;
+    for (let d = 1; d < dots.length; d++) {
+      if (i - d >= 0 && !snap.has(i - d)) { anchor = i - d; break; }
+      if (i + d < dots.length && !snap.has(i + d)) { anchor = i + d; break; }
+    }
+    const a = dots[anchor];
+    next[i] = { ...dots[i], x: a.x + SNAP_OFFSET, y: a.y };
+  }
+
+  const result = { ...stroke, dotArray: next };
+  delete result._nb;
+  delete result._sw;
+  return { stroke: result, moved: targets.length };
+}
+
+/**
  * Format a point for display in the edit panel.
  * @param {Object} dot
  * @returns {string}

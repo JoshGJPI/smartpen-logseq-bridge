@@ -6,7 +6,7 @@ import { debug } from '../lib/debug.js';
 import { writable, derived, get } from 'svelte/store';
 import { registerBookId, registerBookIds } from './book-aliases.js';
 import { markUnsavedChanges } from './storage.js';
-import { removePointsFromStroke } from '../lib/point-edit.js';
+import { removePointsFromStroke, snapPointsToNeighbour } from '../lib/point-edit.js';
 import {
   BOOK_KEY_FRAGMENT, toBookKey, withVolume, parseBookKey
 } from '../lib/volumes.js';
@@ -330,14 +330,56 @@ export function removeStrokePoints(edits) {
 }
 
 /**
+ * Move individual captured points onto their nearest kept neighbour
+ * (`snapPointsToNeighbour`). The other point edit, for strokes that deletion
+ * refuses: a pen tap of one real dot plus a stray origin dot keeps its two
+ * points and stays drawn. Same marker, same save path and same guarantees as
+ * `removeStrokePoints()` (times, id, force and sketch flag are kept).
+ *
+ * @param {Map<number, Set<number>|number[]>} edits - strokeIndex → point indices
+ * @returns {{editedIds: string[], movedPoints: number, editedStrokes: number,
+ *            refused: Array<{strokeIndex:number}>}}
+ *   `refused` lists strokes where every point was picked, so no point was left
+ *   to snap to.
+ */
+export function snapStrokePoints(edits) {
+  if (!edits || edits.size === 0) {
+    return { editedIds: [], movedPoints: 0, editedStrokes: 0, refused: [] };
+  }
+
+  const editedIds = [];
+  const refused = [];
+  let movedPoints = 0;
+
+  strokes.update(all =>
+    all.map((stroke, index) => {
+      const snap = edits.get(index);
+      if (!snap) return stroke;
+
+      const result = snapPointsToNeighbour(stroke, snap);
+      if (!result.stroke) {
+        refused.push({ strokeIndex: index });
+        return stroke;
+      }
+      if (result.moved === 0) return stroke;
+
+      movedPoints += result.moved;
+      editedIds.push(`s${stroke.startTime}`);
+      return { ...result.stroke, pointsEdited: true };
+    })
+  );
+
+  if (movedPoints > 0) markUnsavedChanges();
+  return { editedIds, movedPoints, editedStrokes: editedIds.length, refused };
+}
+
+/**
  * Drop the `pointsEdited` intent markers for a page after its save succeeded.
  *
- * The dirty-state diff doesn't depend on this — it compares the canvas point
- * count against the stored one, which the post-save index refresh brings back
- * into line by itself. This just keeps the store honest: the marker means "these
- * points still need writing", and once they're written it would be a lie, leaving
- * a later unrelated save of the same page to rewrite geometry it has no reason to
- * touch.
+ * The dirty-state diff reads it too: a snapped point (`snapStrokePoints`) keeps
+ * the count, so a count comparison can't see that edit, and left behind the
+ * marker would keep the page dirty after its save. It would also leave a later
+ * unrelated save of the same page to rewrite geometry it has no reason to touch.
  *
  * @param {number} book
  * @param {number} page

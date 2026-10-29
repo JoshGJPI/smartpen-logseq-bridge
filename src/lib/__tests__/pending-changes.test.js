@@ -190,6 +190,13 @@ describe('computePendingChangesMap', () => {
       expect(computePendingChangesMap(strokes, new Set(), ids, new Set()).has('B1/P5')).toBe(false);
     });
 
+    it('reports a snapped stroke (same count, pointsEdited marker) as an edit', () => {
+      // A snap moves points without changing the count; the marker is the signal.
+      const strokes = [strokeWithPoints(1, 5, 1000, 2, { pointsEdited: true })];
+      const ids = onDisk([['B1/P5', [[idOf(1000), { points: 2 }]]]]);
+      expect(computePendingChangesMap(strokes, new Set(), ids, new Set()).get('B1/P5').edits).toEqual([0]);
+    });
+
     it('stays silent when the stored point count is unknown', () => {
       // Never guess: a state entry built from a shape without points must not
       // make every stroke on the page look edited.

@@ -644,7 +644,7 @@
     if (result.refused.length > 0) {
       log(
         `${result.refused.length} stroke(s) left untouched — fewer than 2 points would remain, ` +
-        `leaving no line to draw. Delete the whole stroke instead.`,
+        `leaving no line to draw. Snap the point to its neighbour, or delete the whole stroke.`,
         'warning'
       );
     }

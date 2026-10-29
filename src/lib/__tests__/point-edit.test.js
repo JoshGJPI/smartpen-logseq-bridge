@@ -19,6 +19,8 @@ import {
   detectStrayPoints,
   detectStrayPointsForStrokes,
   removePointsFromStroke,
+  snapPointsToNeighbour,
+  SNAP_OFFSET,
   groupPointKeys,
   pointKey,
   parsePointKey,
@@ -252,6 +254,55 @@ describe('removePointsFromStroke', () => {
   });
 });
 
+describe('snapPointsToNeighbour', () => {
+  it("moves a tap's origin dot next to its one real point, keeping two points", () => {
+    // The B553 case: one real sample plus a stray at (0, 0).
+    const stroke = makeStroke([[14.46, 37.68, 127], [0, 0, 127]], { _nb: {}, _sw: [] });
+    const { stroke: out, moved } = snapPointsToNeighbour(stroke, [1]);
+
+    expect(moved).toBe(1);
+    expect(out.dotArray).toHaveLength(2);
+    expect(out.dotArray[1].x).toBeCloseTo(14.46 + SNAP_OFFSET, 6);
+    expect(out.dotArray[1].y).toBe(37.68);
+    expect(out._nb).toBeUndefined();
+    expect(out._sw).toBeUndefined();
+  });
+
+  it("keeps the moved dot's force, timestamp and dotType, and the stroke's times", () => {
+    const stroke = makeStroke([[5, 5, 200], [0, 0, 412], [6, 6, 300]]);
+    const { stroke: out } = snapPointsToNeighbour(stroke, new Set([1]));
+
+    expect(out.dotArray[1]).toMatchObject({ f: 412, timestamp: 1001, dotType: 1 });
+    expect(out.startTime).toBe(1000);
+    expect(out.endTime).toBe(1500);
+    expect(stroke.dotArray[1].x).toBe(0); // input untouched
+  });
+
+  it('anchors on the nearest point that is not itself being snapped', () => {
+    const stroke = makeStroke([[10, 10], [0, 0], [0, 0], [20, 20]]);
+    const { stroke: out } = snapPointsToNeighbour(stroke, [1, 2]);
+    expect(out.dotArray[1].x).toBeCloseTo(10 + SNAP_OFFSET, 6); // earlier wins the tie
+    expect(out.dotArray[2].x).toBeCloseTo(20 + SNAP_OFFSET, 6);
+  });
+
+  it('snaps a leading stray onto the point after it', () => {
+    const stroke = makeStroke([[0, 0], [30, 40], [31, 41]]);
+    const { stroke: out } = snapPointsToNeighbour(stroke, [0]);
+    expect(out.dotArray[0]).toMatchObject({ y: 40 });
+  });
+
+  it('refuses when every point is picked (nothing to anchor on)', () => {
+    const stroke = makeStroke([[0, 0], [0, 0]]);
+    expect(snapPointsToNeighbour(stroke, [0, 1])).toEqual({ stroke: null, moved: 0 });
+  });
+
+  it('is a no-op for an empty or out-of-range selection', () => {
+    const stroke = makeStroke([[1, 1], [2, 2]]);
+    expect(snapPointsToNeighbour(stroke, [])).toEqual({ stroke, moved: 0 });
+    expect(snapPointsToNeighbour(stroke, [5])).toEqual({ stroke, moved: 0 });
+  });
+});
+
 describe('point keys', () => {
   it('round-trips a key', () => {
     expect(parsePointKey(pointKey(12, 3))).toEqual({ strokeIndex: 12, pointIndex: 3 });
@@ -377,6 +428,50 @@ describe('removeStrokePoints (store)', () => {
   it('is a no-op when a page has no markers to clear', () => {
     strokesStore.set([makeStroke([[1, 1], [2, 2]])]);
     expect(clearPointEditMarkers(3017, 124)).toBe(0);
+  });
+});
+
+describe('snapStrokePoints (store)', () => {
+  let strokesStore;
+  let snapStrokePoints;
+  let markUnsavedChanges;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    markUnsavedChanges = vi.fn();
+    vi.doMock('$stores/storage.js', () => ({ markUnsavedChanges }));
+    vi.doMock('../../stores/storage.js', () => ({ markUnsavedChanges }));
+
+    const mod = await import('$stores/strokes.js');
+    strokesStore = mod.strokes;
+    snapStrokePoints = mod.snapStrokePoints;
+    strokesStore.set([]);
+  });
+
+  it('snaps the addressed points, marks the stroke and the session', () => {
+    strokesStore.set([
+      makeStroke([[14.46, 37.68], [0, 0]]),
+      makeStroke([[5, 5], [6, 6]], { startTime: 2000 })
+    ]);
+    const result = snapStrokePoints(new Map([[0, new Set([1])]]));
+
+    expect(result).toEqual({ editedIds: ['s1000'], movedPoints: 1, editedStrokes: 1, refused: [] });
+    const [a, b] = get(strokesStore);
+    expect(a.pointsEdited).toBe(true);
+    expect(a.dotArray).toHaveLength(2);
+    expect(b.pointsEdited).toBeUndefined();
+    expect(markUnsavedChanges).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a stroke whose every point was picked, and leaves it alone', () => {
+    const original = makeStroke([[0, 0], [0, 0]]);
+    strokesStore.set([original]);
+    const result = snapStrokePoints(new Map([[0, new Set([0, 1])]]));
+
+    expect(result.refused).toEqual([{ strokeIndex: 0 }]);
+    expect(result.movedPoints).toBe(0);
+    expect(get(strokesStore)[0]).toBe(original);
+    expect(markUnsavedChanges).not.toHaveBeenCalled();
   });
 });
 

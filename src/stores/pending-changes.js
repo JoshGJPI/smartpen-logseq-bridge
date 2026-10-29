@@ -172,11 +172,12 @@ export const canUndo = derived(
  *
  *  Why a point COUNT rather than nothing at all: geometry used to be immutable
  *  under the append-only rule, so there was nothing to diff. Point editing (see
- *  `removeStrokePoints` in stores/strokes.js) makes it mutable in exactly one
- *  way — points are deleted, never added or moved — so a count is sufficient to
- *  detect the edit, and comparing counts makes the diff self-clearing: the
- *  post-save `noteOnDiskStrokeIds()` refresh brings the stored count in line and
- *  the page stops reporting an edit without anyone having to reset a flag.
+ *  `removeStrokePoints` in stores/strokes.js) deletes points, which a count
+ *  detects, self-clearing: the post-save `noteOnDiskStrokeIds()` refresh brings
+ *  the stored count in line. Snapping (`snapStrokePoints`) moves points and keeps
+ *  the count, so the diff also reads the stroke's `pointsEdited` marker, which
+ *  the save clears (`clearPointEditMarkers`). Storing coordinates here instead
+ *  would make this map as heavy as the strokes.
  * ----------------------------------------------------------------- */
 
 /**
@@ -291,7 +292,8 @@ canvasPageKeys.subscribe(($keys) => {
  *   - additions     — id not in the page's on-disk state map
  *   - edits         — id IS on disk, but the stroke's GEOMETRY differs: it has
  *                     fewer points than the stored copy because the user deleted
- *                     points (see `removeStrokePoints`). Its own category rather
+ *                     points (see `removeStrokePoints`), or it carries the
+ *                     `pointsEdited` marker (a snap keeps the count). Its own category rather
  *                     than a modification because saving it rewrites captured
  *                     data, which every other save path is forbidden to do — it
  *                     earns a distinct warning.
@@ -381,7 +383,8 @@ export function computePendingChangesMap(strokesArr, deletedSet, onDiskIds, save
         // must not read as an edit, or every stroke on a page whose state came
         // from a shape without points would light up.
         const canvasPoints = Array.isArray(stroke.dotArray) ? stroke.dotArray.length : null;
-        if (stored.points != null && canvasPoints != null && canvasPoints !== stored.points) {
+        const countDiffers = stored.points != null && canvasPoints != null && canvasPoints !== stored.points;
+        if (countDiffers || stroke.pointsEdited) {
           editIndices.push(canvasIndex);
         } else if (!!stroke.sketch !== !!stored.sketch) {
           modificationIndices.push(canvasIndex);

@@ -25,6 +25,7 @@
     selectStrayPoints,
     deleteSelectedPoints,
     deleteStrayPoints,
+    snapSelectedPoints,
     exitPointEditMode
   } from '$stores/point-edit.js';
   import { formatPointCoords, pointKey, strokeDots } from '$lib/point-edit.js';
@@ -76,7 +77,7 @@
     if (result.refused.length > 0) {
       log(
         `${result.refused.length} stroke(s) left untouched — removing those points would leave fewer than 2, ` +
-        `so there would be no line left. Delete the whole stroke instead.`,
+        `so there would be no line left. Use Snap to move the point onto its neighbour, or delete the whole stroke.`,
         'warning'
       );
     }
@@ -90,6 +91,19 @@
 
   function handleDeleteStrays() {
     report(deleteStrayPoints(), 'suspect points');
+  }
+
+  function handleSnapSelected() {
+    const result = snapSelectedPoints();
+    if (result.movedPoints > 0) {
+      const pts = `${result.movedPoints} point${result.movedPoints !== 1 ? 's' : ''}`;
+      const strokesTouched = `${result.editedStrokes} stroke${result.editedStrokes !== 1 ? 's' : ''}`;
+      log(`Snapped ${pts} on ${strokesTouched} to a neighbour — save to write it to disk`, 'success');
+    }
+    if (result.refused.length > 0) {
+      log(`${result.refused.length} stroke(s) left untouched — every point was selected, so none was left to snap to`, 'warning');
+    }
+    if (result.movedPoints > 0 || result.refused.length > 0) dispatch('edited', result);
   }
 
   function handleSelectStrays() {
@@ -153,6 +167,14 @@
       title={$selectedPointCount > 0 ? 'Delete the selected points (Del)' : 'Click a point handle to select it'}
     >
       🗑️ Delete selected{$selectedPointCount > 0 ? ` (${$selectedPointCount})` : ''}
+    </button>
+    <button
+      class="pp-btn"
+      on:click={handleSnapSelected}
+      disabled={$selectedPointCount === 0}
+      title="Move the selected points onto their nearest unselected neighbour (for a tap deletion would leave with one point)"
+    >
+      Snap
     </button>
     <button
       class="pp-btn"

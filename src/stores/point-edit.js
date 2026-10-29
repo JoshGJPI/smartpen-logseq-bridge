@@ -15,7 +15,7 @@
  */
 
 import { writable, derived, get } from 'svelte/store';
-import { strokes, removeStrokePoints } from './strokes.js';
+import { strokes, removeStrokePoints, snapStrokePoints } from './strokes.js';
 import { selectedIndices } from './selection.js';
 import {
   detectStrayPointsForStrokes,
@@ -234,6 +234,29 @@ export function deleteStrayPoints() {
   }
 
   const result = removeStrokePoints(edits);
+  clearPointSelection();
+  return result;
+}
+
+/* -----------------------------------------------------------------
+ *  Snapping
+ * ----------------------------------------------------------------- */
+
+/**
+ * Move the currently selected points onto their nearest unselected neighbour
+ * (`snapStrokePoints`). For a stroke deletion refuses: a pen tap whose only
+ * other point is a stray origin dot.
+ * @returns {{movedPoints:number, editedStrokes:number, editedIds:string[], refused:Array<{strokeIndex:number}>}}
+ */
+export function snapSelectedPoints() {
+  const keys = get(selectedPoints);
+  if (keys.size === 0) {
+    return { movedPoints: 0, editedStrokes: 0, editedIds: [], refused: [] };
+  }
+
+  const result = snapStrokePoints(groupPointKeys(keys));
+  // Indices still name the same points, but the selected ones now sit on their
+  // neighbours, where a second click would be ambiguous.
   clearPointSelection();
   return result;
 }

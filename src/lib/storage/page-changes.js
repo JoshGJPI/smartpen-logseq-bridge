@@ -12,7 +12,7 @@
  */
 
 import { getPage } from './local-store.js';
-import { planTranscript } from './save-page.js';
+import { planTranscript, round2 } from './save-page.js';
 
 function getStrokeId(s) {
   return s.id || (s.startTime ? `s${s.startTime}` : null);
@@ -21,9 +21,12 @@ function getStrokeId(s) {
 /**
  * Has this canvas stroke's geometry been edited relative to the stored copy?
  *
- * Point editing only ever deletes points, so a differing count is the whole
- * test. This is the same rule `computePendingChangesMap()` uses, deliberately —
- * an unknown count on either side reports no edit rather than guessing.
+ * Point editing deletes points (a differing count) or snaps them onto a
+ * neighbour (same count, different coordinates), so both are compared, the
+ * coordinates at the 2 decimals they are stored with. An unknown point list on
+ * either side reports no edit rather than guessing. `computePendingChangesMap()`
+ * answers the same question from a count plus the `pointsEdited` marker, because
+ * it has no stored coordinates; change both together.
  *
  * Note this reads actual state rather than the `pointsEdited` intent marker that
  * gates the *write* in save-page.js: for a preview, "what will change on disk" is
@@ -31,10 +34,13 @@ function getStrokeId(s) {
  * would hide.
  */
 function isPointEdited(canvasStroke, stored) {
-  const canvasPoints = Array.isArray(canvasStroke.dotArray) ? canvasStroke.dotArray.length : null;
-  const storedPoints = Array.isArray(stored.points) ? stored.points.length : null;
-  return canvasPoints != null && storedPoints != null && canvasPoints !== storedPoints;
+  const dots = Array.isArray(canvasStroke.dotArray) ? canvasStroke.dotArray : null;
+  const points = Array.isArray(stored.points) ? stored.points : null;
+  if (!dots || !points) return false;
+  if (dots.length !== points.length) return true;
+  return dots.some((d, i) => round2(d.x) !== points[i][0] || round2(d.y) !== points[i][1]);
 }
+
 
 /**
  * @param {number} book

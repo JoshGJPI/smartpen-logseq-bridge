@@ -6,6 +6,26 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Unreleased
+
+### Snap a stray point to its neighbour
+
+Found on B553 P3 / P4: three strokes still drew a line to the page corner after every other stray was deleted. Each was
+a pen tap, one real sample plus the origin dot, and deleting the stray would leave one point, so the point editor
+refused (with a warning only in the Activity Log). The tap is real ink (a period, a tick on a sketch).
+
+**Snap** in the Edit Points panel moves the selected points onto their nearest unselected neighbour by index, `SNAP_OFFSET`
+(0.05 Ncode, ~0.12 mm) to its right, so the stroke keeps its point count and stays a visible dot rather than a
+zero-length line the renderers may drop. Only `x` / `y` change; times, id, force, timestamp and sketch flag are kept,
+and it uses the same `pointsEdited` marker and save path as deletion. Full drag-to-move was considered and set aside:
+far more canvas code (hit-testing, rotation-aware screen→Ncode, undo) for no extra help with the origin-dot problem.
+
+**Change detection had to learn about moves.** Both diffs compared point counts only, since deleting was the only edit;
+a snap keeps the count and would have gone unsaved. The save dialog (`page-changes.js`) now also compares coordinates
+at their stored 2 decimals. The dirty diff (`computePendingChangesMap`) has only scalar per-stroke state, so it reads
+the `pointsEdited` marker instead, which the save already clears; storing coordinates there would make the on-disk
+index as heavy as the strokes.
+
 ## v3.7.1 — Merge in Library Edit, transcript lines wrap; Make task without ink (October 2026)
 
 ### Merge in Library Edit; transcript lines wrap

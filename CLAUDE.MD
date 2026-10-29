@@ -132,9 +132,10 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   Missing from the canvas never means deleted on disk, which is why partial loads (date ranges, unloaded pages)
   are safe to save from.
 - **One geometry exception.** Stored `points` are rewritten only when the canvas stroke carries the in-memory
-  `pointsEdited` marker, which only `removeStrokePoints()` sets. Never gate it on "canvas has fewer points than
-  disk". An edit must keep `startTime`/`endTime` (so the id), each surviving point's force, and the sketch flag,
-  and may never leave fewer than 2 points.
+  `pointsEdited` marker, which only `removeStrokePoints()` and `snapStrokePoints()` set. Never gate it on "canvas has
+  fewer points than disk". An edit must keep `startTime`/`endTime` (so the id), each surviving point's force, and the
+  sketch flag, and may never leave fewer than 2 points. A snap keeps the count, so the dirty diff reads the marker
+  too (`computePendingChangesMap`) and the save dialog compares coordinates (`page-changes.js` `isPointEdited`).
 - **In-memory markers never reach disk** (`pointsEdited`, `movedFrom`): `strokeToStored()` builds from a fixed
   key list. Keep it that way.
 - **One write path.** Every PageDoc write goes through `local-store.js` `savePage()`, atomic (`.tmp` + rename +
