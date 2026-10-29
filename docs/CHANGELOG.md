@@ -8,6 +8,42 @@ CLAUDE.md (Invariants); the store and library map is in
 
 ## Unreleased
 
+### Deselect Decorative: rewritten detector
+
+Josh put its hit rate at 40-60%. Running it over the whole data folder (323 pages) showed why: every rule looked at
+one stroke and was tuned to ideal shapes. Ovals round dates are ~20 × 5 mm (4:1, over the 3:1 cap) and overshoot their
+start by 3-5 mm (over the 2 mm closure). Hand-drawn underlines measure 20-48 × their height (the rule wanted 50) and the
+ones under numbers are shorter than 15 mm. Circled verse numbers are ~3 mm with ~20 pen dots (the rule wanted 4 mm and
+30). Boxes round project numbers and scripture references are mostly drawn in 2-4 strokes, which nothing looked for. It
+also deselected ☑ task boxes, so the line never became DONE. Counted by eye on 8 pages, the old detector caught about 25
+of 104 decorations and the new one about 101, with no letter or digit taken (an estimate, not a labelled benchmark:
+several of those pages were also used to tune it).
+
+- **Underlines** are measured along their own axis (slope up to 10°, wobble up to 0.8 mm or 4%). 10 mm or longer
+  always counts; 5-10 mm only with two letter-sized strokes sitting on it, so hyphens, dashes and t-bars stay.
+- **Strike-throughs stay selected** (Josh's call): a line that cuts through more letters than sit on it is left in, so
+  MyScript still sees the word crossed out instead of reading it as plain text.
+- **Loops** (one stroke): closed with overshoot allowed, ≥ 85% of dots on the convex hull (a size-scaled tolerance;
+  a flat 0.8 mm let small letters like g, y, D pass), path 0.85-2.3 × the hull perimeter (a box traced twice is ~1.9),
+  and a stroke ≥ 70% inside it. A loop under 5 mm must be filled by its contents, not just hold a stray mark.
+- **Multi-stroke boxes** come back, differently from the H+V pairs removed in March 2026: 2-4 strokes drawn within
+  8 s, every one of them lying on the bounding box's edge, all four sides traced over ≥ 60% of their length, at least
+  4 mm, and something inside. "Every one on the edge" matters: checking the group as a whole let a letter written
+  inside straight after the box join it (the A of "Add", the 8 of "75:7-8"). They run before underlines, which would
+  otherwise claim a box's top and bottom and leave its sides for MyScript to read as `|` or `1`.
+- **Task boxes are never decorative**: ≤ 7.5 mm, square-ish, ink within 0.12 × size of 3-4 corners (a circle never
+  gets nearer than 0.21 ×, so circled numbers of the same size still go).
+- **Per page.** Pages share Ncode coordinates, so a box could "contain" another page's text. The canvas now detects on
+  the visible pages only and maps back through `visibleToFullIndexMap`.
+
+Found in passing: `selectAll(visibleStrokes.length)` (the toolbar's Select All, and Deselect Decorative with nothing
+selected) selected full-array positions 0…n−1, the wrong strokes whenever a page was hidden. Both now select
+`visibleToFullIndexMap`, as Ctrl+A already did. The "Advanced Filter Settings" panel is gone: its values were never
+passed to the detector, and none of its thresholds exist any more.
+
+Left as is: a box left open at a corner and drawn in one stroke is missed (one seen in the data); straight lines inside
+sketches are deselected too, which does no harm to transcription; the slowest page takes ~35 ms.
+
 ### Snap a stray point to its neighbour
 
 Found on B553 P3 / P4: three strokes still drew a line to the page corner after every other stray was deleted. Each was

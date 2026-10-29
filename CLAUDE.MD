@@ -262,6 +262,9 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   overrides a `checked` already set (a glyph that disagrees is left in the text as a conflict).
 - MyScript only sees strokes that are loaded, so transcribing a partially loaded page covers those strokes only.
 - Free tier is 2,000 requests/month, HMAC-authenticated; process page by page.
+- **Deselect Decorative** (`lib/stroke-filter.js`) runs per page and must never take a task box (☐ / ☑, which
+  `parseTaskMarker()` needs) or a strike-through (left for MyScript to see). Tune it against the real data folder,
+  not only the synthetic tests (CHANGELOG, "Deselect Decorative: rewritten detector").
 
 ### Pen and SDK
 

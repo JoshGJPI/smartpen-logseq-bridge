@@ -5,7 +5,7 @@
   import { debug } from '$lib/debug.js';
   import { onMount, onDestroy, tick } from 'svelte';
   import { strokes, strokeCount, pages, clearStrokes, batchMode } from '$stores';
-  import { selectedIndices, selectedStrokes, handleStrokeClick, clearSelection, selectAll, selectionCount, selectFromBox } from '$stores';
+  import { selectedIndices, selectedStrokes, handleStrokeClick, clearSelection, selectionCount, selectFromBox } from '$stores';
   import { deletedIndices, pendingChanges } from '$stores';
   import { pastedStrokes, pastedSelection, pastedCount, duplicateStrokes, movePastedStrokes, clearPastedStrokes, deleteSelectedPasted, selectPastedStroke, clearPastedSelection } from '$stores';
   import { canvasZoom, setCanvasZoom, log, showFilteredStrokes, penConnected } from '$stores';
@@ -313,8 +313,7 @@
       // Ctrl/Cmd+A - select all visible strokes (using full indices)
       if ((e.ctrlKey || e.metaKey) && e.key === 'a' && visibleStrokes.length > 0) {
         e.preventDefault();
-        // Select using full indices from the mapping
-        selectedIndices.set(new Set(visibleToFullIndexMap));
+        selectAllVisible();
       }
     };
     
@@ -1614,34 +1613,37 @@
     URL.revokeObjectURL(url);
   }
   
+  // Selection holds FULL indices; with a page hidden, 0..visible-1 would be the wrong strokes
+  function selectAllVisible() {
+    selectedIndices.set(new Set(visibleToFullIndexMap));
+  }
+
   // Handle deselect decorative strokes
   async function handleDeselectDecorative() {
     isDetecting = true;
     try {
-      const allStrokes = $strokes;
-      
-      if (!allStrokes || allStrokes.length === 0) {
+      if (visibleStrokes.length === 0) {
         log('No strokes available for detection', 'warning');
         return;
       }
-      
-      // Detect decorative strokes
-      const result = detectDecorativeIndices(allStrokes);
-      
+
+      // Detect on the visible pages; indices come back visible, selection wants full
+      const result = detectDecorativeIndices(visibleStrokes);
+
       if (result.indices.length === 0) {
         log('No decorative strokes detected', 'info');
         return;
       }
-      
+
       // If nothing is currently selected, select all first
       if ($selectionCount === 0) {
-        selectAll(visibleStrokes.length);
+        selectAllVisible();
         // Wait a tick for the selection to update
         await new Promise(resolve => setTimeout(resolve, 0));
       }
-      
+
       // Deselect the detected indices
-      deselectIndices(result.indices);
+      deselectIndices(result.indices.map(i => visibleToFullIndexMap[i]));
       
       // Log the results
       log(`Deselected ${result.indices.length} decorative strokes (${result.stats.boxes} boxes, ${result.stats.underlines} underlines, ${result.stats.circles} circles)`, 'success');
@@ -2031,7 +2033,7 @@
     <div class="header-selection" role="group" aria-label="Selection">
       <button
         class="hdr-btn"
-        on:click={() => selectAll(visibleStrokes.length)}
+        on:click={selectAllVisible}
         disabled={visibleStrokes.length === 0}
         title={visibleStrokes.length > 0
           ? `Select all ${visibleStrokes.length} visible strokes`
