@@ -17,6 +17,8 @@
   /** @type {Array<{label: string, onSelect: () => void, disabled?: boolean, title?: string}>} */
   export let items = [];
   export let label = 'More actions';
+  /** Borderless, for a header row of icon buttons (the reader's page header). */
+  export let quiet = false;
 
   let open = false;
   let btnEl;
@@ -74,6 +76,7 @@
   type="button"
   class="om-btn"
   class:open
+  class:quiet
   bind:this={btnEl}
   on:click|stopPropagation={toggle}
   aria-haspopup="menu"
@@ -81,9 +84,11 @@
   aria-label={label}
   title={label}
 >
-  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-    <circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" />
-  </svg>
+  <slot name="icon">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" />
+    </svg>
+  </slot>
 </button>
 
 {#if open}
@@ -117,6 +122,10 @@
     border-color: #c8c8d0;
     color: #1f1f28;
   }
+
+  .om-btn.quiet { width: 28px; height: 26px; border-color: transparent; background: transparent; color: #6a7390; }
+  .om-btn.quiet:hover,
+  .om-btn.quiet.open { background: #eef3ff; border-color: #c7d6fb; color: #4a7cf7; }
 
   .om-menu {
     position: fixed;

@@ -4,7 +4,6 @@
 <script>
   import { filteredStrokes, filterStats } from '$stores/filtered-strokes.js';
   import { showFilteredStrokes, toggleFilteredStrokes } from '$stores';
-  import FilterSettings from './FilterSettings.svelte';
   
   // Computed visibility
   $: hasFilteredStrokes = $filteredStrokes && $filteredStrokes.length > 0;
@@ -60,8 +59,6 @@
         They are shown as <span style="color: #000000;">dashed black lines</span> on the canvas (or <span style="color: #e94560;">dashed red</span> when selected).
       {/if}
     </div>
-    
-    <FilterSettings />
   </div>
 {/if}
 

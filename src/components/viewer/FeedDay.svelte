@@ -15,6 +15,7 @@
   import { onMount, onDestroy } from 'svelte';
   import FeedCard from './FeedCard.svelte';
   import OverflowMenu from './OverflowMenu.svelte';
+  import { addToPrintList } from '$stores/print.js';
   import { daySessions, indexPageStrokes, estimateDayHeight, formatDuration } from '$lib/timeline-feed.js';
   import { dayStart } from '$lib/timeline.js';
   import { bookAliases } from '$stores';
@@ -147,6 +148,9 @@
       label: busy ? 'Loading…' : 'Load day into Editor',
       disabled: busy,
       onSelect: () => onLoadDay(item.day)
+    }, {
+      label: `Add the day's ${item.entries.length === 1 ? 'page' : `${item.entries.length} pages`} to print list`,
+      onSelect: () => addToPrintList(item.entries)
     }]} />
   </div>
 

@@ -107,3 +107,11 @@ contextBridge.exposeInMainWorld('storageAPI', {
   readGraphAsset:   (graphRoot, book, pageId)                      => ipcRenderer.invoke('storage:readGraphAsset', graphRoot, book, pageId),
   publishToGraph:   (graphRoot, book, pageId, assetText, indexText) => ipcRenderer.invoke('storage:publishToGraph', graphRoot, book, pageId, assetText, indexText),
 });
+
+// Print to PDF or a printer: main asks where to save, renders the document in a hidden
+// window and writes the PDF. Returns { ok, result: { path, bytes } | { canceled } }.
+contextBridge.exposeInMainWorld('printAPI', {
+  savePdf: (html, suggestedName, open) => ipcRenderer.invoke('print:savePdf', html, suggestedName, !!open),
+  // Print through the Windows print dialog. Returns { ok, result: { printed, reason } }.
+  toPrinter: (html, sheet) => ipcRenderer.invoke('print:toPrinter', html, sheet),
+});

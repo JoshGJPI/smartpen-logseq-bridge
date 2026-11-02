@@ -617,6 +617,34 @@ describe('point-edit store (mode + selection)', () => {
     expect(get(mod.strayPoints)).toEqual([]); // nothing left to flag
   });
 
+  it('snaps every stray point in one action, keeping the point count', () => {
+    seedCanvas();
+    selectedIndices.set(new Set([0, 1]));
+    mod.enterPointEditMode();
+    const before = get(strokesStore)[1].dotArray.length;
+
+    const result = mod.snapStrayPoints();
+
+    expect(result.movedPoints).toBe(1);
+    expect(result.editedIds).toEqual(['s1000']);
+    expect(get(strokesStore)[1].dotArray).toHaveLength(before);
+    expect(get(strokesStore)[1].pointsEdited).toBe(true);
+    expect(get(mod.strayPoints)).toEqual([]); // nothing left to flag
+    expect(get(mod.selectedPointCount)).toBe(0);
+  });
+
+  it('snaps the selected points', () => {
+    seedCanvas();
+    selectedIndices.set(new Set([0, 1]));
+    mod.enterPointEditMode();
+    mod.selectPoint(1, 1, 'replace');
+
+    const result = mod.snapSelectedPoints();
+
+    expect(result.movedPoints).toBe(1);
+    expect(get(mod.selectedPointCount)).toBe(0);
+  });
+
   it('does nothing when asked to delete with no points selected', () => {
     seedCanvas();
     selectedIndices.set(new Set([0]));

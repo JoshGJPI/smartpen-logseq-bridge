@@ -132,6 +132,20 @@ export async function resolvePageBackground(bookKey, pageId) {
   return url ? { frame: manifest.frame, url, title: manifest.title } : null;
 }
 
+/**
+ * A page's paper without its image: `{ frame, ext }` from the book's manifest, or
+ * null. Print to PDF sizes every page by its paper whether or not the background
+ * is drawn. Never throws.
+ */
+export async function resolvePagePaper(bookKey, pageId) {
+  const ncodeBook = ncodeBookOf(bookKey);
+  const pageNumber = pageNumberOfId(pageId);
+  if (ncodeBook === null || pageNumber === null) return null;
+  const manifest = await manifestFor(ncodeBook);
+  if (!manifestCoversPage(manifest, pageNumber)) return null;
+  return { frame: manifest.frame, ext: manifest.ext, ncodeBook, pageNumber };
+}
+
 /** Re-scan the data folder for backgrounds, and forget anything cached. */
 export async function refreshBackgrounds() {
   manifests = new Map();

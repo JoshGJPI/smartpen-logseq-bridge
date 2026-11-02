@@ -16,6 +16,10 @@
 <script>
   import { writtenLabel, writtenChips } from '$lib/viewer/written-on.js';
   import { plural } from '$lib/plural.js';
+  import {
+    printList, openPrintDialog, openPrintList, addToPrintList, removeFromPrintList, inPrintList
+  } from '$stores/print.js';
+  import OverflowMenu from './OverflowMenu.svelte';
 
   export let title = '';
   export let strokeCount = 0;
@@ -26,6 +30,17 @@
   /** (day) => void */
   export let onOpenDay = () => {};
   export let onLoadIntoEditor = () => {};
+  /** `{ book, pageId }` of this page, for the print menu; null hides it. */
+  export let printRef = null;
+
+  $: listed = printRef ? inPrintList($printList, printRef) : false;
+  $: printItems = printRef ? [
+    { label: 'Print this page…', onSelect: () => openPrintDialog([printRef]) },
+    listed
+      ? { label: 'Remove from print list', onSelect: () => removeFromPrintList([printRef]) }
+      : { label: 'Add to print list', onSelect: () => addToPrintList([printRef]) },
+    ...($printList.length ? [{ label: `Open print list (${$printList.length})…`, onSelect: openPrintList }] : [])
+  ] : [];
 
   $: chips = writtenChips(groups);
   $: written = writtenLabel(groups);
@@ -61,6 +76,17 @@
     <span class="ph-meta">no capture time</span>
   {/if}
 
+  {#if printRef}
+    <span class="ph-print">
+      <OverflowMenu quiet label="Print" items={printItems}>
+        <svg slot="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M6 9V2h12v7"/>
+          <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+          <rect x="6" y="14" width="12" height="8"/>
+        </svg>
+      </OverflowMenu>
+    </span>
+  {/if}
   <button
     type="button"
     class="ph-load"
@@ -143,5 +169,8 @@
     cursor: pointer;
     flex-shrink: 0;
   }
+  /* Print sits beside Load into Editor, which then no longer needs the auto margin. */
+  .ph-print { margin-left: auto; display: flex; }
+  .ph-print + .ph-load { margin-left: 0; }
   .ph-load:hover { background: #eef3ff; border-color: #c7d6fb; color: #4a7cf7; }
 </style>

@@ -8,6 +8,119 @@ CLAUDE.md (Invariants); the store and library map is in
 
 ## Unreleased
 
+### Print (to PDF or a printer)
+
+Josh writes mostly in A5 notebooks (JPI Dotted, Study Notes) but prints on Letter, and wanted pages printable as ink,
+transcript or both, with half-size pages side by side on one sheet. Reachable from the printer menu in a reader page's
+header and **Print…** in a page grid's Select bar.
+
+- **Print list** (Josh: pages from several notebooks, in his order). A session-only list (`stores/print.js`
+  `printList`, like the rest of where you are in the Library) filled from a grid's Select bar (*Add to print list*), a
+  reader page's printer menu, and a Timeline sitting's or day's ⋯ menu; the header's **Print list N** button opens it.
+  The Print dialog shows its pages in print order for every job (`PrintPageList`): drag or ↑ ↓ to reorder, ✕ to leave
+  one out, *Sort by notebook*. A one-off print (one page, a grid selection) edits its own copy; opened on the list, edits
+  write through. Not saved across launches: it is a gathering step, not a document. Rejected: selecting across grids
+  (selection is per grid visit, and a cross-grid selection would be invisible while you browse elsewhere).
+- **Pick pages inside the dialog.** A left panel (`PrintPagePicker`) lists every notebook as an accordion of page chips
+  from the scan records (no page reads): click adds to the end of the list, click again removes, *Add all* per
+  notebook. With it the header's **Print** button is always shown (a badge counts the list) and opens straight onto it.
+- **Print to a printer** (`print:toPrinter`) goes through the Windows print dialog, preset to the job's sheet size and
+  orientation (`@page` orientation does not reach a driver by itself, so both are passed explicitly); printer, copies
+  and two-sided are chosen there. Silent printing to a chosen printer was tried and rejected: Chromium can't drive the
+  "print to file" drivers (Microsoft Print to PDF, Adobe, Bluebeam) without their filename prompt, and the job hung with
+  no callback. The print window is owned by the main window so the dialog belongs to this app. While testing, an
+  unanswered dialog from a stray test process got in the way of Josh's other Electron apps; the app's own dialog is
+  always answered or cancelled by the user. Josh confirmed Save PDF and Print on a real printer (2026-11-02).
+
+- **Main renders it, not the OS print dialog.** The jpi-tools Doc Exporter had to settle for `window.print()` because a
+  LogSeq plugin can't reach `webContents.printToPDF`; this app owns its main process, so it can. The renderer builds one
+  self-contained HTML document (`lib/print/print-html.js`: inline SVG ink, data-URL backgrounds, no scripts) whose
+  `@page` rule is the sheet; main asks where to save, loads it into a hidden window with JavaScript off and calls
+  `printToPDF({ preferCSSPageSize: true })`. No driver scaling, no "Fit to page" surprises, selectable text, vector ink.
+  The HTML goes through a temp file: a job with backgrounds is far past Chromium's URL length limit for a data: URL.
+- **One layout: a flow of items down CSS columns.** A page's ink is a figure exactly one column tall, so it starts a
+  column; transcript text flows after it into the next column and on to the next sheet. "2 per sheet" is a landscape
+  sheet with two columns, so *Both* on A5 gives ink on the left half and its transcript on the right, and a long
+  transcript simply continues. Checked in Electron 40 that Chromium fragments multicol across printed pages and honours
+  `column-fill: auto` there (no balancing on the last sheet). Computing sheets in JS was rejected: it would need text
+  measurement to know where a transcript overflows.
+- **Pages are sized by their paper**, the Neo manifest's frame (grown to take in ink in the crop margin), whether or not
+  the background is drawn; one Ncode unit is 8 × 7 / 600 in, so *Actual size* is true size. **Auto** picks 2 per sheet
+  when every page prints at 80% or better in a column (A5 on Letter is ~0.87, a College / Letter notebook ~0.6), else 1
+  per sheet, landscape when most pages are turned sideways. Display rotation is applied as in the reader.
+- Transcripts print with task boxes drawn in SVG (no font needs ☐ / ☑), WAITING named, CANCELLED struck through;
+  property and blank lines dropped as in the Markdown copy. Pages are read with `getPage`, not the reader's page cache
+  (a whole notebook would evict the open spread). Options are remembered in localStorage.
+
+Not done: no preview of the PDF itself (the dialog sketches the first sheet); 2 per sheet is always side by side, so
+sideways A5 pages print small in it (pick 1 per sheet, landscape); no page numbers on sheets. One sheet layout per job: a list that mixes
+Letter-size and A5 notebooks prints all of it 1 per sheet under Auto. Reordering by drag is unit-free code checked by
+hand only; ↑ ↓ was driven in the app.
+
+**Print selection… in the Editor.** The Editor's Export ▾ menu has **🖨️ Print selection…** beside SVG, enabled only
+with strokes selected. It prints just the selected strokes, one print page per pen page, through the same document,
+options and Save PDF… / Print… as a page print.
+
+- **From memory, not disk** (`lib/print/print-selection.js`): the selection is grouped by page (book key, then page
+  number, `compareBookKeys`) and converted with the save path's own `strokeToStored()` (moved to
+  `lib/storage/stroke-format.js`, which has no imports, and re-exported from `save-page.js`), so force and the sketch flag
+  survive (width runs print) and in-memory markers never get through. Unsaved strokes print; so do pasted copies once
+  they sit on a page. A floating pasted copy has no page, so it is skipped and the dialog says how many.
+- **In place on the full paper.** Each page prints on its paper frame (`resolvePagePaper()`, grown by `printFrame()` for
+  stray ink), so the selection lands where it was written instead of being cropped and enlarged; without paper, the
+  selection's own ink box. Auto therefore lays an A5 selection 2 per sheet like the whole page. The page's rotation
+  applies; a letter-suffixed page has collapsed onto its integer page on the canvas, so it prints (and is labelled)
+  under the integer page. Labels are notebook — page plus the selection's capture dates.
+- **Strokes only.** A saved transcript can't be reliably matched to a selection of ink (stored `lineId`s are unreliable
+  before Aug 2026), so Transcript / Both are hidden and the job is forced to Strokes; the remembered choice is left alone.
+  `contextInk` can't print: it isn't in `strokes`, so it can't be selected.
+- **Its own store.** `selectionPrint` (`stores/print.js`) holds a snapshot of the pages taken when the dialog opens;
+  `printDialog` and the print list are never touched. `PrintDialog` reads one or the other: in selection mode it hides
+  the notebook picker and page list and shows a read-only per-page summary with stroke counts
+  (`PrintSelectionPages.svelte`). The options form moved to `PrintOptions.svelte` to keep the dialog under ~300 lines.
+
+Checked by rendering real B3017 (A5) and B387 (Letter) selections through the same `printToPDF` call main uses: every
+ink pixel of a selection print falls on ink of the whole-page print of that page (A5, Letter, and a quarter turn), a
+mixed job orders B387 before B3017 with a `175b` selection under P175, and sketch strokes print as width runs. The
+dialog was driven in an isolated app instance (select, Export ▾ → Print selection…, Cancel; the header's Print list was
+still empty). Save PDF… and Print… were not clicked in the app (no OS dialog or print job from tests).
+
+### Deselect Decorative: rewritten detector
+
+Josh put its hit rate at 40-60%. Running it over the whole data folder (323 pages) showed why: every rule looked at
+one stroke and was tuned to ideal shapes. Ovals round dates are ~20 × 5 mm (4:1, over the 3:1 cap) and overshoot their
+start by 3-5 mm (over the 2 mm closure). Hand-drawn underlines measure 20-48 × their height (the rule wanted 50) and the
+ones under numbers are shorter than 15 mm. Circled verse numbers are ~3 mm with ~20 pen dots (the rule wanted 4 mm and
+30). Boxes round project numbers and scripture references are mostly drawn in 2-4 strokes, which nothing looked for. It
+also deselected ☑ task boxes, so the line never became DONE. Counted by eye on 8 pages, the old detector caught about 25
+of 104 decorations and the new one about 101, with no letter or digit taken (an estimate, not a labelled benchmark:
+several of those pages were also used to tune it).
+
+- **Underlines** are measured along their own axis (slope up to 10°, wobble up to 0.8 mm or 4%). 10 mm or longer
+  always counts; 5-10 mm only with two letter-sized strokes sitting on it, so hyphens, dashes and t-bars stay.
+- **Strike-throughs stay selected** (Josh's call): a line that cuts through more letters than sit on it is left in, so
+  MyScript still sees the word crossed out instead of reading it as plain text.
+- **Loops** (one stroke): closed with overshoot allowed, ≥ 85% of dots on the convex hull (a size-scaled tolerance;
+  a flat 0.8 mm let small letters like g, y, D pass), path 0.85-2.3 × the hull perimeter (a box traced twice is ~1.9),
+  and a stroke ≥ 70% inside it. A loop under 5 mm must be filled by its contents, not just hold a stray mark.
+- **Multi-stroke boxes** come back, differently from the H+V pairs removed in March 2026: 2-4 strokes drawn within
+  8 s, every one of them lying on the bounding box's edge, all four sides traced over ≥ 60% of their length, at least
+  4 mm, and something inside. "Every one on the edge" matters: checking the group as a whole let a letter written
+  inside straight after the box join it (the A of "Add", the 8 of "75:7-8"). They run before underlines, which would
+  otherwise claim a box's top and bottom and leave its sides for MyScript to read as `|` or `1`.
+- **Task boxes are never decorative**: ≤ 7.5 mm, square-ish, ink within 0.12 × size of 3-4 corners (a circle never
+  gets nearer than 0.21 ×, so circled numbers of the same size still go).
+- **Per page.** Pages share Ncode coordinates, so a box could "contain" another page's text. The canvas now detects on
+  the visible pages only and maps back through `visibleToFullIndexMap`.
+
+Found in passing: `selectAll(visibleStrokes.length)` (the toolbar's Select All, and Deselect Decorative with nothing
+selected) selected full-array positions 0…n−1, the wrong strokes whenever a page was hidden. Both now select
+`visibleToFullIndexMap`, as Ctrl+A already did. The "Advanced Filter Settings" panel is gone: its values were never
+passed to the detector, and none of its thresholds exist any more.
+
+Left as is: a box left open at a corner and drawn in one stroke is missed (one seen in the data); straight lines inside
+sketches are deselected too, which does no harm to transcription; the slowest page takes ~35 ms.
+
 ### Snap a stray point to its neighbour
 
 Found on B553 P3 / P4: three strokes still drew a line to the page corner after every other stray was deleted. Each was
@@ -20,6 +133,11 @@ zero-length line the renderers may drop. Only `x` / `y` change; times, id, force
 and it uses the same `pointsEdited` marker and save path as deletion. Full drag-to-move was considered and set aside:
 far more canvas code (hit-testing, rotation-aware screen→Ncode, undo) for no extra help with the origin-dot problem.
 Verified in the app on the three B553 P3 / P4 strokes (Josh, 2026-10-29).
+
+**Snap is the default.** The panel's filled (green) buttons are now **Snap all** for the suspect points and **📍 Snap
+selected**; Delete sits beside each as the quieter alternative, and the Del key still deletes. Snap fixes every origin
+dot, a tap's included, and never loses a point, so it is the safer first choice; deletion is for a point that is truly
+junk in a stroke with points to spare.
 
 **Change detection had to learn about moves.** Both diffs compared point counts only, since deleting was the only edit;
 a snap keeps the count and would have gone unsaved. The save dialog (`page-changes.js`) now also compares coordinates

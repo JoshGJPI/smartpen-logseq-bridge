@@ -1128,6 +1128,105 @@ ipcMain.handle('storage:listBackgrounds', ipcSafe(async (root) => {
   return out;
 }));
 
+// ===== Print to PDF, or to a printer =====
+// The renderer builds a self-contained HTML document (src/lib/print/print-html.js:
+// inline SVG ink, data-URL backgrounds, an @page rule that IS the sheet, no
+// scripts). Main asks where to save, loads the document into a hidden window
+// with JavaScript off and prints it with printToPDF + preferCSSPageSize, so the
+// sheet size comes from the document and no OS print dialog or driver scaling
+// is involved. The HTML goes through a temp file, not a data: URL, because a
+// job of many pages with backgrounds is far past Chromium's URL length limit.
+
+let lastPrintDir = null;
+
+function safePdfName(name) {
+  const base = String(name || 'Smartpen pages').replace(/[\\/:*?"<>|\x00-\x1f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+  return `${base || 'Smartpen pages'}.pdf`;
+}
+
+// A hidden window holding the print document, owned by the main window so a
+// print dialog opened from it belongs to this app (not floating over others).
+async function openPrintWindow(html) {
+  const tmp = path.join(app.getPath('temp'), `smartpen-print-${crypto.randomBytes(6).toString('hex')}.html`);
+  await fsp.writeFile(tmp, html, 'utf8');
+  const win = new BrowserWindow({
+    show: false,
+    parent: mainWindow || undefined,
+    webPreferences: { javascript: false, sandbox: true, contextIsolation: true, nodeIntegration: false }
+  });
+  const close = () => {
+    if (!win.isDestroyed()) win.destroy();
+    fsp.unlink(tmp).catch(() => {});
+  };
+  try {
+    await win.loadFile(tmp);
+  } catch (err) {
+    close();
+    throw err;
+  }
+  return { win, close };
+}
+
+async function renderHtmlToPdf(html) {
+  const { win, close } = await openPrintWindow(html);
+  try {
+    return await win.webContents.printToPDF({ preferCSSPageSize: true, printBackground: true });
+  } finally {
+    close();
+  }
+}
+
+// Print through the Windows print dialog (printer, copies, two-sided, driver
+// settings). Silent printing was tried and rejected: Chromium can't drive the
+// "print to file" drivers (Microsoft Print to PDF, Adobe, Bluebeam) without
+// their filename prompt, so the job hung with no callback. The dialog is preset
+// to the document's sheet: @page orientation does not reach the driver on its
+// own, so landscape and the size go in explicitly (microns, portrait order).
+const MICRONS_PER_INCH = 25400;
+
+ipcMain.handle('print:toPrinter', ipcSafe(async (html, sheet) => {
+  if (typeof html !== 'string' || !html.startsWith('<!doctype html>')) throw new Error('Nothing to print');
+  const w = Number(sheet && sheet.widthIn);
+  const h = Number(sheet && sheet.heightIn);
+  if (!(w > 0) || !(h > 0)) throw new Error('No sheet size');
+  const { win, close } = await openPrintWindow(html);
+  return new Promise((resolve) => {
+    // Backstop for a dialog that never reports back.
+    const fallback = setTimeout(() => { close(); resolve({ printed: false, reason: 'timed out' }); }, 30 * 60_000);
+    win.webContents.print({
+      silent: false,
+      printBackground: true,
+      landscape: w > h,
+      pageSize: { width: Math.round(Math.min(w, h) * MICRONS_PER_INCH), height: Math.round(Math.max(w, h) * MICRONS_PER_INCH) },
+      margins: { marginType: 'default' }
+    }, (success, failureReason) => {
+      clearTimeout(fallback);
+      // The job is spooled by the time the callback runs; give the driver a
+      // moment before the document goes away.
+      setTimeout(close, 5000);
+      resolve({ printed: !!success, reason: success ? null : (failureReason || 'failed') });
+    });
+  });
+}));
+
+ipcMain.handle('print:savePdf', ipcSafe(async (html, suggestedName, open) => {
+  if (typeof html !== 'string' || !html.startsWith('<!doctype html>')) throw new Error('Nothing to print');
+  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+    title: 'Save PDF',
+    defaultPath: path.join(lastPrintDir || app.getPath('documents'), safePdfName(suggestedName)),
+    filters: [{ name: 'PDF', extensions: ['pdf'] }]
+  });
+  if (canceled || !filePath) return { canceled: true };
+  lastPrintDir = path.dirname(filePath);
+  const pdf = await renderHtmlToPdf(html);
+  await fsp.writeFile(filePath, pdf);
+  if (open) {
+    const err = await shell.openPath(filePath);
+    if (err) console.warn('[print] could not open the PDF:', err);
+  }
+  return { path: filePath, bytes: pdf.length };
+}));
+
 // ===== "Publish to graph" — mirror saved pages into a LogSeq graph folder =====
 // Pure filesystem writes (no LogSeq runtime). The renderer (src/lib/storage/
 // publish-graph.js) does the smartpen-specific building (PageDoc serialize +

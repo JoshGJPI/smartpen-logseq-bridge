@@ -12,6 +12,7 @@
   // Dialog components
   import BookSelectionDialog from './components/dialog/BookSelectionDialog.svelte';
   import BluetoothDevicePicker from './components/dialog/BluetoothDevicePicker.svelte';
+  import PrintDialog from './components/dialog/PrintDialog.svelte';
 
   // Canvas components
   import StrokeCanvas from './components/canvas/StrokeCanvas.svelte';
@@ -273,6 +274,7 @@
   <!-- Dialogs -->
   <BookSelectionDialog />
   <BluetoothDevicePicker />
+  <PrintDialog />
 </div>
 
 <style>

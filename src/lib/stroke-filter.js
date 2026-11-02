@@ -1,340 +1,384 @@
 /**
- * Stroke Preprocessing Filter
- * Removes decorative elements (underlines, single-stroke boxes, circles) before
- * MyScript transcription.
- *
- * This filter prevents decorative strokes from being misinterpreted as emojis by
- * MyScript's Text recognizer.  Only filters decorative elements that contain text
- * inside them (boxes, circles) or are clearly not text (underlines).
- *
- * All three detectors operate on INDIVIDUAL strokes only — no multi-stroke grouping.
+ * Decorative stroke detection
+ * Finds underlines, ovals and boxes drawn around text so "Deselect Decorative" can leave them out of
+ * MyScript transcription, which reads them as letters, brackets or emoji.
  *
  * Detection types:
- *   1. Underlines  — long, straight, horizontal single strokes
- *   2. Single-stroke boxes — closed rectangular strokes with text inside
- *   3. Circles/ovals — closed curved strokes with text inside
+ *   1. Underlines — straight, near-horizontal strokes, measured along their own axis so a slope or a
+ *      wobble doesn't matter. 10 mm or longer always counts; 5-10 mm only with writing sitting on it
+ *      (so hyphens and t-bars stay). A line through writing is a strike-through and stays selected,
+ *      so MyScript still sees the word crossed out.
+ *   2. Loops — one stroke that closes on itself (overshoot allowed), follows its convex outline and
+ *      has a stroke mostly inside it: ovals round dates, circled numbers, boxes drawn in one go.
+ *   3. Multi-stroke boxes — 2-4 strokes drawn back to back that trace all four sides of a rectangle
+ *      round something (project numbers, scripture references).
+ *
+ * Task boxes (☐ / ☑: small, square, ink in the corners) are never decorative: task-markers.js turns
+ * them into TODO / DONE. Detection runs per page: pages share Ncode coordinates, so a box on one page
+ * must not "contain" another page's ink.
+ *
+ * Thresholds were tuned against the whole data folder (Oct 2026); see CHANGELOG, "Deselect Decorative".
  */
 
 // ============================================================================
-// TUNABLE PARAMETERS
+// TUNABLE PARAMETERS (mm unless noted)
 // ============================================================================
 
-// Single-stroke Box Detection
-const BOX_MIN_DOTS = 20;              // minimum dots to attempt rectangle analysis
-const BOX_MIN_SIZE = 5.0;             // mm - minimum box dimension
-const BOX_MAX_SIZE = 50.0;            // mm - maximum box dimension
-const BOX_ASPECT_MIN = 0.3;           // minimum width/height ratio (not too tall)
-const BOX_ASPECT_MAX = 3.0;           // maximum width/height ratio (not too wide)
-const BOX_MAX_CLOSURE_MM = 5.0;       // mm - max start/end distance (closed stroke)
-const BOX_NEAR_EDGE_MM = 1.5;         // mm - "near a side" tolerance for perimeter check
-const BOX_MIN_PERIM_FRACTION = 0.85;  // fraction of dots that must lie near the perimeter
-const BOX_PATH_RATIO_MIN = 0.80;      // pathLength / 2(w+h) lower bound (circles ~0.78)
-const BOX_PATH_RATIO_MAX = 1.40;      // pathLength / 2(w+h) upper bound (filters spirals)
-const BOX_MIN_CONTENT = 2;            // minimum strokes inside to be decorative
+// Underlines
+const UNDERLINE_MIN_LENGTH = 10;        // always an underline from here
+const UNDERLINE_SHORT_LENGTH = 5;       // 5..10 mm only with writing on it
+const UNDERLINE_MAX_SLOPE_DEG = 10;
+const UNDERLINE_MAX_WOBBLE = 0.8;       // off its own axis (or 4% of its length, if more)
+const UNDERLINE_MAX_PATH_RATIO = 1.2;   // path length / axis length
+const UNDERLINE_MIN_DOTS = 6;
 
-// Underline Detection
-const UNDERLINE_MIN_ASPECT = 50;      // width/height ratio (very horizontal)
-const UNDERLINE_MIN_STRAIGHTNESS = 0.90;  // bbox_diagonal / path_length
-const UNDERLINE_MIN_WIDTH = 15.0;     // mm - substantial length
-
-// Circle Detection
-const CIRCLE_MIN_DOTS = 30;           // dots for smooth curve
-const CIRCLE_MIN_SIZE = 4.0;          // mm - larger than letters
-const CIRCLE_MAX_ENDPOINT_DIST = 2.0; // mm - closed loop
-const CIRCLE_ASPECT_MIN = 0.3;        // minimum width/height ratio
-const CIRCLE_ASPECT_MAX = 3.0;        // maximum width/height ratio (allows ovals)
-const CIRCLE_MIN_CONTENT = 1;         // minimum strokes inside
-
-// Containment Check
-const CONTAINMENT_MARGIN = 0.5;       // mm - tolerance for edge strokes
+// Loops and boxes
+const ENCLOSURE_MIN_SIZE = 2.5;         // circled single digits are ~3 mm
+const MULTI_BOX_MIN_SIZE = 4;           // smaller 2-4 stroke "boxes" are letters (4, D, be)
+const ENCLOSURE_MAX_WIDTH = 120;
+const ENCLOSURE_MAX_HEIGHT = 60;
+const ENCLOSURE_MAX_ASPECT = 14;        // long boxed scripture references reach ~9:1
+const LOOP_MIN_DOTS = 8;
+const OUTLINE_MIN_PATH_RATIO = 0.85;    // path length / convex-hull perimeter
+const OUTLINE_MAX_PATH_RATIO = 2.3;     // a box traced twice is ~1.9
+const OUTLINE_MIN_ON_HULL = 0.85;       // fraction of dots on the outline (cursive words fail)
+const CONTENT_MIN_INSIDE = 0.7;         // fraction of a stroke's dots inside to count as content
+const MULTI_BOX_MAX_STROKES = 4;
+const MULTI_BOX_MAX_MS = 8000;          // first to last stroke of one box
+const MULTI_BOX_SIDE_COVERAGE = 0.6;    // each side drawn along at least this much of its length
+const CHECKBOX_MAX_SIZE = 7.5;          // a task box is smaller than this and square-ish
 
 // Ncode to MM conversion (from pen SDK)
-const NCODE_TO_MM = 2.371;            // 1 Ncode unit × 2.371 = 1mm
+const NCODE_TO_MM = 2.371;              // 1 Ncode unit × 2.371 = 1mm
 
 // ============================================================================
-// UTILITY FUNCTIONS
+// GEOMETRY
 // ============================================================================
 
 /**
- * Calculate bounding box for a stroke in millimeters
+ * Measure a stroke once: points in mm, bounds, path length, time.
  * @param {Object} stroke - Stroke with dotArray
- * @returns {Object|null} Bounds {minX, maxX, minY, maxY, width, height} or null
+ * @param {number} index - Position in the caller's array
+ * @returns {Object|null} null for strokes with fewer than 2 dots
  */
-function getStrokeBounds(stroke) {
-  if (!stroke.dotArray || stroke.dotArray.length === 0) {
-    return null;
-  }
-
-  const xs = stroke.dotArray.map(d => d.x * NCODE_TO_MM);
-  const ys = stroke.dotArray.map(d => d.y * NCODE_TO_MM);
-
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-
+function measure(stroke, index) {
+  const dots = stroke.dotArray;
+  if (!dots || dots.length < 2) return null;
+  const pts = dots.map(d => ({ x: d.x * NCODE_TO_MM, y: d.y * NCODE_TO_MM }));
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, length = 0;
+  pts.forEach((p, k) => {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+    if (k) length += Math.hypot(p.x - pts[k - 1].x, p.y - pts[k - 1].y);
+  });
   return {
-    minX,
-    maxX,
-    minY,
-    maxY,
-    width: maxX - minX,
-    height: maxY - minY
+    index, pts, minX, maxX, minY, maxY,
+    w: maxX - minX, h: maxY - minY, length,
+    t: stroke.startTime ?? index
   };
 }
 
-/**
- * Check if one bounding box is spatially contained within another
- * @param {Object} innerBounds - Inner bounding box (mm)
- * @param {Object} outerBounds - Outer bounding box (mm)
- * @param {number} margin - Tolerance in mm (default: 0.5mm)
- * @returns {boolean} True if inner is inside outer
- */
-function isInside(innerBounds, outerBounds, margin = CONTAINMENT_MARGIN) {
-  return (
-    innerBounds.minX >= outerBounds.minX - margin &&
-    innerBounds.maxX <= outerBounds.maxX + margin &&
-    innerBounds.minY >= outerBounds.minY - margin &&
-    innerBounds.maxY <= outerBounds.maxY + margin
-  );
-}
-
-/**
- * Calculate path length of a stroke in millimeters
- * @param {Object} stroke - Stroke with dotArray
- * @returns {number} Total path length in mm
- */
-function getPathLength(stroke) {
-  if (!stroke.dotArray || stroke.dotArray.length < 2) {
-    return 0;
+/** Principal axis: centre, angle (rad), length along it, max distance off it. */
+function principalAxis(m) {
+  const n = m.pts.length;
+  let cx = 0, cy = 0;
+  for (const p of m.pts) { cx += p.x; cy += p.y; }
+  cx /= n; cy /= n;
+  let sxx = 0, syy = 0, sxy = 0;
+  for (const p of m.pts) {
+    sxx += (p.x - cx) ** 2; syy += (p.y - cy) ** 2; sxy += (p.x - cx) * (p.y - cy);
   }
-
-  let length = 0;
-  for (let i = 1; i < stroke.dotArray.length; i++) {
-    const dx = (stroke.dotArray[i].x - stroke.dotArray[i - 1].x) * NCODE_TO_MM;
-    const dy = (stroke.dotArray[i].y - stroke.dotArray[i - 1].y) * NCODE_TO_MM;
-    length += Math.sqrt(dx * dx + dy * dy);
+  const angle = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+  const ux = Math.cos(angle), uy = Math.sin(angle);
+  let lo = Infinity, hi = -Infinity, off = 0;
+  for (const p of m.pts) {
+    const along = (p.x - cx) * ux + (p.y - cy) * uy;
+    const across = Math.abs((p.y - cy) * ux - (p.x - cx) * uy);
+    if (along < lo) lo = along;
+    if (along > hi) hi = along;
+    if (across > off) off = across;
   }
-
-  return length;
+  const deg = Math.abs(angle * 180 / Math.PI);
+  return { cx, cy, angle, length: hi - lo, off, slopeDeg: Math.min(deg, 180 - deg) };
 }
 
-/**
- * Calculate straightness ratio (0-1, higher is straighter)
- * Computed as bbox_diagonal / path_length
- * @param {Object} bounds - Stroke bounding box (mm)
- * @param {number} pathLength - Stroke path length (mm)
- * @returns {number} Straightness ratio
- */
-function getStraightness(bounds, pathLength) {
-  if (pathLength === 0) return 0;
-
-  const bboxDiagonal = Math.sqrt(
-    bounds.width * bounds.width +
-    bounds.height * bounds.height
-  );
-
-  return bboxDiagonal / pathLength;
+/** Convex hull (monotone chain). */
+function convexHull(points) {
+  const p = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+  if (p.length < 3) return p;
+  const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const lower = [], upper = [];
+  for (const q of p) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop();
+    lower.push(q);
+  }
+  for (let k = p.length - 1; k >= 0; k--) {
+    const q = p[k];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop();
+    upper.push(q);
+  }
+  return lower.slice(0, -1).concat(upper.slice(0, -1));
 }
 
-/**
- * Count how many other strokes have their bounding box inside the given bounds
- * @param {Array} strokes - All strokes
- * @param {number} selfIndex - Index of the enclosing stroke (excluded from count)
- * @param {Object} bounds - Enclosing bounds in mm
- * @returns {number} Number of contained strokes
- */
-function countContainedStrokes(strokes, selfIndex, bounds) {
-  let count = 0;
-  for (let j = 0; j < strokes.length; j++) {
-    if (j === selfIndex) continue;
-    const otherBounds = getStrokeBounds(strokes[j]);
-    if (otherBounds && isInside(otherBounds, bounds)) {
-      count++;
+function distToSegment(p, a, b) {
+  const vx = b.x - a.x, vy = b.y - a.y, len2 = vx * vx + vy * vy;
+  const t = len2 ? Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.y - a.y) * vy) / len2)) : 0;
+  return Math.hypot(p.x - a.x - t * vx, p.y - a.y - t * vy);
+}
+
+function hullPerimeter(hull) {
+  let s = 0;
+  hull.forEach((a, k) => { const b = hull[(k + 1) % hull.length]; s += Math.hypot(b.x - a.x, b.y - a.y); });
+  return s;
+}
+
+function hullArea(hull) {
+  let s = 0;
+  hull.forEach((a, k) => { const b = hull[(k + 1) % hull.length]; s += a.x * b.y - b.x * a.y; });
+  return Math.abs(s) / 2;
+}
+
+function distToHull(p, hull) {
+  let d = Infinity;
+  hull.forEach((a, k) => { d = Math.min(d, distToSegment(p, a, hull[(k + 1) % hull.length])); });
+  return d;
+}
+
+function insideHull(p, hull) {
+  let sign = 0;
+  for (let k = 0; k < hull.length; k++) {
+    const a = hull[k], b = hull[(k + 1) % hull.length];
+    const c = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+    if (c !== 0) {
+      if (sign && Math.sign(c) !== sign) return false;
+      sign = Math.sign(c);
     }
   }
-  return count;
+  return true;
+}
+
+function boundsOf(group) {
+  const b = {
+    minX: Math.min(...group.map(m => m.minX)), maxX: Math.max(...group.map(m => m.maxX)),
+    minY: Math.min(...group.map(m => m.minY)), maxY: Math.max(...group.map(m => m.maxY))
+  };
+  b.w = b.maxX - b.minX;
+  b.h = b.maxY - b.minY;
+  return b;
 }
 
 // ============================================================================
-// DETECTION FUNCTIONS
+// SHAPE TESTS
 // ============================================================================
 
 /**
- * Detect standalone underlines
- * Criteria: single stroke that is very horizontal (aspect > 50), very straight
- * (straightness > 0.90), and at least 15mm wide.
- *
- * @param {Array} strokes - Array of stroke objects
- * @returns {number[]} Indices of underline strokes
+ * Writing around a line: strokes that sit on it vs strokes it cuts through.
+ * Only letter-sized strokes centred over the line count.
  */
-function detectUnderlines(strokes) {
-  const underlineIndices = [];
-
-  for (let i = 0; i < strokes.length; i++) {
-    const stroke = strokes[i];
-    if (!stroke.dotArray || stroke.dotArray.length < 10) continue;
-
-    const bounds = getStrokeBounds(stroke);
-    if (!bounds || bounds.height < 0.01) continue;
-
-    const aspectRatio = bounds.width / bounds.height;
-    const pathLength = getPathLength(stroke);
-    const straightness = getStraightness(bounds, pathLength);
-
-    if (
-      aspectRatio > UNDERLINE_MIN_ASPECT &&
-      straightness > UNDERLINE_MIN_STRAIGHTNESS &&
-      bounds.width > UNDERLINE_MIN_WIDTH
-    ) {
-      underlineIndices.push(i);
-    }
+function writingAtLine(m, axis, page) {
+  const slope = Math.tan(axis.angle);
+  let on = 0, through = 0;
+  for (const o of page) {
+    if (o === m || o.h < 1.5 || o.h > 12) continue;
+    const ox = (o.minX + o.maxX) / 2;
+    if (ox < m.minX || ox > m.maxX) continue;
+    const y = axis.cy + slope * (ox - axis.cx);
+    const above = y - o.minY, below = o.maxY - y;
+    if (above >= 0.3 * o.h && below >= 0.3 * o.h) through++;
+    else if (o.h >= 2 && o.maxY <= y + 1 && o.maxY >= y - 5) on++;
   }
-
-  return underlineIndices;
+  return { on, through };
 }
 
 /**
- * Check if a stroke traces a rectangular perimeter.
- * Two geometric tests must both pass:
- *   1. Perimeter fraction — ≥ BOX_MIN_PERIM_FRACTION of dots must lie within
- *      BOX_NEAR_EDGE_MM of one of the four bounding-box edges.
- *   2. Path ratio — total path length / 2(w+h) must be in
- *      [BOX_PATH_RATIO_MIN, BOX_PATH_RATIO_MAX].
- *      A perfect rectangle scores 1.0; circles score ~0.785 (too low).
- *
- * @param {Object} stroke - Stroke with dotArray
- * @param {Object} bounds - Bounding box in mm (from getStrokeBounds)
- * @returns {boolean}
+ * Underline: straight, near-horizontal, not a strike-through.
+ * @param {Object} m - Measured stroke
+ * @param {Object[]} page - Measured strokes on the same page
  */
-function isRectangularStroke(stroke, bounds) {
-  const nearNcode = BOX_NEAR_EDGE_MM / NCODE_TO_MM;
-  const minX = bounds.minX / NCODE_TO_MM;
-  const maxX = bounds.maxX / NCODE_TO_MM;
-  const minY = bounds.minY / NCODE_TO_MM;
-  const maxY = bounds.maxY / NCODE_TO_MM;
+function isUnderline(m, page) {
+  if (m.pts.length < UNDERLINE_MIN_DOTS) return false;
+  const axis = principalAxis(m);
+  if (axis.length < UNDERLINE_SHORT_LENGTH || axis.slopeDeg > UNDERLINE_MAX_SLOPE_DEG) return false;
+  if (axis.off > Math.max(UNDERLINE_MAX_WOBBLE, 0.04 * axis.length)) return false;
+  if (m.length > UNDERLINE_MAX_PATH_RATIO * axis.length) return false;
 
-  let perimDots = 0;
-  for (const dot of stroke.dotArray) {
-    if (
-      dot.x <= minX + nearNcode || dot.x >= maxX - nearNcode ||
-      dot.y <= minY + nearNcode || dot.y >= maxY - nearNcode
-    ) {
-      perimDots++;
-    }
-  }
-
-  const perimFraction = perimDots / stroke.dotArray.length;
-  const pathMm = getPathLength(stroke);
-  const rectPerimMm = 2 * (bounds.width + bounds.height);
-  const pathRatio = pathMm / rectPerimMm;
-
-  return (
-    perimFraction >= BOX_MIN_PERIM_FRACTION &&
-    pathRatio >= BOX_PATH_RATIO_MIN &&
-    pathRatio <= BOX_PATH_RATIO_MAX
-  );
+  const { on, through } = writingAtLine(m, axis, page);
+  if (through > 0 && through > on) return false;   // strike-through: leave it for MyScript
+  return axis.length >= UNDERLINE_MIN_LENGTH || on >= 2;
 }
 
 /**
- * Detect single-stroke rectangular boxes with content inside.
- *
- * Criteria (all must pass):
- *   - ≥ BOX_MIN_DOTS dots
- *   - Bounds within BOX_MIN_SIZE..BOX_MAX_SIZE in both dimensions
- *   - Aspect ratio within BOX_ASPECT_MIN..BOX_ASPECT_MAX
- *   - Stroke is closed: start/end distance ≤ BOX_MAX_CLOSURE_MM
- *   - isRectangularStroke passes (perimeter fraction + path ratio)
- *   - At least BOX_MIN_CONTENT other strokes inside its bounds
- *
- * @param {Array} strokes - Array of stroke objects
- * @returns {number[]} Indices of single-stroke box strokes
+ * A closed outline: points hug their convex hull and the path is about one or two trips round it.
+ * @returns {{hull: Object[]}|null}
  */
-function detectSingleStrokeBoxes(strokes) {
-  const boxIndices = [];
-
-  for (let i = 0; i < strokes.length; i++) {
-    const stroke = strokes[i];
-    if (!stroke.dotArray || stroke.dotArray.length < BOX_MIN_DOTS) continue;
-
-    // Size check (mm)
-    const bounds = getStrokeBounds(stroke);
-    if (!bounds) continue;
-    if (bounds.width < BOX_MIN_SIZE || bounds.width > BOX_MAX_SIZE) continue;
-    if (bounds.height < BOX_MIN_SIZE || bounds.height > BOX_MAX_SIZE) continue;
-
-    // Aspect ratio check
-    const aspectRatio = bounds.width / bounds.height;
-    if (aspectRatio < BOX_ASPECT_MIN || aspectRatio > BOX_ASPECT_MAX) continue;
-
-    // Closure check (mm)
-    const first = stroke.dotArray[0];
-    const last = stroke.dotArray[stroke.dotArray.length - 1];
-    const cdx = (last.x - first.x) * NCODE_TO_MM;
-    const cdy = (last.y - first.y) * NCODE_TO_MM;
-    if (Math.sqrt(cdx * cdx + cdy * cdy) > BOX_MAX_CLOSURE_MM) continue;
-
-    // Rectangular shape check (perimeter fraction + path ratio)
-    if (!isRectangularStroke(stroke, bounds)) continue;
-
-    // Content check: must contain enough other strokes
-    if (countContainedStrokes(strokes, i, bounds) >= BOX_MIN_CONTENT) {
-      boxIndices.push(i);
-    }
-  }
-
-  return boxIndices;
+function outlineOf(pts, length) {
+  const hull = convexHull(pts);
+  if (hull.length < 4) return null;
+  const perimeter = hullPerimeter(hull);
+  if (length < OUTLINE_MIN_PATH_RATIO * perimeter || length > OUTLINE_MAX_PATH_RATIO * perimeter) return null;
+  // Tolerance scales with size: 0.8 mm would swallow a 3 mm letter whole
+  const tol = Math.min(2.5, Math.max(0.35, 0.1 * Math.sqrt(hullArea(hull))));
+  let onHull = 0;
+  for (const p of pts) if (distToHull(p, hull) <= tol) onHull++;
+  return onHull >= OUTLINE_MIN_ON_HULL * pts.length ? { hull, perimeter } : null;
 }
 
-/**
- * Detect circles/ovals with content inside
- * Criteria: single closed stroke, large enough not to be a letter, reasonable
- * aspect ratio (allows ovals), and at least CIRCLE_MIN_CONTENT strokes inside.
- *
- * @param {Array} strokes - Array of stroke objects
- * @returns {number[]} Indices of circle/oval strokes
- */
-function detectCircles(strokes) {
-  const circleIndices = [];
+/** The pen came back to where it started (an overshoot past the start still counts). */
+function isClosed(m, perimeter) {
+  const last = m.pts[m.pts.length - 1];
+  const early = m.pts.slice(0, Math.max(3, Math.floor(m.pts.length * 0.25)));
+  const gap = Math.min(...early.map(p => Math.hypot(p.x - last.x, p.y - last.y)));
+  return gap <= Math.max(2.5, 0.12 * perimeter);
+}
 
-  for (let i = 0; i < strokes.length; i++) {
-    const stroke = strokes[i];
-    if (!stroke.dotArray || stroke.dotArray.length < CIRCLE_MIN_DOTS) continue;
+function sizeOk(b, minSize) {
+  return b.w >= minSize && b.h >= minSize && b.w <= ENCLOSURE_MAX_WIDTH && b.h <= ENCLOSURE_MAX_HEIGHT &&
+    Math.max(b.w / b.h, b.h / b.w) <= ENCLOSURE_MAX_ASPECT;
+}
 
-    const bounds = getStrokeBounds(stroke);
-    if (!bounds) continue;
+/** Corners of the bounds with ink near them: a drawn box has 3-4, a circle 0 (it never gets nearer than 0.21 × its size). */
+function inkedCorners(pts, b) {
+  const r = 0.12 * Math.min(b.w, b.h) + 0.2;
+  const corners = [[b.minX, b.minY], [b.maxX, b.minY], [b.minX, b.maxY], [b.maxX, b.maxY]];
+  return corners.filter(([cx, cy]) => pts.some(p => Math.hypot(p.x - cx, p.y - cy) <= r)).length;
+}
 
-    // Must be large enough to not be a letter
-    if (bounds.width <= CIRCLE_MIN_SIZE || bounds.height <= CIRCLE_MIN_SIZE) continue;
+/** ☐ / ☑ — kept so task-markers.js can read it. */
+function isTaskBox(pts, b) {
+  const aspect = b.w / b.h;
+  return b.w <= CHECKBOX_MAX_SIZE && b.h <= CHECKBOX_MAX_SIZE && aspect >= 0.6 && aspect <= 1.7 &&
+    inkedCorners(pts, b) >= 3;
+}
 
-    // Must be closed
-    const firstDot = stroke.dotArray[0];
-    const lastDot = stroke.dotArray[stroke.dotArray.length - 1];
-    const dx = (lastDot.x - firstDot.x) * NCODE_TO_MM;
-    const dy = (lastDot.y - firstDot.y) * NCODE_TO_MM;
-    if (Math.sqrt(dx * dx + dy * dy) > CIRCLE_MAX_ENDPOINT_DIST) continue;
+/** Strokes (other than `exclude`) with most of their dots inside the hull. */
+function strokesInside(page, hull, b, exclude) {
+  return page.filter(o => {
+    if (exclude.has(o) || o.maxX < b.minX || o.minX > b.maxX || o.maxY < b.minY || o.minY > b.maxY) return false;
+    let inside = 0;
+    for (const p of o.pts) if (insideHull(p, hull)) inside++;
+    return inside >= CONTENT_MIN_INSIDE * o.pts.length;
+  });
+}
 
-    // Aspect ratio (allow ovals but not too elongated)
-    const aspectRatio = bounds.width / bounds.height;
-    if (aspectRatio < CIRCLE_ASPECT_MIN || aspectRatio > CIRCLE_ASPECT_MAX) continue;
+/** A small loop must be filled by what's in it (a circled digit), not just hold a stray dot. */
+function fillsLoop(contents, b) {
+  if (Math.min(b.w, b.h) >= 5) return true;
+  const c = boundsOf(contents);
+  return c.h >= 0.4 * b.h && c.w * c.h >= 0.08 * b.w * b.h;
+}
 
-    // Must contain content
-    if (countContainedStrokes(strokes, i, bounds) >= CIRCLE_MIN_CONTENT) {
-      circleIndices.push(i);
+/** Points near each side of the bounds over at least MULTI_BOX_SIDE_COVERAGE of its length. */
+function tracesAllSides(pts, b, tol) {
+  return ['top', 'bottom', 'left', 'right'].every(side => {
+    const horizontal = side === 'top' || side === 'bottom';
+    const bins = new Set();
+    for (const p of pts) {
+      const d = side === 'top' ? p.y - b.minY : side === 'bottom' ? b.maxY - p.y
+        : side === 'left' ? p.x - b.minX : b.maxX - p.x;
+      if (d <= tol) bins.add(Math.floor(10 * (horizontal ? (p.x - b.minX) / b.w : (p.y - b.minY) / b.h)));
     }
-  }
-
-  return circleIndices;
+    return bins.size >= 10 * MULTI_BOX_SIDE_COVERAGE;
+  });
 }
 
 // ============================================================================
-// MAIN FILTERING FUNCTION
+// DETECTION (one page)
+// ============================================================================
+
+function detectLoops(page, found) {
+  for (const m of page) {
+    if (found.has(m.index) || m.pts.length < LOOP_MIN_DOTS || !sizeOk(m, ENCLOSURE_MIN_SIZE)) continue;
+    const outline = outlineOf(m.pts, m.length);
+    if (!outline || !isClosed(m, outline.perimeter) || isTaskBox(m.pts, m)) continue;
+    const contents = strokesInside(page, outline.hull, m, new Set([m]));
+    if (contents.length && fillsLoop(contents, m)) {
+      found.set(m.index, inkedCorners(m.pts, m) >= 3 ? 'box' : 'circle');
+    }
+  }
+}
+
+function detectMultiStrokeBoxes(page, found) {
+  const byTime = [...page].sort((a, b) => a.t - b.t);
+  for (let k = 0; k < byTime.length; k++) {
+    for (let n = MULTI_BOX_MAX_STROKES; n >= 2; n--) {
+      const group = byTime.slice(k, k + n);
+      if (group.length < n) continue;
+      if (group.some(m => found.has(m.index)) || group[n - 1].t - group[0].t > MULTI_BOX_MAX_MS) continue;
+      const b = boundsOf(group);
+      if (!sizeOk(b, MULTI_BOX_MIN_SIZE)) continue;
+      if (group.some(m => m.w < 0.3 * b.w && m.h < 0.3 * b.h)) continue;   // every piece spans a side
+
+      // Every stroke lies on the edge, so a letter written inside straight after never joins the box
+      const tol = Math.max(0.8, Math.min(1.5, 0.15 * Math.min(b.w, b.h)));
+      const onEdge = p => Math.min(p.x - b.minX, b.maxX - p.x, p.y - b.minY, b.maxY - p.y) <= tol;
+      if (group.some(m => m.pts.filter(onEdge).length < OUTLINE_MIN_ON_HULL * m.pts.length)) continue;
+      const pts = group.flatMap(m => m.pts);
+      if (!tracesAllSides(pts, b, tol)) continue;
+      const outline = outlineOf(pts, group.reduce((s, m) => s + m.length, 0));
+      if (!outline || isTaskBox(pts, b)) continue;
+
+      if (strokesInside(page, outline.hull, b, new Set(group)).length) {
+        for (const m of group) found.set(m.index, 'box');
+        break;
+      }
+    }
+  }
+}
+
+/**
+ * @param {Object[]} page - Measured strokes of one page
+ * @returns {Map<number, 'underline'|'box'|'circle'>} caller index → type
+ */
+function detectPage(page) {
+  const found = new Map();
+  detectLoops(page, found);
+  // Before underlines: a box's top and bottom sides would pass as underlines and leave its sides behind
+  detectMultiStrokeBoxes(page, found);
+  for (const m of page) if (!found.has(m.index) && isUnderline(m, page)) found.set(m.index, 'underline');
+  return found;
+}
+
+function pageKey(stroke) {
+  const p = stroke.pageInfo || {};
+  return `${p.section}/${p.owner}/${p.book}/${p.page}`;
+}
+
+/**
+ * Detect decorative strokes, page by page.
+ * @param {Array} strokes - Canvas-format strokes
+ * @returns {Map<number, 'underline'|'box'|'circle'>} index → type
+ */
+function detectDecorative(strokes) {
+  const pages = new Map();
+  strokes.forEach((stroke, i) => {
+    const m = measure(stroke, i);
+    if (!m) return;
+    const key = pageKey(stroke);
+    if (!pages.has(key)) pages.set(key, []);
+    pages.get(key).push(m);
+  });
+  const found = new Map();
+  for (const page of pages.values()) {
+    for (const [index, type] of detectPage(page)) found.set(index, type);
+  }
+  return found;
+}
+
+function countTypes(found) {
+  const stats = { boxes: 0, underlines: 0, circles: 0 };
+  for (const type of found.values()) stats[type === 'box' ? 'boxes' : type + 's']++;
+  return stats;
+}
+
+// ============================================================================
+// PUBLIC API
 // ============================================================================
 
 /**
  * Filter decorative strokes from a stroke array
  * Separates text strokes from decorative elements (underlines, boxes, circles).
- * All detection operates on individual strokes — no multi-stroke grouping.
  *
  * @param {Array} strokes - Array of stroke objects
  * @returns {Object} {textStrokes, decorativeStrokes, stats}
@@ -344,41 +388,16 @@ export function filterDecorativeStrokes(strokes) {
     return {
       textStrokes: [],
       decorativeStrokes: [],
-      stats: {
-        total: 0,
-        text: 0,
-        decorative: 0,
-        boxes: 0,
-        underlines: 0,
-        circles: 0
-      }
+      stats: { total: 0, text: 0, decorative: 0, boxes: 0, underlines: 0, circles: 0 }
     };
   }
 
-  const underlineIndices = detectUnderlines(strokes);
-  const boxIndices = detectSingleStrokeBoxes(strokes);
-  const circleIndices = detectCircles(strokes);
-
-  const decorativeIndices = new Set([
-    ...underlineIndices,
-    ...boxIndices,
-    ...circleIndices
-  ]);
-
+  const found = detectDecorative(strokes);
   const textStrokes = [];
   const decorativeStrokes = [];
-
   strokes.forEach((stroke, index) => {
-    if (decorativeIndices.has(index)) {
-      let type;
-      if (underlineIndices.includes(index)) type = 'underline';
-      else if (boxIndices.includes(index)) type = 'box';
-      else type = 'circle';
-
-      decorativeStrokes.push({ stroke, index, type });
-    } else {
-      textStrokes.push(stroke);
-    }
+    if (found.has(index)) decorativeStrokes.push({ stroke, index, type: found.get(index) });
+    else textStrokes.push(stroke);
   });
 
   return {
@@ -388,67 +407,49 @@ export function filterDecorativeStrokes(strokes) {
       total: strokes.length,
       text: textStrokes.length,
       decorative: decorativeStrokes.length,
-      boxes: boxIndices.length,
-      underlines: underlineIndices.length,
-      circles: circleIndices.length
+      ...countTypes(found)
     }
   };
 }
 
 /**
  * Detect decorative strokes and return their indices
- * Useful for user-controlled deselection rather than automatic filtering.
- * All detection operates on individual strokes — no multi-stroke grouping.
+ * Used by "Deselect Decorative" (user-controlled deselection rather than automatic filtering).
  *
  * @param {Array} strokes - Array of stroke objects
  * @returns {Object} {indices: number[], stats: {boxes, underlines, circles}}
  */
 export function detectDecorativeIndices(strokes) {
   if (!strokes || strokes.length === 0) {
-    return {
-      indices: [],
-      stats: { boxes: 0, underlines: 0, circles: 0 }
-    };
+    return { indices: [], stats: { boxes: 0, underlines: 0, circles: 0 } };
   }
-
-  const underlineIndices = detectUnderlines(strokes);
-  const boxIndices = detectSingleStrokeBoxes(strokes);
-  const circleIndices = detectCircles(strokes);
-
-  return {
-    indices: [...underlineIndices, ...boxIndices, ...circleIndices],
-    stats: {
-      boxes: boxIndices.length,
-      underlines: underlineIndices.length,
-      circles: circleIndices.length
-    }
-  };
+  const found = detectDecorative(strokes);
+  return { indices: [...found.keys()].sort((a, b) => a - b), stats: countTypes(found) };
 }
 
 /**
  * Export configuration constants for external access/tuning
  */
 export const config = {
-  BOX_MIN_DOTS,
-  BOX_MIN_SIZE,
-  BOX_MAX_SIZE,
-  BOX_ASPECT_MIN,
-  BOX_ASPECT_MAX,
-  BOX_MAX_CLOSURE_MM,
-  BOX_NEAR_EDGE_MM,
-  BOX_MIN_PERIM_FRACTION,
-  BOX_PATH_RATIO_MIN,
-  BOX_PATH_RATIO_MAX,
-  BOX_MIN_CONTENT,
-  UNDERLINE_MIN_ASPECT,
-  UNDERLINE_MIN_STRAIGHTNESS,
-  UNDERLINE_MIN_WIDTH,
-  CIRCLE_MIN_DOTS,
-  CIRCLE_MIN_SIZE,
-  CIRCLE_MAX_ENDPOINT_DIST,
-  CIRCLE_ASPECT_MIN,
-  CIRCLE_ASPECT_MAX,
-  CIRCLE_MIN_CONTENT,
-  CONTAINMENT_MARGIN,
+  UNDERLINE_MIN_LENGTH,
+  UNDERLINE_SHORT_LENGTH,
+  UNDERLINE_MAX_SLOPE_DEG,
+  UNDERLINE_MAX_WOBBLE,
+  UNDERLINE_MAX_PATH_RATIO,
+  UNDERLINE_MIN_DOTS,
+  ENCLOSURE_MIN_SIZE,
+  MULTI_BOX_MIN_SIZE,
+  ENCLOSURE_MAX_WIDTH,
+  ENCLOSURE_MAX_HEIGHT,
+  ENCLOSURE_MAX_ASPECT,
+  LOOP_MIN_DOTS,
+  OUTLINE_MIN_PATH_RATIO,
+  OUTLINE_MAX_PATH_RATIO,
+  OUTLINE_MIN_ON_HULL,
+  CONTENT_MIN_INSIDE,
+  MULTI_BOX_MAX_STROKES,
+  MULTI_BOX_MAX_MS,
+  MULTI_BOX_SIDE_COVERAGE,
+  CHECKBOX_MAX_SIZE,
   NCODE_TO_MM
 };
