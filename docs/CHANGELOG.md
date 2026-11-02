@@ -8,6 +8,55 @@ CLAUDE.md (Invariants); the store and library map is in
 
 ## Unreleased
 
+### Print (to PDF or a printer)
+
+Josh writes mostly in A5 notebooks (JPI Dotted, Study Notes) but prints on Letter, and wanted pages printable as ink,
+transcript or both, with half-size pages side by side on one sheet. Reachable from the printer menu in a reader page's
+header and **Print…** in a page grid's Select bar.
+
+- **Print list** (Josh: pages from several notebooks, in his order). A session-only list (`stores/print.js`
+  `printList`, like the rest of where you are in the Library) filled from a grid's Select bar (*Add to print list*), a
+  reader page's printer menu, and a Timeline sitting's or day's ⋯ menu; the header's **Print list N** button opens it.
+  The Print dialog shows its pages in print order for every job (`PrintPageList`): drag or ↑ ↓ to reorder, ✕ to leave
+  one out, *Sort by notebook*. A one-off print (one page, a grid selection) edits its own copy; opened on the list, edits
+  write through. Not saved across launches: it is a gathering step, not a document. Rejected: selecting across grids
+  (selection is per grid visit, and a cross-grid selection would be invisible while you browse elsewhere).
+- **Pick pages inside the dialog.** A left panel (`PrintPagePicker`) lists every notebook as an accordion of page chips
+  from the scan records (no page reads): click adds to the end of the list, click again removes, *Add all* per
+  notebook. With it the header's **Print** button is always shown (a badge counts the list) and opens straight onto it.
+- **Print to a printer** (`print:toPrinter`) goes through the Windows print dialog, preset to the job's sheet size and
+  orientation (`@page` orientation does not reach a driver by itself, so both are passed explicitly); printer, copies
+  and two-sided are chosen there. Silent printing to a chosen printer was tried and rejected: Chromium can't drive the
+  "print to file" drivers (Microsoft Print to PDF, Adobe, Bluebeam) without their filename prompt, and the job hung with
+  no callback. The print window is owned by the main window so the dialog belongs to this app. While testing, an
+  unanswered dialog from a stray test process got in the way of Josh's other Electron apps; the app's own dialog is
+  always answered or cancelled by the user. Josh confirmed Save PDF and Print on a real printer (2026-11-02).
+
+- **Main renders it, not the OS print dialog.** The jpi-tools Doc Exporter had to settle for `window.print()` because a
+  LogSeq plugin can't reach `webContents.printToPDF`; this app owns its main process, so it can. The renderer builds one
+  self-contained HTML document (`lib/print/print-html.js`: inline SVG ink, data-URL backgrounds, no scripts) whose
+  `@page` rule is the sheet; main asks where to save, loads it into a hidden window with JavaScript off and calls
+  `printToPDF({ preferCSSPageSize: true })`. No driver scaling, no "Fit to page" surprises, selectable text, vector ink.
+  The HTML goes through a temp file: a job with backgrounds is far past Chromium's URL length limit for a data: URL.
+- **One layout: a flow of items down CSS columns.** A page's ink is a figure exactly one column tall, so it starts a
+  column; transcript text flows after it into the next column and on to the next sheet. "2 per sheet" is a landscape
+  sheet with two columns, so *Both* on A5 gives ink on the left half and its transcript on the right, and a long
+  transcript simply continues. Checked in Electron 40 that Chromium fragments multicol across printed pages and honours
+  `column-fill: auto` there (no balancing on the last sheet). Computing sheets in JS was rejected: it would need text
+  measurement to know where a transcript overflows.
+- **Pages are sized by their paper**, the Neo manifest's frame (grown to take in ink in the crop margin), whether or not
+  the background is drawn; one Ncode unit is 8 × 7 / 600 in, so *Actual size* is true size. **Auto** picks 2 per sheet
+  when every page prints at 80% or better in a column (A5 on Letter is ~0.87, a College / Letter notebook ~0.6), else 1
+  per sheet, landscape when most pages are turned sideways. Display rotation is applied as in the reader.
+- Transcripts print with task boxes drawn in SVG (no font needs ☐ / ☑), WAITING named, CANCELLED struck through;
+  property and blank lines dropped as in the Markdown copy. Pages are read with `getPage`, not the reader's page cache
+  (a whole notebook would evict the open spread). Options are remembered in localStorage.
+
+Not done: no preview of the PDF itself (the dialog sketches the first sheet); 2 per sheet is always side by side, so
+sideways A5 pages print small in it (pick 1 per sheet, landscape); no page numbers on sheets; the Editor has no Print entry yet. One sheet layout per job: a list that mixes
+Letter-size and A5 notebooks prints all of it 1 per sheet under Auto. Reordering by drag is unit-free code checked by
+hand only; ↑ ↓ was driven in the app.
+
 ### Deselect Decorative: rewritten detector
 
 Josh put its hit rate at 40-60%. Running it over the whole data folder (323 pages) showed why: every rule looked at

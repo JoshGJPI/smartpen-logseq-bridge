@@ -9,6 +9,8 @@
   import { compareTags } from '$lib/tags.js';
   import { menuKeyAction } from '$lib/menu-keys.js';
   import { plural } from '$lib/plural.js';
+  import { parseOrientationKey } from '$lib/page-orientation.js';
+  import { openPrintDialog, addToPrintList } from '$stores/print.js';
   import TagInput from './TagInput.svelte';
   import TagChip from './TagChip.svelte';
 
@@ -41,6 +43,11 @@
     if (await removeTagFromPages(keys, tag)) status = `Removed “${tag}” from ${n} ${plural(n, 'page')}`;
   }
 
+  // In the order shown (keys are page keys, the orientation key's shape).
+  function print() {
+    openPrintDialog(keys.map(parseOrientationKey).filter(Boolean));
+  }
+
   // Capture phase, so PageGrid's Escape (leave Select) sees it handled.
   function onKey(e) {
     if (menuKeyAction(e, removeOpen) === 'close') {
@@ -52,7 +59,7 @@
 
 <svelte:window on:keydown|capture={onKey} />
 
-<div class="btb" role="toolbar" aria-label="Tag selected pages">
+<div class="btb" role="toolbar" aria-label="Selected pages">
   <b>{keys.length} selected</b>
   <div class="btb-in">
     <TagInput tags={[]} showChips={false} dark dropUp disabled={disabled || !keys.length} placeholder="Add tag to selected…" label="Add a tag to the selected pages" onAdd={add} />
@@ -69,6 +76,9 @@
       </div>
     {/if}
   </div>
+  <button type="button" disabled={!keys.length} title="Print the selected pages to PDF" on:click={print}>Print…</button>
+  <button type="button" disabled={!keys.length} title="Gather pages from several notebooks, then print them together from the header's Print list"
+    on:click={() => addToPrintList(keys.map(parseOrientationKey).filter(Boolean))}>Add to print list</button>
   <button type="button" on:click={onSelectAll}>Select all</button>
   <button type="button" class="pri" on:click={onDone}>Done</button>
   {#if status}<span class="btb-status" role="status">{status}</span>{/if}

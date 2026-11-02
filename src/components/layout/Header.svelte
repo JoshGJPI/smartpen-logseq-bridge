@@ -24,6 +24,7 @@
   import SettingsDropdown from '../header/SettingsDropdown.svelte';
   import SearchField from './SearchField.svelte';
   import TasksButton from '../tasks/TasksButton.svelte';
+  import PrintListButton from '../header/PrintListButton.svelte';
 
   $: hasUnsaved = $unsavedChanges || $viewerDirty;
   $: showCaptureBar = shouldShowCaptureBar({
@@ -63,6 +64,7 @@
       </span>
     {/if}
 
+    <PrintListButton />
     <TasksButton />
     <PenChip />
     <SettingsDropdown />

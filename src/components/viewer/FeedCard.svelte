@@ -16,6 +16,7 @@
 <script>
   import FeedPart from './FeedPart.svelte';
   import OverflowMenu from './OverflowMenu.svelte';
+  import { addToPrintList } from '$stores/print.js';
   import { formatDuration } from '$lib/timeline-feed.js';
   import { bookAliases } from '$stores';
   import { formatBookName } from '$utils/formatting.js';
@@ -61,6 +62,10 @@
     disabled: loading,
     onSelect: load
   };
+  $: printItem = {
+    label: shown.length > 1 ? `Add ${shown.length} pages to print list` : 'Add page to print list',
+    onSelect: () => addToPrintList(shown.map((p) => ({ book: p.book, pageId: p.pageId })))
+  };
 
   async function load() {
     if (loading) return;
@@ -80,7 +85,7 @@
         <div class="fc-title">{multiTitle}</div>
         <div class="fc-meta">{timeMeta} · {shown.length} pages</div>
       </div>
-      <OverflowMenu items={[loadItem]} label="More for this sitting" />
+      <OverflowMenu items={[loadItem, printItem]} label="More for this sitting" />
     </header>
     {#each shown as part, i (`${part.book}/${part.pageId}`)}
       <FeedPart
@@ -98,7 +103,7 @@
       page={pages.get(`${shown[0].book}/${shown[0].pageId}`)}
       title={`${bookName(shown[0].book, $bookAliases)} · P${shown[0].pageId}`}
       meta={timeMeta}
-      menuItems={[loadItem]}
+      menuItems={[loadItem, printItem]}
       {onOpen}
     />
   {/if}

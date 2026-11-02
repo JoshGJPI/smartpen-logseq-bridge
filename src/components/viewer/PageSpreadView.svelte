@@ -169,6 +169,7 @@
     onHoverDay={(g) => (dayHighlight = g)}
     onOpenDay={openTimelineDay}
     {onLoadIntoEditor}
+    printRef={{ book: record.book, pageId }}
   />
 
   <div class="pv-area" class:inktext={contentMode === 'inktext'} class:stack={layout === 'stack'}>
