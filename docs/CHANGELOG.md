@@ -53,9 +53,37 @@ header and **Print…** in a page grid's Select bar.
   (a whole notebook would evict the open spread). Options are remembered in localStorage.
 
 Not done: no preview of the PDF itself (the dialog sketches the first sheet); 2 per sheet is always side by side, so
-sideways A5 pages print small in it (pick 1 per sheet, landscape); no page numbers on sheets; the Editor has no Print entry yet. One sheet layout per job: a list that mixes
+sideways A5 pages print small in it (pick 1 per sheet, landscape); no page numbers on sheets. One sheet layout per job: a list that mixes
 Letter-size and A5 notebooks prints all of it 1 per sheet under Auto. Reordering by drag is unit-free code checked by
 hand only; ↑ ↓ was driven in the app.
+
+**Print selection… in the Editor.** The Editor's Export ▾ menu has **🖨️ Print selection…** beside SVG, enabled only
+with strokes selected. It prints just the selected strokes, one print page per pen page, through the same document,
+options and Save PDF… / Print… as a page print.
+
+- **From memory, not disk** (`lib/print/print-selection.js`): the selection is grouped by page (book key, then page
+  number, `compareBookKeys`) and converted with the save path's own `strokeToStored()` (moved to
+  `lib/storage/stroke-format.js`, which has no imports, and re-exported from `save-page.js`), so force and the sketch flag
+  survive (width runs print) and in-memory markers never get through. Unsaved strokes print; so do pasted copies once
+  they sit on a page. A floating pasted copy has no page, so it is skipped and the dialog says how many.
+- **In place on the full paper.** Each page prints on its paper frame (`resolvePagePaper()`, grown by `printFrame()` for
+  stray ink), so the selection lands where it was written instead of being cropped and enlarged; without paper, the
+  selection's own ink box. Auto therefore lays an A5 selection 2 per sheet like the whole page. The page's rotation
+  applies; a letter-suffixed page has collapsed onto its integer page on the canvas, so it prints (and is labelled)
+  under the integer page. Labels are notebook — page plus the selection's capture dates.
+- **Strokes only.** A saved transcript can't be reliably matched to a selection of ink (stored `lineId`s are unreliable
+  before Aug 2026), so Transcript / Both are hidden and the job is forced to Strokes; the remembered choice is left alone.
+  `contextInk` can't print: it isn't in `strokes`, so it can't be selected.
+- **Its own store.** `selectionPrint` (`stores/print.js`) holds a snapshot of the pages taken when the dialog opens;
+  `printDialog` and the print list are never touched. `PrintDialog` reads one or the other: in selection mode it hides
+  the notebook picker and page list and shows a read-only per-page summary with stroke counts
+  (`PrintSelectionPages.svelte`). The options form moved to `PrintOptions.svelte` to keep the dialog under ~300 lines.
+
+Checked by rendering real B3017 (A5) and B387 (Letter) selections through the same `printToPDF` call main uses: every
+ink pixel of a selection print falls on ink of the whole-page print of that page (A5, Letter, and a quarter turn), a
+mixed job orders B387 before B3017 with a `175b` selection under P175, and sketch strokes print as width runs. The
+dialog was driven in an isolated app instance (select, Export ▾ → Print selection…, Cancel; the header's Print list was
+still empty). Save PDF… and Print… were not clicked in the app (no OS dialog or print job from tests).
 
 ### Deselect Decorative: rewritten detector
 

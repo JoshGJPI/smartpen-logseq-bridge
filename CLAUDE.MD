@@ -38,8 +38,9 @@ mcp/               read-only stdio MCP server over the data folder (9 tools, PNG
 electron/task-summary.cjs   the scan's per-page task summary; mirrors lib/tasks.js buildTaskSummary (tested together)
 electron/retimed-sidecar.cjs  pure parse / record of pages/_retimed.json for main (tested from Vitest)
 src/lib/print/     Print to PDF (v3.8.0): print-layout.js (sheets, 2-up columns, Auto, ink scale), print-html.js (the
-                   self-contained document), print-list.js (cross-notebook print order); stores/print.js holds the
-                   session print list and runs a job, main's print:savePdf renders it with printToPDF
+                   self-contained document), print-list.js (cross-notebook print order), print-selection.js (the Editor's
+                   Print selection…: selected canvas strokes by page, in memory); stores/print.js holds the session
+                   print list and runs a job, main's print:savePdf renders it with printToPDF
 ```
 
 Data flow: **pen → `strokes` store → canvas / MyScript → `savePageToFolder()` → PageDoc on disk.**
@@ -377,8 +378,10 @@ then looks broken when it isn't). Launch with `--disable-backgrounding-occluded-
   Electron apps); Josh confirmed it on a real printer 2026-11-02. PDF: rendered in main by `printToPDF` from a hidden, script-less window, so the document's
   `@page` is the sheet; keep everything the document needs inline. Ink is a column-tall figure and text flows in CSS
   columns (see CHANGELOG, "Print to PDF"). The print list (header **Print**, or the dialog's notebook panel) is session-only and gathers pages
-  from any notebook; one sheet layout per job, so a mixed Letter + A5 list prints 1 per sheet. 2 per sheet is side by side only; no PDF preview, no sheet numbers; no
-  Print in the Editor yet.
+  from any notebook; one sheet layout per job, so a mixed Letter + A5 list prints 1 per sheet. 2 per sheet is side by side only; no PDF preview, no sheet numbers.
+  The Editor's Export ▾ → Print selection… prints only the selected strokes from memory (`lib/print/print-selection.js`,
+  its own `selectionPrint` store), each on its page's full paper, Strokes only (a transcript can't be matched to a
+  selection); a floating pasted copy has no page and is skipped.
 - Main-process and renderer tracing is behind `lib/debug.js` (`localStorage['smartpen-debug'] = '1'`, or the dev
   server). Never log MyScript keys or the HMAC, not even fragments.
 - Timeline: no transcripts on cards (stored `lineId`s are unreliable); `SESSION_GAP_MS` is a constant.

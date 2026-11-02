@@ -19,6 +19,7 @@
   import { bookAliases } from '$stores';
   import { formatBookName, filterTranscriptionProperties } from '$utils/formatting.js';
   import { openTranscriptSearch, openSvgExportDialog } from '$stores';
+  import { openSelectionPrint } from '$stores/print.js';
   import { isTypingTarget, modalOpen } from '$lib/left-panel.js';
   import { hasSelection } from '$stores/selection.js';
   import { sketchProfile, sketchProfileSummary, sketchStrokeCount, markStrokesAsSketch, unmarkStrokesAsSketch } from '$stores';
@@ -2438,6 +2439,12 @@
           </div>
           <button class="export-menu-item" on:click={() => runExport(exportSvg)}>
             🖼️ SVG
+          </button>
+          <!-- Selection only: each page prints on its full paper (lib/print/print-selection.js). -->
+          <button class="export-menu-item" disabled={!$hasSelection}
+            on:click={() => runExport(() => openSelectionPrint($selectedStrokes))}
+            title={$hasSelection ? 'Print the selected strokes where they sit on their pages' : 'Select strokes to print them'}>
+            🖨️ Print selection…
           </button>
           <button class="export-menu-item" on:click={() => runExport(exportJson)}>
             📦 JSON

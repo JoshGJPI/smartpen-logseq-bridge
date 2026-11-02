@@ -9,6 +9,11 @@
  * drawn), builds one self-contained HTML document (lib/print/print-html.js) and
  * hands it to main, which asks where to save and renders it with printToPDF.
  * Read-only: nothing here writes a PageDoc or a sidecar.
+ *
+ * Print selection… (v3.8.0) is the Editor's way in: the canvas's selected
+ * strokes, copied when the dialog opens (lib/print/print-selection.js), printed
+ * on their pages' full paper from memory instead of disk. It has its own store
+ * (`selectionPrint`), so it never disturbs `printDialog` or the print list.
  */
 
 import { writable, get } from 'svelte/store';
@@ -17,6 +22,7 @@ import { readJson, write } from '../lib/safe-storage.js';
 import { normalizePrintOptions, resolveSheet } from '../lib/print/print-layout.js';
 import { buildPrintHtml, printFrame } from '../lib/print/print-html.js';
 import { addRefs, removeRefs, refKey } from '../lib/print/print-list.js';
+import { groupSelectionByPage, selectionPrintPage } from '../lib/print/print-selection.js';
 import { pageDayGroups } from '../lib/viewer/page-sittings.js';
 import { writtenLabel } from '../lib/viewer/written-on.js';
 import { rotationFor } from '../lib/page-orientation.js';
@@ -72,6 +78,28 @@ export function closePrintDialog() {
 export function setDialogPages(pages) {
   printDialog.update((d) => ({ ...d, pages }));
   if (get(printDialog).fromList) printList.set(pages);
+}
+
+/**
+ * `{ open, pages: [{ book, pageId, strokes }], skipped }`: Print selection…'s
+ * pages, stored-format strokes copied from the canvas when it opened (later
+ * canvas edits don't reach an open dialog). `skipped`: selected strokes with no
+ * page (a floating pasted copy).
+ */
+export const selectionPrint = writable({ open: false, pages: [], skipped: 0 });
+
+/** Print selection…: open the dialog on the selected canvas strokes. */
+export function openSelectionPrint(canvasStrokes) {
+  const { pages, skipped } = groupSelectionByPage(canvasStrokes);
+  if (!pages.length) {
+    log('Nothing to print: the selected strokes are not on a page', 'warning');
+    return;
+  }
+  selectionPrint.set({ open: true, pages, skipped });
+}
+
+export function closeSelectionPrint() {
+  selectionPrint.set({ open: false, pages: [], skipped: 0 });
 }
 
 /** Append pages to the print list (duplicates skipped). @returns {number} how many were new */
@@ -130,12 +158,26 @@ function toDataUrl(bytes, ext) {
   return `data:${ext === 'png' ? 'image/png' : 'image/jpeg'};base64,${btoa(bin)}`;
 }
 
+const pageTitle = (ref) => `${bookName(ref.book)} — P${ref.pageId}`;
+
+/** The page's ruling as a data URL, when asked for and installed; else null. */
+async function loadBackground(paper, opts) {
+  if (!opts.background || !paper || opts.content === 'transcript') return null;
+  try {
+    const bytes = await getBackgroundImage(paper.ncodeBook, paper.pageNumber);
+    if (bytes && bytes.length) return { frame: paper.frame, dataUrl: toDataUrl(bytes, paper.ext) };
+  } catch {
+    /* no background: the ink prints on white */
+  }
+  return null;
+}
+
 /**
  * One page as print-html.js wants it. A page that can't be read prints as a
  * labelled blank rather than failing the whole job.
  */
 async function loadPrintPage(ref, opts) {
-  const title = `${bookName(ref.book)} — P${ref.pageId}`;
+  const title = pageTitle(ref);
   let doc = null;
   try {
     doc = await getPage(ref.book, ref.pageId);
@@ -144,16 +186,7 @@ async function loadPrintPage(ref, opts) {
   }
   const strokes = (doc && doc.strokes) || [];
   const paper = await resolvePagePaper(ref.book, ref.pageId);
-
-  let background = null;
-  if (opts.background && paper && opts.content !== 'transcript') {
-    try {
-      const bytes = await getBackgroundImage(paper.ncodeBook, paper.pageNumber);
-      if (bytes && bytes.length) background = { frame: paper.frame, dataUrl: toDataUrl(bytes, paper.ext) };
-    } catch {
-      /* no background: the ink prints on white */
-    }
-  }
+  const background = await loadBackground(paper, opts);
 
   return {
     title,
@@ -164,6 +197,20 @@ async function loadPrintPage(ref, opts) {
     lines: doc && doc.transcript && Array.isArray(doc.transcript.lines) ? doc.transcript.lines : null,
     background
   };
+}
+
+/**
+ * One Print selection… page: its full paper (or the selection's ink box without
+ * one), turned like the canvas page (the integer page's rotation).
+ */
+async function loadSelectionPage(group, opts) {
+  const paper = await resolvePagePaper(group.book, group.pageId);
+  return selectionPrintPage(group, {
+    paperFrame: paper ? paper.frame : null,
+    rotation: rotationFor(get(pageOrientations), group.book, group.pageId),
+    title: pageTitle(group),
+    background: await loadBackground(paper, opts)
+  });
 }
 
 /**
@@ -178,6 +225,12 @@ export async function previewSheet(refs, opts) {
   return resolveSheet(pages.filter((p) => p.frame), opts);
 }
 
+/** previewSheet for Print selection… (its pages are in memory, so this is cheap). */
+export async function previewSelectionSheet(groups, opts) {
+  const pages = await Promise.all(groups.map((g) => loadSelectionPage(g, { ...opts, background: false })));
+  return resolveSheet(pages.filter((p) => p.frame), opts);
+}
+
 function printAPI() {
   if (typeof window === 'undefined' || !window.printAPI) {
     throw new Error('Printing needs the desktop app.');
@@ -185,18 +238,19 @@ function printAPI() {
   return window.printAPI;
 }
 
-/** Read the pages and build the print document: `{ html, sheet, docTitle, opts }`. */
-async function buildJob(refs, options, onProgress) {
-  const opts = normalizePrintOptions(options);
+/**
+ * Load the pages and build the print document: `{ html, sheet, docTitle, opts }`.
+ * `load(item, opts)` makes one print page; `docTitle` names the PDF.
+ */
+async function buildJob(items, load, opts, docTitle, onProgress) {
   const pages = [];
-  for (let i = 0; i < refs.length; i++) {
-    onProgress(i, refs.length);
-    pages.push(await loadPrintPage(refs[i], opts));
+  for (let i = 0; i < items.length; i++) {
+    onProgress(i, items.length);
+    pages.push(await load(items[i], opts));
   }
-  onProgress(refs.length, refs.length);
+  onProgress(items.length, items.length);
 
   const sheet = resolveSheet(pages.filter((p) => p.frame), opts);
-  const docTitle = printDocTitle(refs);
   const html = buildPrintHtml(pages, { ...opts, sheet, sketchProfile: get(sketchProfile), docTitle });
   return { html, sheet, docTitle, opts };
 }
@@ -210,7 +264,11 @@ async function buildJob(refs, options, onProgress) {
  */
 export async function printPagesToPdf(refs, options, onProgress = () => {}) {
   const api = printAPI();
-  const { html, docTitle, opts } = await buildJob(refs, options, onProgress);
+  const job = await buildJob(refs, loadPrintPage, normalizePrintOptions(options), printDocTitle(refs), onProgress);
+  return savePdf(api, job);
+}
+
+async function savePdf(api, { html, docTitle, opts }) {
   const res = await api.savePdf(html, docTitle, opts.openWhenDone);
   if (!res || res.ok === false) throw new Error((res && res.error) || 'Print to PDF failed');
   return res.result;
@@ -223,8 +281,33 @@ export async function printPagesToPdf(refs, options, onProgress = () => {}) {
  */
 export async function printPagesToPrinter(refs, options, onProgress = () => {}) {
   const api = printAPI();
-  const { html, sheet } = await buildJob(refs, options, onProgress);
+  const job = await buildJob(refs, loadPrintPage, normalizePrintOptions(options), printDocTitle(refs), onProgress);
+  return toPrinter(api, job);
+}
+
+async function toPrinter(api, { html, sheet }) {
   const res = await api.toPrinter(html, { widthIn: sheet.widthIn, heightIn: sheet.heightIn });
   if (!res || res.ok === false) throw new Error((res && res.error) || 'Printing failed');
   return res.result;
+}
+
+/** A Print selection… job: strokes only, whatever the remembered content choice. */
+function selectionJob(groups, options, onProgress) {
+  const opts = { ...normalizePrintOptions(options), content: 'strokes' };
+  return buildJob(groups, loadSelectionPage, opts, `${printDocTitle(groups)} selection`, onProgress);
+}
+
+/**
+ * Print selection… to a PDF the user saves.
+ * @param {Array<{book:string, pageId:string, strokes:Array}>} groups  `selectionPrint` pages
+ */
+export async function printSelectionToPdf(groups, options, onProgress = () => {}) {
+  const api = printAPI();
+  return savePdf(api, await selectionJob(groups, options, onProgress));
+}
+
+/** Print selection… through the Windows print dialog (as printPagesToPrinter). */
+export async function printSelectionToPrinter(groups, options, onProgress = () => {}) {
+  const api = printAPI();
+  return toPrinter(api, await selectionJob(groups, options, onProgress));
 }
