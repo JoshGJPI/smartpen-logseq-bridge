@@ -14,6 +14,11 @@
  * strokes, copied when the dialog opens (lib/print/print-selection.js), printed
  * on their pages' full paper from memory instead of disk. It has its own store
  * (`selectionPrint`), so it never disturbs `printDialog` or the print list.
+ *
+ * Preview (v3.9.0): the dialog shows the PDF itself (`renderPreviewPdf`, main's
+ * print:previewPdf, drawn with pdf.js). Pages read for it are kept while the
+ * dialog is open (`loaded`), so changing an option rebuilds the document
+ * without reading the pages again, and Save / Print use the same copies.
  */
 
 import { writable, get } from 'svelte/store';
@@ -34,6 +39,12 @@ import { resolvePagePaper } from './backgrounds.js';
 import { log } from './ui.js';
 
 const OPTIONS_KEY = 'smartpen-print-options';
+
+/**
+ * Print pages read while a dialog is open, `key → Promise<print page>`. Cleared
+ * whenever a dialog opens or closes, so a later print reads the disk afresh.
+ */
+const loaded = new Map();
 
 /**
  * `{ open, pages: [{ book, pageId }], fromList }`, pages in the order they print.
@@ -61,16 +72,19 @@ export function setPrintOptions(patch) {
 
 /** One-off print of these pages (the print list is left alone). */
 export function openPrintDialog(pages) {
+  loaded.clear();
   const list = addRefs([], pages);
   if (list.length) printDialog.set({ open: true, pages: list, fromList: false });
 }
 
 /** Open the dialog on the print list. */
 export function openPrintList() {
+  loaded.clear();
   printDialog.set({ open: true, pages: get(printList), fromList: true });
 }
 
 export function closePrintDialog() {
+  loaded.clear();
   printDialog.set({ open: false, pages: [], fromList: false });
 }
 
@@ -95,10 +109,12 @@ export function openSelectionPrint(canvasStrokes) {
     log('Nothing to print: the selected strokes are not on a page', 'warning');
     return;
   }
+  loaded.clear();
   selectionPrint.set({ open: true, pages, skipped });
 }
 
 export function closeSelectionPrint() {
+  loaded.clear();
   selectionPrint.set({ open: false, pages: [], skipped: 0 });
 }
 
@@ -179,10 +195,12 @@ async function loadBackground(paper, opts) {
 async function loadPrintPage(ref, opts) {
   const title = pageTitle(ref);
   let doc = null;
+  let readFailed = false;
   try {
     doc = await getPage(ref.book, ref.pageId);
   } catch (err) {
     log(`Print: could not read ${title}: ${err?.message || err}`, 'warning');
+    readFailed = true;
   }
   const strokes = (doc && doc.strokes) || [];
   const paper = await resolvePagePaper(ref.book, ref.pageId);
@@ -195,7 +213,8 @@ async function loadPrintPage(ref, opts) {
     rotation: rotationFor(get(pageOrientations), ref.book, ref.pageId),
     strokes,
     lines: doc && doc.transcript && Array.isArray(doc.transcript.lines) ? doc.transcript.lines : null,
-    background
+    background,
+    readFailed
   };
 }
 
@@ -239,6 +258,24 @@ function printAPI() {
 }
 
 /**
+ * `load(item, opts)` through `loaded`. Only the background depends on the
+ * options, so it is part of the key; a page that couldn't be read isn't kept.
+ */
+async function loadOnce(load, item, opts) {
+  const bg = !!opts.background && opts.content !== 'transcript';
+  const key = `${load === loadPrintPage ? 'page' : 'sel'}:${refKey(item)}:${bg}`;
+  if (!loaded.has(key)) loaded.set(key, load(item, opts));
+  try {
+    const page = await loaded.get(key);
+    if (page.readFailed) loaded.delete(key);
+    return page;
+  } catch (err) {
+    loaded.delete(key);
+    throw err;
+  }
+}
+
+/**
  * Load the pages and build the print document: `{ html, sheet, docTitle, opts }`.
  * `load(item, opts)` makes one print page; `docTitle` names the PDF.
  */
@@ -246,7 +283,7 @@ async function buildJob(items, load, opts, docTitle, onProgress) {
   const pages = [];
   for (let i = 0; i < items.length; i++) {
     onProgress(i, items.length);
-    pages.push(await load(items[i], opts));
+    pages.push(await loadOnce(load, items[i], opts));
   }
   onProgress(items.length, items.length);
 
@@ -310,4 +347,20 @@ export async function printSelectionToPdf(groups, options, onProgress = () => {}
 export async function printSelectionToPrinter(groups, options, onProgress = () => {}) {
   const api = printAPI();
   return toPrinter(api, await selectionJob(groups, options, onProgress));
+}
+
+/**
+ * The job's PDF as bytes, for the dialog's preview: the same document Save PDF
+ * and Print would send. `selection`: `items` are Print selection… pages.
+ * @returns {Promise<{pdf: Uint8Array, sheet: Object}>}
+ */
+export async function renderPreviewPdf(items, options, selection = false, onProgress = () => {}) {
+  const api = printAPI();
+  if (!api.previewPdf) throw new Error('Preview needs the desktop app to be restarted.');
+  const job = selection
+    ? await selectionJob(items, options, onProgress)
+    : await buildJob(items, loadPrintPage, normalizePrintOptions(options), printDocTitle(items), onProgress);
+  const res = await api.previewPdf(job.html);
+  if (!res || res.ok === false) throw new Error((res && res.error) || 'Preview failed');
+  return { pdf: res.result, sheet: job.sheet };
 }

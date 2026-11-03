@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  NCODE_INCH, sheetFor, paperOf, inkScale, autoLayout, resolveSheet, normalizePrintOptions,
+  NCODE_INCH, sheetFor, paperOf, inkScale, autoLayout, resolveSheet, normalizePrintOptions, clampLineWidthMm,
   AUTO_TWO_UP_MIN_SCALE, DEFAULT_MARGIN_IN, GUTTER_IN, LABEL_IN
 } from '$lib/print/print-layout.js';
 
@@ -119,14 +119,30 @@ describe('resolveSheet', () => {
 describe('normalizePrintOptions', () => {
   it('defaults', () => {
     expect(normalizePrintOptions(null)).toEqual({
-      content: 'strokes', paper: 'letter', layout: 'auto', inkScale: 'fit', lineWeight: 'normal',
+      content: 'strokes', paper: 'letter', layout: 'auto', inkScale: 'fit', lineWidthMm: 0.5,
       background: false, labels: true, openWhenDone: true
     });
   });
 
   it('keeps valid values and drops junk', () => {
-    const o = normalizePrintOptions({ content: 'both', paper: 'a4', layout: '2-up', inkScale: 'actual', lineWeight: 'bold', background: true, labels: false, openWhenDone: false });
-    expect(o).toMatchObject({ content: 'both', paper: 'a4', layout: '2-up', inkScale: 'actual', lineWeight: 'bold', background: true, labels: false, openWhenDone: false });
-    expect(normalizePrintOptions({ content: 'DOING', lineWeight: 'toString' })).toMatchObject({ content: 'strokes', lineWeight: 'normal' });
+    const o = normalizePrintOptions({ content: 'both', paper: 'a4', layout: '2-up', inkScale: 'actual', lineWidthMm: 0.75, background: true, labels: false, openWhenDone: false });
+    expect(o).toMatchObject({ content: 'both', paper: 'a4', layout: '2-up', inkScale: 'actual', lineWidthMm: 0.75, background: true, labels: false, openWhenDone: false });
+    expect(normalizePrintOptions({ content: 'DOING', lineWidthMm: 'thick' })).toMatchObject({ content: 'strokes', lineWidthMm: 0.5 });
+  });
+
+  it('clamps the line width to the slider and snaps it to the step', () => {
+    expect(normalizePrintOptions({ lineWidthMm: 0 }).lineWidthMm).toBe(0.2);
+    expect(normalizePrintOptions({ lineWidthMm: 9 }).lineWidthMm).toBe(1.5);
+    expect(normalizePrintOptions({ lineWidthMm: 0.62 }).lineWidthMm).toBe(0.6);
+    expect(normalizePrintOptions({ lineWidthMm: '0.8' }).lineWidthMm).toBe(0.8);
+    expect(clampLineWidthMm(NaN)).toBe(0.5);
+  });
+
+  it('reads an older Fine / Normal / Bold choice as a width', () => {
+    expect(normalizePrintOptions({ lineWeight: 'fine' }).lineWidthMm).toBe(0.35);
+    expect(normalizePrintOptions({ lineWeight: 'bold' }).lineWidthMm).toBe(0.8);
+    expect(normalizePrintOptions({ lineWeight: 'toString' }).lineWidthMm).toBe(0.5);
+    expect(normalizePrintOptions({ lineWeight: 'bold', lineWidthMm: 0.3 }).lineWidthMm).toBe(0.3);
+    expect(normalizePrintOptions({ lineWeight: 'bold' })).not.toHaveProperty('lineWeight');
   });
 });

@@ -16,6 +16,9 @@
   canvas's selected strokes, read from `selectionPrint` instead of `printDialog`,
   so the print list is never touched. No picker or page list, only a read-only
   per-page summary (PrintSelectionPages), and content is locked to Strokes.
+
+  Preview (v3.9.0, PrintPreview): the job's own PDF in a third column, redrawn
+  as pages and options change; Enlarge gives it the whole dialog body.
 -->
 <script>
   import { get } from 'svelte/store';
@@ -32,12 +35,14 @@
   import PrintPagePicker from './PrintPagePicker.svelte';
   import PrintOptions from './PrintOptions.svelte';
   import PrintSelectionPages from './PrintSelectionPages.svelte';
+  import PrintPreview from './PrintPreview.svelte';
 
   /** null | 'pdf' | 'printer' */
   let busy = null;
   let progress = '';
   let sheet = null;
   let sheetFor = '';
+  let expanded = false;
 
   $: selection = $selectionPrint.open;
   $: open = selection || $printDialog.open;
@@ -46,6 +51,7 @@
   $: fromList = !selection && $printDialog.fromList;
   $: opts = selection ? { ...$printOptions, content: 'strokes' } : $printOptions;
   $: if (open) updateSheet(refs, opts, selection);
+  $: if (!open) expanded = false;
   $: untranscribed = open && !selection ? countUntranscribed(refs, $savedPages) : 0;
   $: strokeCount = selection ? selectionStrokeCount(refs) : 0;
 
@@ -135,14 +141,14 @@
       <button class="close-btn" on:click={close} aria-label="Close">✕</button>
     </div>
 
-    <div class="dialog-body" class:single={selection}>
-      {#if !selection}
+    <div class="dialog-body" class:single={selection} class:expanded>
+      {#if !selection && !expanded}
         <PrintPagePicker pages={refs} disabled={!!busy}
           onAdd={(r) => setDialogPages(addRefs(get(printDialog).pages, r))}
           onRemove={(r) => setDialogPages(removeRefs(get(printDialog).pages, r))} />
       {/if}
 
-      <div class="main">
+      <div class="main" hidden={expanded}>
         {#if selection}
           <PrintSelectionPages pages={refs} skipped={$selectionPrint.skipped} />
         {:else}
@@ -161,6 +167,8 @@
 
         <PrintOptions {opts} {sheet} {selection} {untranscribed} pageCount={refs.length} />
       </div>
+
+      <PrintPreview items={refs} {opts} {selection} {expanded} onToggleExpand={() => (expanded = !expanded)} />
     </div>
 
     <div class="dialog-footer">
@@ -179,18 +187,20 @@
     position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
     background: var(--bg-primary); border: 1px solid var(--border); border-radius: 12px;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
-    width: min(980px, calc(100vw - 48px)); height: min(760px, 88vh);
+    width: min(1400px, calc(100vw - 48px)); height: min(820px, 90vh);
     display: flex; flex-direction: column; z-index: 1001;
   }
-  .dialog.compact { width: min(700px, calc(100vw - 48px)); height: auto; max-height: 88vh; }
+  .dialog.compact { width: min(1100px, calc(100vw - 48px)); }
   .dialog-header, .dialog-footer { display: flex; align-items: center; gap: 10px; padding: 14px 20px; }
   .dialog-header { border-bottom: 1px solid var(--border); }
   .dialog-footer { justify-content: flex-end; border-top: 1px solid var(--border); }
   .dialog-header h2 { margin: 0; font-size: 1rem; color: var(--text-primary); }
   .sub { flex: 1; min-width: 0; color: var(--text-secondary); font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .close-btn { background: transparent; border: none; color: var(--text-secondary); cursor: pointer; font-size: 1rem; }
-  .dialog-body { flex: 1; min-height: 0; padding: 16px 20px; display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 18px; }
-  .dialog-body.single { grid-template-columns: minmax(0, 1fr); }
+  .dialog-body { flex: 1; min-height: 0; padding: 16px 20px; display: grid; grid-template-columns: 250px minmax(0, 1fr) minmax(300px, 1fr); gap: 16px; }
+  .dialog-body.single { grid-template-columns: minmax(0, 1fr) minmax(300px, 1.2fr); }
+  .dialog-body.expanded { grid-template-columns: minmax(0, 1fr); }
+  .main[hidden] { display: none; }
   .main { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
   .hint-empty { margin: -6px 0 0; color: var(--text-secondary); font-size: 0.8rem; }
 

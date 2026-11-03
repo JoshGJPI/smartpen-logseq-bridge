@@ -114,4 +114,6 @@ contextBridge.exposeInMainWorld('printAPI', {
   savePdf: (html, suggestedName, open) => ipcRenderer.invoke('print:savePdf', html, suggestedName, !!open),
   // Print through the Windows print dialog. Returns { ok, result: { printed, reason } }.
   toPrinter: (html, sheet) => ipcRenderer.invoke('print:toPrinter', html, sheet),
+  // The PDF Save PDF would write, as bytes, for the dialog's preview.
+  previewPdf: (html) => ipcRenderer.invoke('print:previewPdf', html),
 });

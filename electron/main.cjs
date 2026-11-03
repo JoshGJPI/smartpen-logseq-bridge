@@ -1227,6 +1227,13 @@ ipcMain.handle('print:savePdf', ipcSafe(async (html, suggestedName, open) => {
   return { path: filePath, bytes: pdf.length };
 }));
 
+// The Print dialog's preview: the very PDF Save PDF would write, handed back to
+// the renderer to draw (pdf.js), so what shows is what prints.
+ipcMain.handle('print:previewPdf', ipcSafe(async (html) => {
+  if (typeof html !== 'string' || !html.startsWith('<!doctype html>')) throw new Error('Nothing to print');
+  return new Uint8Array(await renderHtmlToPdf(html));
+}));
+
 // ===== "Publish to graph" — mirror saved pages into a LogSeq graph folder =====
 // Pure filesystem writes (no LogSeq runtime). The renderer (src/lib/storage/
 // publish-graph.js) does the smartpen-specific building (PageDoc serialize +

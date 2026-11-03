@@ -3,7 +3,7 @@
  * lines and the flow of items onto sheets.
  */
 import { describe, it, expect } from 'vitest';
-import { printFrame, inkSvg, transcriptHtml, buildPrintHtml, escapeHtml } from '$lib/print/print-html.js';
+import { printFrame, inkSvg, lineWidthFactor, transcriptHtml, buildPrintHtml, escapeHtml } from '$lib/print/print-html.js';
 import { sheetFor, normalizePrintOptions } from '$lib/print/print-layout.js';
 
 const PAPER = { x0: 0, y0: 0, x1: 60, y1: 90 };
@@ -41,9 +41,20 @@ describe('inkSvg', () => {
     expect(svg).toContain('<g transform="matrix(');
   });
 
-  it('line weight scales the base width', () => {
-    expect(inkSvg(page, 1, { lineWeight: 'bold' })).toContain('stroke-width="0.8"');
+  it('line width is millimetres on the sheet, whatever the scale', () => {
+    // At true size one user unit is ~1 mm, so the reader's 0.5 is ~0.5 mm.
+    expect(lineWidthFactor(0.5, 1)).toBeCloseTo(1, 3);
+    expect(inkSvg(page, 1, { lineWidthMm: 1 })).toContain('stroke-width="1"');
     expect(inkSvg(page, 1)).toContain('stroke-width="0.5"');
+    // Half size: the units double so the printed line stays 0.5 mm.
+    expect(inkSvg(page, 0.5, { lineWidthMm: 0.5 })).toContain('stroke-width="1"');
+    expect(lineWidthFactor(undefined, 1)).toBeCloseTo(1, 3);
+  });
+
+  it('sketch runs take the same factor', () => {
+    const sk = { ...page, strokes: [stroke([[0, 0, 1, 500], [10, 10, 2, 500]], { sketch: true })] };
+    const width = (svg) => Number(svg.match(/<path d="[^"]+" stroke-width="([\d.]+)"/)[1]);
+    expect(width(inkSvg(sk, 1, { lineWidthMm: 1 }))).toBeCloseTo(2 * width(inkSvg(sk, 1, { lineWidthMm: 0.5 })), 2);
   });
 
   it('draws the background only when asked', () => {
