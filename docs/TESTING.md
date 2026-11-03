@@ -3,7 +3,7 @@
 ## Automated unit tests
 
 Run with `npm test` (single pass) or `npm run test:watch` (watch mode).
-Framework: **Vitest 4.1.1**, environment: **happy-dom**.
+Framework: **Vitest 4.1.1**, environment: **happy-dom**. Last full run (2026-11-03, v3.9.0): 72 files, 1,594 tests, all passing.
 
 Existing test files (all in `src/lib/__tests__/`):
 
@@ -14,6 +14,10 @@ Existing test files (all in `src/lib/__tests__/`):
 | `transcript-search.test.js` | `tokenize` (hyphen preservation, property filtering), `searchPages` (partial matching, ranking), `highlightMatches` (HTML escaping) |
 | `scan.test.js` | `metaToRecord` — summary fields only (**never** `strokes`/`pageDoc`/`strokeData`: the residency contract), letter-suffix `pageId`/`suffix`, volume book keys split into `ncodeBook`/`volume`, distinct records per volume, numeric book as volume 1, transcribed inference |
 | `stroke-filter.test.js` | `filterDecorativeStrokes` / `detectDecorativeIndices` — underlines (slope, short with writing on it, hyphen, strike-through kept, descender), loops (overshooting date oval, 3 mm circled digit, stray-mark loop, double-traced box), task boxes kept, multi-stroke boxes (two Ls, four sides, time gap, L pair, a letter written inside not joining), per-page grouping |
+| `capture-bar.test.js` | `shouldShowCaptureBar`: hidden while reading with nothing to do; shown in the Editor, with a pen connected, with unsaved strokes or transcript edits, during transcription / transfer; missing fields read as false |
+| `pen-match.test.js` | `electron/pen-match.cjs`: `pickRememberedDevice` (by id, id beats a name that matches another device, unique-name fallback, never between two same-named devices, never on the placeholder name, out of range → null), `normalizeTarget` |
+| `plural.test.js` | `plural()`: singular only for exactly one, plural for zero and many, irregular plurals |
+| `reading-order.test.js` | `lib/viewer/reading-order.js`: `buildSequence` (notebook then page, volume after its notebook, no Tag order for an unfiltered grid, Untagged always), `sequenceRecords`, `readerPageList` (Tag order only when the open page is in the sequence; book and page matched together) |
 | `page-sittings.test.js` | `src/lib/viewer/page-sittings.js` — `pageDayGroups` (empty/missing page, single stroke and its ink box and day, a whole day kept together across long pauses, one group per day ascending, time order vs file order with `groupOf`, split at local midnight by start, untimed strokes in no group, origin dot ignored in bounds, missing `endTime`), `buildHitIndex`/`hitTest` (on-stroke, tolerance edge and end cap, blank paper, nearest wins where groups overlap, exact tie keeps the earlier stroke, multi-cell segments, single-point dots, untimed ink skipped, empty/bad input), `hoverTolerance` (zoom scaling, far-out cap, zero size), `formatSittingLabel` (shared AM/PM, single moment, across noon, across midnight, no start) |
 | `page-svg.test.js` | `computeStrokeBounds`, `strokeToPathD` (scaling, normalisation, <2-point skip), `generateThumbnailSVG` (empty placeholder, dimensions); `strokePointPressures` (4th tuple element, NaN for legacy), `strokeToWidthRuns` (run splitting, monotonic ramp, full segment coverage, constant-pressure collapse, flatWidth fallback, scale/profile response) |
 | `sketch-width.test.js` | `normalizeProfile` (defaults, swapped/degenerate sanitising, null-vs-zero), presets, `profileKey`, `pressureToUnit` (band/clamp/NaN), `widthForPressure` (endpoints, gamma character), `smoothSeries` (symmetry, spike attenuation, edge windows), `limitSlew` (bidirectional), `widthsForPressures` (full pipeline, gap filling, all-missing → flatWidth), `strokePressures`/`hasPressureData` |

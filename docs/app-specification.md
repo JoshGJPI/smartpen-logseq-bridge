@@ -1,5 +1,7 @@
 # SmartPen-LogSeq Bridge - Technical Specification
 
+> **Historical.** Written for v0.2.0 (LogSeq-era storage, December 2024). The app is now v3.x with local-folder PageDocs; read [CLAUDE.md](../CLAUDE.md), [ARCHITECTURE.md](ARCHITECTURE.md) and [LOCAL-STORAGE-PIVOT-SPEC.md](LOCAL-STORAGE-PIVOT-SPEC.md) instead. Kept for history (see [Archive/ARCHIVE-INDEX.md](Archive/ARCHIVE-INDEX.md)).
+
 **Version:** 0.2.0 (Svelte 4)  
 **Last Updated:** December 2024  
 **Status:** Functional MVP with real-time capture, offline sync, and MyScript transcription

@@ -1,5 +1,7 @@
 # Transcript Storage & Update Specification
 
+> **Historical (v1, LogSeq blocks).** The status below is from February 2026, before the v2.0 pivot. The append-only / explicit-deletion principle survives; the mechanism (`updatePageStrokesSingle`, block UUIDs) does not. Current rules: [CLAUDE.md](../CLAUDE.md) (Invariants → Storage and saves, Transcription).
+
 **Version:** 3.1 (Append-Only with Explicit Deletions)
 **Date:** 2026-02-09 (Updated)
 **Status:** Active Implementation - Data Loss Issues RESOLVED

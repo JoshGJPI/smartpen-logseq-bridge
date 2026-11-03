@@ -6,7 +6,11 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
-## Unreleased
+## v3.9.0 — Print to PDF / printer, print preview, Snap, a new Deselect Decorative (October–November 2026)
+
+Everything since v3.7.1. The print feature was called 3.8.0 in the docs but never had its own bump or
+release: `package.json` went from 3.7.1 straight to 3.9.0. Pen import also switches to the Editor when an
+offline import starts (no separate entry).
 
 ### Print preview and line width (v3.9.0)
 
@@ -33,7 +37,7 @@ Josh asked to see a print before sending it and to set how heavy the pen lines p
 - `vitest.config.js` excludes `.claude/**`: an agent worktree there carries its own copy of the tests, which doubled
   the count and ran other branches' code.
 
-### Print (to PDF or a printer)
+### Print (to PDF or a printer) (v3.8.0)
 
 Josh writes mostly in A5 notebooks (JPI Dotted, Study Notes) but prints on Letter, and wanted pages printable as ink,
 transcript or both, with half-size pages side by side on one sheet. Reachable from the printer menu in a reader page's

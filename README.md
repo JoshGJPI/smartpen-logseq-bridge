@@ -5,11 +5,11 @@ notes from a NeoSmartpen (Lamy Safari). It captures strokes from the pen over
 Bluetooth, transcribes them with MyScript, and keeps every page as a plain JSON file
 in a folder you choose: `<data folder>/pages/B###/P##.json`.
 
-> **v3.0.0 (October 2026): reading first.** The app opens on your writing, not on an
+> **Reading first (since v3.0.0, October 2026).** The app opens on your writing, not on an
 > empty canvas. Three destinations, **Library**, **Timeline** and **Editor**, replace
 > the old Book View / Books / Timeline modes; the Library opens on your notebooks;
 > a header search (Ctrl K) finds pages by text, date or notebook. Your data folder
-> opens unchanged: PageDoc files stay at version `"2.0"`. The repository is still
+> opens unchanged: PageDoc files stay at version `"2.0"` (current release: v3.9.0). The repository is still
 > called `smartpen-logseq-bridge` for history's sake; v1 stored notes in LogSeq, v2
 > moved them to the local folder.
 
@@ -48,6 +48,17 @@ The left panel follows the destination and folds to a rail with the chevron or `
   on the home reviews every suggested number at once. Settings → Tags → **Manage Tags**
   renames, merges and deletes tags. Tags are saved as you go, beside your pages, and never
   change a page.
+- **Tasks** (3.4; WAITING 3.4, CANCELLED 3.5): a ☐ / ☑ (or `TODO` / `DONE`) written
+  on paper becomes a task when transcribed. The header's **Tasks** button, or the home's
+  Tasks card, lists every task as Open / Waiting / Done / Cancelled / All, grouped by
+  project, date or notebook, with a search box; a row's page link opens the reader on
+  that line. Tick tasks in the reader's transcript; ⋯ sets WAITING / CANCELLED, **Not a
+  task** or **Make task** (Undo in the toast). Ticking never changes the ink.
+- **Print** (3.8, preview 3.9): header **Print**, a page's printer menu or **Print…** in a
+  page grid's Select bar. Strokes, Transcript or Both, Auto / 1 / 2-up layout on Letter,
+  A5 or Tabloid, line width in millimetres, a live PDF preview; **Save PDF** or send to a
+  printer. The print list can mix notebooks. The Editor's Export ▾ → **Print
+  selection…** prints only the selected strokes.
 - **Reading a page**: a two-page spread or a single page, as **Strokes**,
   **Transcript** or **Ink + text** (View ▾). Zoom and Fit act on both pages; ← / →
   turn pages. The header says when each page was written; hover a day chip to light
@@ -72,8 +83,11 @@ the **Pages** or **Dates** tab, or a Library / Timeline load all land here.
 - Select: drag a box (Ctrl adds, Shift removes), Ctrl/Shift+click single strokes,
   Ctrl+A for everything visible.
 - Duplicate (Ctrl+D), drag duplicates, and **Create page** from them.
-- Delete strokes (marked until Save; 15-minute undo), **Edit Points** to remove a
-  single stray point, **Decorative** to filter boxes and underlines.
+- Delete strokes (marked until Save; 15-minute undo), **Edit Points** to remove or
+  **Snap** a stray point (a pen tap that draws a line to the page corner),
+  **Decorative** to filter boxes and underlines.
+- **Set time…** (3.6) shifts the selected strokes in time, for ink written while the
+  pen's clock was wrong.
 - Pan with Alt+drag, zoom with Ctrl+scroll; drag page labels to move pages and
   corner handles to resize them (display only).
 - **Transcribe** selected strokes or the whole canvas with MyScript; review the
@@ -114,6 +128,7 @@ includes the transcript. LogSeq does not need to be running.
   _volumes.json         active volume per NCode book
   _orientation.json     page rotations (display only)
   _tags.json            page tags and dismissed suggestions (display only)
+  _retimed.json         pen stroke ids retimed away (not a cache: keep it)
   _timeline.json        capture-date index (a cache; safe to delete)
 ```
 
@@ -152,8 +167,17 @@ Documentation:
 | [docs/TESTING.md](docs/TESTING.md) | Test inventory and the manual checklist |
 | [docs/READING-UX-SPEC.md](docs/READING-UX-SPEC.md) | The v3.0.0 reading-first design |
 | [docs/VOLUMES-SPEC.md](docs/VOLUMES-SPEC.md) | Notebook volumes |
+| [docs/PAGE-TAGS-SPEC.md](docs/PAGE-TAGS-SPEC.md) | Page tags (v3.1.0) |
+| [docs/MCP-SERVER-SPEC.md](docs/MCP-SERVER-SPEC.md) | The read-only MCP server's plan and decisions |
+| [docs/Archive/ARCHIVE-INDEX.md](docs/Archive/ARCHIVE-INDEX.md) | Superseded v1-era docs, and which of them still hold |
 | [docs/NEOSMARTPEN-SDK-USAGE.md](docs/NEOSMARTPEN-SDK-USAGE.md) | Pen SDK usage |
 | [docs/EDITOR-IMPORT-SPEC.md](docs/EDITOR-IMPORT-SPEC.md) | The handwriting editor's import formats, which the JSON / Markdown exports follow |
+
+## Reading the notebooks from Claude (optional)
+
+`mcp/` is a read-only MCP server over the data folder: list notebooks and pages, fetch
+transcripts, search, list tasks and render ink as PNG, with the app closed. Setup and
+the nine tools are in [mcp/README.md](mcp/README.md).
 
 ## Troubleshooting
 
@@ -184,7 +208,16 @@ show fewer pages.
 
 ## Version history
 
-- **3.1.0** (Current) - Page tags: keywords and project numbers on pages, suggested
+- **3.9.0** (Current) - Print preview (the real PDF) and line width in millimetres;
+  Snap for stray points; a rewritten Deselect Decorative; pen import opens the Editor.
+- **3.8.0** - Print to PDF or a printer, a cross-notebook print list, Print selection…
+  (never bumped in `package.json`; shipped inside 3.9.0)
+- **3.7.0 / 3.7.1** - Not a task, Make task, Merge in Library Edit; tag and task fixes
+- **3.6.0 – 3.6.2** - Set time… for strokes; a task's project is its nearest project
+  number; the read-only MCP server (`mcp/`)
+- **3.3.0 – 3.5.0** - Task boxes become TODO / DONE; Tasks view, WAITING, CANCELLED
+- **3.2.0** - Tag reading order, tag manager in the Library
+- **3.1.0** - Page tags: keywords and project numbers on pages, suggested
   from transcripts; Group by Tag, tag filters and bulk tagging in page grids, a
   suggestions queue, Settings → Tags, tags in Ctrl K. No PageDoc change.
 - **3.0.0** - Reading first: Library | Timeline | Editor; Library home with notebook

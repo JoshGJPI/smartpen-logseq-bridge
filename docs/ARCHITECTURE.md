@@ -3,6 +3,36 @@
 Component hierarchy, store inventory and library inventory. CLAUDE.md holds the
 rules that must not be broken; this file is the map you look things up in.
 
+## Navigation and the Library
+
+(Moved from CLAUDE.md.)
+
+The right pane is one of three destinations, **Library** (`BookViewer`), **Timeline** (`TimelineFeed`) and
+**Editor** (`StrokeCanvas`), a view over `viewerMode` + `bookViewMode` (`lib/navigation.js`). Every route between
+them goes through `navigateTo()` / `openPageInLibrary()` (`stores/viewer.js`), the one place the unsaved-transcript
+prompt is asked. The app opens on the Timeline, and live pen ink switches to the Editor. The left panel's tabs follow
+the destination (`CONTEXT_TABS` in `lib/left-panel.js`: Library → Contents · Transcripts, Timeline → Dates ·
+Transcripts, Editor → Strokes · Transcripts · Pages · Dates; `panelTab` is what shows); notebook names and volume
+routing are in Settings → Notebooks. With no page open the Library (`LibraryBrowse`) shows notebook cards
+(`LibraryHome`), or tag cards when grouped by Tag (`libraryGroupBy`), one notebook's page grid (`NotebookPages`,
+`libraryNotebook`), a tag's or the Untagged pages (`TagPages`), or the suggestions queue (`TagSuggestionQueue`); the
+last three come from `libraryView` (`openLibraryView()`). Every page grid is `PageGrid` (tag filter, Select + bulk
+tagging). The header's global search (`SearchField`, Ctrl K) covers words, dates, notebook names and tags
+(`lib/global-search.js`, `lib/search-query.js`, index built once per scan in `stores/library.js`). The reader has a
+tag strip beside the pages (`ReaderTagsLayout` / `PageTagsStrip`). The Library reader (package D) shows each page as Strokes, Transcript or
+Ink + text (`'inktext'`), with shared zoom and Go to page in the pane toolbar (`SpreadToolbar`), rotation on
+each page's corner, and ←/→ page turns (`lib/viewer/page-reader.js` `pageTurnKey`). Tab ids (`'strokes'`, `'transcription'`, `'saved-pages'`, `'books'`, `'dates'`,
+`'contents'`) predate the labels, so don't rename them (`ActionBar` calls `setActiveTab('transcription')`).
+Pages turn through `readingList` (v3.2.0, `lib/viewer/reading-order.js`): a page opened from a tag's pages, Untagged or a
+filtered grid carries that grid's pages (`readerSequence`, notebook then page) and the reader starts in **Tag** order
+(Book | Tag toggle in `SpreadToolbar`); anything else reads in Book order. The tag manager is a Library view
+(`libraryView` `{ kind: 'tags' }`, Manage tags on the home). So is **Tasks** (v3.4.0, `{ kind: 'tasks' }`, from the
+Library home's Tasks card or the header's Tasks button with the open count; `components/tasks/`): every line with a
+TODO / DONE / WAITING / CANCELLED state from the scan's `tasks` summaries, Open / Waiting / Done / Cancelled / All, grouped by project tag,
+date written or notebook; a row's page link opens the reader on that line (`focusReaderLineId`). The reader's
+transcript markers tick too, a ⋯ menu beside each task sets / clears WAITING and CANCELLED (v3.5.0), and a toast offers Undo. The open page, reading order and grid filters are
+session-only: each launch opens the Library on its home.
+
 ## Component Hierarchy
 ```
 App.svelte (Root)

@@ -1,6 +1,6 @@
 # Read-only MCP server (plan)
 
-**Status:** built (branch `mcp-server-v2`, on the proof of concept): every tool below, with the caps and choices
+**Status:** built and merged to `main` (v3.6.x): every tool below, with the caps and choices
 in [mcp/README.md](../mcp/README.md). Differences from this plan: renders lay pages out on Neo's printed frame (manifest
 geometry only) rather than the ink box, and search needed no extraction (`global-search.js` / `search-query.js` already
 import under plain Node). **Trimmed in v3.6.2** after a review found the server over-built around cost and deployment

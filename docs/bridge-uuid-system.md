@@ -1,5 +1,7 @@
 # Bridge UUID System - Technical Documentation
 
+> **Historical (v1).** Describes the LogSeq block-UUID scheme, which the v2.0 local-folder pivot removed. Nothing here applies to current code. See [Archive/ARCHIVE-INDEX.md](Archive/ARCHIVE-INDEX.md).
+
 **Date**: January 23, 2026  
 **Purpose**: Prevent UUID collisions when creating multiple transcription blocks rapidly
 
