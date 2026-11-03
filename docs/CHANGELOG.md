@@ -8,6 +8,31 @@ CLAUDE.md (Invariants); the store and library map is in
 
 ## Unreleased
 
+### Print preview and line width (v3.9.0)
+
+Josh asked to see a print before sending it and to set how heavy the pen lines print.
+
+- **The preview is the PDF.** The Print dialog gained a third column (`PrintPreview.svelte`) showing the job's own PDF:
+  main renders the document exactly as Save PDF does (`print:previewPdf`, `renderHtmlToPdf`) and hands the bytes back;
+  the renderer draws one sheet at a time with pdf.js (`pdfjs-dist`, loaded on first use; its worker is bundled by Vite
+  and runs from `file://` in the packaged app, checked). ‹ › or Page Up / Down step through the sheets; Enlarge gives the
+  preview the whole dialog. It redraws 350 ms after the pages or options stop changing, one render at a time, newest
+  waiting job next. Pages read for a job are kept while the dialog is open (`stores/print.js` `loaded`, cleared on
+  every open and close), so a change of option rebuilds the document without re-reading the disk, and Save / Print use
+  the same copies. A page that couldn't be read is not kept. Rejected: drawing the sheets in the dialog from the layout
+  maths (no second layout engine: it can't know where Chromium breaks transcript text across columns and sheets), and
+  Chromium's built-in PDF viewer (needs `plugins` on the main window and brings its own toolbar). The small sheet
+  sketch beside the options went: the preview replaces it.
+- **Line width in millimetres on the sheet** (slider 0.2–1.5 mm, step 0.05, default 0.5, Reset). It replaces Fine /
+  Normal / Bold, which multiplied the reader's width and so printed thinner whenever a page was shrunk (a Letter page
+  in half a sheet came out at ~0.3 mm). Now `inkSvg()` divides by the page's scale (`lineWidthFactor()`), so the
+  same setting prints the same line at any size; sketch strokes take the same factor and keep their thick-and-thin. One
+  user unit at true size is ~1 mm (Ncode is 2.3707 mm, `NCODE_SCALE` 2.371), so the default matches the reader at
+  true size; shrunk pages now print a little heavier than before. A saved Fine / Normal / Bold is read once as 0.35 /
+  0.5 / 0.8 mm.
+- `vitest.config.js` excludes `.claude/**`: an agent worktree there carries its own copy of the tests, which doubled
+  the count and ran other branches' code.
+
 ### Print (to PDF or a printer)
 
 Josh writes mostly in A5 notebooks (JPI Dotted, Study Notes) but prints on Letter, and wanted pages printable as ink,

@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig, configDefaults } from 'vitest/config';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
 
@@ -9,6 +9,9 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     globals: true,
+    // Agent worktrees live under .claude/worktrees/ with their own copy of the
+    // tests; running those too doubles the count and mixes in other branches.
+    exclude: [...configDefaults.exclude, '.claude/**'],
     // Silence noisy console output from source during test runs
     onConsoleLog: (log, type) => {
       if (type === 'stdout') return false; // suppress console.log

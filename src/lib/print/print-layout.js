@@ -47,8 +47,24 @@ export const CONTENTS = Object.freeze(['strokes', 'transcript', 'both']);
 /** Ink size in its column: shrink or grow to fill it, or true size (shrunk only when too big). */
 export const INK_SCALES = Object.freeze(['fit', 'actual']);
 
-/** Pen line thickness multipliers (Bold survives a photocopy). */
-export const LINE_WEIGHTS = Object.freeze({ fine: 0.7, normal: 1, bold: 1.6 });
+/**
+ * Printed pen line width in millimetres ON THE SHEET, whatever the page's scale:
+ * a Letter page shrunk into half a sheet prints its lines as thick as one at full
+ * size. 0.5 mm is the reader's own width at true size. Heavier survives a photocopy.
+ */
+export const LINE_WIDTH_MM = Object.freeze({ min: 0.2, max: 1.5, step: 0.05, default: 0.5 });
+
+/** The v3.8.0 Fine / Normal / Bold choice, read back from an older saved preference. */
+const LEGACY_LINE_WEIGHT_MM = Object.freeze({ fine: 0.35, normal: 0.5, bold: 0.8 });
+
+/** A line width clamped to the slider's range and snapped to its step. */
+export function clampLineWidthMm(mm) {
+  const n = Number(mm);
+  if (!Number.isFinite(n)) return LINE_WIDTH_MM.default;
+  const { min, max, step } = LINE_WIDTH_MM;
+  const snapped = Math.round(Math.min(max, Math.max(min, n)) / step) * step;
+  return Math.round(snapped * 100) / 100;
+}
 
 /** Default printable margin; most printers can't reach closer to the edge. */
 export const DEFAULT_MARGIN_IN = 0.25;
@@ -179,7 +195,9 @@ export function normalizePrintOptions(raw) {
     paper: PAPER_IDS.includes(o.paper) ? o.paper : 'letter',
     layout: LAYOUT_IDS.includes(o.layout) ? o.layout : 'auto',
     inkScale: INK_SCALES.includes(o.inkScale) ? o.inkScale : 'fit',
-    lineWeight: Object.hasOwn(LINE_WEIGHTS, o.lineWeight) ? o.lineWeight : 'normal',
+    lineWidthMm: o.lineWidthMm != null
+      ? clampLineWidthMm(o.lineWidthMm)
+      : Object.hasOwn(LEGACY_LINE_WEIGHT_MM, o.lineWeight) ? LEGACY_LINE_WEIGHT_MM[o.lineWeight] : LINE_WIDTH_MM.default,
     background: o.background === true,
     labels: o.labels !== false,
     openWhenDone: o.openWhenDone !== false

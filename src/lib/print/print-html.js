@@ -31,7 +31,7 @@ import {
 } from '../viewer/page-svg.js';
 import { rotateFrame, svgRotationTransform } from '../page-orientation.js';
 import { isPropertyLine } from '../viewer/transcript-markdown.js';
-import { paperOf, inkScale, LINE_WEIGHTS } from './print-layout.js';
+import { paperOf, inkScale, NCODE_INCH, LINE_WIDTH_MM } from './print-layout.js';
 
 /** Pen ink colour on paper. */
 const INK = '#111';
@@ -72,17 +72,30 @@ export function escapeHtml(s) {
 
 const r3 = (n) => String(Math.round(n * 1000) / 1000);
 
+/** Millimetres on paper per SVG user unit at true size (Ncode × NCODE_SCALE). */
+const MM_PER_UNIT = (NCODE_INCH * 25.4) / NCODE_SCALE;
+
+/**
+ * The factor on the reader's stroke widths that prints a plain line `mm` wide on
+ * the sheet once the page is drawn at `scale`. Sketch strokes take the same
+ * factor, so their thick-and-thin keeps its shape around the chosen width.
+ */
+export function lineWidthFactor(mm, scale) {
+  const target = Number.isFinite(mm) && mm > 0 ? mm : LINE_WIDTH_MM.default;
+  return target / (DEFAULT_STROKE_WIDTH * MM_PER_UNIT * scale);
+}
+
 /**
  * One page's ink as an `<svg>` sized in inches.
  * @param {Object} page   print page: { frame, rotation, strokes, background?: { frame, dataUrl } }
  * @param {number} scale  printed / true size
- * @param {{lineWeight?: string, sketchProfile?: Object, background?: boolean}} opts
+ * @param {{lineWidthMm?: number, sketchProfile?: Object, background?: boolean}} opts
  * @returns {string} '' when the page has no frame
  */
 export function inkSvg(page, scale, opts = {}) {
   const frame = page && page.frame;
   if (!frame || !(scale > 0)) return '';
-  const weight = LINE_WEIGHTS[opts.lineWeight] || 1;
+  const weight = lineWidthFactor(opts.lineWidthMm, scale);
   const bounds = { minX: frame.x0, minY: frame.y0 };
   const w = (frame.x1 - frame.x0) * NCODE_SCALE;
   const h = (frame.y1 - frame.y0) * NCODE_SCALE;

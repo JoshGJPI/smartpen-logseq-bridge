@@ -40,7 +40,8 @@ electron/retimed-sidecar.cjs  pure parse / record of pages/_retimed.json for mai
 src/lib/print/     Print to PDF (v3.8.0): print-layout.js (sheets, 2-up columns, Auto, ink scale), print-html.js (the
                    self-contained document), print-list.js (cross-notebook print order), print-selection.js (the Editor's
                    Print selection…: selected canvas strokes by page, in memory); stores/print.js holds the session
-                   print list and runs a job, main's print:savePdf renders it with printToPDF
+                   print list and runs a job, main's print:savePdf renders it with printToPDF; the dialog's preview
+                   (v3.9.0) is that same PDF (print:previewPdf) drawn with pdf.js (components/dialog/pdf-sheets.js)
 ```
 
 Data flow: **pen → `strokes` store → canvas / MyScript → `savePageToFolder()` → PageDoc on disk.**
@@ -378,7 +379,10 @@ then looks broken when it isn't). Launch with `--disable-backgrounding-occluded-
   Electron apps); Josh confirmed it on a real printer 2026-11-02. PDF: rendered in main by `printToPDF` from a hidden, script-less window, so the document's
   `@page` is the sheet; keep everything the document needs inline. Ink is a column-tall figure and text flows in CSS
   columns (see CHANGELOG, "Print to PDF"). The print list (header **Print**, or the dialog's notebook panel) is session-only and gathers pages
-  from any notebook; one sheet layout per job, so a mixed Letter + A5 list prints 1 per sheet. 2 per sheet is side by side only; no PDF preview, no sheet numbers.
+  from any notebook; one sheet layout per job, so a mixed Letter + A5 list prints 1 per sheet. 2 per sheet is side by side only; no sheet numbers.
+  Preview (v3.9.0): the real PDF, rebuilt on every change from pages read once per dialog, so a redraw takes longer as
+  the list grows (not measured past a handful of pages); Print selection…'s preview is unchecked in the app. Line width is millimetres on the sheet (`lineWidthMm`), not a multiplier, so shrunk pages print
+  as heavy as full-size ones.
   The Editor's Export ▾ → Print selection… prints only the selected strokes from memory (`lib/print/print-selection.js`,
   its own `selectionPrint` store), each on its page's full paper, Strokes only (a transcript can't be matched to a
   selection); a floating pasted copy has no page and is skipped.
