@@ -82,7 +82,8 @@ App.svelte (Root)
     │   │   │   ├── LibraryHomeHead (summary, Group by Notebook | Tag, sort chips, Suggestions (n), Manage tags, Rescan)
     │   │   │   ├── NotebookCard ×N (fan of 3 recent pages, name, Vol badge, pages, written, transcribed %)
     │   │   │   └── TagCardGrid (Projects / Keywords headings) → TagCard ×N + dashed Untagged card
-    │   │   ├── NotebookPages (a notebook's page grid; `libraryNotebook`) → PageGrid
+    │   │   ├── NotebookPages (a notebook's page grid; `libraryNotebook`; Recent | Page ↑ | Page ↓,
+    │   │   │   `notebookPageSort`, sortPageTiles, v3.10.0) → PageGrid
     │   │   ├── TagPages (a tag's pages, or the Untagged pages, across notebooks; `libraryView`) → PageGrid
     │   │   │   PageGrid = TagFilterRow (tags in this grid, Any | All) · Select → BulkTagBar ·
     │   │   │              PageTile ×N (date badge, ✓, tag line, hover "+ tag" popover, amber suggestion dot)
@@ -152,8 +153,10 @@ a quiet **Load range into Editor**. Cards show **Open page** and ⋯ (Whole page
 Load sitting into Editor); a day's ⋯ holds Load day into Editor.
 
 The app opens on the **Timeline** with the **Dates** tab on the left (range
-fields and the day list; the feed head's activity strip is the picture of the range), showing the most recent day with ink
-(`loadTimeline()` defaults an unset range to the index's last capture day), rather
+fields and the day list; the feed head's activity strip is the picture of the range), showing today when today has
+ink on disk, else the most recent day with ink (`loadTimeline()` → `defaultTimelineDay()`; re-picked on every refresh
+while `timelineRangeIsDefault`, which any range the user sets clears; the head's **Today** button is
+`showTimelineToday()`, v3.10.0), rather
 than an empty Editor canvas. Live pen ink switches the pane to the Editor
 (`pen-sdk.js` → `showEditorForLiveInk()`, once per stroke) unless the Library has
 unsaved transcript edits; then it stays put, logs a warning, and the strokes are

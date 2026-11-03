@@ -211,6 +211,11 @@ When making changes, also verify manually:
   Review the card is open and shows the lines (☐ read as a task box, not text). Hover the heading → its copy
   button pastes into LogSeq as the heading with `- TODO …` under it; the card's header copy button pastes the
   whole run. The text view's 📋 Copy on the canvas gives the same `TODO`. Nothing is written to disk until Save
+- **Today and page sort** (v3.10.0): with a page saved today, launch → the Timeline opens on today; with nothing
+  saved today it opens on the last day with ink, and **Today** shows today ("No ink in …"). Leave the default range,
+  save a page written today → the feed moves to today; pick a range first → it stays. In the Library open a notebook:
+  pages run most recently written first; **Page ↑** / **Page ↓** reorder by number (P151b after P151) and the choice
+  is kept after a restart; opening a page still turns through it in page order
 - **Timeline feed** (v2.9; since package C **Whole page** and **Load into Editor** are in each card's ⋯, the order toggle is in View ▾, and in the Timeline the books filter is in the feed head only): **Timeline**. The feed shows the Dates
   range, newest day on top, a card per sitting with its start time on the rail
   and "N min later" between cards (within a day the cards run oldest to

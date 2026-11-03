@@ -13,7 +13,9 @@ import { bookAliases } from './book-aliases.js';
 import { timelineIndex, timelineIndexFiltered, loadTimeline } from './timeline.js';
 import { dataFolderReady } from './settings.js';
 import { formatBookName } from '$utils/formatting.js';
-import { pageDates, notebookCards, parseSortOrder, LIBRARY_SORT_KEY } from '$lib/library-home.js';
+import {
+  pageDates, notebookCards, parseSortOrder, LIBRARY_SORT_KEY, parsePageSort, PAGE_SORT_KEY
+} from '$lib/library-home.js';
 import { buildSearchIndex, recordsByKey } from '$lib/global-search.js';
 import { tagCards, untaggedCard, parseGroupBy, parseTagSort, LIBRARY_GROUP_KEY, TAG_SORT_KEY } from '$lib/tags.js';
 import { readString, write } from '$lib/safe-storage.js';
@@ -82,6 +84,15 @@ export function setLibraryGroupBy(id) {
   const next = parseGroupBy(id);
   write(LIBRARY_GROUP_KEY, next);
   libraryGroupBy.set(next);
+}
+
+/** A notebook's page grid (v3.10.0): 'recent' | 'page-asc' | 'page-desc'. A per-viewer convenience. */
+export const notebookPageSort = writable(parsePageSort(readString(PAGE_SORT_KEY)));
+
+export function setNotebookPageSort(id) {
+  const next = parsePageSort(id);
+  write(PAGE_SORT_KEY, next);
+  notebookPageSort.set(next);
 }
 
 /** Sort chip in tag grouping: 'pages' | 'name' | 'recent'. */

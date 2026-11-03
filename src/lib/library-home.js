@@ -195,6 +195,56 @@ export function relativeDay(day, now = new Date()) {
   return shortDay(day, now);
 }
 
+/** A notebook's page-grid sorts (v3.10.0), in display order. */
+export const PAGE_SORT_ORDERS = [
+  { id: 'recent', label: 'Recent', title: 'Most recently written first' },
+  { id: 'page-asc', label: 'Page ↑', title: 'By page number, first page first' },
+  { id: 'page-desc', label: 'Page ↓', title: 'By page number, last page first' }
+];
+
+/** localStorage key for the page-grid sort (a per-viewer convenience). */
+export const PAGE_SORT_KEY = 'smartpen-notebook-page-sort';
+
+/** A stored page sort id, or 'recent' for anything missing or unknown. */
+export function parsePageSort(raw) {
+  return PAGE_SORT_ORDERS.some((o) => o.id === raw) ? raw : 'recent';
+}
+
+/**
+ * NCode page, then the suffix (P151 < P151b < P152), as the scan orders them.
+ * Reads `record.page` (the integer) with the page id as the fallback and the
+ * tie-break, so a suffix never sorts by string ("P1000" after "P151").
+ */
+function comparePages(a, b) {
+  const na = Number.isFinite(Number(a.record?.page)) ? Number(a.record.page) : parseInt(a.pageId, 10);
+  const nb = Number.isFinite(Number(b.record?.page)) ? Number(b.record.page) : parseInt(b.pageId, 10);
+  if (na !== nb) return (Number.isNaN(na) ? Infinity : na) - (Number.isNaN(nb) ? Infinity : nb);
+  return String(a.pageId).localeCompare(String(b.pageId), undefined, { numeric: true });
+}
+
+/**
+ * `pageTiles()` in the grid's order. 'recent': last written day, newest first;
+ * a tie (the same day) puts the higher page first, since a notebook is written
+ * forward; pages with no timed ink go last, by page. Page orders ignore dates.
+ * @param {Array} tiles
+ * @param {'recent'|'page-asc'|'page-desc'} order
+ * @returns {Array} a new array
+ */
+export function sortPageTiles(tiles, order) {
+  const list = [...(tiles || [])];
+  if (order === 'page-asc') return list.sort(comparePages);
+  if (order === 'page-desc') return list.sort((a, b) => comparePages(b, a));
+  return list.sort((a, b) => {
+    if (!a.last || !b.last) {
+      if (a.last) return -1;
+      if (b.last) return 1;
+      return comparePages(a, b);
+    }
+    if (a.last !== b.last) return a.last < b.last ? 1 : -1;
+    return comparePages(b, a);
+  });
+}
+
 /**
  * A notebook's page grid: each page with its first written day (the badge)
  * and how many days it was written on. Order is the scan's (P151b after P151).

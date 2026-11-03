@@ -6,7 +6,7 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
-## v3.10.0 — Editor: copy from Review, Dates leaves the Editor (November 2026)
+## v3.10.0 — Editor: copy from Review, Dates leaves the Editor; Timeline Today; notebook page sort (November 2026)
 
 Josh asked whether the Editor still needs a Dates tab, why a load lands there, and for the reader's hover copy in
 the Editor's Transcripts, to shorten import → transcribe → copy to LogSeq.
@@ -29,6 +29,16 @@ the Editor's Transcripts, to shorten import → transcribe → copy to LogSeq.
   text; the save is what runs `parseTaskMarker()`. `reviewLinesForCopy()` (`lib/viewer/transcript-markdown.js`) applies
   it to copies, so the paste is `- TODO …` rather than `- ☐ …`; a line that already has a state (an Edit Structure
   result) is kept as it is. The canvas text view's Copy used the raw lines too and now goes through the same helper.
+- **The Timeline opens on today** when today has ink on disk, else on the last day with ink as before
+  (`defaultTimelineDay()`). The default used to be picked once per session, so a page saved this morning, or the app
+  left open overnight, still showed the old day; now each index refresh re-picks it while the range is the app's
+  (`timelineRangeIsDefault`). A range the user sets is never moved. Never an empty today on its own: that is what the
+  new **Today** button in the feed head is for (`showTimelineToday()`, shows today with or without ink). Ink still on
+  the canvas and not saved is not in the index, so it doesn't count.
+- **A notebook's pages sort Recent by default** (last written day, newest first; the same day puts the higher page
+  first; untimed pages last), with **Page ↑** / **Page ↓** beside the notebook name (`sortPageTiles()`,
+  `notebookPageSort`, kept per viewer in localStorage like the home's sort). The grid only: the reader still turns
+  through the notebook in page order (`buildSequence` sorts its own keys). Tag grids are unchanged.
 - Limitation: Review copies the run, not the saved page (after a partial re-transcribe, only the new lines; Edit
   Structure makes it the whole transcript). The reader still copies the saved page.
 
