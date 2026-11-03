@@ -194,20 +194,23 @@ When making changes, also verify manually:
   already on disk, so the `movedFrom` deletion has to fire). A batch spanning two
   physical volumes will mis-file half of it; that's expected, and reassignment is
   the remedy
-- **Dates tab** (v2.8; in the Editor since package C): open Dates → the activity grid fills and the range
-  defaults to the most recent capture day. Drag across cells and confirm the
-  tallies and day list track the selection. Pick a range that includes a page
-  written across two days (the amber note names how many such pages there are)
-  → **Load onto canvas**: only that range's ink draws in black, the rest of each
+- **Load by date** (v2.8; from the Timeline since v3.10.0, when Dates left the Editor): on the Timeline the
+  range defaults to the most recent capture day. Pick a range that includes a page
+  written across two days → **Load range into Editor**: the Editor opens on the **Strokes** tab, only that
+  range's ink draws in black, the rest of each
   page draws grey, and the canvas lays pages out one row per day with the date
   in each page label. Confirm the grey ink cannot be selected (Select All,
   box-select), is not counted by the stroke count, and that Save reports nothing
-  pending for a page you haven't edited. Untick **Order canvas by date** and
-  confirm the layout returns to book order. Unload one of those pages from the
+  pending for a page you haven't edited. Click **Order: Book** on the bar below the canvas and
+  confirm the layout returns to book order (**Date** brings it back). Unload one of those pages from the
   page filter → its grey ink goes with it. Clear → all grey ink goes. Then save
-  a page, return to Dates, and confirm the new day is in the grid without a
+  a page, return to the Timeline, and confirm the new day is in the Dates day list without a
   restart. Finally transcribe while a partial page is loaded and confirm the
   warning about covering the loaded strokes only
+- **Copy from Review** (v3.10.0): load a page with a drawn ☐ task under a heading, Transcribe. In Transcripts →
+  Review the card is open and shows the lines (☐ read as a task box, not text). Hover the heading → its copy
+  button pastes into LogSeq as the heading with `- TODO …` under it; the card's header copy button pastes the
+  whole run. The text view's 📋 Copy on the canvas gives the same `TODO`. Nothing is written to disk until Save
 - **Timeline feed** (v2.9; since package C **Whole page** and **Load into Editor** are in each card's ⋯, the order toggle is in View ▾, and in the Timeline the books filter is in the feed head only): **Timeline**. The feed shows the Dates
   range, newest day on top, a card per sitting with its start time on the rail
   and "N min later" between cards (within a day the cards run oldest to

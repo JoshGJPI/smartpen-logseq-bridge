@@ -6,6 +6,32 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.10.0 — Editor: copy from Review, Dates leaves the Editor (November 2026)
+
+Josh asked whether the Editor still needs a Dates tab, why a load lands there, and for the reader's hover copy in
+the Editor's Transcripts, to shorten import → transcribe → copy to LogSeq.
+
+- **Dates is the Timeline's tab only.** The Editor's Dates tab (heat grid, tally, Load onto canvas, Order canvas by
+  date) repeated the Timeline feed head, which already loads a session, day or range (book filter, large-load
+  warning) and opens the Editor. Its Editor half is gone (and `ActivityGrid` with it); the Editor's tabs are Strokes,
+  Transcripts, Pages. Kept beside the Timeline: range fields, presets, the day list that jumps the feed.
+- **The canvas order moved to the bar below the canvas** (`CanvasControls`, Order: Book | Date). A Timeline load
+  still sets Date itself.
+- **A load lands on Strokes.** The panel kept whatever tab was active, so a Timeline load opened the Editor on Dates
+  (and a reader load could open on Transcripts). The Timeline's loads and `loadPageIntoEditor()` now
+  `setActiveTab('strokes')` (not `revealLeftPanel`: a collapsed panel stays so). A Pages-tab Import stays on Pages,
+  where you are picking pages; a transcription run still switches to Transcripts.
+- **Copy from Review.** Each Review card starts open and shows the run's lines through `TranscriptLines`
+  (`ReviewTranscriptLines.svelte`), with the reader's hover copy on top- and second-level lines (that line and its
+  children, `subtreeLines`) and a copy button for the whole run in the card header. Read only: no task box or ⋯
+  menu, since those write the PageDoc and these lines are not saved yet.
+- **Task boxes are read before copying.** An unsaved run still has `☐` / `[ ]` / `TODO` (`☑` / `[x]` / `DONE`) in its
+  text; the save is what runs `parseTaskMarker()`. `reviewLinesForCopy()` (`lib/viewer/transcript-markdown.js`) applies
+  it to copies, so the paste is `- TODO …` rather than `- ☐ …`; a line that already has a state (an Edit Structure
+  result) is kept as it is. The canvas text view's Copy used the raw lines too and now goes through the same helper.
+- Limitation: Review copies the run, not the saved page (after a partial re-transcribe, only the new lines; Edit
+  Structure makes it the whole transcript). The reader still copies the saved page.
+
 ## v3.9.0 — Print to PDF / printer, print preview, Snap, a new Deselect Decorative (October–November 2026)
 
 Everything since v3.7.1. The print feature was called 3.8.0 in the docs but never had its own bump or

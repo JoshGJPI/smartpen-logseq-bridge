@@ -11,7 +11,7 @@
  * reads it once and releases it.
  */
 import { get } from 'svelte/store';
-import { viewerDirty, clearAllViewerDirty, navigateTo } from '$stores';
+import { viewerDirty, clearAllViewerDirty, navigateTo, setActiveTab } from '$stores';
 import { DISCARD_PROMPT } from '$lib/navigation.js';
 import { importStrokesFromFolder } from '$lib/storage/load-page.js';
 import { peekCachedPage } from './page-cache.js';
@@ -31,5 +31,8 @@ export async function loadPageIntoEditor(record, { confirm = (m) => window.confi
   const pageDoc = peekCachedPage(record.book, pageId) || undefined;
   const result = await importStrokesFromFolder({ ...record, pageDoc });
   navigateTo('editor');
+  // Land on what was loaded, not on a reading tab carried over (Transcripts).
+  // setActiveTab, not revealLeftPanel: a collapsed panel stays so.
+  setActiveTab('strokes');
   return result && result.success === false ? 'failed' : 'loaded';
 }

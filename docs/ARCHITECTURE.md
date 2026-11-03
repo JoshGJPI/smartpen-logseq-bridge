@@ -55,12 +55,13 @@ App.svelte (Root)
 │   ├── StrokeList ("Strokes", Editor — browse by book/page)
 │   ├── TranscriptsPanel ("Transcripts", every destination)
 │   │   ├── TranscriptionView (Review — incoming MyScript results; each page card has a
-│   │   │   PageTagsInline row, as does TranscriptionEditorModal's footer)
+│   │   │   PageTagsInline row, as does TranscriptionEditorModal's footer, and a Copy button)
+│   │   │   └── ReviewTranscriptLines (the run's lines via TranscriptLines, hover copy of a line +
+│   │   │       children; task boxes read by reviewLinesForCopy, v3.10.0)
 │   │   └── TranscriptSearch (Search — full-text over saved pages on disk)
 │   │       └── SearchResultCard (per-result import / open in the Library)
 │   ├── SavedPagesTab ("Pages", Editor — folder-backed page list: import, export, edit structure)
-│   └── DatesTab ("Dates", Timeline and Editor — range by capture date; load onto canvas in the Editor)
-│       └── ActivityGrid (weekday heat grid, drag to select a range; Editor only — the Timeline has the strip)
+│   └── DatesTab ("Dates", Timeline only since v3.10.0 — range fields, presets, day list that jumps the feed)
 └── Canvas Section (destination from `$destination`, in App.svelte)
     ├── PaneToolbar (Library and Timeline only: breadcrumb + ViewMenu "View ▾")
     │   └── SpreadToolbar (open Library page or page grid: Book | Tag order (when there is a sequence) ·
@@ -151,7 +152,7 @@ a quiet **Load range into Editor**. Cards show **Open page** and ⋯ (Whole page
 Load sitting into Editor); a day's ⋯ holds Load day into Editor.
 
 The app opens on the **Timeline** with the **Dates** tab on the left (range
-fields and the day list; the heat grid shows only in the Editor's Dates tab), showing the most recent day with ink
+fields and the day list; the feed head's activity strip is the picture of the range), showing the most recent day with ink
 (`loadTimeline()` defaults an unset range to the index's last capture day), rather
 than an empty Editor canvas. Live pen ink switches the pane to the Editor
 (`pen-sdk.js` → `showEditorForLiveInk()`, once per stroke) unless the Library has

@@ -48,7 +48,9 @@ Reasons and history for each feature are in [CHANGELOG.md](CHANGELOG.md).
 - Main-process and renderer tracing is behind `lib/debug.js` (`localStorage['smartpen-debug'] = '1'`, or the dev
   server). Never log MyScript keys or the HMAC, not even fragments.
 - Timeline: no transcripts on cards (stored `lineId`s are unreliable); `SESSION_GAP_MS` is a constant.
-- The Editor's Dates tab day list shows one tile per page, filed under its first day in range.
+- The Dates tab day list shows one tile per page, filed under its first day in range.
+- The Editor's Review copy (v3.10.0) copies the transcription run waiting there, not the page's saved
+  transcript: after a partial re-transcribe it holds only the new lines (Edit Structure makes it the whole page).
 - **Neo page backgrounds are a spike** (books 388 and 3017 fetched; see [docs/CHANGELOG.md](docs/CHANGELOG.md), "Neo page backgrounds"):
   no thumbnails, opacity control or export support; fetched by script only; images are Neo's, so keep
   `pages/_backgrounds/` and any real-handwriting screenshots out of commits.

@@ -1,61 +1,41 @@
 <!--
-  DatesTab.svelte — load the canvas by capture date rather than by notebook.
+  DatesTab.svelte — the Timeline's own panel: the range it shows and a day list
+  that jumps the feed to a day and marks the one at its top.
 
-  Date does not line up with pages: across the reference corpus 154 of 289 pages
-  hold ink from more than one day, so this filters at STROKE level. What is left
-  of each touched page comes along as context ink (halftoned, untouchable) so the
-  day's writing can be read where it actually sits on the page.
+  The heat grid's job (the picture of the range), the summary, book filter and
+  Load live once, in the feed's head (TimelineHead / TimelineFeed: Load session,
+  day or range, then the Editor opens), so this panel keeps the range fields
+  and the day list (package C).
 
-  The same range drives the Timeline feed. While the feed is showing (this tab
-  is then the Timeline's own panel), the day list jumps it to a day and marks
-  the one at its top; the heat grid, summary, book filter and Load live once,
-  in the feed's head (the activity strip stands in for the grid), so this panel
-  keeps the range fields and the day list (package C). In the Editor it is the full tool: tally, filter, load onto the
-  canvas.
+  Until v3.10.0 this was also an Editor tab that loaded the canvas by date (with
+  a heat grid, tally and "Order canvas by date"). The Timeline does that load,
+  and the canvas order is on the bar below the canvas (CanvasControls), so the
+  Editor's tabs are Strokes, Transcripts and Pages and a load from the Timeline
+  lands on Strokes.
 -->
 <script>
   import { onMount } from 'svelte';
-  import ActivityGrid from './ActivityGrid.svelte';
-  import BookFilterMenu from './BookFilterMenu.svelte';
   import {
-    timelineIndex, timelineIndexFiltered, timelineLoading, timelineError, timelineRange,
-    timelineDays, timelineSummary, timelineRangeDays, timelineRangeExtent,
-    canvasPageOrder, loadTimeline, setTimelineRange, setCanvasPageOrder
+    timelineIndex, timelineLoading, timelineError, timelineRange,
+    timelineRangeDays, timelineRangeExtent, loadTimeline, setTimelineRange
   } from '$stores/timeline.js';
   import { dataFolderReady } from '$stores/settings.js';
   import { bookAliases } from '$stores';
-  import { contextInkCount, clearContextInk } from '$stores/context-ink.js';
-  import {
-    feedVisible, feedDayInView, feedOrder, requestFeedJump, navigateTo
-  } from '$stores/viewer.js';
-  import { importDateRangeFromFolder, LARGE_LOAD_STROKES } from '$lib/storage/load-range.js';
+  import { feedDayInView, feedOrder, requestFeedJump } from '$stores/viewer.js';
   import { dayStart, addDays } from '$lib/timeline.js';
   import { RANGE_PRESETS, rangePreset } from '$lib/timeline-range.js';
   import { formatBookName } from '$utils/formatting.js';
   import { plural } from '$lib/plural.js';
 
-  let loading = false;
-  let progress = null;
-  let confirmingLarge = false;
-
   $: range = $timelineRange;
-  $: summary = $timelineSummary;
-  $: heavy = summary.strokes > LARGE_LOAD_STROKES;
-  $: inView = $feedVisible ? $feedDayInView : null;
-  // Mirror the feed's order while it is showing, so the list beside it reads
-  // the same way down.
-  $: dayList = $feedVisible && $feedOrder === 'newest'
-    ? [...$timelineRangeDays].reverse()
-    : $timelineRangeDays;
-  $: canLoad = $dataFolderReady && summary.strokes > 0 && !loading;
-
-  // A new range is a new decision — don't carry a previous "load anyway" over.
-  $: if (range) confirmingLarge = false;
+  $: inView = $feedDayInView;
+  // Mirror the feed's order, so the list beside it reads the same way down.
+  $: dayList = $feedOrder === 'newest' ? [...$timelineRangeDays].reverse() : $timelineRangeDays;
 
   // Refresh on every visit, not just the first. The tab is unmounted when you
   // leave it, so this fires each time you come back — and a refresh is one stat
   // per page file (~35ms over a 300-page corpus), so a page saved a moment ago
-  // is already in the grid rather than missing until a restart.
+  // is already in the list rather than missing until a restart.
   onMount(() => {
     if ($dataFolderReady) loadTimeline({ silent: true });
   });
@@ -63,10 +43,6 @@
   // Covers the folder being chosen after this tab was already open.
   $: if ($dataFolderReady && !$timelineIndex && !$timelineLoading) {
     loadTimeline({ silent: true });
-  }
-
-  function onGridSelect(event) {
-    setTimelineRange(event.detail.from, event.detail.to);
   }
 
   function onFromInput(event) {
@@ -86,37 +62,6 @@
   function shift(n) {
     if (!range.from || !range.to) return;
     setTimelineRange(addDays(range.from, n), addDays(range.to, n));
-  }
-
-  async function handleLoad() {
-    if (!canLoad) return;
-    if (heavy && !confirmingLarge) {
-      confirmingLarge = true;
-      return;
-    }
-    loading = true;
-    progress = null;
-    try {
-      const result = await importDateRangeFromFolder({
-        from: range.from,
-        to: range.to,
-        index: $timelineIndexFiltered,
-        onProgress: (message, current, total) => {
-          progress = { message, current, total };
-        }
-      });
-      // Only switch the canvas to date order once something is actually on it —
-      // reordering an empty canvas just changes a setting the user can't see.
-      if (result.success && result.imported > 0) setCanvasPageOrder('date');
-    } finally {
-      loading = false;
-      progress = null;
-      confirmingLarge = false;
-    }
-  }
-
-  function showTimeline() {
-    navigateTo('timeline');
   }
 
   function longDate(day) {
@@ -143,12 +88,6 @@
   {:else if $timelineLoading && !$timelineIndex}
     <p class="notice">Reading capture dates…</p>
   {:else}
-    <!-- Beside the Timeline the feed's activity strip is the picture of the range
-         (Josh, 2026-10-19: strip only); the Editor has no strip, so it keeps the grid. -->
-    {#if !$feedVisible}
-      <ActivityGrid days={$timelineDays} from={range.from} to={range.to} on:select={onGridSelect} />
-    {/if}
-
     <div class="range">
       <div class="field">
         <label for="date-from">From</label>
@@ -170,90 +109,18 @@
       {/each}
     </div>
 
-    {#if $feedVisible}
-      <p class="feed-note">
-        The Timeline is showing this range. Pick a day below to jump to it.
-      </p>
-    {:else}
-    <div class="tally">
-      <span><b>{summary.days}</b> {plural(summary.days, 'day')}</span>
-      <span><b>{summary.pages}</b> {plural(summary.pages, 'page')}</span>
-      <span><b>{fmt(summary.strokes)}</b> {plural(summary.strokes, 'stroke')}</span>
-      <span class="tally-filter"><BookFilterMenu theme="dark" align="right" /></span>
-    </div>
-
-    {#if summary.partialPages > 0}
-      <p class="context-note">
-        <b>{summary.partialPages}</b> of these pages also hold ink outside the range.
-        Its {fmt(summary.contextStrokes)} {plural(summary.contextStrokes, 'stroke')} load as halftoned context —
-        visible, but not selectable, savable or transcribable.
-      </p>
-    {/if}
-
-    <div class="actions">
-      <button class="btn btn-primary" on:click={handleLoad} disabled={!canLoad}>
-        {#if loading}
-          Loading…
-        {:else if confirmingLarge}
-          Load {fmt(summary.strokes)} {plural(summary.strokes, 'stroke')} anyway
-        {:else if summary.strokes === 0}
-          Nothing in range
-        {:else}
-          Load onto canvas
-        {/if}
-      </button>
-      <button class="btn btn-secondary" on:click={showTimeline} disabled={!$dataFolderReady}>
-        View as timeline
-      </button>
-      <label class="order">
-        <input
-          type="checkbox"
-          checked={$canvasPageOrder === 'date'}
-          on:change={(e) => setCanvasPageOrder(e.target.checked ? 'date' : 'book')}
-        />
-        Order canvas by date
-      </label>
-    </div>
-
-    {#if confirmingLarge}
-      <p class="warn">
-        That is a lot of ink for one canvas — expect slow panning and zooming.
-        A shorter range, or clearing the canvas first, will feel better.
-      </p>
-    {/if}
-
-    {#if progress}
-      <p class="progress">{progress.message} ({progress.current}/{progress.total})</p>
-    {/if}
-
-    {#if $contextInkCount > 0}
-      <p class="context-loaded">
-        {fmt($contextInkCount)} {plural($contextInkCount, 'stroke')} shown as context.
-        <button type="button" class="link" on:click={clearContextInk}>Hide</button>
-      </p>
-    {/if}
-
-    <p class="hint">
-      Loading adds to the canvas; it never replaces what is already there. Use
-      Clear to start from empty.
+    <p class="feed-note">
+      The Timeline is showing this range. Pick a day below to jump to it.
     </p>
-    {/if}
 
-    <div class="daylist" class:feed={$feedVisible}>
+    <div class="daylist">
       {#each dayList as day (day.day)}
         <div class="day" class:in-view={inView === day.day}>
-          {#if $feedVisible}
-            <button type="button" class="day-head jump" on:click={() => requestFeedJump(day.day)}
-              title="Scroll the timeline to this day">
-              <b>{longDate(day.day)}{#if inView === day.day}<span class="in-view-pill">In view</span>{/if}</b>
-              <span>{fmt(day.strokes)} {plural(day.strokes, 'stroke')} · {day.pages} pg</span>
-            </button>
-          {:else}
-            <div class="day-head">
-              <b>{longDate(day.day)}</b>
-              <span>{fmt(day.strokes)} {plural(day.strokes, 'stroke')} · {day.pages} pg</span>
-            </div>
-          {/if}
+          <button type="button" class="day-head jump" on:click={() => requestFeedJump(day.day)}
+            title="Scroll the timeline to this day">
+            <b>{longDate(day.day)}{#if inView === day.day}<span class="in-view-pill">In view</span>{/if}</b>
+            <span>{fmt(day.strokes)} {plural(day.strokes, 'stroke')} · {day.pages} pg</span>
+          </button>
           <div class="chips">
             {#each day.entries as entry (entry.book + '/' + entry.pageId)}
               <span class="chip" class:partial={entry.spansOtherDays} title={entry.spansOtherDays
@@ -282,7 +149,6 @@
     padding-right: 4px;
   }
 
-  /* Match the heat grid's scrollbar rather than the default light one. */
   .dates-tab::-webkit-scrollbar {
     width: 8px;
   }
@@ -385,99 +251,6 @@
     border-color: var(--accent);
   }
 
-  .tally {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    flex-wrap: wrap;
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-  }
-
-  .tally-filter {
-    margin-left: auto;
-  }
-
-  .tally b {
-    color: var(--text-primary);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .context-note {
-    margin: 0;
-    font-size: 0.75rem;
-    line-height: 1.45;
-    color: #f3d9a0;
-    background: rgba(251, 191, 36, 0.08);
-    border: 1px solid rgba(251, 191, 36, 0.28);
-    border-radius: 6px;
-    padding: 8px 10px;
-  }
-
-  .context-note b {
-    color: var(--warning);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px 12px;
-    align-items: center;
-  }
-
-  .actions :global(.btn-primary) {
-    flex: 1;
-    min-width: 150px;
-  }
-
-  .order {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    cursor: pointer;
-  }
-
-  .warn {
-    margin: 0;
-    font-size: 0.75rem;
-    line-height: 1.45;
-    color: var(--warning);
-  }
-
-  .progress {
-    margin: 0;
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .context-loaded {
-    margin: 0;
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-  }
-
-  .link {
-    background: none;
-    border: none;
-    padding: 0;
-    color: var(--accent);
-    cursor: pointer;
-    font-size: inherit;
-    text-decoration: underline;
-  }
-
-  .hint {
-    margin: 0;
-    font-size: 0.75rem;
-    line-height: 1.45;
-    color: var(--text-secondary);
-    opacity: 0.85;
-  }
-
   .feed-note {
     margin: 0;
     font-size: 0.75rem;
@@ -495,20 +268,23 @@
     border-top: 1px solid var(--border);
   }
 
+  /* A little inset so the in-view tint has room; each heading is a button
+     that scrolls the feed there. */
   .day {
-    padding: 9px 0;
-    border-bottom: 1px solid var(--border);
-  }
-
-  /* While the feed is showing, rows get a little inset so the in-view tint
-     has room, and each heading is a button that scrolls the feed there. */
-  .daylist.feed .day {
     padding: 9px 8px;
+    border-bottom: 1px solid var(--border);
   }
 
   .day.in-view {
     background: rgba(255, 255, 255, 0.07);
     border-radius: 6px;
+  }
+
+  .day-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
   }
 
   .day-head.jump {
@@ -541,13 +317,6 @@
     border-radius: 8px;
     padding: 0 7px;
     vertical-align: 1px;
-  }
-
-  .day-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 8px;
   }
 
   .day-head b {
@@ -587,7 +356,7 @@
   }
 
   /* A page that also holds ink on other days — the ones that arrive with
-     context ink. Marked so the chip list explains the amber note above it. */
+     context ink. */
   .chip.partial {
     border-color: rgba(251, 191, 36, 0.45);
   }
