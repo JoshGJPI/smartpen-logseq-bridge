@@ -19,6 +19,8 @@
  * TranscriptLine). Extra fields are ignored.
  */
 
+import { parseTaskMarker } from '../task-markers.js';
+
 /** Matches a LogSeq property line, e.g. `id:: abc`, `collapsed:: true`. */
 const PROPERTY_RE = /^\s*[A-Za-z0-9_-]+::/;
 
@@ -85,6 +87,32 @@ export function subtreeLines(lines, index) {
     out.push({ ...l, indentLevel: Math.max(0, level(l) - base) });
   }
   return out;
+}
+
+/**
+ * A transcription still waiting in the Editor's Review (not yet saved), as it
+ * reads and copies once saved: a leading task box (`☐`, `[ ]`, `TODO`, `☑`,
+ * `[x]`, `DONE`) becomes the line's `checked` with the marker stripped, which
+ * the save does too (save-page.js mergeTranscript → parseTaskMarker). Without
+ * it a copy would paste `- ☐ call Bob` instead of `- TODO call Bob`.
+ *
+ * A line that already has a task state (an Edit Structure result, a saved line
+ * carried into it) is kept as it is, marker included, so a box left in its text
+ * is not read twice. MyScript lines carry no id, so one is made from the index
+ * for keyed lists. Copies only: the store's lines are never changed.
+ *
+ * @param {Array<{text?:string, checked?:boolean|null, id?:string}>} lines
+ * @returns {Array<Object>}
+ */
+export function reviewLinesForCopy(lines) {
+  if (!Array.isArray(lines)) return [];
+  return lines.filter(Boolean).map((l, i) => {
+    const id = l.id ?? l.blockUuid ?? `review-${i}`;
+    if (l.checked === true || l.checked === false) return { ...l, id };
+    const { checked, text } = parseTaskMarker(typeof l.text === 'string' ? l.text : '');
+    if (checked == null) return { ...l, id, checked: null };
+    return { ...l, id, text: text.trim(), checked };
+  });
 }
 
 /**

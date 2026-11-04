@@ -136,4 +136,29 @@ describe('page tags on the Library home (v3.1.0)', () => {
     setLibraryTagSort('???');
     expect(get(libraryTagSort)).toBe('pages');
   });
+
+  it('remembers Cards | Pills, folded groups and the tag-page sort (v3.11.0)', async () => {
+    const {
+      libraryTagView, setLibraryTagView, collapsedTagGroups, toggleTagGroup, tagPageSort, setTagPageSort
+    } = await import('../../stores/library.js');
+    const { TAG_VIEW_KEY, TAG_COLLAPSED_KEY, TAG_PAGE_SORT_KEY } = await import('$lib/tags.js');
+    setLibraryTagView('pills');
+    expect(get(libraryTagView)).toBe('pills');
+    expect(localStorage.getItem(TAG_VIEW_KEY)).toBe('pills');
+    setLibraryTagView('junk');
+    expect(get(libraryTagView)).toBe('cards');
+
+    toggleTagGroup('keywords');
+    toggleTagGroup('projects');
+    expect(get(collapsedTagGroups)).toEqual(['projects', 'keywords']);
+    expect(JSON.parse(localStorage.getItem(TAG_COLLAPSED_KEY))).toEqual(['projects', 'keywords']);
+    toggleTagGroup('projects');
+    toggleTagGroup('keywords');
+    expect(get(collapsedTagGroups)).toEqual([]);
+
+    setTagPageSort('recent');
+    expect(localStorage.getItem(TAG_PAGE_SORT_KEY)).toBe('recent');
+    setTagPageSort('nope');
+    expect(get(tagPageSort)).toBe('notebook');
+  });
 });

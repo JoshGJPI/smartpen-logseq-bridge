@@ -82,10 +82,12 @@ export function isPanelToggleKey(e) {
 export const CONTEXT_TABS = {
   library: ['contents', 'transcription'],
   timeline: ['dates', 'transcription'],
-  // Pages and Dates stay with the Editor: they load onto the canvas (Import,
-  // Import all, Load onto canvas) and the Pages cards carry Export to graph,
-  // Edit structure and Reset transcript, which have no other home yet.
-  editor: ['strokes', 'transcription', 'saved-pages', 'dates']
+  // Pages stays with the Editor: it loads onto the canvas (Import, Import all)
+  // and its cards carry Export to graph, Edit structure and Reset transcript,
+  // which have no other home yet. Dates left the Editor in v3.10.0: loading by
+  // date (session, day, range) is the Timeline's, which then opens the Editor,
+  // and the canvas order it set is on the bar below the canvas.
+  editor: ['strokes', 'transcription', 'saved-pages']
 };
 
 /** @param {string} destination 'library' | 'timeline' | 'editor' */

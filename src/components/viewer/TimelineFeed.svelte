@@ -38,7 +38,7 @@
     timelineIndex, timelineIndexFiltered, timelineExcludedBooks, timelineLoading, timelineError,
     timelineRange, timelineDays, timelineSummary, loadTimeline, setTimelineRange,
     setCanvasPageOrder, feedOrder, feedDayInView, feedJumpRequest, navigateTo,
-    openPageInLibrary
+    openPageInLibrary, setActiveTab
   } from '$stores';
   import { dataFolderReady } from '$stores/settings.js';
 
@@ -239,7 +239,8 @@
   function afterLoad(result) {
     if (result && result.success && (result.imported > 0 || result.duplicatesSkipped > 0)) {
       setCanvasPageOrder('date');
-      navigateTo('editor');
+      // Land on Strokes, not the Timeline's Dates / Transcripts carried over.
+      if (navigateTo('editor') !== 'cancelled') setActiveTab('strokes');
     }
   }
 

@@ -10,8 +10,9 @@ import { writable, derived, get } from 'svelte/store';
 import { getTimelineIndex } from '$lib/storage/local-store.js';
 import {
   dayTotals, timelineExtent, rangeSummary, pagesOnDay, addDays,
-  filterIndexByBooks, indexBooks
+  filterIndexByBooks, indexBooks, dayKey
 } from '$lib/timeline.js';
+import { defaultTimelineDay } from '$lib/timeline-range.js';
 import { dataRoot, dataFolderReady } from './settings.js';
 import { log } from './ui.js';
 
@@ -26,6 +27,15 @@ export const timelineError = writable(null);
  * would open the panel on an empty range for anyone who last wrote last week.
  */
 export const timelineRange = writable({ from: null, to: null });
+
+/**
+ * True while the range is the one the app picked, not the user (v3.10.0). Each
+ * index refresh then re-picks it (`defaultTimelineDay`): today once today has ink
+ * on disk, so a page saved this morning, or an app left open overnight, opens on
+ * today. Any range the user sets (`setTimelineRange`, the Today button) ends it
+ * for the session.
+ */
+export const timelineRangeIsDefault = writable(true);
 
 /** How the canvas orders pages: 'book' (book then page) or 'date'. */
 export const canvasPageOrder = writable('book');
@@ -151,13 +161,15 @@ export async function loadTimeline(options = {}) {
     const index = await getTimelineIndex({ force: !!options.force });
     timelineIndex.set(index);
 
-    // Default the range only once, and only to something with ink in it: the
-    // most recent capture day. Picking "today" would open on an empty range
-    // whenever the user last wrote earlier in the week.
+    // Default the range to something with ink in it: today when today has
+    // ink, else the most recent capture day (an empty "today" would open on
+    // nothing whenever the user last wrote earlier in the week). Re-picked on
+    // every refresh until the user chooses a range.
     const range = get(timelineRange);
-    if (!range.from || !range.to) {
-      const extent = timelineExtent(filterIndexByBooks(index, get(timelineExcludedBooks)));
-      if (extent) timelineRange.set({ from: extent.last, to: extent.last });
+    if (!range.from || !range.to || get(timelineRangeIsDefault)) {
+      const days = dayTotals(filterIndexByBooks(index, get(timelineExcludedBooks)));
+      const day = defaultTimelineDay(days, dayKey(Date.now()));
+      if (day && (range.from !== day || range.to !== day)) timelineRange.set({ from: day, to: day });
     }
 
     if (!options.silent) {
@@ -182,7 +194,14 @@ export function setTimelineRange(from, to) {
   if (!from && !to) return;
   const a = from || to;
   const b = to || from;
+  timelineRangeIsDefault.set(false);
   timelineRange.set(a <= b ? { from: a, to: b } : { from: b, to: a });
+}
+
+/** The Today button: today's day, ink or not (the feed says when it is empty). */
+export function showTimelineToday(now = Date.now()) {
+  const today = dayKey(now);
+  setTimelineRange(today, today);
 }
 
 export function setCanvasPageOrder(mode) {

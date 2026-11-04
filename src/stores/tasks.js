@@ -21,7 +21,8 @@ import { libraryPageDates } from './library.js';
 import { isViewerPageDirty } from './viewer.js';
 import { log } from './ui.js';
 import {
-  buildTaskRows, taskCounts, taskKey, parseTaskFilter, parseTaskGroup, isLineState, toggledState, TASK_GROUP_KEY
+  buildTaskRows, taskCounts, taskKey, parseTaskGroup, isLineState, toggledState, TASK_GROUP_KEY,
+  DEFAULT_SHOWN_STATES, toggleShownState, toggleAllShownStates
 } from '$lib/tasks.js';
 import { setTaskState, taskChangeLabel } from '$lib/viewer/task-state.js';
 import { readString, write } from '$lib/safe-storage.js';
@@ -42,11 +43,21 @@ export const taskCountsStore = derived(taskRows, ($rows) => taskCounts($rows));
 /** The header badge: open (TODO) tasks. */
 export const openTaskCount = derived(taskCountsStore, ($c) => $c.open);
 
-/** The Tasks view's state filter: 'open' | 'waiting' | 'done' | 'cancelled' | 'all'. Session-only. */
-export const taskFilter = writable('open');
+/**
+ * The task states shown, by the chips in the Tasks view and on a tag's page
+ * (v3.12.0; was one filter at a time): each chip turns its state on or off.
+ * Shared by both views. Session-only.
+ */
+export const taskStatesShown = writable([...DEFAULT_SHOWN_STATES]);
 
-export function setTaskFilter(id) {
-  taskFilter.set(parseTaskFilter(id));
+/** Turn one state ('todo' | 'waiting' | 'done' | 'cancelled') on or off. */
+export function toggleTaskState(state) {
+  taskStatesShown.update((s) => toggleShownState(s, state));
+}
+
+/** The All chip: every state, or back to Open + Waiting when all are on. */
+export function toggleAllTaskStates() {
+  taskStatesShown.update((s) => toggleAllShownStates(s));
 }
 
 /** Group by 'project' | 'date' | 'book'. A per-viewer convenience. */

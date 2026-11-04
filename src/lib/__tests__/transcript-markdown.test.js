@@ -10,6 +10,7 @@
  *   - textToTranscriptLines (flat-text fallback)
  *   - pagesToLogseqMarkdown (single vs. multi-page clipboard payload)
  *   - subtreeLines (one node and its children, re-based, for per-node Copy)
+ *   - reviewLinesForCopy (an unsaved run's task boxes read as the save reads them)
  */
 
 import { describe, it, expect } from 'vitest';
@@ -18,6 +19,7 @@ import {
   lineToMarkdown,
   linesToLogseqMarkdown,
   indentMarkdownBlock,
+  reviewLinesForCopy,
   textToTranscriptLines,
   pagesToLogseqMarkdown,
   subtreeLines,
@@ -223,5 +225,64 @@ describe('subtreeLines', () => {
     expect(subtreeLines(page, 8)).toEqual([]);
     expect(subtreeLines(page, 1.5)).toEqual([]);
     expect(subtreeLines(null, 0)).toEqual([]);
+  });
+});
+
+describe('reviewLinesForCopy', () => {
+  // MyScript lines as they wait in Review: no id, boxes still in the text.
+  const run = [
+    { text: 'Site visit', indentLevel: 0 },
+    { text: '☐ call Bob', indentLevel: 1 },
+    { text: '☑ - send RFI', indentLevel: 1 },
+    { text: 'TODO: check beam', indentLevel: 2 },
+    { text: 'Todo list for Friday', indentLevel: 0 },
+    { text: '✓ remark', indentLevel: 0 },
+    { text: '☐', indentLevel: 0 }
+  ];
+
+  it('makes boxes and typed markers task state, as the save does', () => {
+    const out = reviewLinesForCopy(run);
+    expect(out.map((l) => [l.text, l.checked])).toEqual([
+      ['Site visit', null],
+      ['call Bob', false],
+      ['send RFI', true],
+      ['check beam', false],
+      ['Todo list for Friday', null],
+      ['✓ remark', null],
+      ['☐', null]
+    ]);
+  });
+
+  it('copies as LogSeq TODO / DONE, whole page and per branch', () => {
+    const out = reviewLinesForCopy(run);
+    expect(linesToLogseqMarkdown(out.slice(0, 4))).toBe(
+      ['- Site visit', '\t- TODO call Bob', '\t- DONE send RFI', '\t\t- TODO check beam'].join('\n')
+    );
+    expect(linesToLogseqMarkdown(subtreeLines(out, 1))).toBe('- TODO call Bob');
+    expect(linesToLogseqMarkdown(subtreeLines(out, 2))).toBe(['- DONE send RFI', '\t- TODO check beam'].join('\n'));
+  });
+
+  it('keeps a line that already has a task state, marker included', () => {
+    const out = reviewLinesForCopy([
+      { id: 'a', text: '☐ left in text', checked: true, marker: 'CANCELLED' },
+      { id: 'b', text: 'waiting on Sam', checked: false, marker: 'WAITING' }
+    ]);
+    expect(out[0]).toMatchObject({ id: 'a', text: '☐ left in text', checked: true, marker: 'CANCELLED' });
+    expect(linesToLogseqMarkdown(out)).toBe(['- CANCELLED ☐ left in text', '- WAITING waiting on Sam'].join('\n'));
+  });
+
+  it('gives every line a unique id and never changes its input', () => {
+    const input = [{ text: '☐ a' }, { text: 'b', blockUuid: 'u1' }, { text: 'c' }];
+    const out = reviewLinesForCopy(input);
+    expect(out.map((l) => l.id)).toEqual(['review-0', 'u1', 'review-2']);
+    expect(input[0]).toEqual({ text: '☐ a' });
+  });
+
+  it('tolerates empty and bad input', () => {
+    expect(reviewLinesForCopy(null)).toEqual([]);
+    expect(reviewLinesForCopy([])).toEqual([]);
+    expect(reviewLinesForCopy([null, { indentLevel: 0 }])).toEqual([
+      { indentLevel: 0, id: 'review-0', checked: null }
+    ]);
   });
 });

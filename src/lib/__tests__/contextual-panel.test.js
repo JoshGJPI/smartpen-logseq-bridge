@@ -22,7 +22,7 @@ describe('tabsFor / resolvePanelTab', () => {
   it('each destination has its own set', () => {
     expect(tabsFor('library')).toEqual(['contents', 'transcription']);
     expect(tabsFor('timeline')).toEqual(['dates', 'transcription']);
-    expect(tabsFor('editor')).toEqual(['strokes', 'transcription', 'saved-pages', 'dates']);
+    expect(tabsFor('editor')).toEqual(['strokes', 'transcription', 'saved-pages']);
     expect(tabsFor('nonsense')).toBe(CONTEXT_TABS.editor);
   });
 
@@ -40,7 +40,8 @@ describe('tabsFor / resolvePanelTab', () => {
 
   it('the old ids still resolve; "books" falls back (now in Settings)', () => {
     expect(resolvePanelTab('editor', 'saved-pages')).toBe('saved-pages');
-    expect(resolvePanelTab('editor', 'dates')).toBe('dates');
+    // Dates is the Timeline's only (v3.10.0): a load from there lands on Strokes.
+    expect(resolvePanelTab('editor', 'dates')).toBe('strokes');
     expect(resolvePanelTab('editor', 'books')).toBe('strokes');
     expect(resolvePanelTab('library', 'books')).toBe('contents');
     expect(resolvePanelTab('timeline', undefined)).toBe('dates');
@@ -61,7 +62,8 @@ describe('panelTab store', () => {
     expect(get(panelTab)).toBe('contents');
     expect(get(activeTab)).toBe('dates');
     navigateTo('editor');
-    expect(get(panelTab)).toBe('dates');
+    expect(get(panelTab)).toBe('strokes');
+    expect(get(activeTab)).toBe('dates');
   });
 
   it('the ink click (setActiveTab dates, then Timeline) shows Dates', () => {

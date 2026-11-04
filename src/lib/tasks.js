@@ -288,6 +288,69 @@ export function filterTaskRows(rows, filter) {
   return (rows || []).filter((r) => r.state === want);
 }
 
+/**
+ * The state chips as toggles (v3.12.0): each of the four states is shown or
+ * hidden on its own, so Open and Waiting can sit side by side under a project.
+ * `{ id, state, label }`; `id` is the taskCounts() key.
+ */
+export const TASK_STATE_CHIPS = [
+  { id: 'open', state: 'todo', label: 'Open' },
+  { id: 'waiting', state: 'waiting', label: 'Waiting' },
+  { id: 'done', state: 'done', label: 'Done' },
+  { id: 'cancelled', state: 'cancelled', label: 'Cancelled' }
+];
+
+const CHIP_ORDER = TASK_STATE_CHIPS.map((c) => c.state);
+
+/** What the chips show at first: the tasks still to act on. */
+export const DEFAULT_SHOWN_STATES = Object.freeze(['todo', 'waiting']);
+
+/**
+ * A shown-states list cleaned up: task states only, each once, in chip order.
+ * Anything that isn't an array falls back to the default; an empty array stays
+ * empty (every chip off is a choice, and the view says so).
+ * @param {unknown} raw
+ * @returns {string[]}
+ */
+export function parseShownStates(raw) {
+  if (!Array.isArray(raw)) return [...DEFAULT_SHOWN_STATES];
+  return CHIP_ORDER.filter((s) => raw.includes(s));
+}
+
+/** `shown` with `state` turned on or off (a new array, chip order). */
+export function toggleShownState(shown, state) {
+  const now = parseShownStates(shown);
+  if (!isTaskState(state)) return now;
+  return parseShownStates(now.includes(state) ? now.filter((s) => s !== state) : [...now, state]);
+}
+
+/** The "All" chip: every state on, or back to the default when they already are. */
+export function toggleAllShownStates(shown) {
+  return parseShownStates(shown).length === CHIP_ORDER.length ? [...DEFAULT_SHOWN_STATES] : [...CHIP_ORDER];
+}
+
+/** Rows whose state is one of `shown` (a new array). */
+export function rowsInStates(rows, shown) {
+  const want = new Set(parseShownStates(shown));
+  return (rows || []).filter((r) => want.has(r.state));
+}
+
+/**
+ * The tasks that belong to one tag, for its page in the Library. A project tag
+ * takes the rows whose `project` is that tag, exactly the group the Tasks view
+ * shows under it (a page tagged with two projects splits its tasks between
+ * them). Any other tag takes every task on a page carrying it.
+ * @param {Array<object>} rows  buildTaskRows() rows
+ * @param {string} tag
+ * @param {Iterable<string>} [pageKeys]  the `"book/pageId"` keys tagged `tag` (tagIndex)
+ */
+export function taskRowsForTag(rows, tag, pageKeys = []) {
+  if (!tag) return [];
+  if (isProjectTag(tag)) return (rows || []).filter((r) => r.project === tag);
+  const keys = new Set(pageKeys || []);
+  return (rows || []).filter((r) => keys.has(`${r.book}/${r.pageId}`));
+}
+
 const dayWords = (iso) => {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
   if (!m) return '';

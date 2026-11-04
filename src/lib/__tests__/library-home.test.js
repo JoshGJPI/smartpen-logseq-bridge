@@ -10,7 +10,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   pageDates, notebookCards, sortNotebooks, parseSortOrder, recentRecords,
-  shortDay, writtenRange, relativeDay, pageTiles, pageKeyOf, SORT_ORDERS
+  shortDay, writtenRange, tileDateRange, relativeDay, pageTiles, pageKeyOf, SORT_ORDERS,
+  sortPageTiles, parsePageSort, PAGE_SORT_ORDERS
 } from '$lib/library-home.js';
 
 const ms = (y, m, d, h = 10) => new Date(y, m - 1, d, h).getTime();
@@ -168,6 +169,16 @@ describe('date labels', () => {
     expect(writtenRange(null, null)).toBe('');
   });
 
+  it('tileDateRange: one day, a range, years only when not this one', () => {
+    expect(tileDateRange('2026-10-28', '2026-10-28', now)).toBe('Oct 28');
+    expect(tileDateRange('2026-10-28', null, now)).toBe('Oct 28');
+    expect(tileDateRange('2026-09-24', '2026-10-30', now)).toBe('Sep 24–Oct 30');
+    expect(tileDateRange('2026-10-03', '2026-10-09', now)).toBe('Oct 3–Oct 9');
+    expect(tileDateRange('2025-02-05', '2025-06-25', now)).toBe('Feb 5–Jun 25, 2025');
+    expect(tileDateRange('2025-12-28', '2026-01-03', now)).toBe('Dec 28, 2025–Jan 3');
+    expect(tileDateRange(null, null, now)).toBe('');
+  });
+
   it('relativeDay', () => {
     expect(relativeDay('2026-10-19', now)).toBe('today');
     expect(relativeDay('2026-10-18', now)).toBe('yesterday');
@@ -189,5 +200,45 @@ describe('pageTiles', () => {
     expect(pageTiles(pagesByBook['388'], '388', new Map())[0].transcribed).toBe(true);
     expect(pageTiles(null, '1', null)).toEqual([]);
     expect(pageKeyOf('388v2', '151b')).toBe('388v2/151b');
+  });
+});
+
+describe('sortPageTiles (v3.10.0)', () => {
+  const tile = (pageId, last, page = parseInt(pageId, 10)) => ({
+    record: { book: '388', pageId, page }, pageId, last, first: last, days: last ? 1 : 0, transcribed: false
+  });
+  const tiles = [
+    tile('2', '2026-06-25'),
+    tile('10', '2026-03-01'),
+    tile('151b', '2026-06-25', 151),
+    tile('151', '2026-01-02'),
+    tile('7', null),
+    tile('3', null)
+  ];
+  const ids = (list) => list.map((t) => t.pageId);
+
+  it('defaults to recent and reads unknown ids as recent', () => {
+    expect(PAGE_SORT_ORDERS.map((o) => o.id)).toEqual(['recent', 'page-asc', 'page-desc']);
+    expect(parsePageSort(null)).toBe('recent');
+    expect(parsePageSort('page-desc')).toBe('page-desc');
+    expect(parsePageSort('pages')).toBe('recent');
+  });
+
+  it('recent: newest day first, higher page first on a tie, untimed pages last by page', () => {
+    expect(ids(sortPageTiles(tiles, 'recent'))).toEqual(['151b', '2', '10', '151', '3', '7']);
+    expect(ids(sortPageTiles(tiles, 'nonsense'))).toEqual(ids(sortPageTiles(tiles, 'recent')));
+  });
+
+  it('page order by number, suffix after its page, never by string', () => {
+    expect(ids(sortPageTiles(tiles, 'page-asc'))).toEqual(['2', '3', '7', '10', '151', '151b']);
+    expect(ids(sortPageTiles(tiles, 'page-desc'))).toEqual(['151b', '151', '10', '7', '3', '2']);
+  });
+
+  it('returns a new array and tolerates empty input', () => {
+    const input = [...tiles];
+    sortPageTiles(input, 'page-desc');
+    expect(input).toEqual(tiles);
+    expect(sortPageTiles(null, 'recent')).toEqual([]);
+    expect(sortPageTiles([], 'page-asc')).toEqual([]);
   });
 });

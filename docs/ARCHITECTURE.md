@@ -55,12 +55,13 @@ App.svelte (Root)
 │   ├── StrokeList ("Strokes", Editor — browse by book/page)
 │   ├── TranscriptsPanel ("Transcripts", every destination)
 │   │   ├── TranscriptionView (Review — incoming MyScript results; each page card has a
-│   │   │   PageTagsInline row, as does TranscriptionEditorModal's footer)
+│   │   │   PageTagsInline row, as does TranscriptionEditorModal's footer, and a Copy button)
+│   │   │   └── ReviewTranscriptLines (the run's lines via TranscriptLines, hover copy of a line +
+│   │   │       children; task boxes read by reviewLinesForCopy, v3.10.0)
 │   │   └── TranscriptSearch (Search — full-text over saved pages on disk)
 │   │       └── SearchResultCard (per-result import / open in the Library)
 │   ├── SavedPagesTab ("Pages", Editor — folder-backed page list: import, export, edit structure)
-│   └── DatesTab ("Dates", Timeline and Editor — range by capture date; load onto canvas in the Editor)
-│       └── ActivityGrid (weekday heat grid, drag to select a range; Editor only — the Timeline has the strip)
+│   └── DatesTab ("Dates", Timeline only since v3.10.0 — range fields, presets, day list that jumps the feed)
 └── Canvas Section (destination from `$destination`, in App.svelte)
     ├── PaneToolbar (Library and Timeline only: breadcrumb + ViewMenu "View ▾")
     │   └── SpreadToolbar (open Library page or page grid: Book | Tag order (when there is a sequence) ·
@@ -80,15 +81,16 @@ App.svelte (Root)
     │   │   │   ├── TasksCard (v3.4.0: open / waiting / done counts, three newest open tasks → Tasks)
     │   │   │   ├── LibraryHomeHead (summary, Group by Notebook | Tag, sort chips, Suggestions (n), Manage tags, Rescan)
     │   │   │   ├── NotebookCard ×N (fan of 3 recent pages, name, Vol badge, pages, written, transcribed %)
-    │   │   │   └── TagCardGrid (Projects / Keywords headings) → TagCard ×N + dashed Untagged card
-    │   │   ├── NotebookPages (a notebook's page grid; `libraryNotebook`) → PageGrid
-    │   │   ├── TagPages (a tag's pages, or the Untagged pages, across notebooks; `libraryView`) → PageGrid
+    │   │   │   └── TagCardGrid (Projects / Keywords headings, each collapsible, v3.11.0) → TagCard ×N, or TagPill ×N in Pills (v3.11.0) + dashed Untagged card
+    │   │   ├── NotebookPages (a notebook's page grid; `libraryNotebook`; Recent | Page ↑ | Page ↓,
+    │   │   │   `notebookPageSort`, sortPageTiles, v3.10.0) → PageGrid
+    │   │   ├── TagPages (a tag's pages, or the Untagged pages, across notebooks; `libraryView`; Notebook | Last edited sort, `tagPageSort`, sortTagPageTiles, v3.11.0) → PageGrid, TagTasksPanel (v3.12.0: the tag's tasks, taskRowsForTag)
     │   │   │   PageGrid = TagFilterRow (tags in this grid, Any | All) · Select → BulkTagBar ·
     │   │   │              PageTile ×N (date badge, ✓, tag line, hover "+ tag" popover, amber suggestion dot)
     │   │   ├── TagSuggestionQueue (suggested project numbers by number: Tag all n, Dismiss all, Re-check)
     │   │   ├── TagManagerView (Library › Manage tags, `{kind: 'tags'}`)
     │   │   │   └── TagManager (Undo bar; tag / pages / notebooks, headers sort; chip opens the tag; Rename, Merge into…, Delete; reset dismissals)
-    │   │   └── TasksView (v3.4.0, Library › Tasks, `{kind: 'tasks'}`: Open / Waiting / Done / All, Group by)
+    │   │   └── TasksView (v3.4.0, Library › Tasks, `{kind: 'tasks'}`: state toggle chips (TaskStateChips, v3.12.0), Group by; a project heading opens its tag page)
     │   │       └── TaskRow ×N (TaskBox · text · under "parent" · page link · date written · project chip · TaskMenu ⋯)
     │   │   (PageThumb: lazy thumbnail via lib/viewer/thumbs.js; also in the fan, Recent row, search)
     │   ├── TaskToast (v3.4.0: "Marked DONE · B3017 p.142  Undo", for the Tasks view and the reader)
@@ -151,8 +153,10 @@ a quiet **Load range into Editor**. Cards show **Open page** and ⋯ (Whole page
 Load sitting into Editor); a day's ⋯ holds Load day into Editor.
 
 The app opens on the **Timeline** with the **Dates** tab on the left (range
-fields and the day list; the heat grid shows only in the Editor's Dates tab), showing the most recent day with ink
-(`loadTimeline()` defaults an unset range to the index's last capture day), rather
+fields and the day list; the feed head's activity strip is the picture of the range), showing today when today has
+ink on disk, else the most recent day with ink (`loadTimeline()` → `defaultTimelineDay()`; re-picked on every refresh
+while `timelineRangeIsDefault`, which any range the user sets clears; the head's **Today** button is
+`showTimelineToday()`, v3.10.0), rather
 than an empty Editor canvas. Live pen ink switches the pane to the Editor
 (`pen-sdk.js` → `showEditorForLiveInk()`, once per stroke) unless the Library has
 unsaved transcript edits; then it stays put, logs a warning, and the strokes are
@@ -230,7 +234,7 @@ All state is managed through Svelte stores located in `src/stores/`:
 
 **Saved-Pages Index:**
 - `saved-pages.js` — holds the scanned list of `pages/B###/P##.json` records the Library, Contents, Pages tab and search read. Store is `savedPages` (renamed from `logseqPages` in v2.3; nothing LogSeq-specific remains). `applyTranscriptToRecord(book, pageId, lines)` reflects a Library transcript save into its record and drops the page's cached doc
-- `library.js` (v3.0 package E) — `librarySort` + `setLibrarySort()` (localStorage `smartpen-library-sort`, try/catch), `libraryPageDates` (`pageDates` of the unfiltered index), `notebookCardList`, `notebookNames`, `globalSearchIndex` (built once per `savedPages` change), `searchRecords`, `searchDates` (`pageDates` of `timelineIndexFiltered`), `ensureTimelineLoaded()`; v3.1.0: `libraryGroupBy` / `setLibraryGroupBy()` (`'book' | 'tag'`, localStorage `smartpen-library-group` via safe-storage), `libraryTagSort` / `setLibraryTagSort()` (`smartpen-library-tag-sort`), `tagCardList` (`tagCards` of `tagIndex` + `searchRecords` + dates), `untaggedSummary`
+- `library.js` (v3.0 package E) — `librarySort` + `setLibrarySort()` (localStorage `smartpen-library-sort`, try/catch), `libraryPageDates` (`pageDates` of the unfiltered index), `notebookCardList`, `notebookNames`, `globalSearchIndex` (built once per `savedPages` change), `searchRecords`, `searchDates` (`pageDates` of `timelineIndexFiltered`), `ensureTimelineLoaded()`; v3.1.0: `libraryGroupBy` / `setLibraryGroupBy()` (`'book' | 'tag'`, localStorage `smartpen-library-group` via safe-storage), `libraryTagSort` / `setLibraryTagSort()` (`smartpen-library-tag-sort`), `tagCardList` (`tagCards` of `tagIndex` + `searchRecords` + dates), `untaggedSummary`; v3.11.0: `libraryTagView` / `setLibraryTagView()` (`'cards' | 'pills'`, `smartpen-library-tag-view`), `collapsedTagGroups` / `toggleTagGroup()` (`smartpen-library-tag-collapsed`, JSON list of `TAG_GROUPS`), `tagPageSort` / `setTagPageSort()` (`'notebook' | 'recent'`, `smartpen-tag-page-sort`)
 - `storage.js` — save status, unsaved-changes flag (`unsavedChanges` writable, `markUnsavedChanges()`, cleared on successful save)
 - `book-aliases.js` — custom book name mappings (persisted to `<dataRoot>/pages/_aliases.json`)
 
@@ -311,7 +315,8 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `viewer.js` gains `libraryView` (`{kind: 'tag', tag} | {kind: 'untagged'} | {kind: 'suggestions'} | {kind: 'tags'} (v3.2.0) | {kind: 'tasks'} (v3.4.0) | null`), `showLibraryGrid(book)` and `openLibraryView(view, {confirm?})` (asks like `openNotebookInLibrary`)
 
 **Tasks (v3.4.0):**
-- `tasks.js` — `taskRows` (derived: scan records' `tasks` + `pageTags` + `libraryPageDates` + `taskOverrides` → `buildTaskRows()`), `taskCountsStore` (`{open, waiting, done, cancelled, all}`), `openTaskCount` (header badge), `taskFilter` / `setTaskFilter()` (session only), `taskGroupBy` / `setTaskGroupBy()` (localStorage `smartpen-tasks-group`), `taskOverrides` (taskKey → state set but not yet in the scan), `changeTask(book, pageId, lineId, state, {from, undoable})` (optimistic; refuses on a page with an unsaved draft; writes per page in order; a failed write rolls back only that task, only if nothing changed it since, with an Activity Log error), `toggleTask()` (DONE ↔ TODO, WAITING → DONE, CANCELLED → TODO), `taskUndo` / `undoTaskChange()` (the last change), `currentTaskState()`, `clearTasks()` (data-folder change)
+- `tasks.js` — `taskRows` (derived: scan records' `tasks` + `pageTags` + `libraryPageDates` + `taskOverrides` → `buildTaskRows()`), `taskCountsStore` (`{open, waiting, done, cancelled, all}`), `openTaskCount` (header badge), `taskStatesShown` / `toggleTaskState()` / `toggleAllTaskStates()` (v3.12.0, the states the chips show in the Tasks view and on a tag page; default TODO + WAITING; session only), `taskGroupBy` / `setTaskGroupBy()` (localStorage `smartpen-tasks-group`), `taskOverrides` (taskKey → state set but not yet in the scan), `changeTask(book, pageId, lineId, state, {from, undoable})` (optimistic; refuses on a page with an unsaved draft; writes per page in order; a failed write rolls back only that task, only if nothing changed it since, with an Activity Log error), `toggleTask()` (DONE ↔ TODO, WAITING → DONE, CANCELLED → TODO), `taskUndo` / `undoTaskChange()` (the last change), `currentTaskState()`, `clearTasks()` (data-folder change)
+- `view-history.js` (v3.13.0) — Back / Forward: `viewHistory` (`{entries, index}`), `canGoBack` / `canGoForward`, `backTarget` / `forwardTarget`, `startViewHistory()` (HistoryButtons mounts it: subscribes to `destination`, `libraryNotebook`, `libraryView`, `viewerSelection` and records in a microtask), `goBack()` / `goForward()` / `stepView(dir, {confirm})` (restores those stores plus `readerSequence` / `readerOrder`; asks `DISCARD_PROMPT` off a page with a draft), `replaceNextView()` (a page turn), `clearViewHistory()` (data-folder change)
 - `viewer.js` gains `viewerDirtyPages` / `isViewerPageDirty(book, pageId)` (the tick guard), `focusReaderLineId(book, pageId, lineId)` (a task's page link: marks that line on any page, lights its ink on trusted pages, and BookViewer moves Strokes to Ink + text), `lastTaskWrite` / `noteTaskWritten()` (the open reader page patches its doc)
 - `saved-pages.js` gains `applyTaskStateToRecord(book, pageId, lineId, state, lastUpdated)`; `applyTranscriptToRecord()` also rebuilds `tasks`
 
@@ -384,6 +389,7 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `search-query.js` - `matchTags(text, tags)` (v3.1.0: a project-number-shaped query matches that tag exactly, normalized; words by substring); `parseSearchQuery(text, {now})` → `{text, tokens, days}` (Oct 14, October 14th, 14 Oct 2025, 2026-10-14, 10/14, 10/14/26 month first, today, yesterday; no year = latest on or before today; invalid dates and a month alone stay words) and `matchNotebooks(text, notebooks)` (every word in the name, or an exact book key)
 - `global-search.js` - the header search (pure): `buildSearchIndex(records)`, `searchIndex()` (same matching as `searchPages`, ranked by words matched, whole words, recency), `runSearch(query, ctx)` → `{tags, pages, notebooks, days, order}` (v3.1.0: Tags always just above Pages), `flattenResults()`, `bestLine()`, `matchingLineId(lines, tokens)` (the reader's highlight), `snippetHtml()`, `recordsByKey()`, `isSearchShortcut(e, {editing})` (Ctrl K rule)
 - `tasks.js` - **Tasks** (v3.4.0, pure): `WAITING`, `CANCELLED` (v3.5.0), `markerOf(line)` / `markerField(line)` (spread into every line copy: `{marker:'WAITING'}` only beside `checked: false`, `{marker:'CANCELLED'}` only beside `checked: true`), `taskStateOf()`, `withTaskState(line, state)`, `stateLabel()`, `isClosedState()` (DONE or CANCELLED), `toggledState()`, `taskMenuChoices()` (the ⋯ menu), `buildTaskSummary(lines)` (the scan summary, mirrored by `electron/task-summary.cjs`; parent = `parentId` line, else nearest shallower line; text clipped), `normalizeTaskSummary()`, `summaryWithState()`, `taskKey()`, `buildTaskRows(records, {tags, dates, overrides})`, `taskCounts()`, `filterTaskRows()`, `groupTaskRows(rows, 'project'|'date'|'book')` (newest first; "No project tag" / "No date" last), `compareTaskRows()`
+- `view-history.js` - **Back / Forward** (v3.13.0, pure): `viewKey(entry)` (Editor, Timeline, Library home, notebook, libraryView or page), `recordView(h, entry, {replace, max})` (same view refreshes; new drops forward; `HISTORY_MAX` 50), `refreshCurrent()`, `canStep()` / `stepTarget()` / `stepped()`, `viewLabel()` (tooltips), `historyGesture(e)` (Alt+← / Alt+→, mouse buttons 3 / 4)
 - `print/print-layout.js` - **Print to PDF** (v3.8.0, pure): `PAPER_SIZES`, `LAYOUTS` (auto, 1 portrait, 1 landscape, 2-up), `paperOf()` (a page's frame in inches, turned), `sheetFor()` / `resolveSheet()` (sheet, columns, ink box), `inkScale()` (fit / actual), `autoLayout()`, `normalizePrintOptions()` (`lineWidthMm`, clamped by `clampLineWidthMm()` to `LINE_WIDTH_MM`; an older `lineWeight` read once).
 - `print/print-list.js` - the print order (pure): `addRefs()`, `removeRefs()`, `moveRef()`, `sortByBook()`, `refKey()`. The session `printList` lives in `stores/print.js` (`addToPrintList`, `openPrintList`); UI `dialog/PrintPageList.svelte` (drag / ↑ ↓ / ✕), `dialog/PrintPagePicker.svelte` (notebook accordion) and `header/PrintListButton.svelte`. Output: `printPagesToPdf()` (`print:savePdf`) or `printPagesToPrinter()` (`print:toPrinter`, Windows print dialog).
 - `print/print-selection.js` - the Editor's **Print selection…** (pure): `groupSelectionByPage()` (selected canvas strokes by page, notebook then page order, a suffixed page under its integer page, converted with `strokeToStored()`; strokes with no page counted as `skipped`), `selectionPrintPage()` (the page's full paper frame or the ink box, rotation, label dates, `lines: null`). Run by `stores/print.js` (`selectionPrint`, `openSelectionPrint()` from StrokeCanvas's Export ▾ menu, `printSelectionToPdf()` / `printSelectionToPrinter()`, strokes only); `PrintDialog.svelte` reads `selectionPrint` instead of `printDialog` and shows `PrintSelectionPages.svelte` (read-only per-page stroke counts). The options form shared by both modes is `dialog/PrintOptions.svelte`.

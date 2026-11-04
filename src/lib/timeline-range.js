@@ -39,6 +39,20 @@ export function rangePreset(kind, range, extent) {
   return null;
 }
 
+/**
+ * The day the Timeline opens on (v3.10.0): today when today has ink on disk,
+ * else the last day with ink. Never an empty day the user didn't ask for: the
+ * Today button is how to look at today before anything is saved.
+ *
+ * @param {Array<{day: string}>} days  `dayTotals()`, ascending
+ * @param {string} today  local day key, `dayKey(Date.now())`
+ * @returns {string|null}  null on an empty index
+ */
+export function defaultTimelineDay(days, today) {
+  if (!Array.isArray(days) || days.length === 0) return null;
+  return days.some((d) => d && d.day === today) ? today : days[days.length - 1].day;
+}
+
 /** Calendar days from `first` to `day` (negative before it), or null. */
 export function dayOffset(day, first) {
   const a = dayStart(first);

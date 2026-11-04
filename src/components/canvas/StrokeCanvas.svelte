@@ -37,7 +37,7 @@
   import { dataFolderReady, graphFolderReady } from '$stores/settings.js';
   import { buildJsonExportData, buildMdExportData } from '$lib/stroke-storage.js';
   import { exportSelectionToGraph } from '$lib/storage/graph-export.js';
-  import { pagesToLogseqMarkdown, textToTranscriptLines } from '$lib/viewer/transcript-markdown.js';
+  import { pagesToLogseqMarkdown, textToTranscriptLines, reviewLinesForCopy } from '$lib/viewer/transcript-markdown.js';
   import { getCachedPage } from '$lib/viewer/page-cache.js';
   import {
     pointEditMode,
@@ -1941,7 +1941,8 @@
    * Falls back to parsing the rendered text if neither is available.
    */
   async function resolveTranscriptLines(entry) {
-    if (Array.isArray(entry.lines) && entry.lines.length > 0) return entry.lines;
+    // An unsaved run's task boxes are still in its text: read them as the save will.
+    if (Array.isArray(entry.lines) && entry.lines.length > 0) return reviewLinesForCopy(entry.lines);
 
     try {
       const doc = await getCachedPage(entry.pageInfo.book, entry.pageId);

@@ -22,7 +22,7 @@ import { timelineIndex } from '$stores/timeline.js';
 import { logMessages } from '$stores/ui.js';
 import {
   taskRows, taskCountsStore, openTaskCount, taskOverrides, taskUndo, changeTask, toggleTask,
-  undoTaskChange, clearTasks, setTaskGroupBy, taskGroupBy, setTaskFilter, taskFilter
+  undoTaskChange, clearTasks, setTaskGroupBy, taskGroupBy, toggleTaskState, toggleAllTaskStates, taskStatesShown
 } from '$stores/tasks.js';
 
 const lastLog = () => get(logMessages)[0] || {};
@@ -85,10 +85,17 @@ describe('derived rows', () => {
   });
 
   it('filter and grouping choices', () => {
-    setTaskFilter('done');
-    expect(get(taskFilter)).toBe('done');
-    setTaskFilter('nonsense');
-    expect(get(taskFilter)).toBe('open');
+    expect(get(taskStatesShown)).toEqual(['todo', 'waiting']);
+    toggleTaskState('done');
+    expect(get(taskStatesShown)).toEqual(['todo', 'waiting', 'done']);
+    toggleTaskState('todo');
+    expect(get(taskStatesShown)).toEqual(['waiting', 'done']);
+    toggleTaskState('nonsense');
+    expect(get(taskStatesShown)).toEqual(['waiting', 'done']);
+    toggleAllTaskStates();
+    expect(get(taskStatesShown)).toEqual(['todo', 'waiting', 'done', 'cancelled']);
+    toggleAllTaskStates();
+    expect(get(taskStatesShown)).toEqual(['todo', 'waiting']);
     setTaskGroupBy('book');
     expect(get(taskGroupBy)).toBe('book');
     setTaskGroupBy('nonsense');

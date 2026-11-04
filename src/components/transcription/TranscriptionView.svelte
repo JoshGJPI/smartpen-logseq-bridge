@@ -21,10 +21,20 @@
   // v2.0: folder-backed transcript edits
   import { getPage } from '$lib/storage/local-store.js';
   import { markerField } from '$lib/tasks.js';
-  import { formatBookName, filterTranscriptionProperties } from '$utils/formatting.js';
+  import { formatBookName } from '$utils/formatting.js';
 
   import TranscriptionEditorModal from '$components/dialog/TranscriptionEditorModal.svelte';
   import PageTagsInline from '$components/tags/PageTagsInline.svelte';
+  import ReviewTranscriptLines, { copyMarkdown } from './ReviewTranscriptLines.svelte';
+  import { linesToLogseqMarkdown, reviewLinesForCopy } from '$lib/viewer/transcript-markdown.js';
+
+  const pageLabel = (pi) => `B${pi.book}/P${pi.page}`;
+
+  // The whole run as LogSeq markdown, task boxes read as the save reads them.
+  function copyPage(pageData) {
+    copyMarkdown(linesToLogseqMarkdown(reviewLinesForCopy(pageData.lines)),
+      `transcript ${pageLabel(pageData.pageInfo)}`);
+  }
 
   let isSending = false;
   // Track which pages are expanded - using object for better reactivity
@@ -34,9 +44,10 @@
   let showEditorModal = false;
   let editingPageData = null;
   
-  // Toggle page expansion
+  // Toggle page expansion. Cards start open (v3.10.0) so the lines and their
+  // copy buttons are there right after a run.
   function togglePageExpansion(pageKey) {
-    expandedPages[pageKey] = !expandedPages[pageKey];
+    expandedPages[pageKey] = !(expandedPages[pageKey] ?? true);
     expandedPages = { ...expandedPages }; // Trigger reactivity
   }
   
@@ -226,7 +237,7 @@
     <div class="page-list">
       {#each $pageTranscriptionsArray as pageData (pageData.pageKey)}
         {@const stats = getPageStats(pageData)}
-        {@const isExpanded = expandedPages[pageData.pageKey] || false}
+        {@const isExpanded = expandedPages[pageData.pageKey] ?? true}
         {@const isSelected = $selectedPagesForImport.has(pageData.pageKey)}
         
         <div class="page-card" class:selected={isSelected}>
@@ -246,7 +257,15 @@
             
             <div class="page-header-actions">
               <span class="stroke-count">{pageData.strokeCount} strokes</span>
-              <button 
+              <button
+                class="btn-icon"
+                on:click={() => copyPage(pageData)}
+                title="Copy this transcription as LogSeq markdown"
+                aria-label="Copy this transcription"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+              <button
                 class="btn-icon expand-btn"
                 on:click={() => togglePageExpansion(pageData.pageKey)}
                 title={isExpanded ? 'Collapse' : 'Expand'}
@@ -339,7 +358,8 @@
               <!-- Transcribed Text -->
               <div class="detail-section">
                 <h4>Transcribed Text</h4>
-                <pre class="text-output">{filterTranscriptionProperties(pageData.text) || 'No text'}</pre>
+                <!-- Hover a top- or second-level line to copy it with its children. -->
+                <ReviewTranscriptLines lines={pageData.lines || []} label={pageLabel(pageData.pageInfo)} />
               </div>
               
               <!-- Commands (if any) -->
@@ -670,20 +690,6 @@
     letter-spacing: 0.5px;
   }
 
-  .text-output {
-    background: var(--bg-secondary);
-    padding: 10px;
-    border-radius: 4px;
-    font-family: 'Courier New', monospace;
-    font-size: 0.85rem;
-    white-space: pre-wrap;
-    word-break: break-word;
-    margin: 0;
-    max-height: 200px;
-    overflow-y: auto;
-    line-height: 1.5;
-  }
-
   .command-list {
     display: flex;
     flex-direction: column;
@@ -710,26 +716,22 @@
   }
 
   /* Scrollbar styling */
-  .transcription-view::-webkit-scrollbar,
-  .text-output::-webkit-scrollbar {
+  .transcription-view::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
 
-  .transcription-view::-webkit-scrollbar-track,
-  .text-output::-webkit-scrollbar-track {
+  .transcription-view::-webkit-scrollbar-track {
     background: var(--bg-tertiary);
     border-radius: 4px;
   }
 
-  .transcription-view::-webkit-scrollbar-thumb,
-  .text-output::-webkit-scrollbar-thumb {
+  .transcription-view::-webkit-scrollbar-thumb {
     background: var(--border);
     border-radius: 4px;
   }
 
-  .transcription-view::-webkit-scrollbar-thumb:hover,
-  .text-output::-webkit-scrollbar-thumb:hover {
+  .transcription-view::-webkit-scrollbar-thumb:hover {
     background: var(--accent);
   }
   .page-tags {

@@ -1,7 +1,7 @@
 <!--
   TimelineHead.svelte — the Timeline feed's header (reading-first package C).
 
-  One row: ‹ Range ▾ › · summary · book filter · Load range. Under it, the
+  One row: ‹ Range ▾ › · Today · summary · book filter · Load range. Under it, the
   activity strip with the range as a draggable window. The summary (days,
   pages, strokes) is said here once; the Dates panel beside the feed no
   longer repeats it. "Load range into Editor" is a quiet secondary button: the
@@ -11,8 +11,8 @@
   import RangeMenu from './RangeMenu.svelte';
   import ActivityStrip from './ActivityStrip.svelte';
   import BookFilterMenu from '../dates/BookFilterMenu.svelte';
-  import { timelineRange, timelineSummary } from '$stores';
-  import { dayStart } from '$lib/timeline.js';
+  import { timelineRange, timelineSummary, showTimelineToday } from '$stores';
+  import { dayStart, dayKey } from '$lib/timeline.js';
   import { plural } from '$lib/plural.js';
 
   export let busy = false;
@@ -23,6 +23,9 @@
   $: range = $timelineRange;
   $: summary = $timelineSummary;
   $: label = spanLabel(range.from, range.to);
+  // Read at each range change: good enough across midnight, since the next
+  // refresh re-picks a default range anyway.
+  $: isToday = range.from && range.from === range.to && range.from === dayKey(Date.now());
   $: summaryLine = range.from
     ? `${summary.days} ${plural(summary.days, 'day')} with ink · ${summary.pages} ${plural(summary.pages, 'page')} · `
       + `${(summary.strokes || 0).toLocaleString()} ${plural(summary.strokes, 'stroke')}`
@@ -50,6 +53,8 @@
       <button type="button" class="th-nav" on:click={() => onShift(1)} aria-label="Later range" title="Later range">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6" /></svg>
       </button>
+      <button type="button" class="th-btn" class:th-on={isToday} on:click={() => showTimelineToday()}
+        title="Show today. The Timeline opens on today when today has saved ink">Today</button>
       <span class="th-sub">{summaryLine}</span>
     </div>
     <div class="th-actions">
@@ -118,4 +123,6 @@
   .th-nav:hover,
   .th-btn:hover:not(:disabled) { background: #f2f2f4; border-color: #c8c8d0; }
   .th-btn:disabled { opacity: 0.55; cursor: default; }
+  /* Today while today is the range: neutral raised, like a selected tab. */
+  .th-btn.th-on { background: #ececf1; border-color: #c8c8d0; color: #1f1f27; }
 </style>

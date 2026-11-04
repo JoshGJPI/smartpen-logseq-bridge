@@ -17,7 +17,8 @@
 
   Contextual (package C): the tabs follow the destination on the right
   (lib/left-panel.js CONTEXT_TABS): Library → Contents, Timeline → Dates,
-  Editor → Strokes, Pages, Dates; Transcripts (search, review) everywhere.
+  Editor → Strokes, Pages (Dates left the Editor in v3.10.0: the Timeline loads
+  by date); Transcripts (search, review) everywhere.
   `panelTab` resolves an `activeTab` that is not in the current set to the
   set's first tab. Notebook names and volume routing (the old Books tab) are
   in Settings → Notebooks.

@@ -463,6 +463,58 @@ export function parseGroupBy(raw) {
   return raw === 'tag' ? 'tag' : 'book';
 }
 
+/* ----- Tag home display (v3.11.0): cards or pills, collapsible groups ----- */
+
+/** Tag home display: 'cards' (thumbnail fans, the default) or 'pills' (name and counts only). */
+export const TAG_VIEW_KEY = 'smartpen-library-tag-view';
+
+/** A stored tag display, or 'cards'. */
+export function parseTagView(raw) {
+  return raw === 'pills' ? 'pills' : 'cards';
+}
+
+/** The tag home's collapsible groups. */
+export const TAG_GROUPS = ['projects', 'keywords'];
+export const TAG_COLLAPSED_KEY = 'smartpen-library-tag-collapsed';
+
+/** A stored list of collapsed groups: known group ids only, no repeats. */
+export function parseCollapsedGroups(raw) {
+  if (!Array.isArray(raw)) return [];
+  return TAG_GROUPS.filter((g) => raw.includes(g));
+}
+
+/* ----- A tag's pages: sort (v3.11.0) ----- */
+
+/** Sorts for the pages under one tag (or Untagged), in display order. */
+export const TAG_PAGE_SORT_ORDERS = [
+  { id: 'notebook', label: 'Notebook', title: 'By notebook, then page number' },
+  { id: 'recent', label: 'Last edited', title: 'Most recently written first (a page written on several days counts its latest stroke)' }
+];
+export const TAG_PAGE_SORT_KEY = 'smartpen-tag-page-sort';
+
+/** A stored tag-page sort, or 'notebook'. */
+export function parseTagPageSort(raw) {
+  return TAG_PAGE_SORT_ORDERS.some((o) => o.id === raw) ? raw : 'notebook';
+}
+
+/**
+ * `pageTiles()` entries under a tag, in the chosen order. 'notebook': notebook
+ * (book key), then page, as compareRecords. 'recent': the page's latest stroke
+ * (`lastMs`), newest first; ties and pages with no timed ink (last) fall back
+ * to notebook order. A new array.
+ */
+export function sortTagPageTiles(tiles, order) {
+  const byRecord = (a, b) => compareRecords(a.record, b.record);
+  const list = [...(tiles || [])];
+  if (order !== 'recent') return list.sort(byRecord);
+  return list.sort((a, b) => {
+    const am = Number.isFinite(a.lastMs) ? a.lastMs : null;
+    const bm = Number.isFinite(b.lastMs) ? b.lastMs : null;
+    if (am == null || bm == null) return am != null ? -1 : bm != null ? 1 : byRecord(a, b);
+    return bm - am || byRecord(a, b);
+  });
+}
+
 const byTag = (a, b) => compareTags(a.tag, b.tag);
 
 /** Cards in the chosen order; ties by name. A new array. */

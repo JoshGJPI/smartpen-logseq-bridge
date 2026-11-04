@@ -54,6 +54,8 @@ export {
   canvasPageOrder,
   loadTimeline,
   setTimelineRange,
+  showTimelineToday,
+  timelineRangeIsDefault,
   setCanvasPageOrder,
   // Book filter (shared by the Dates tab and the Timeline feed)
   timelineExcludedBooks,
@@ -361,6 +363,14 @@ export {
   setLibraryGroupBy,
   libraryTagSort,
   setLibraryTagSort,
+  libraryTagView,
+  setLibraryTagView,
+  collapsedTagGroups,
+  toggleTagGroup,
+  tagPageSort,
+  setTagPageSort,
+  notebookPageSort,
+  setNotebookPageSort,
   tagCardList,
   untaggedSummary,
   // Reading order (v3.2.0)

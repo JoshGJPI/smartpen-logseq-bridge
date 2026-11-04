@@ -2,13 +2,14 @@
   LibraryHomeHead.svelte — the Library home's header row: title and summary,
   Group by Notebook | Tag (v3.1.0), the sort chips for that grouping, the
   Suggestions (n) entry when there are unreviewed project numbers, Manage
-  tags (v3.2.0, the tag manager as a Library view) and Rescan. Choices persist
-  per viewer (stores/library.js).
+  tags (v3.2.0, the tag manager as a Library view) and Rescan. In Tag grouping,
+  Cards | Pills (v3.11.0) picks the tag display. Choices persist per viewer
+  (stores/library.js).
 -->
 <script>
   import {
     savedPages, isScanning, librarySort, setLibrarySort, libraryGroupBy, setLibraryGroupBy,
-    libraryTagSort, setLibraryTagSort, tagCardList, untaggedSummary
+    libraryTagSort, setLibraryTagSort, tagCardList, untaggedSummary, libraryTagView, setLibraryTagView
   } from '$stores';
   import { dataFolderReady } from '$stores/settings.js';
   import { suggestionCount, ensureSuggestionScan } from '$stores/tag-suggestions.js';
@@ -60,6 +61,14 @@
         <button type="button" class="chip" class:on={current === o.id} aria-pressed={current === o.id} on:click={() => sortBy(o.id)}>{o.label}</button>
       {/each}
     </div>
+    {#if byTag}
+      <span class="seg" role="group" aria-label="Show tags as">
+        <button type="button" class:on={$libraryTagView === 'cards'} aria-pressed={$libraryTagView === 'cards'}
+          title="Tags as cards with page thumbnails" on:click={() => setLibraryTagView('cards')}>Cards</button>
+        <button type="button" class:on={$libraryTagView === 'pills'} aria-pressed={$libraryTagView === 'pills'}
+          title="Tags as compact pills: name, pages and notebooks" on:click={() => setLibraryTagView('pills')}>Pills</button>
+      </span>
+    {/if}
   {/if}
   <span class="grow"></span>
   {#if $suggestionCount > 0}

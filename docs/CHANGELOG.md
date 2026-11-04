@@ -6,6 +6,99 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.13.0 — Back / Forward between views (November 2026)
+
+Josh asked for global back and forward buttons, e.g. to check a page's strokes from a project's tag page and come back
+to the project.
+
+- **‹ › in the header**, right of the search field (straight up from the work area) (`HistoryButtons.svelte`), plus Alt+← / Alt+→ and a mouse's
+  side buttons. Tooltips name where each goes ("Back to Tag: 2237-011").
+- **The history watches the navigation stores** (`stores/view-history.js`: `destination`, `libraryNotebook`,
+  `libraryView`, `viewerSelection`) instead of hooking every route, so tabs, tiles, crumbs, search, task links and
+  Escape are all recorded without each caller knowing. Changes made in one handler settle into one entry (recorded in
+  a microtask). An entry also carries `readerSequence` / `readerOrder`, so Back to a page opened from a tag keeps Tag
+  order. Rules (`lib/view-history.js`): the same view refreshes the current entry, a new one drops forward, 50 kept.
+- **A page turn replaces the current entry** (`replaceNextView()` in BookViewer's `turn()`), so Back from a page goes to
+  where the reading started, not through every page turned. Go to page… and pages opened from grids, search or links
+  are new entries.
+- **Unsaved transcript drafts:** Back / Forward off a page with a draft asks `DISCARD_PROMPT`; No leaves the history
+  where it was. Session-only; a data-folder change clears it (`resetForDataFolder`).
+- Not restored: scroll positions, the Timeline's day, the Editor's canvas contents (the Editor is one view).
+
+## v3.12.0 — Task chips toggle; a tag's page lists its tasks (November 2026)
+
+Josh asked for the Tasks view's state pills to show or hide a state instead of picking one, so open and waiting items
+sit together under each project; for a project heading to open that tag's page; and for a tag's page to list its tasks.
+
+- **The chips are toggles** (`TaskStateChips.svelte`, `taskStatesShown`, lib `TASK_STATE_CHIPS`, `toggleShownState()`,
+  `rowsInStates()`). Each of Open / Waiting / Done / Cancelled turns its state on or off; the default is Open + Waiting
+  (`DEFAULT_SHOWN_STATES`). All turns every state on, and when all are on it goes back to the default. Every chip off
+  is allowed and says so. One choice, session-only, shared by the Tasks view and the tag page. The single-state
+  `filterTaskRows()` / `TASK_FILTERS` stay for the MCP server's `list_tasks`.
+- **The Tasks view's head is sticky**: the chips, search and Group by stay at the top while the list scrolls.
+- **A project heading in the Tasks view opens the tag's page** (`openLibraryView({ kind: 'tag', tag })`).
+- **A tag's page lists its tasks right of the grid** (`TagTasksPanel.svelte`; below it when the pane is narrow; absent
+  when the tag has no tasks). Which tasks: `taskRowsForTag()`. A project tag takes the rows whose `project` is that tag,
+  exactly its Tasks view group, so a page tagged with two projects splits its tasks between them as the Tasks view
+  does. A keyword tag takes every task on its pages. Same `TaskRow` (tick, ⋯, page link to the line), from the scan.
+
+## v3.11.0 — Tag home: collapsible groups, Cards | Pills; a tag's pages sort by Last edited (November 2026)
+
+Josh asked to fold the tag type headers so the tags under them are easier to reach, for a compact display with no
+thumbnails, and to sort a tag's pages by notebook › page or by when they were written.
+
+- **Projects and Keywords fold.** Each heading is a button with a caret and its tag count; what is folded is kept per
+  viewer (`collapsedTagGroups`, `smartpen-library-tag-collapsed`). The Untagged card has no heading and never folds.
+- **Cards | Pills** beside the tag sort chips. Pills (`TagPill.svelte`) show the tag, its pages and notebooks, and load
+  no thumbnail, so 50+ project tags fit on one screen. Cards stay the default; the choice is remembered
+  (`libraryTagView`, `smartpen-library-tag-view`). Same card data either way (`tagCards()` / `untaggedCard()`).
+- **A tag's pages: Notebook | Last edited** (`TAG_PAGE_SORT_ORDERS`, `sortTagPageTiles()`, `tagPageSort`, one choice for
+  every tag and Untagged). Notebook is the old order (book key, then page and suffix: `compareRecords`). Last edited
+  uses the page's latest stroke (`pageDates().lastMs`, now carried on `pageTiles()` entries as `lastMs`), so a page
+  written on several days sorts by its last; ties and pages with no timed ink fall back to notebook order, untimed
+  last. Like the notebook grid's sort it orders the grid only: the reader still turns through in notebook order
+  (`buildSequence` sorts by `compareRecords`).
+- **Page tiles show the days written as a range** ("Sep 24–Oct 30", `tileDateRange()`) in place of the first day and
+  "+n", in every page grid. A year other than this one is named once when both days share it, on each side when
+  they don't. The day count moved to the tooltip. In a grid across notebooks the notebook name is now its own line
+  above "P12", since the longer badge squeezed it out entirely on narrow tiles.
+
+## v3.10.0 — Editor: copy from Review, Dates leaves the Editor; Timeline Today; notebook page sort (November 2026)
+
+Josh asked whether the Editor still needs a Dates tab, why a load lands there, and for the reader's hover copy in
+the Editor's Transcripts, to shorten import → transcribe → copy to LogSeq.
+
+- **Dates is the Timeline's tab only.** The Editor's Dates tab (heat grid, tally, Load onto canvas, Order canvas by
+  date) repeated the Timeline feed head, which already loads a session, day or range (book filter, large-load
+  warning) and opens the Editor. Its Editor half is gone (and `ActivityGrid` with it); the Editor's tabs are Strokes,
+  Transcripts, Pages. Kept beside the Timeline: range fields, presets, the day list that jumps the feed.
+- **The canvas order moved to the bar below the canvas** (`CanvasControls`, Order: Book | Date). A Timeline load
+  still sets Date itself.
+- **A load lands on Strokes.** The panel kept whatever tab was active, so a Timeline load opened the Editor on Dates
+  (and a reader load could open on Transcripts). The Timeline's loads and `loadPageIntoEditor()` now
+  `setActiveTab('strokes')` (not `revealLeftPanel`: a collapsed panel stays so). A Pages-tab Import stays on Pages,
+  where you are picking pages; a transcription run still switches to Transcripts.
+- **Copy from Review.** Each Review card starts open and shows the run's lines through `TranscriptLines`
+  (`ReviewTranscriptLines.svelte`), with the reader's hover copy on top- and second-level lines (that line and its
+  children, `subtreeLines`) and a copy button for the whole run in the card header. Read only: no task box or ⋯
+  menu, since those write the PageDoc and these lines are not saved yet.
+- **Task boxes are read before copying.** An unsaved run still has `☐` / `[ ]` / `TODO` (`☑` / `[x]` / `DONE`) in its
+  text; the save is what runs `parseTaskMarker()`. `reviewLinesForCopy()` (`lib/viewer/transcript-markdown.js`) applies
+  it to copies, so the paste is `- TODO …` rather than `- ☐ …`; a line that already has a state (an Edit Structure
+  result) is kept as it is. The canvas text view's Copy used the raw lines too and now goes through the same helper.
+- **The Timeline opens on today** when today has ink on disk, else on the last day with ink as before
+  (`defaultTimelineDay()`). The default used to be picked once per session, so a page saved this morning, or the app
+  left open overnight, still showed the old day; now each index refresh re-picks it while the range is the app's
+  (`timelineRangeIsDefault`). A range the user sets is never moved. Never an empty today on its own: that is what the
+  new **Today** button in the feed head is for (`showTimelineToday()`, shows today with or without ink). Ink still on
+  the canvas and not saved is not in the index, so it doesn't count.
+- **A notebook's pages sort Recent by default** (last written day, newest first; the same day puts the higher page
+  first; untimed pages last), with **Page ↑** / **Page ↓** beside the notebook name (`sortPageTiles()`,
+  `notebookPageSort`, kept per viewer in localStorage like the home's sort). The grid only: the reader still turns
+  through the notebook in page order (`buildSequence` sorts its own keys). Tag grids are unchanged.
+- Limitation: Review copies the run, not the saved page (after a partial re-transcribe, only the new lines; Edit
+  Structure makes it the whole transcript). The reader still copies the saved page.
+
 ## v3.9.0 — Print to PDF / printer, print preview, Snap, a new Deselect Decorative (October–November 2026)
 
 Everything since v3.7.1. The print feature was called 3.8.0 in the docs but never had its own bump or

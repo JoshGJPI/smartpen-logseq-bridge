@@ -1,9 +1,12 @@
 <!--
-  CanvasControls.svelte - Zoom and view controls for canvas
+  CanvasControls.svelte - Zoom and view controls for canvas, and the page order
+  (by notebook or by capture date). The order was the Dates tab's "Order canvas
+  by date" until v3.10.0; a load from the Timeline still sets date order itself.
 -->
 <script>
   import { createEventDispatcher } from 'svelte';
-  
+  import { canvasPageOrder, setCanvasPageOrder } from '$stores/timeline.js';
+
   export let zoom = 1;
   
   const dispatch = createEventDispatcher();
@@ -44,6 +47,14 @@
   <button class="view-btn" on:click={() => dispatch('reset')} title="Reset zoom to 100% and recentre">
     Reset View
   </button>
+
+  <div class="order" role="group" aria-label="Page order">
+    <span class="order-label">Order</span>
+    <button class="order-btn" class:active={$canvasPageOrder !== 'date'} aria-pressed={$canvasPageOrder !== 'date'}
+      on:click={() => setCanvasPageOrder('book')} title="Lay pages out by notebook and page number">Book</button>
+    <button class="order-btn" class:active={$canvasPageOrder === 'date'} aria-pressed={$canvasPageOrder === 'date'}
+      on:click={() => setCanvasPageOrder('date')} title="Lay pages out by when they were written">Date</button>
+  </div>
 </div>
 
 <style>
@@ -106,5 +117,40 @@
   .view-btn:hover {
     background: var(--bg-tertiary);
     border-color: var(--accent);
+  }
+
+  .order {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    background: var(--bg-tertiary);
+    padding: 3px 4px;
+    border-radius: 6px;
+  }
+
+  .order-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    padding: 0 4px;
+  }
+
+  .order-btn {
+    padding: 3px 8px;
+    font-size: 0.75rem;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .order-btn:hover:not(.active) {
+    color: var(--text-primary);
+  }
+
+  /* Selected = neutral raised, as the panel tabs. */
+  .order-btn.active {
+    background: var(--selected-bg);
+    color: var(--text-primary);
   }
 </style>

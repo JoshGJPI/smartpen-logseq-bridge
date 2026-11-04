@@ -181,6 +181,24 @@ export function writtenRange(first, last) {
 }
 
 /**
+ * A page tile's date badge (v3.11.0): "Oct 28" for one day, "Sep 24–Oct 30"
+ * for a page written over several. A year other than this one is named once
+ * at the end when both days share it ("Feb 5–Jun 25, 2025"), and on each side
+ * when they don't ("Dec 28, 2025–Jan 3"). '' with no timed ink.
+ */
+export function tileDateRange(first, last, now = new Date()) {
+  if (!first) return '';
+  if (!last || last === first) return shortDay(first, now);
+  const a = dayStart(first);
+  const b = dayStart(last);
+  if (!a || !b) return shortDay(first, now);
+  if (a.getFullYear() !== b.getFullYear()) return `${shortDay(first, now)}–${shortDay(last, now)}`;
+  const md = (d) => `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+  const year = a.getFullYear() === now.getFullYear() ? '' : `, ${a.getFullYear()}`;
+  return `${md(a)}–${md(b)}${year}`;
+}
+
+/**
  * "today", "yesterday", "3 days ago", or the short date for anything older
  * than a week. '' for a bad key.
  */
@@ -193,6 +211,56 @@ export function relativeDay(day, now = new Date()) {
   if (n === 1) return 'yesterday';
   if (n > 1 && n < 7) return `${n} days ago`;
   return shortDay(day, now);
+}
+
+/** A notebook's page-grid sorts (v3.10.0), in display order. */
+export const PAGE_SORT_ORDERS = [
+  { id: 'recent', label: 'Recent', title: 'Most recently written first' },
+  { id: 'page-asc', label: 'Page ↑', title: 'By page number, first page first' },
+  { id: 'page-desc', label: 'Page ↓', title: 'By page number, last page first' }
+];
+
+/** localStorage key for the page-grid sort (a per-viewer convenience). */
+export const PAGE_SORT_KEY = 'smartpen-notebook-page-sort';
+
+/** A stored page sort id, or 'recent' for anything missing or unknown. */
+export function parsePageSort(raw) {
+  return PAGE_SORT_ORDERS.some((o) => o.id === raw) ? raw : 'recent';
+}
+
+/**
+ * NCode page, then the suffix (P151 < P151b < P152), as the scan orders them.
+ * Reads `record.page` (the integer) with the page id as the fallback and the
+ * tie-break, so a suffix never sorts by string ("P1000" after "P151").
+ */
+function comparePages(a, b) {
+  const na = Number.isFinite(Number(a.record?.page)) ? Number(a.record.page) : parseInt(a.pageId, 10);
+  const nb = Number.isFinite(Number(b.record?.page)) ? Number(b.record.page) : parseInt(b.pageId, 10);
+  if (na !== nb) return (Number.isNaN(na) ? Infinity : na) - (Number.isNaN(nb) ? Infinity : nb);
+  return String(a.pageId).localeCompare(String(b.pageId), undefined, { numeric: true });
+}
+
+/**
+ * `pageTiles()` in the grid's order. 'recent': last written day, newest first;
+ * a tie (the same day) puts the higher page first, since a notebook is written
+ * forward; pages with no timed ink go last, by page. Page orders ignore dates.
+ * @param {Array} tiles
+ * @param {'recent'|'page-asc'|'page-desc'} order
+ * @returns {Array} a new array
+ */
+export function sortPageTiles(tiles, order) {
+  const list = [...(tiles || [])];
+  if (order === 'page-asc') return list.sort(comparePages);
+  if (order === 'page-desc') return list.sort((a, b) => comparePages(b, a));
+  return list.sort((a, b) => {
+    if (!a.last || !b.last) {
+      if (a.last) return -1;
+      if (b.last) return 1;
+      return comparePages(a, b);
+    }
+    if (a.last !== b.last) return a.last < b.last ? 1 : -1;
+    return comparePages(b, a);
+  });
 }
 
 /**
@@ -210,6 +278,7 @@ export function pageTiles(records, book, dates) {
       transcribed: !!r.transcribed,
       first: d ? d.first : null,
       last: d ? d.last : null,
+      lastMs: d ? d.lastMs : null,
       days: d ? d.days : 0
     };
   });
