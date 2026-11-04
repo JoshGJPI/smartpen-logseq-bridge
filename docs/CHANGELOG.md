@@ -16,6 +16,7 @@ sit together under each project; for a project heading to open that tag's page; 
   (`DEFAULT_SHOWN_STATES`). All turns every state on, and when all are on it goes back to the default. Every chip off
   is allowed and says so. One choice, session-only, shared by the Tasks view and the tag page. The single-state
   `filterTaskRows()` / `TASK_FILTERS` stay for the MCP server's `list_tasks`.
+- **The Tasks view's head is sticky**: the chips, search and Group by stay at the top while the list scrolls.
 - **A project heading in the Tasks view opens the tag's page** (`openLibraryView({ kind: 'tag', tag })`).
 - **A tag's page lists its tasks right of the grid** (`TagTasksPanel.svelte`; below it when the pane is narrow; absent
   when the tag has no tasks). Which tasks: `taskRowsForTag()`. A project tag takes the rows whose `project` is that tag,
