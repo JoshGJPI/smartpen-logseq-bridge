@@ -29,6 +29,7 @@ import { clearTags } from '$stores/tags.js';
 import { clearRetimed } from '$stores/retimed.js';
 import { clearTasks } from '$stores/tasks.js';
 import { clearSuggestions } from '$stores/tag-suggestions.js';
+import { clearViewHistory } from '$stores/view-history.js';
 import { refreshBackgrounds } from '$stores/backgrounds.js';
 import { dataFolderReady } from '$stores/settings.js';
 import { scanLocalPages } from './scan.js';
@@ -76,6 +77,7 @@ export async function resetForDataFolder() {
   clearViewerSelection();
   setReaderSequence(null);
   gridFilters.set({});
+  clearViewHistory();
   if (!get(dataFolderReady)) return;
   await loadVolumes();
   await rescan();

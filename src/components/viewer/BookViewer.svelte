@@ -42,6 +42,7 @@
     readingSequence,
   } from '$stores';
   import { DISCARD_PROMPT } from '$lib/navigation.js';
+  import { replaceNextView } from '$stores/view-history.js';
   import { pageIdOf as idOf, resolveGoToPage, turnTarget, pageTurnKey, zoomText } from '$lib/viewer/page-reader.js';
   import { landingInSequence } from '$lib/viewer/reading-order.js';
   import { modalOpen } from '$lib/left-panel.js';
@@ -176,7 +177,10 @@
 
   function turn(dir) {
     const t = turnTarget(currentIndex, currentPages.length, dir, twoPageMode);
-    if (t >= 0) openRecord(currentPages[t]);
+    if (t < 0) return;
+    // A page turn replaces the current Back entry (v3.13.0): Back leaves the reading.
+    replaceNextView();
+    openRecord(currentPages[t]);
   }
 
   // ←/→ turn pages. pageTurnKey keeps them out of text fields, modifier chords

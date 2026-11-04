@@ -6,6 +6,25 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.13.0 — Back / Forward between views (November 2026)
+
+Josh asked for global back and forward buttons, e.g. to check a page's strokes from a project's tag page and come back
+to the project.
+
+- **‹ › in the header**, right of the search field (straight up from the work area) (`HistoryButtons.svelte`), plus Alt+← / Alt+→ and a mouse's
+  side buttons. Tooltips name where each goes ("Back to Tag: 2237-011").
+- **The history watches the navigation stores** (`stores/view-history.js`: `destination`, `libraryNotebook`,
+  `libraryView`, `viewerSelection`) instead of hooking every route, so tabs, tiles, crumbs, search, task links and
+  Escape are all recorded without each caller knowing. Changes made in one handler settle into one entry (recorded in
+  a microtask). An entry also carries `readerSequence` / `readerOrder`, so Back to a page opened from a tag keeps Tag
+  order. Rules (`lib/view-history.js`): the same view refreshes the current entry, a new one drops forward, 50 kept.
+- **A page turn replaces the current entry** (`replaceNextView()` in BookViewer's `turn()`), so Back from a page goes to
+  where the reading started, not through every page turned. Go to page… and pages opened from grids, search or links
+  are new entries.
+- **Unsaved transcript drafts:** Back / Forward off a page with a draft asks `DISCARD_PROMPT`; No leaves the history
+  where it was. Session-only; a data-folder change clears it (`resetForDataFolder`).
+- Not restored: scroll positions, the Timeline's day, the Editor's canvas contents (the Editor is one view).
+
 ## v3.12.0 — Task chips toggle; a tag's page lists its tasks (November 2026)
 
 Josh asked for the Tasks view's state pills to show or hide a state instead of picking one, so open and waiting items

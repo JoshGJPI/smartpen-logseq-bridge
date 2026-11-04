@@ -208,7 +208,8 @@ show fewer pages.
 
 ## Version history
 
-- **3.12.0** (Current) - Task state chips toggle; a tag's page lists its tasks
+- **3.13.0** (Current) - Back / Forward between views (header ‹ ›, Alt+← / Alt+→, mouse side buttons)
+- **3.12.0** - Task state chips toggle; a tag's page lists its tasks
 - **3.9.0** - Print preview (the real PDF) and line width in millimetres;
   Snap for stray points; a rewritten Deselect Decorative; pen import opens the Editor.
 - **3.8.0** - Print to PDF or a printer, a cross-notebook print list, Print selection…

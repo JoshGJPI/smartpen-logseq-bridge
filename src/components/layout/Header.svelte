@@ -1,5 +1,5 @@
 <!--
-  Header.svelte - One slim bar: name, navigation, search, Tasks (v3.4.0, with
+  Header.svelte - One slim bar: name, navigation, search, Back / Forward (v3.13.0), Tasks (v3.4.0, with
   the open-task count), pen chip, settings.
 
   The capture controls (Save, Delete, Undo, Clear, Transcribe) live in
@@ -25,6 +25,7 @@
   import SearchField from './SearchField.svelte';
   import TasksButton from '../tasks/TasksButton.svelte';
   import PrintListButton from '../header/PrintListButton.svelte';
+  import HistoryButtons from '../header/HistoryButtons.svelte';
 
   $: hasUnsaved = $unsavedChanges || $viewerDirty;
   $: showCaptureBar = shouldShowCaptureBar({
@@ -46,6 +47,9 @@
 
     <!-- Global search: words, dates, notebooks; Ctrl K from anywhere. -->
     <SearchField />
+
+    <!-- Back / Forward between views (v3.13.0): right of search, over the work area. -->
+    <HistoryButtons />
 
     <span class="grow"></span>
 

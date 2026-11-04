@@ -49,7 +49,8 @@ Data flow: **pen → `strokes` store → canvas / MyScript → `savePageToFolder
 The right pane is one of three destinations, **Library** (`BookViewer`), **Timeline** (`TimelineFeed`) and
 **Editor** (`StrokeCanvas`), a view over `viewerMode` + `bookViewMode` (`lib/navigation.js`). Every route between
 them goes through `navigateTo()` / `openPageInLibrary()` (`stores/viewer.js`), the one place the unsaved-transcript
-prompt is asked. The app opens on the Timeline, and live pen ink switches to the Editor. Tab ids (`'strokes'`,
+prompt is asked. Back / Forward (v3.13.0, `stores/view-history.js`) records from those stores rather than from each
+route and restores them itself (same prompt); a reader page turn calls `replaceNextView()` first. The app opens on the Timeline, and live pen ink switches to the Editor. Tab ids (`'strokes'`,
 `'transcription'`, `'saved-pages'`, `'books'`, `'dates'`, `'contents'`) predate the labels, so don't rename them
 (`ActionBar` calls `setActiveTab('transcription')`). The open page, reading order and grid filters are session-only:
 each launch opens the Library on its home. Left panel tabs, Library views, the reader, search and Tasks:
