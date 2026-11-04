@@ -1,7 +1,7 @@
 <!--
   PageTile.svelte — one page in a Library page grid (v3.1.0 page tags;
-  mockups 3 and 5): the thumbnail, P12 (with its notebook when the grid spans
-  notebooks), first written day, ✓ when transcribed, and the page's tags
+  mockups 3 and 5): the thumbnail, P12 (with its notebook on the line above when
+  the grid spans notebooks), the days it was written (first–last, v3.11.0), ✓ when transcribed, and the page's tags
   (first two, then +N). Tags come from the tags store, never from reading the
   page; the thumbnail keeps PageThumb's on-screen-only loading.
 
@@ -13,7 +13,8 @@
   import { tick } from 'svelte';
   import { pageTags, setPageTagList } from '$stores/tags.js';
   import { dataFolderReady } from '$stores/settings.js';
-  import { shortDay, writtenRange } from '$lib/library-home.js';
+  import { tileDateRange, writtenRange } from '$lib/library-home.js';
+  import { plural } from '$lib/plural.js';
   import PageThumb from '../viewer/PageThumb.svelte';
   import TagChip from './TagChip.svelte';
   import TagInput from './TagInput.svelte';
@@ -36,7 +37,7 @@
   $: tags = $pageTags[tile.key] || [];
   $: shown = tags.slice(0, 2);
   $: book = tile.record.book;
-  $: title = `${notebook ? `${notebook}, ` : ''}P${tile.pageId} · ${(tile.record.strokeCount || 0).toLocaleString()} strokes · ${tile.first ? writtenRange(tile.first, tile.last) : 'no dated ink'}${tile.transcribed ? ' · transcribed' : ''}${tags.length ? ` · ${tags.join(', ')}` : ''}`;
+  $: title = `${notebook ? `${notebook}, ` : ''}P${tile.pageId} · ${(tile.record.strokeCount || 0).toLocaleString()} strokes · ${tile.first ? `${writtenRange(tile.first, tile.last)}${tile.days > 1 ? ` (${tile.days} ${plural(tile.days, 'day')})` : ''}` : 'no dated ink'}${tile.transcribed ? ' · transcribed' : ''}${tags.length ? ` · ${tags.join(', ')}` : ''}`;
   $: if (selecting) popOpen = false;
 
   async function openPop() {
@@ -53,10 +54,10 @@
 <div class="pt" class:sel={selected} class:selecting>
   <button type="button" class="pt-open" on:click={onClick} {title} aria-pressed={selecting ? selected : undefined}>
     <PageThumb {book} pageId={tile.pageId} height="150px" />
-    <span class="pt-label">
-      {#if notebook}<span class="pt-nb">{notebook}</span>{/if}
+    {#if notebook}<span class="pt-nb">{notebook}</span>{/if}
+    <span class="pt-label" class:under={!!notebook}>
       <span class="pt-page">P{tile.pageId}</span>
-      {#if tile.first}<span class="pt-date">{shortDay(tile.first)}{#if tile.days > 1}<span class="pt-more">+{tile.days - 1}</span>{/if}</span>{/if}
+      {#if tile.first}<span class="pt-date">{tileDateRange(tile.first, tile.last)}</span>{/if}
       {#if tile.transcribed}<span class="pt-tx" aria-label="transcribed">✓</span>{/if}
     </span>
     <span class="pt-tags">
@@ -123,10 +124,20 @@
     white-space: nowrap;
     min-width: 0;
   }
-  .pt-nb { color: #888; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  /* Its own line (v3.11.0), so a date range never squeezes the notebook out. */
+  .pt-nb {
+    padding: 5px 9px 0;
+    border-top: 1px solid #f0f0f0;
+    font-size: 11.5px;
+    color: #888;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .pt-label.under { border-top: none; padding-top: 2px; }
   .pt-page { font-weight: 600; font-variant-numeric: tabular-nums; flex-shrink: 0; }
   .pt-date { padding: 1px 6px; border-radius: 8px; background: #f2f2f2; color: #666; flex-shrink: 0; }
-  .pt-more { margin-left: 3px; color: #999; }
   .pt-tx { margin-left: auto; color: #2f7d4f; font-weight: 700; }
   .pt-tags { display: flex; flex-wrap: wrap; gap: 3px; min-height: 19px; padding: 4px 9px 7px; min-width: 0; }
   .pt-n { padding: 1px 6px; border-radius: 99px; background: rgba(0, 0, 0, 0.06); color: #666; font-size: 11px; }

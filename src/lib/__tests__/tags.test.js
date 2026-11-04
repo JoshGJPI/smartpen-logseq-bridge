@@ -10,7 +10,8 @@ import {
   deleteTagFromMap, tagExists, diffTagMaps, rollbackPatch, findProjectNumbers,
   suggestProjectNumbers, splitSuggestionLine, buildTagIndex, recordsForKeys, untaggedRecords,
   tagCards, untaggedCard, sortTagCards, tagStats, filterByTags, filterChoices, tagOptions, tagEnterChoice, backspaceRemovesTag,
-  parseTagSort, parseGroupBy, planTagCarry, MAX_TAG_LENGTH
+  parseTagSort, parseGroupBy, planTagCarry, MAX_TAG_LENGTH,
+  parseTagView, parseCollapsedGroups, parseTagPageSort, sortTagPageTiles
 } from '$lib/tags.js';
 
 const rec = (book, pageId, extra = {}) => ({
@@ -480,5 +481,51 @@ describe('tag manager column sort (v3.2.0)', () => {
     sortTagStats(rows, { by: 'tag', dir: 'asc' });
     expect(rows).toEqual(copy);
     expect(sortTagStats(null, { by: 'pages', dir: 'desc' })).toEqual([]);
+  });
+});
+
+describe('tag home display (v3.11.0)', () => {
+  it('parseTagView: pills only when stored, cards otherwise', () => {
+    expect(parseTagView('pills')).toBe('pills');
+    expect(parseTagView('cards')).toBe('cards');
+    expect(parseTagView(null)).toBe('cards');
+    expect(parseTagView('grid')).toBe('cards');
+  });
+
+  it('parseCollapsedGroups keeps known groups once, in group order', () => {
+    expect(parseCollapsedGroups(['keywords', 'projects', 'keywords', 'x'])).toEqual(['projects', 'keywords']);
+    expect(parseCollapsedGroups([])).toEqual([]);
+    expect(parseCollapsedGroups('projects')).toEqual([]);
+    expect(parseCollapsedGroups(null)).toEqual([]);
+  });
+});
+
+describe('sortTagPageTiles (v3.11.0)', () => {
+  const tile = (book, pageId, lastMs) => ({ record: rec(book, pageId), pageId: String(pageId), lastMs });
+  const ids = (list) => list.map((t) => `${t.record.book}/${t.pageId}`);
+
+  it('parseTagPageSort defaults to notebook', () => {
+    expect(parseTagPageSort('recent')).toBe('recent');
+    expect(parseTagPageSort('notebook')).toBe('notebook');
+    expect(parseTagPageSort(undefined)).toBe('notebook');
+    expect(parseTagPageSort('page-asc')).toBe('notebook');
+  });
+
+  it('notebook: book key (volumes after their book), then page and suffix', () => {
+    const tiles = [tile('388v2', 1, 5), tile('3880', 2, 1), tile('388', 151, 3), tile('388', 12, 9), tile('388', '151b', 2)];
+    expect(ids(sortTagPageTiles(tiles, 'notebook'))).toEqual(['388/12', '388/151', '388/151b', '388v2/1', '3880/2']);
+  });
+
+  it('recent: latest stroke first across notebooks; ties and untimed pages in notebook order, untimed last', () => {
+    const tiles = [tile('390', 4, null), tile('388', 2, 100), tile('390', 1, 300), tile('388', 9, 300), tile('388', 1, undefined)];
+    expect(ids(sortTagPageTiles(tiles, 'recent'))).toEqual(['388/9', '390/1', '388/2', '388/1', '390/4']);
+  });
+
+  it('returns a new array and copes with empty input', () => {
+    const tiles = [tile('388', 2, 1), tile('388', 1, 2)];
+    const copy = [...tiles];
+    sortTagPageTiles(tiles, 'recent');
+    expect(tiles).toEqual(copy);
+    expect(sortTagPageTiles(null, 'notebook')).toEqual([]);
   });
 });

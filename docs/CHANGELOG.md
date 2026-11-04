@@ -6,6 +6,27 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.11.0 — Tag home: collapsible groups, Cards | Pills; a tag's pages sort by Last edited (November 2026)
+
+Josh asked to fold the tag type headers so the tags under them are easier to reach, for a compact display with no
+thumbnails, and to sort a tag's pages by notebook › page or by when they were written.
+
+- **Projects and Keywords fold.** Each heading is a button with a caret and its tag count; what is folded is kept per
+  viewer (`collapsedTagGroups`, `smartpen-library-tag-collapsed`). The Untagged card has no heading and never folds.
+- **Cards | Pills** beside the tag sort chips. Pills (`TagPill.svelte`) show the tag, its pages and notebooks, and load
+  no thumbnail, so 50+ project tags fit on one screen. Cards stay the default; the choice is remembered
+  (`libraryTagView`, `smartpen-library-tag-view`). Same card data either way (`tagCards()` / `untaggedCard()`).
+- **A tag's pages: Notebook | Last edited** (`TAG_PAGE_SORT_ORDERS`, `sortTagPageTiles()`, `tagPageSort`, one choice for
+  every tag and Untagged). Notebook is the old order (book key, then page and suffix: `compareRecords`). Last edited
+  uses the page's latest stroke (`pageDates().lastMs`, now carried on `pageTiles()` entries as `lastMs`), so a page
+  written on several days sorts by its last; ties and pages with no timed ink fall back to notebook order, untimed
+  last. Like the notebook grid's sort it orders the grid only: the reader still turns through in notebook order
+  (`buildSequence` sorts by `compareRecords`).
+- **Page tiles show the days written as a range** ("Sep 24–Oct 30", `tileDateRange()`) in place of the first day and
+  "+n", in every page grid. A year other than this one is named once when both days share it, on each side when
+  they don't. The day count moved to the tooltip. In a grid across notebooks the notebook name is now its own line
+  above "P12", since the longer badge squeezed it out entirely on narrow tiles.
+
 ## v3.10.0 — Editor: copy from Review, Dates leaves the Editor; Timeline Today; notebook page sort (November 2026)
 
 Josh asked whether the Editor still needs a Dates tab, why a load lands there, and for the reader's hover copy in

@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   pageDates, notebookCards, sortNotebooks, parseSortOrder, recentRecords,
-  shortDay, writtenRange, relativeDay, pageTiles, pageKeyOf, SORT_ORDERS,
+  shortDay, writtenRange, tileDateRange, relativeDay, pageTiles, pageKeyOf, SORT_ORDERS,
   sortPageTiles, parsePageSort, PAGE_SORT_ORDERS
 } from '$lib/library-home.js';
 
@@ -167,6 +167,16 @@ describe('date labels', () => {
     expect(writtenRange('2026-10-14', '2026-10-14')).toBe('Oct 14, 2026');
     expect(writtenRange('2026-02-05', '2026-06-25')).toBe('Feb 5 – Jun 25, 2026');
     expect(writtenRange(null, null)).toBe('');
+  });
+
+  it('tileDateRange: one day, a range, years only when not this one', () => {
+    expect(tileDateRange('2026-10-28', '2026-10-28', now)).toBe('Oct 28');
+    expect(tileDateRange('2026-10-28', null, now)).toBe('Oct 28');
+    expect(tileDateRange('2026-09-24', '2026-10-30', now)).toBe('Sep 24–Oct 30');
+    expect(tileDateRange('2026-10-03', '2026-10-09', now)).toBe('Oct 3–Oct 9');
+    expect(tileDateRange('2025-02-05', '2025-06-25', now)).toBe('Feb 5–Jun 25, 2025');
+    expect(tileDateRange('2025-12-28', '2026-01-03', now)).toBe('Dec 28, 2025–Jan 3');
+    expect(tileDateRange(null, null, now)).toBe('');
   });
 
   it('relativeDay', () => {

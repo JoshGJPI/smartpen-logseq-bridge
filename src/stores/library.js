@@ -17,8 +17,11 @@ import {
   pageDates, notebookCards, parseSortOrder, LIBRARY_SORT_KEY, parsePageSort, PAGE_SORT_KEY
 } from '$lib/library-home.js';
 import { buildSearchIndex, recordsByKey } from '$lib/global-search.js';
-import { tagCards, untaggedCard, parseGroupBy, parseTagSort, LIBRARY_GROUP_KEY, TAG_SORT_KEY } from '$lib/tags.js';
-import { readString, write } from '$lib/safe-storage.js';
+import {
+  tagCards, untaggedCard, parseGroupBy, parseTagSort, LIBRARY_GROUP_KEY, TAG_SORT_KEY,
+  parseTagView, TAG_VIEW_KEY, parseCollapsedGroups, TAG_COLLAPSED_KEY, parseTagPageSort, TAG_PAGE_SORT_KEY
+} from '$lib/tags.js';
+import { readString, readJson, write } from '$lib/safe-storage.js';
 import { pageTags, tagIndex } from './tags.js';
 import { readerSequence, readerOrder, viewerSelection } from './viewer.js';
 import { sequenceRecords, readerPageList, sequenceLabel } from '$lib/viewer/reading-order.js';
@@ -102,6 +105,35 @@ export function setLibraryTagSort(id) {
   const next = parseTagSort(id);
   write(TAG_SORT_KEY, next);
   libraryTagSort.set(next);
+}
+
+/** Tag home display (v3.11.0): 'cards' (thumbnails, the default) | 'pills'. A per-viewer convenience. */
+export const libraryTagView = writable(parseTagView(readString(TAG_VIEW_KEY)));
+
+export function setLibraryTagView(id) {
+  const next = parseTagView(id);
+  write(TAG_VIEW_KEY, next);
+  libraryTagView.set(next);
+}
+
+/** Tag home groups folded shut (v3.11.0): ids from TAG_GROUPS. A per-viewer convenience. */
+export const collapsedTagGroups = writable(parseCollapsedGroups(readJson(TAG_COLLAPSED_KEY, [])));
+
+export function toggleTagGroup(group) {
+  collapsedTagGroups.update((list) => {
+    const next = parseCollapsedGroups(list.includes(group) ? list.filter((g) => g !== group) : [...list, group]);
+    write(TAG_COLLAPSED_KEY, next);
+    return next;
+  });
+}
+
+/** A tag's page grid (v3.11.0): 'notebook' | 'recent'. A per-viewer convenience. */
+export const tagPageSort = writable(parseTagPageSort(readString(TAG_PAGE_SORT_KEY)));
+
+export function setTagPageSort(id) {
+  const next = parseTagPageSort(id);
+  write(TAG_PAGE_SORT_KEY, next);
+  tagPageSort.set(next);
 }
 
 /**

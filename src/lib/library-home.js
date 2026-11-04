@@ -181,6 +181,24 @@ export function writtenRange(first, last) {
 }
 
 /**
+ * A page tile's date badge (v3.11.0): "Oct 28" for one day, "Sep 24–Oct 30"
+ * for a page written over several. A year other than this one is named once
+ * at the end when both days share it ("Feb 5–Jun 25, 2025"), and on each side
+ * when they don't ("Dec 28, 2025–Jan 3"). '' with no timed ink.
+ */
+export function tileDateRange(first, last, now = new Date()) {
+  if (!first) return '';
+  if (!last || last === first) return shortDay(first, now);
+  const a = dayStart(first);
+  const b = dayStart(last);
+  if (!a || !b) return shortDay(first, now);
+  if (a.getFullYear() !== b.getFullYear()) return `${shortDay(first, now)}–${shortDay(last, now)}`;
+  const md = (d) => `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+  const year = a.getFullYear() === now.getFullYear() ? '' : `, ${a.getFullYear()}`;
+  return `${md(a)}–${md(b)}${year}`;
+}
+
+/**
  * "today", "yesterday", "3 days ago", or the short date for anything older
  * than a week. '' for a bad key.
  */
@@ -260,6 +278,7 @@ export function pageTiles(records, book, dates) {
       transcribed: !!r.transcribed,
       first: d ? d.first : null,
       last: d ? d.last : null,
+      lastMs: d ? d.lastMs : null,
       days: d ? d.days : 0
     };
   });

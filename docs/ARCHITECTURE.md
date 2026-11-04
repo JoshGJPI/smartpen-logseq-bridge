@@ -81,10 +81,10 @@ App.svelte (Root)
     │   │   │   ├── TasksCard (v3.4.0: open / waiting / done counts, three newest open tasks → Tasks)
     │   │   │   ├── LibraryHomeHead (summary, Group by Notebook | Tag, sort chips, Suggestions (n), Manage tags, Rescan)
     │   │   │   ├── NotebookCard ×N (fan of 3 recent pages, name, Vol badge, pages, written, transcribed %)
-    │   │   │   └── TagCardGrid (Projects / Keywords headings) → TagCard ×N + dashed Untagged card
+    │   │   │   └── TagCardGrid (Projects / Keywords headings, each collapsible, v3.11.0) → TagCard ×N, or TagPill ×N in Pills (v3.11.0) + dashed Untagged card
     │   │   ├── NotebookPages (a notebook's page grid; `libraryNotebook`; Recent | Page ↑ | Page ↓,
     │   │   │   `notebookPageSort`, sortPageTiles, v3.10.0) → PageGrid
-    │   │   ├── TagPages (a tag's pages, or the Untagged pages, across notebooks; `libraryView`) → PageGrid
+    │   │   ├── TagPages (a tag's pages, or the Untagged pages, across notebooks; `libraryView`; Notebook | Last edited sort, `tagPageSort`, sortTagPageTiles, v3.11.0) → PageGrid
     │   │   │   PageGrid = TagFilterRow (tags in this grid, Any | All) · Select → BulkTagBar ·
     │   │   │              PageTile ×N (date badge, ✓, tag line, hover "+ tag" popover, amber suggestion dot)
     │   │   ├── TagSuggestionQueue (suggested project numbers by number: Tag all n, Dismiss all, Re-check)
@@ -234,7 +234,7 @@ All state is managed through Svelte stores located in `src/stores/`:
 
 **Saved-Pages Index:**
 - `saved-pages.js` — holds the scanned list of `pages/B###/P##.json` records the Library, Contents, Pages tab and search read. Store is `savedPages` (renamed from `logseqPages` in v2.3; nothing LogSeq-specific remains). `applyTranscriptToRecord(book, pageId, lines)` reflects a Library transcript save into its record and drops the page's cached doc
-- `library.js` (v3.0 package E) — `librarySort` + `setLibrarySort()` (localStorage `smartpen-library-sort`, try/catch), `libraryPageDates` (`pageDates` of the unfiltered index), `notebookCardList`, `notebookNames`, `globalSearchIndex` (built once per `savedPages` change), `searchRecords`, `searchDates` (`pageDates` of `timelineIndexFiltered`), `ensureTimelineLoaded()`; v3.1.0: `libraryGroupBy` / `setLibraryGroupBy()` (`'book' | 'tag'`, localStorage `smartpen-library-group` via safe-storage), `libraryTagSort` / `setLibraryTagSort()` (`smartpen-library-tag-sort`), `tagCardList` (`tagCards` of `tagIndex` + `searchRecords` + dates), `untaggedSummary`
+- `library.js` (v3.0 package E) — `librarySort` + `setLibrarySort()` (localStorage `smartpen-library-sort`, try/catch), `libraryPageDates` (`pageDates` of the unfiltered index), `notebookCardList`, `notebookNames`, `globalSearchIndex` (built once per `savedPages` change), `searchRecords`, `searchDates` (`pageDates` of `timelineIndexFiltered`), `ensureTimelineLoaded()`; v3.1.0: `libraryGroupBy` / `setLibraryGroupBy()` (`'book' | 'tag'`, localStorage `smartpen-library-group` via safe-storage), `libraryTagSort` / `setLibraryTagSort()` (`smartpen-library-tag-sort`), `tagCardList` (`tagCards` of `tagIndex` + `searchRecords` + dates), `untaggedSummary`; v3.11.0: `libraryTagView` / `setLibraryTagView()` (`'cards' | 'pills'`, `smartpen-library-tag-view`), `collapsedTagGroups` / `toggleTagGroup()` (`smartpen-library-tag-collapsed`, JSON list of `TAG_GROUPS`), `tagPageSort` / `setTagPageSort()` (`'notebook' | 'recent'`, `smartpen-tag-page-sort`)
 - `storage.js` — save status, unsaved-changes flag (`unsavedChanges` writable, `markUnsavedChanges()`, cleared on successful save)
 - `book-aliases.js` — custom book name mappings (persisted to `<dataRoot>/pages/_aliases.json`)
 
