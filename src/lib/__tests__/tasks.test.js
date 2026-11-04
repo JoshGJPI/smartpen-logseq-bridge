@@ -7,7 +7,8 @@ import { describe, it, expect } from 'vitest';
 import {
   markerField, markerOf, isClosedState, taskStateOf, withTaskState, toggledState, stateLabel, buildTaskRows, taskCounts,
   filterTaskRows, groupTaskRows, searchTaskRows, summaryWithState, taskMenuChoices, NOT_A_TASK, isTaskState, isLineState, taskKey, parseTaskFilter,
-  parseTaskGroup, latestTaskRows, NO_PROJECT, NO_DATE
+  parseTaskGroup, latestTaskRows, NO_PROJECT, NO_DATE,
+  parseShownStates, toggleShownState, toggleAllShownStates, rowsInStates, taskRowsForTag, DEFAULT_SHOWN_STATES
 } from '../tasks.js';
 
 describe('task state', () => {
@@ -236,5 +237,59 @@ describe('latestTaskRows (the Library home card)', () => {
     const rows = [row('388', '1', 0, null, null), row('388', '2', 0, '2026-10-02', null)];
     expect(latestTaskRows(rows).map((r) => r.pageId)).toEqual(['2', '1']);
     expect(latestTaskRows([])).toEqual([]);
+  });
+});
+
+describe('state chips as toggles (v3.12.0)', () => {
+  const rows = ['todo', 'waiting', 'done', 'cancelled', 'todo'].map((state, i) => ({ key: String(i), state }));
+
+  it('parses a shown list into chip order, defaulting only for a non-array', () => {
+    expect(parseShownStates(undefined)).toEqual(['todo', 'waiting']);
+    expect(parseShownStates('todo')).toEqual(['todo', 'waiting']);
+    expect(parseShownStates([])).toEqual([]);
+    expect(parseShownStates(['cancelled', 'todo', 'todo', 'DOING', 'now'])).toEqual(['todo', 'cancelled']);
+    expect(DEFAULT_SHOWN_STATES).toEqual(['todo', 'waiting']);
+  });
+
+  it('toggles one state at a time', () => {
+    expect(toggleShownState(['todo', 'waiting'], 'done')).toEqual(['todo', 'waiting', 'done']);
+    expect(toggleShownState(['todo', 'waiting'], 'todo')).toEqual(['waiting']);
+    expect(toggleShownState(['waiting'], 'waiting')).toEqual([]);
+    expect(toggleShownState(['todo'], 'none')).toEqual(['todo']);
+  });
+
+  it('All turns everything on, then back to the default', () => {
+    expect(toggleAllShownStates(['todo'])).toEqual(['todo', 'waiting', 'done', 'cancelled']);
+    expect(toggleAllShownStates(['cancelled', 'done', 'waiting', 'todo'])).toEqual(['todo', 'waiting']);
+  });
+
+  it('keeps the rows in the shown states', () => {
+    expect(rowsInStates(rows, ['todo', 'waiting']).map((r) => r.key)).toEqual(['0', '1', '4']);
+    expect(rowsInStates(rows, ['cancelled']).map((r) => r.key)).toEqual(['3']);
+    expect(rowsInStates(rows, [])).toEqual([]);
+    expect(rowsInStates(null, ['todo'])).toEqual([]);
+  });
+});
+
+describe('taskRowsForTag (the tasks on a tag page, v3.12.0)', () => {
+  const rows = [
+    { key: 'a', book: '388', pageId: '178', project: '2237-011' },
+    { key: 'b', book: '388', pageId: '178', project: '5444-006' },
+    { key: 'c', book: '388v2', pageId: '3', project: '2237-011' },
+    { key: 'd', book: '3017', pageId: '9', project: null }
+  ];
+
+  it('a project tag takes the rows grouped under it, not every task on its pages', () => {
+    expect(taskRowsForTag(rows, '2237-011', ['388/178', '388v2/3']).map((r) => r.key)).toEqual(['a', 'c']);
+  });
+
+  it('a keyword tag takes every task on its pages', () => {
+    expect(taskRowsForTag(rows, 'site visit', new Set(['388/178', '3017/9'])).map((r) => r.key)).toEqual(['a', 'b', 'd']);
+    expect(taskRowsForTag(rows, 'site visit')).toEqual([]);
+  });
+
+  it('copes with nothing', () => {
+    expect(taskRowsForTag(rows, '')).toEqual([]);
+    expect(taskRowsForTag(null, '2237-011')).toEqual([]);
   });
 });

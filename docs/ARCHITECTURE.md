@@ -84,13 +84,13 @@ App.svelte (Root)
     │   │   │   └── TagCardGrid (Projects / Keywords headings, each collapsible, v3.11.0) → TagCard ×N, or TagPill ×N in Pills (v3.11.0) + dashed Untagged card
     │   │   ├── NotebookPages (a notebook's page grid; `libraryNotebook`; Recent | Page ↑ | Page ↓,
     │   │   │   `notebookPageSort`, sortPageTiles, v3.10.0) → PageGrid
-    │   │   ├── TagPages (a tag's pages, or the Untagged pages, across notebooks; `libraryView`; Notebook | Last edited sort, `tagPageSort`, sortTagPageTiles, v3.11.0) → PageGrid
+    │   │   ├── TagPages (a tag's pages, or the Untagged pages, across notebooks; `libraryView`; Notebook | Last edited sort, `tagPageSort`, sortTagPageTiles, v3.11.0) → PageGrid, TagTasksPanel (v3.12.0: the tag's tasks, taskRowsForTag)
     │   │   │   PageGrid = TagFilterRow (tags in this grid, Any | All) · Select → BulkTagBar ·
     │   │   │              PageTile ×N (date badge, ✓, tag line, hover "+ tag" popover, amber suggestion dot)
     │   │   ├── TagSuggestionQueue (suggested project numbers by number: Tag all n, Dismiss all, Re-check)
     │   │   ├── TagManagerView (Library › Manage tags, `{kind: 'tags'}`)
     │   │   │   └── TagManager (Undo bar; tag / pages / notebooks, headers sort; chip opens the tag; Rename, Merge into…, Delete; reset dismissals)
-    │   │   └── TasksView (v3.4.0, Library › Tasks, `{kind: 'tasks'}`: Open / Waiting / Done / All, Group by)
+    │   │   └── TasksView (v3.4.0, Library › Tasks, `{kind: 'tasks'}`: state toggle chips (TaskStateChips, v3.12.0), Group by; a project heading opens its tag page)
     │   │       └── TaskRow ×N (TaskBox · text · under "parent" · page link · date written · project chip · TaskMenu ⋯)
     │   │   (PageThumb: lazy thumbnail via lib/viewer/thumbs.js; also in the fan, Recent row, search)
     │   ├── TaskToast (v3.4.0: "Marked DONE · B3017 p.142  Undo", for the Tasks view and the reader)
@@ -315,7 +315,7 @@ All state is managed through Svelte stores located in `src/stores/`:
 - `viewer.js` gains `libraryView` (`{kind: 'tag', tag} | {kind: 'untagged'} | {kind: 'suggestions'} | {kind: 'tags'} (v3.2.0) | {kind: 'tasks'} (v3.4.0) | null`), `showLibraryGrid(book)` and `openLibraryView(view, {confirm?})` (asks like `openNotebookInLibrary`)
 
 **Tasks (v3.4.0):**
-- `tasks.js` — `taskRows` (derived: scan records' `tasks` + `pageTags` + `libraryPageDates` + `taskOverrides` → `buildTaskRows()`), `taskCountsStore` (`{open, waiting, done, cancelled, all}`), `openTaskCount` (header badge), `taskFilter` / `setTaskFilter()` (session only), `taskGroupBy` / `setTaskGroupBy()` (localStorage `smartpen-tasks-group`), `taskOverrides` (taskKey → state set but not yet in the scan), `changeTask(book, pageId, lineId, state, {from, undoable})` (optimistic; refuses on a page with an unsaved draft; writes per page in order; a failed write rolls back only that task, only if nothing changed it since, with an Activity Log error), `toggleTask()` (DONE ↔ TODO, WAITING → DONE, CANCELLED → TODO), `taskUndo` / `undoTaskChange()` (the last change), `currentTaskState()`, `clearTasks()` (data-folder change)
+- `tasks.js` — `taskRows` (derived: scan records' `tasks` + `pageTags` + `libraryPageDates` + `taskOverrides` → `buildTaskRows()`), `taskCountsStore` (`{open, waiting, done, cancelled, all}`), `openTaskCount` (header badge), `taskStatesShown` / `toggleTaskState()` / `toggleAllTaskStates()` (v3.12.0, the states the chips show in the Tasks view and on a tag page; default TODO + WAITING; session only), `taskGroupBy` / `setTaskGroupBy()` (localStorage `smartpen-tasks-group`), `taskOverrides` (taskKey → state set but not yet in the scan), `changeTask(book, pageId, lineId, state, {from, undoable})` (optimistic; refuses on a page with an unsaved draft; writes per page in order; a failed write rolls back only that task, only if nothing changed it since, with an Activity Log error), `toggleTask()` (DONE ↔ TODO, WAITING → DONE, CANCELLED → TODO), `taskUndo` / `undoTaskChange()` (the last change), `currentTaskState()`, `clearTasks()` (data-folder change)
 - `viewer.js` gains `viewerDirtyPages` / `isViewerPageDirty(book, pageId)` (the tick guard), `focusReaderLineId(book, pageId, lineId)` (a task's page link: marks that line on any page, lights its ink on trusted pages, and BookViewer moves Strokes to Ink + text), `lastTaskWrite` / `noteTaskWritten()` (the open reader page patches its doc)
 - `saved-pages.js` gains `applyTaskStateToRecord(book, pageId, lineId, state, lastUpdated)`; `applyTranscriptToRecord()` also rebuilds `tasks`
 

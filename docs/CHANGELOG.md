@@ -6,6 +6,22 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.12.0 — Task chips toggle; a tag's page lists its tasks (November 2026)
+
+Josh asked for the Tasks view's state pills to show or hide a state instead of picking one, so open and waiting items
+sit together under each project; for a project heading to open that tag's page; and for a tag's page to list its tasks.
+
+- **The chips are toggles** (`TaskStateChips.svelte`, `taskStatesShown`, lib `TASK_STATE_CHIPS`, `toggleShownState()`,
+  `rowsInStates()`). Each of Open / Waiting / Done / Cancelled turns its state on or off; the default is Open + Waiting
+  (`DEFAULT_SHOWN_STATES`). All turns every state on, and when all are on it goes back to the default. Every chip off
+  is allowed and says so. One choice, session-only, shared by the Tasks view and the tag page. The single-state
+  `filterTaskRows()` / `TASK_FILTERS` stay for the MCP server's `list_tasks`.
+- **A project heading in the Tasks view opens the tag's page** (`openLibraryView({ kind: 'tag', tag })`).
+- **A tag's page lists its tasks right of the grid** (`TagTasksPanel.svelte`; below it when the pane is narrow; absent
+  when the tag has no tasks). Which tasks: `taskRowsForTag()`. A project tag takes the rows whose `project` is that tag,
+  exactly its Tasks view group, so a page tagged with two projects splits its tasks between them as the Tasks view
+  does. A keyword tag takes every task on its pages. Same `TaskRow` (tick, ⋯, page link to the line), from the scan.
+
 ## v3.11.0 — Tag home: collapsible groups, Cards | Pills; a tag's pages sort by Last edited (November 2026)
 
 Josh asked to fold the tag type headers so the tags under them are easier to reach, for a compact display with no

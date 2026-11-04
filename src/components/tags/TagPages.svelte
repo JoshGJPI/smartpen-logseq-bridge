@@ -8,6 +8,9 @@
   Sort (v3.11.0): Notebook (notebook, then page; the default) or Last edited
   (each page's latest stroke, newest first), kept per viewer (tagPageSort). It
   orders the grid only: the reader still turns through in notebook order.
+
+  Tasks (v3.12.0): a tag's page lists its tasks to the right of the grid
+  (TagTasksPanel, with the Tasks view's state chips); below it when narrow.
 -->
 <script>
   import { onMount } from 'svelte';
@@ -18,6 +21,7 @@
   import { plural } from '$lib/plural.js';
   import TagChip from './TagChip.svelte';
   import PageGrid from './PageGrid.svelte';
+  import TagTasksPanel from './TagTasksPanel.svelte';
 
   /** `{ kind: 'tag', tag }` or `{ kind: 'untagged' }` */
   export let view;
@@ -52,6 +56,8 @@
     {/if}
   </div>
 
+  <div class="tp-body">
+  <div class="tp-grid">
   <PageGrid
     {tiles}
     showNotebook
@@ -60,6 +66,9 @@
     {onOpen}
     emptyText={view.kind === 'tag' ? 'No page carries this tag any more.' : 'Every page has a tag.'}
   />
+  </div>
+  {#if view.kind === 'tag'}<TagTasksPanel tag={view.tag} />{/if}
+  </div>
 </div>
 
 <style>
@@ -67,6 +76,8 @@
   .tp-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-bottom: 16px; }
   .tp-head h2 { margin: 0; font-size: 18px; font-weight: 600; color: #222; }
   .tp-head :global(.tg) { font-size: 14px; padding: 2px 10px; }
+  .tp-body { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 20px 24px; }
+  .tp-grid { flex: 999 1 520px; min-width: 0; }
   .tp-sum { font-size: 13px; color: #888; }
   .tp-sort { margin-left: auto; display: flex; gap: 2px; padding: 2px; border: 1px solid #ddd; border-radius: 7px; background: #fff; }
   .tp-sort button {

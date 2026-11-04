@@ -26,7 +26,7 @@ electron/main.cjs, preload.cjs   all disk IO + MyScript proxy, exposed as window
 src/stores/        one store per concern (strokes, selection, pending-changes, viewer, timeline, volumes, tags, ...)
 src/lib/           pure logic, no UI, testable without DOM (tags.js, tag-suggestions.js: page tags, v3.1.0;
                    task-markers.js: ☐ / ☑ → TODO / DONE, v3.3.0; tasks.js: task state, WAITING, task list, v3.4.0,
-                   CANCELLED, v3.5.0; retime.js: shift selected strokes in time, v3.6.0)
+                   CANCELLED, v3.5.0; state toggle chips and a tag's tasks, v3.12.0; retime.js: shift selected strokes in time, v3.6.0)
 src/lib/storage/   PageDoc layer: local-store (IPC facade), save-page, load-page, load-range, scan, page-changes, graph-export,
                    convert-task-boxes (one-off conversion of old transcripts)
 src/lib/viewer/    reader helpers: SVG render, page cache, thumbnails, transcript markdown/save, feed loader,
