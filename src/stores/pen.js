@@ -33,6 +33,14 @@ export const penBattery = derived(penInfo, $info => {
   return `${$info.Battery}%`;
 });
 
+// Derived: Pen memory used, 0–100 (the pen reports UsedMem as a percentage
+// in its setting info). Null when unknown or out of range.
+export const penMemoryUsed = derived(penInfo, $info => {
+  const v = $info?.UsedMem;
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 100) return null;
+  return Math.round(v);
+});
+
 // Derived: Per-book transfer percentage (0 until expected count is known)
 export const transferPercent = derived(transferProgress, $progress => {
   if ($progress.expectedStrokes > 0) {

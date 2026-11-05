@@ -12,8 +12,8 @@
   pen opens from the pen. The transfer's progress popup stays in ActionBar.
 -->
 <script>
-  import { penConnected, penAuthorized, penBattery, penInfo, transferProgress, log } from '$stores';
-  import { connectPen, disconnectPen, fetchOfflineData } from '$lib/pen-sdk.js';
+  import { penConnected, penAuthorized, penBattery, penInfo, penMemoryUsed, transferProgress, log } from '$stores';
+  import { connectPen, disconnectPen, fetchOfflineData, refreshPenStatus } from '$lib/pen-sdk.js';
   import PenMemoryDialog from '../dialog/PenMemoryDialog.svelte';
 
   let isConnecting = false;
@@ -60,6 +60,13 @@
     }
   }
 
+  // Opening the menu asks the pen for a fresh memory-used figure (the one from
+  // connect goes stale as you write); the reply updates penInfo in place.
+  function toggleMenu() {
+    menuOpen = !menuOpen;
+    if (menuOpen && !fetching) refreshPenStatus();
+  }
+
   function openPenMemory() {
     menuOpen = false;
     showPenMemory = true;
@@ -88,7 +95,7 @@
       class:open={menuOpen}
       aria-haspopup="menu"
       aria-expanded={menuOpen}
-      on:click={() => (menuOpen = !menuOpen)}
+      on:click={toggleMenu}
       title="Pen: fetch notes, manage pen memory, disconnect"
     >
       <span class="dot" aria-hidden="true"></span>
@@ -127,7 +134,14 @@
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
       </svg>
-      <span>Manage pen memory…<span class="hint">Delete imported books from the pen</span></span>
+      <span class="grow">Manage pen memory<span class="hint">Delete imported books from the pen</span></span>
+      {#if $penMemoryUsed !== null}
+        <span
+          class="mem"
+          class:high={$penMemoryUsed >= 80}
+          title="Pen memory used"
+        >{$penMemoryUsed}% used</span>
+      {/if}
     </button>
     <div class="sep" role="separator"></div>
     <button type="button" role="menuitem" on:click={handleDisconnect}>
@@ -275,6 +289,22 @@
     display: block;
     font-size: 0.75rem;
     color: var(--text-secondary);
+  }
+
+  .pen-menu .grow {
+    flex: 1;
+  }
+
+  .pen-menu .mem {
+    flex-shrink: 0;
+    margin-top: 1px;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .pen-menu .mem.high {
+    color: var(--warning);
   }
 
   .pen-menu .sep {

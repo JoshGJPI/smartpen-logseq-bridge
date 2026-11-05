@@ -19,6 +19,8 @@ import {
   setPenInfo, 
   setPenController,
   penController,
+  penInfo,
+  transferProgress,
   updateTransferProgress,
   resetTransferProgress
 } from '$stores/pen.js';
@@ -554,9 +556,28 @@ function handleConnectionSuccess(mac) {
 function handleSettingInfo(mac, args) {
   if (connectionAborted) return;
   const controller = PenHelper.pens.find(c => c.info.MacAddress === mac);
+  const hadInfo = !!get(penInfo);
   setPenController(controller);
   setPenInfo(args);
-  log(`Pen settings received: Battery ${args.Battery}%`, 'info');
+  // Only the first one per connection goes to the Activity Log; refreshes
+  // (refreshPenStatus) would otherwise log every time the pen menu opens.
+  if (hadInfo) debug('Pen settings refreshed:', { Battery: args.Battery, UsedMem: args.UsedMem });
+  else log(`Pen settings received: Battery ${args.Battery}%, memory ${args.UsedMem}% used`, 'info');
+}
+
+/**
+ * Ask the pen for fresh setting info (battery, memory used). The reply comes
+ * back as PEN_SETTING_INFO and updates penInfo. Skipped mid-transfer or
+ * mid-delete so it never interleaves with those GATT exchanges.
+ */
+export function refreshPenStatus() {
+  if (get(transferProgress).active || offlineTransferResolver || pendingDeletionResolver) return;
+  const controller = get(penController);
+  try {
+    controller?.RequestPenStatus?.();
+  } catch (error) {
+    debug('RequestPenStatus failed:', error);
+  }
 }
 
 async function handleAuthorized(mac) {
@@ -768,6 +789,9 @@ export async function deleteBooksFromPen(books) {
     console.warn(`⚠️ Deleted ${results.deletedBooks.length} books, ${results.failedBooks.length} failed`);
     log(`⚠️ Deleted ${results.deletedBooks.length} books, ${results.failedBooks.length} failed`, 'warning');
   }
+
+  // Memory used has changed; ask for the new figure for the pen menu.
+  if (results.deletedBooks.length) refreshPenStatus();
 
   return results;
 }

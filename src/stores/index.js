@@ -170,6 +170,7 @@ export {
   penInfo,
   penController,
   penBattery,
+  penMemoryUsed,
   transferProgress,
   transferPercent,
   setPenConnected,
