@@ -59,6 +59,8 @@
   import PageSelector from './PageSelector.svelte';
   import SketchStylePopover from './SketchStylePopover.svelte';
   import CanvasSearch from './CanvasSearch.svelte';
+  import EditorEmptyState from './EditorEmptyState.svelte';
+  import { editorActionsHost } from '$stores/editor-actions.js';
   import FilteredStrokesPanel from '../strokes/FilteredStrokesPanel.svelte';
   import CreatePageDialog from '../dialog/CreatePageDialog.svelte';
   import ExportSvgDialog from '../dialog/ExportSvgDialog.svelte';
@@ -2018,6 +2020,9 @@
     textPageOverlays = [];
   }
 
+  // Nothing loaded: the tool rows hide and EditorEmptyState says how to load (v3.14.0).
+  $: canvasEmpty = $strokeCount === 0 && $pastedCount === 0;
+
   // Re-render when text view toggle changes
   $: if (renderer && showTextView !== undefined) {
     renderStrokes(false);
@@ -2028,7 +2033,7 @@
 
 <div class="canvas-panel panel">
   <div class="panel-header">
-    <span class="header-title">Stroke Preview</span>
+    <span class="header-title">Editor</span>
 
     <!-- Selection lives beside the count it changes, rather than in the toolbar
          below with the actions that operate on it. -->
@@ -2076,6 +2081,9 @@
         {$strokeCount} strokes
       {/if}
     </span>
+
+    <!-- Save, Delete, Undo, Clear, Transcribe: ActionBar's row, moved here (v3.14.0). -->
+    <div class="editor-actions" use:editorActionsHost></div>
   </div>
 
   <!--
@@ -2098,7 +2106,7 @@
     user enters deliberately, it doesn't react to the stroke selection, and it
     appears as a whole group rather than as buttons interleaved with the others.
   -->
-  <div class="canvas-toolbar" role="toolbar" aria-label="Canvas tools">
+  <div class="canvas-toolbar" class:empty-hide={canvasEmpty} role="toolbar" aria-label="Canvas tools">
     <!-- Only the canvas-action groups scroll when the window is too narrow; the
          trailing tools stay put, and the ⋯ menu stays out of a clipping
          container so it can overhang the toolbar. -->
@@ -2271,11 +2279,11 @@
           class="tb-btn tb-more-btn"
           class:active={showMoreMenu}
           on:click|stopPropagation={() => showMoreMenu = !showMoreMenu}
-          title="Undo dragged page positions or page resizing"
+          title="Reset dragged page positions or page resizing"
           aria-haspopup="true"
           aria-expanded={showMoreMenu}
         >
-          Page Resets ▾
+          Layout ▾
         </button>
 
         {#if showMoreMenu}
@@ -2322,6 +2330,10 @@
       on:wheel={handleWheel}
     ></canvas>
     
+    {#if canvasEmpty}
+      <EditorEmptyState />
+    {/if}
+
     {#if $pointEditMode}
       <PointEditPanel on:focus={handleFocusPoint} on:edited={() => renderStrokes(true)} />
     {/if}
@@ -2353,7 +2365,7 @@
       ></div>
     {/if}
     
-    <div class="canvas-hint">
+    <div class="canvas-hint" class:empty-hide={canvasEmpty}>
       {#if $pastedCount > 0}
         <strong style="color: #4ade80;">Duplicated strokes (green) are movable</strong> • Box select to choose • Drag to move group • 
       {/if}
@@ -2375,7 +2387,7 @@
     </div>
   </div>
   
-  <div class="canvas-controls-row">
+  <div class="canvas-controls-row" class:empty-hide={canvasEmpty}>
     <CanvasControls 
       zoom={$canvasZoom}
       on:zoomIn={zoomIn}
@@ -2793,6 +2805,9 @@
     cursor: not-allowed;
     color: var(--text-secondary);
   }
+
+  .editor-actions { display: flex; align-items: center; align-self: center; margin-left: 12px; }
+  .empty-hide { display: none !important; }
 
   .stroke-count {
     font-size: 0.85rem;

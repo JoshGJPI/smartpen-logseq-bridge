@@ -12,7 +12,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
-import { CONTEXT_TABS, tabsFor, resolvePanelTab } from '$lib/left-panel.js';
+import { CONTEXT_TABS, tabsFor, resolvePanelTab, libraryNavKind } from '$lib/left-panel.js';
 import { buildContents } from '$lib/library-contents.js';
 import { activeTab, panelTab, setActiveTab, revealLeftPanel } from '../../stores/ui.js';
 import { navigateTo, clearAllViewerDirty, setViewerMode, setBookViewMode } from '../../stores/viewer.js';
@@ -20,16 +20,16 @@ import { contentsOpenBooks, setContentsBookOpen, leftPanelCollapsed, collapseLef
 
 describe('tabsFor / resolvePanelTab', () => {
   it('each destination has its own set', () => {
-    expect(tabsFor('library')).toEqual(['contents', 'transcription']);
-    expect(tabsFor('timeline')).toEqual(['dates', 'transcription']);
+    expect(tabsFor('library')).toEqual(['contents']);
+    expect(tabsFor('timeline')).toEqual(['dates']);
     expect(tabsFor('editor')).toEqual(['strokes', 'transcription', 'saved-pages']);
     expect(tabsFor('nonsense')).toBe(CONTEXT_TABS.editor);
   });
 
-  it('Transcripts is reachable from every destination', () => {
-    for (const d of Object.keys(CONTEXT_TABS)) {
-      expect(resolvePanelTab(d, 'transcription')).toBe('transcription');
-    }
+  it('Transcripts is the Editor only (v3.14.0)', () => {
+    expect(resolvePanelTab('editor', 'transcription')).toBe('transcription');
+    expect(resolvePanelTab('library', 'transcription')).toBe('contents');
+    expect(resolvePanelTab('timeline', 'transcription')).toBe('dates');
   });
 
   it('a tab outside the set shows the set\'s first tab', () => {
@@ -45,6 +45,20 @@ describe('tabsFor / resolvePanelTab', () => {
     expect(resolvePanelTab('editor', 'books')).toBe('strokes');
     expect(resolvePanelTab('library', 'books')).toBe('contents');
     expect(resolvePanelTab('timeline', undefined)).toBe('dates');
+  });
+});
+
+describe('libraryNavKind (v3.14.0)', () => {
+  it('follows the Library view', () => {
+    expect(libraryNavKind(null)).toBe('contents');
+    expect(libraryNavKind({ kind: 'tasks' })).toBe('tasks');
+    for (const kind of ['tag', 'untagged', 'tags', 'suggestions']) expect(libraryNavKind({ kind, tag: 'x' })).toBe('tags');
+    expect(libraryNavKind({ kind: 'nonsense' })).toBe('contents');
+  });
+
+  it('an open page reads beside the contents, even from a tag', () => {
+    expect(libraryNavKind({ kind: 'tag', tag: '2237-011' }, true)).toBe('contents');
+    expect(libraryNavKind({ kind: 'tasks' }, true)).toBe('contents');
   });
 });
 
@@ -74,8 +88,8 @@ describe('panelTab store', () => {
     expect(get(panelTab)).toBe('dates');
   });
 
-  it('search reveals Transcripts in the Library with the panel collapsed', () => {
-    navigateTo('library');
+  it('search reveals Transcripts in the Editor with the panel collapsed', () => {
+    navigateTo('editor');
     collapseLeftPanel();
     revealLeftPanel('transcription');
     expect(get(leftPanelCollapsed)).toBe(false);

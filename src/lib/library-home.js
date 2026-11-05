@@ -112,7 +112,7 @@ export function notebookCards(pagesByBook, bookIds, dates, nameOf = (b) => `B${b
 
 /** Sort chips, in display order. */
 export const SORT_ORDERS = [
-  { id: 'recent', label: 'Recently written' },
+  { id: 'recent', label: 'Recent', title: 'Most recently written first' },
   { id: 'name', label: 'Name' },
   { id: 'pages', label: 'Most pages' }
 ];
@@ -216,8 +216,8 @@ export function relativeDay(day, now = new Date()) {
 /** A notebook's page-grid sorts (v3.10.0), in display order. */
 export const PAGE_SORT_ORDERS = [
   { id: 'recent', label: 'Recent', title: 'Most recently written first' },
-  { id: 'page-asc', label: 'Page ↑', title: 'By page number, first page first' },
-  { id: 'page-desc', label: 'Page ↓', title: 'By page number, last page first' }
+  { id: 'page-asc', label: 'Page order ↑', title: 'By page number, first page first' },
+  { id: 'page-desc', label: 'Page order ↓', title: 'By page number, last page first' }
 ];
 
 /** localStorage key for the page-grid sort (a per-viewer convenience). */

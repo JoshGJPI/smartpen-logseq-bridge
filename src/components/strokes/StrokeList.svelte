@@ -85,8 +85,7 @@
 <div class="stroke-list">
   {#if $strokeCount === 0}
     <p class="empty-message">
-      Nothing on the canvas yet. Write with the pen, load pages from the Pages tab,
-      or use “Load into Editor” in the Library or Load in the Timeline (by session, day or range).
+      No strokes on the canvas yet.
     </p>
   {:else}
     <div class="list-header">

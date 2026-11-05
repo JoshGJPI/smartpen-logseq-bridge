@@ -29,20 +29,20 @@ describe('pageIdOf', () => {
 describe('pagePosition', () => {
   it('single page: index, total, label', () => {
     expect(pagePosition({ book: '388', pageId: '151' }, pagesByBook, false))
-      .toEqual({ index: 1, total: 5, left: '151', right: null, label: 'P151 of 5' });
+      .toEqual({ index: 1, total: 5, left: '151', right: null, names: 'P151', where: '2 of 5', label: 'P151 (2 of 5)' });
   });
 
   it('spread pairs with the next record, suffix included', () => {
-    expect(pagePosition({ book: '388', pageId: '151' }, pagesByBook, true).label).toBe('P151–P151b of 5');
-    expect(pagePosition({ book: '388', pageId: '151b' }, pagesByBook, true).label).toBe('P151b–P152 of 5');
+    expect(pagePosition({ book: '388', pageId: '151' }, pagesByBook, true).label).toBe('P151 · P151b (2–3 of 5)');
+    expect(pagePosition({ book: '388', pageId: '151b' }, pagesByBook, true).label).toBe('P151b · P152 (3–4 of 5)');
   });
 
   it('last page of a spread shows alone; a record without pageId uses its page', () => {
-    expect(pagePosition({ book: '388', pageId: '160' }, pagesByBook, true).label).toBe('P160 of 5');
+    expect(pagePosition({ book: '388', pageId: '160' }, pagesByBook, true).label).toBe('P160 (5 of 5)');
   });
 
   it('a volume counts its own pages only', () => {
-    expect(pagePosition({ book: '388v2', pageId: '1' }, pagesByBook, true).label).toBe('P1–P2 of 2');
+    expect(pagePosition({ book: '388v2', pageId: '1' }, pagesByBook, true).label).toBe('P1 · P2 (1–2 of 2)');
   });
 
   it('null for no selection, unknown book or page, missing index', () => {

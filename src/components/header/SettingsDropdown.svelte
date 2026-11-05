@@ -1,77 +1,50 @@
 <!--
-  SettingsDropdown.svelte - Settings panel dropdown for header
+  SettingsDropdown.svelte - Settings panel dropdown for the header.
+
+  v3.14.0: sections fold (SettingsSection) and are ordered by how often they
+  change: Pen, Notebooks, Data folder, Publish to LogSeq, Handwriting
+  recognition (MyScript keys, set once), Maintenance. Each heading carries a
+  one-line status, so a folded section still says whether it is set. Rescan
+  is under Data folder (also the Library home's ⋯ menu); Convert task boxes…, a
+  one-off, is under Maintenance with the Activity Log.
 -->
 <script>
   import {
-    myscriptAppKey,
-    myscriptHmacKey,
     hasMyScriptCredentials,
-    log,
     logMessages,
     openActivityLogDialog,
-    getMyScriptCredentials,
     autoPickPen,
-    rememberedPen
+    rememberedPen,
+    isScanning
   } from '$stores';
-  import { testMyScriptCredentials } from '$lib/myscript-api.js';
   import ActivityLogDialog from '../dialog/ActivityLogDialog.svelte';
   import ConvertTaskBoxesDialog from '../dialog/ConvertTaskBoxesDialog.svelte';
   import DataFolderSettings from '../settings/DataFolderSettings.svelte';
   import GraphFolderSettings from '../settings/GraphFolderSettings.svelte';
+  import MyScriptSettings from '../settings/MyScriptSettings.svelte';
+  import SettingsSection from '../settings/SettingsSection.svelte';
   import BooksTab from '../books/BooksTab.svelte';
-  import { dataFolderReady } from '$stores/settings.js';
-  import { readString, write } from '$lib/safe-storage.js';
-
-  const NOTEBOOKS_OPEN_KEY = 'settingsNotebooksOpen';
+  import { dataRoot, dataFolderReady, graphFolderReady } from '$stores/settings.js';
+  import { rescanLibrary } from '$lib/storage/rescan.js';
 
   let isOpen = false;
-  let showKeys = false;
-  let isTesting = false;
   let convertBoxesOpen = false;
-  // Notebooks is the longest section (a row per notebook), so it starts folded;
-  // whether it was left open is remembered.
-  let notebooksOpen = readString(NOTEBOOKS_OPEN_KEY) === 'true';
 
   function toggleDropdown() {
     isOpen = !isOpen;
   }
-  
+
   function closeDropdown() {
     isOpen = false;
-  }
-  
-  async function handleTestMyScript() {
-    if (!$hasMyScriptCredentials) {
-      log('Please enter MyScript API credentials', 'warning');
-      return;
-    }
-    
-    isTesting = true;
-    try {
-      const { appKey, hmacKey } = getMyScriptCredentials();
-      const result = await testMyScriptCredentials(appKey, hmacKey);
-      
-      if (result.success) {
-        log('MyScript credentials valid!', 'success');
-      } else {
-        log(`MyScript test failed: ${result.error}`, 'error');
-      }
-    } catch (error) {
-      log(`MyScript test error: ${error.message}`, 'error');
-    } finally {
-      isTesting = false;
-    }
-  }
-  
-  function handleNotebooksToggle(event) {
-    notebooksOpen = event.currentTarget.open;
-    write(NOTEBOOKS_OPEN_KEY, String(notebooksOpen));
   }
 
   /** Errors and warnings are what the log is opened for, so the button counts them. */
   $: logProblemCount = $logMessages.filter(
     e => e.level === 'error' || e.level === 'warning'
   ).length;
+
+  $: penName = $rememberedPen?.deviceName || ($rememberedPen?.deviceId ? 'a pen' : '');
+  $: folderName = ($dataRoot || '').split(/[\\/]/).filter(Boolean).pop() || '';
 
   function handleConvertTaskBoxes() {
     convertBoxesOpen = true;
@@ -82,7 +55,7 @@
     openActivityLogDialog();
     isOpen = false;  // Close settings dropdown — the dialog is modal
   }
-  
+
   // Close dropdown when clicking outside
   function handleClickOutside(event) {
     if (isOpen && !event.target.closest('.settings-dropdown')) {
@@ -96,7 +69,7 @@
 <div class="settings-dropdown">
   <!-- Icon only: the header is one slim row. The dot appears only when the data
        folder is not ready, the one setting without which nothing can be read or
-       saved; its details are under Data Folder below. -->
+       saved; its details are under Data folder below. -->
   <button
     class="settings-btn"
     on:click|stopPropagation={toggleDropdown}
@@ -111,162 +84,97 @@
       <span class="warn-dot" aria-hidden="true"></span>
     {/if}
   </button>
-  
+
   {#if isOpen}
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="dropdown-panel" on:click|stopPropagation>
       <div class="panel-header">
         <h3>Settings</h3>
-        <button class="close-btn" on:click={closeDropdown}>
+        <button class="close-btn" on:click={closeDropdown} aria-label="Close settings">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 6L6 18M6 6l12 12"/>
           </svg>
         </button>
       </div>
-      
-      <!-- MyScript Settings -->
-      <section class="settings-section">
-        <h4>MyScript Configuration</h4>
-        
-        <div class="input-group">
-          <label for="myscriptAppKey">Application Key</label>
-          {#if showKeys}
-            <input 
-              type="text"
-              id="myscriptAppKey"
-              bind:value={$myscriptAppKey}
-              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-            />
-          {:else}
-            <input 
-              type="password"
-              id="myscriptAppKey"
-              bind:value={$myscriptAppKey}
-              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-            />
-          {/if}
-        </div>
-        
-        <div class="input-group">
-          <label for="myscriptHmacKey">HMAC Key</label>
-          {#if showKeys}
-            <input 
-              type="text"
-              id="myscriptHmacKey"
-              bind:value={$myscriptHmacKey}
-              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-            />
-          {:else}
-            <input 
-              type="password"
-              id="myscriptHmacKey"
-              bind:value={$myscriptHmacKey}
-              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-            />
-          {/if}
-        </div>
-        
-        <label class="show-keys">
-          <input type="checkbox" bind:checked={showKeys} />
-          Show keys
+
+      <!-- Skip the Bluetooth picker for the pen used last time -->
+      <SettingsSection title="Pen" storageKey="smartpen-settings-open-pen" defaultOpen
+        status={penName ? `remembers ${penName}` : 'no pen remembered'}>
+        <label class="check">
+          <input type="checkbox" bind:checked={$autoPickPen} />
+          Connect straight to my last pen
         </label>
-        
-        <button 
-          class="btn btn-secondary" 
-          on:click={handleTestMyScript}
-          disabled={isTesting || !$hasMyScriptCredentials}
-        >
-          {isTesting ? 'Testing...' : '🔑 Test MyScript Keys'}
-        </button>
-        
         <p class="help-text">
-          <a href="https://developer.myscript.com/" target="_blank" rel="noopener">
-            Get MyScript API keys (free: 2,000 requests/month)
-          </a>
+          {#if penName}
+            Turn the pen on, then click Connect: {penName} is picked automatically.
+            If it isn't found within a few seconds, the picker opens.
+          {:else}
+            Connect once from the picker and the app will remember that pen.
+          {/if}
         </p>
-      </section>
-      
-      <!-- v2.0: Data Folder (local JSON storage) -->
-      <section class="settings-section">
-        <h4>Data Folder</h4>
+        {#if $rememberedPen}
+          <button class="btn" on:click={() => ($rememberedPen = null)}>Forget {penName || 'remembered pen'}</button>
+        {/if}
+      </SettingsSection>
+
+      <!-- Notebook names and volume routing (was the left panel's Books tab).
+           Keeps its old open-state key. -->
+      <SettingsSection title="Notebooks" storageKey="settingsNotebooksOpen" status="names and volumes">
+        <BooksTab />
+      </SettingsSection>
+
+      <SettingsSection title="Data folder" storageKey="smartpen-settings-open-data" defaultOpen={!$dataFolderReady}
+        status={$dataFolderReady ? folderName : 'not set'} warn={!$dataFolderReady}>
         <DataFolderSettings />
+        <button class="btn" on:click={rescanLibrary} disabled={$isScanning || !$dataFolderReady}
+          title="Read every page in the data folder again (after copying pages in from elsewhere)">
+          {$isScanning ? 'Scanning…' : 'Rescan data folder'}
+        </button>
+      </SettingsSection>
+
+      <!-- Publish to LogSeq graph (mirror saved pages as plugin assets) -->
+      <SettingsSection title="Publish to LogSeq" storageKey="smartpen-settings-open-graph"
+        status={$graphFolderReady ? 'graph folder set' : 'off'}>
+        <GraphFolderSettings />
+      </SettingsSection>
+
+      <SettingsSection title="Handwriting recognition" storageKey="smartpen-settings-open-myscript"
+        defaultOpen={!$hasMyScriptCredentials}
+        status={$hasMyScriptCredentials ? '✓ MyScript keys set' : 'MyScript keys needed'} warn={!$hasMyScriptCredentials}>
+        <MyScriptSettings />
+      </SettingsSection>
+
+      <!-- One-offs and diagnostics -->
+      <SettingsSection title="Maintenance" storageKey="smartpen-settings-open-maint"
+        status={logProblemCount ? `${logProblemCount} ${logProblemCount === 1 ? 'problem' : 'problems'} in the log` : ''}
+        warn={logProblemCount > 0}>
+        <button class="btn tool-btn" on:click={handleShowActivityLog}>
+          <span class="button-text">Activity Log</span>
+          {#if logProblemCount > 0}
+            <span class="badge problems">{logProblemCount}</span>
+          {/if}
+        </button>
+        <p class="help-text">
+          A running record of what the app has done this session — open it when
+          something did not behave as expected.
+        </p>
 
         <!-- One-off: pages transcribed before v3.3.0 kept MyScript's ☐ / ☑ as text -->
-        <button class="btn btn-secondary tool-btn" on:click={handleConvertTaskBoxes} disabled={!$dataFolderReady}>
-          <span class="button-icon">☑</span>
+        <button class="btn tool-btn" on:click={handleConvertTaskBoxes} disabled={!$dataFolderReady}>
           <span class="button-text">Convert task boxes…</span>
         </button>
         <p class="help-text">
           Older transcripts keep a drawn box as text (☐ Call Troy). This shows which lines would become
           TODO / DONE, and changes nothing until you confirm.
         </p>
-      </section>
-
-      <!-- Skip the Bluetooth picker for the pen used last time -->
-      <section class="settings-section">
-        <h4>Pen</h4>
-
-        <label class="show-keys">
-          <input type="checkbox" bind:checked={$autoPickPen} />
-          Connect straight to my last pen
-        </label>
-
-        <p class="help-text">
-          {#if $rememberedPen?.deviceName || $rememberedPen?.deviceId}
-            Turn the pen on, then click Connect: {$rememberedPen.deviceName || 'your pen'} is
-            picked automatically. If it isn't found within a few seconds, the picker opens.
-          {:else}
-            Connect once from the picker and the app will remember that pen.
-          {/if}
-        </p>
-
-        {#if $rememberedPen}
-          <button class="btn btn-secondary" on:click={() => ($rememberedPen = null)}>
-            Forget {$rememberedPen.deviceName || 'remembered pen'}
-          </button>
-        {/if}
-      </section>
-
-      <!-- Notebook names and volume routing: was the left panel's Books tab,
-           which is configuration rather than something to read beside a page
-           (reading-first package C). Same component, unchanged. -->
-      <section class="settings-section">
-        <details class="collapsible" open={notebooksOpen} on:toggle={handleNotebooksToggle}>
-          <summary><h4>Notebooks</h4></summary>
-          <BooksTab />
-        </details>
-      </section>
-
-      <!-- Publish to LogSeq graph (mirror saved pages as plugin assets) -->
-      <section class="settings-section">
-        <h4>Publish to LogSeq Graph</h4>
-        <GraphFolderSettings />
-      </section>
-
-      <!-- Troubleshooting — the activity log, on demand rather than always on screen -->
-      <section class="settings-section">
-        <h4>Troubleshooting</h4>
-
-        <button class="btn btn-secondary tool-btn" on:click={handleShowActivityLog}>
-          <span class="button-icon">🩺</span>
-          <span class="button-text">Activity Log</span>
-          {#if logProblemCount > 0}
-            <span class="badge problems">{logProblemCount}</span>
-          {/if}
-        </button>
-
-        <p class="help-text">
-          A running record of what the app has done this session — open it when
-          something did not behave as expected.
-        </p>
-      </section>
+      </SettingsSection>
     </div>
   {/if}
 </div>
 
-<!-- The dialog is mounted outside the {#if isOpen} block so it survives the
-     dropdown closing behind it. -->
+<!-- The dialogs are mounted outside the {#if isOpen} block so they survive the
+     dropdown closing behind them. -->
 <ActivityLogDialog />
 <ConvertTaskBoxesDialog bind:open={convertBoxesOpen} />
 
@@ -356,68 +264,6 @@
     color: var(--text-primary);
   }
 
-  .settings-section {
-    margin-bottom: 20px;
-    padding-bottom: 20px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .settings-section:last-child {
-    margin-bottom: 0;
-    padding-bottom: 0;
-    border-bottom: none;
-  }
-
-  .settings-section h4 {
-    font-size: 0.95rem;
-    font-weight: 600;
-    margin-bottom: 15px;
-    color: var(--text-primary);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .input-group {
-    margin-bottom: 15px;
-  }
-
-  .input-group label {
-    display: block;
-    font-size: 0.85rem;
-    margin-bottom: 5px;
-    color: var(--text-secondary);
-  }
-
-  .input-group input {
-    width: 100%;
-    padding: 10px;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    font-size: 0.875rem;
-  }
-
-  .input-group input:focus {
-    outline: none;
-    border-color: var(--accent);
-  }
-
-  .show-keys {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-    cursor: pointer;
-    margin-bottom: 12px;
-  }
-
-  .show-keys input {
-    width: auto;
-  }
-
   .btn {
     width: 100%;
     padding: 10px 16px;
@@ -433,14 +279,24 @@
     gap: 6px;
   }
 
-  .btn-secondary {
+  .btn {
     background: var(--bg-tertiary);
     color: var(--text-primary);
     border: 1px solid var(--border);
+    margin-bottom: 4px;
   }
 
-  .btn-secondary:hover:not(:disabled) {
+  .btn:hover:not(:disabled) {
     background: var(--border);
+  }
+
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    cursor: pointer;
   }
 
   .btn:disabled {
@@ -455,69 +311,12 @@
     margin-top: 10px;
   }
 
-  .help-text a {
-    color: var(--accent);
-    text-decoration: none;
-  }
-
-  .help-text a:hover {
-    text-decoration: underline;
-  }
-  
-  /* A collapsible section: the summary is the section heading plus a chevron. */
-  .collapsible summary {
-    list-style: none;
-    cursor: pointer;
-  }
-
-  .collapsible summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .collapsible summary h4 {
-    margin-bottom: 0;
-  }
-
-  .collapsible[open] summary h4 {
-    margin-bottom: 15px;
-  }
-
-  .collapsible summary h4::after {
-    content: '';
-    width: 6px;
-    height: 6px;
-    margin-left: auto;
-    border-right: 2px solid var(--text-secondary);
-    border-bottom: 2px solid var(--text-secondary);
-    transform: rotate(-45deg);
-    transition: transform 0.15s;
-  }
-
-  .collapsible[open] summary h4::after {
-    transform: rotate(45deg);
-  }
-
-  .collapsible summary:hover h4::after {
-    border-color: var(--text-primary);
-  }
-
-  .collapsible summary:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-    border-radius: 4px;
-  }
-
   /* "Open a tool" button: Activity Log. */
   .tool-btn {
     display: flex;
     align-items: center;
     gap: 8px;
     width: 100%;
-  }
-
-  .tool-btn .button-icon {
-    font-size: 1.1rem;
-    line-height: 1;
   }
 
   .tool-btn .button-text {

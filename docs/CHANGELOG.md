@@ -6,6 +6,66 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.14.0 — UX review after v3.13: one header, a left panel that follows the Library, quieter grids (November 2026)
+
+Josh asked for another UI/UX review once Back / Forward, task chips and tag-page tasks had landed, and approved every
+item (U1–U14 in [UX-REVIEW-V3.13.html](UX-REVIEW-V3.13.html), with mockups). Each was checked in the built app on a
+copy of the data folder at a 1586×937 window.
+
+- **One header in every view (U1).** In the Editor the header gained Save, Delete, Undo, Clear and Transcribe, 14
+  buttons in all: at 1586 px the page scrolled sideways (1637 px wide), the Settings gear went off-screen and search
+  shrank to "Search notes,". ActionBar stays mounted in the header (it owns the save dialog and in-flight handlers),
+  but in the Editor its row is moved into the Editor pane's title row (`stores/editor-actions.js`: StrokeCanvas marks
+  the slot with `use:editorActionsHost`, ActionBar moves itself with `use:placeIn`, and back when the Editor
+  unmounts; a moved node keeps its handlers). In the pane the order is Undo, Clear, Delete, Transcribe, Save last.
+  Outside the Editor the bar still shows whenever lib/capture-bar.js says so (pen connected, unsaved, busy), but as
+  **Save only**: Delete, Undo, Clear and Transcribe act on the canvas. Rejected: shrinking labels to icons, which only
+  moves the overflow to the next narrower window.
+- **The active Library tab goes home (U2).** On a tag page, Tasks or a notebook, clicking Library did nothing
+  (`navigateTo` returns `'same'`). It now calls BookViewer's `goHome()`, the breadcrumb's route (same unsaved prompt).
+- **One place for the Timeline's range (U3).** The left Dates tab repeated the feed head's range menu (From / To, ‹ ›,
+  presets) with an explanation box. The tab is now **Days**: a line saying which range it lists, then the day list.
+  The range is set from the date ▾ at the top of the feed. "Latest day" reads "Latest day with ink" beside Today.
+- **Transcripts is the Editor's tab (U4).** Outside the Editor its Review half was always empty and its Search half
+  repeats the header search (same matching). `CONTEXT_TABS`: Library → Contents, Timeline → Days. The global search's
+  "Browse every transcript in Transcripts → Search" shows in the Editor only; Ctrl+Shift+F was already canvas-only.
+- **The Library's left panel follows its view (U5, `components/library-nav/`).** `libraryNavKind()` (lib/left-panel.js):
+  beside Tasks, **Groups** (TaskGroupNav: the groups on screen with counts; a click scrolls to one); beside a tag's
+  page, Untagged, Manage tags or Suggestions, **Tags** (TagNav: projects, keywords, Untagged, the open one marked; a
+  click opens that tag's page); otherwise **Contents**. An open page always reads beside Contents, even one opened
+  from a tag. The Tasks view's find box and its groups moved into stores (`taskQuery`, `shownTaskGroups`) so the view
+  and the panel list the same groups.
+- **A tag filter in one row (U6).** A notebook's FILTER box held 53 chips over 5 rows. TagFilterRow shows the 8 tags
+  written most recently in this grid (`rankFilterChoices`: newest page carrying the tag, then count, then name), then
+  "+N tags ▾", which lists the rest A to Z with a find box (Enter picks a single match). Chosen tags always show.
+  Up to 10 chips are shown outright, since "+2" saves nothing.
+- **A tag's page shows the other tags (U7).** Its own tag was the first filter chip (matching every page) and on every
+  tile, pushing the co-tags into "+1 / +3". PageGrid's `hideTag` leaves it out of the filter, now labelled **Also
+  tagged**, and off the tile labels (the tile's tag editor still lists it).
+- **Task chips without All (U8).** All toggled every state on, then back to the default when all were on, which was
+  hard to predict. The four chips stay; a **Reset** link appears only while the choice is not Open + Waiting
+  (`isDefaultShown()`, `resetTaskStates()`); a state with no tasks is dimmed in place so the chips don't shift.
+- **One name per sort (U9).** "Recently written", "Recent" and "Last edited" were the same sort: it is **Recent**
+  everywhere ("Last edited" also suggested a file-write time, the `lastUpdated` trap). "Notebook" and "Page ↑ / ↓"
+  are **Page order** (↑ ↓ where both directions exist).
+- **Reader breadcrumb (U10).** "P179–P192 of 131" read as a page range (P180–P191 don't exist) followed by a count.
+  `pagePosition()` now returns `names` ("P179 · P192") and `where` ("130–131 of 131"); the breadcrumb mutes the
+  position (`pageCrumbParts()`). Not done: opening a page from a Recent grid in Single view (the review's "consider");
+  the spread partner is still the next page in the notebook.
+- **Rotation out of sight (U11).** Each reader page's ↺ Portrait ▾ ↻ sat on the page at 55% opacity. It is now hidden
+  until the page is hovered, a small ⟳ then, and the full control when the ⟳ is hovered or focused (collapsed with
+  `clip-path`, not `display: none`, so Tab still reaches it). A turned page keeps a faint ⟳.
+- **An Editor that starts empty (U12).** With nothing loaded the tool rows, hint line and bottom bar hide, and
+  EditorEmptyState offers Load a day from the Timeline, Pick pages… (left panel → Pages) and Connect pen. "Stroke
+  Preview" is **Editor**; "Page Resets ▾" is **Layout ▾** (Reset Layout, Reset Sizes); the Strokes tab's empty text is
+  one line.
+- **Settings by use (U13).** Folding sections (SettingsSection, open state kept per viewer, a one-line status beside
+  each heading): Pen, Notebooks, Data folder (with Rescan), Publish to LogSeq, Handwriting recognition (MyScript keys,
+  open only until they are set; MyScriptSettings.svelte), Maintenance (Activity Log, Convert task boxes…). Emoji
+  dropped from the folder buttons. SettingsDropdown went from 555 to 354 lines.
+- **Library home head (U14).** Rescan moved into a ⋯ menu (`lib/storage/rescan.js` `rescanLibrary()`, also in
+  Settings → Data folder); Manage tags shows only in Tag grouping.
+
 ## v3.13.0 — Back / Forward between views (November 2026)
 
 Josh asked for global back and forward buttons, e.g. to check a page's strokes from a project's tag page and come back

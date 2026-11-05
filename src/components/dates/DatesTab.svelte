@@ -1,6 +1,10 @@
 <!--
-  DatesTab.svelte — the Timeline's own panel: the range it shows and a day list
-  that jumps the feed to a day and marks the one at its top.
+  DatesTab.svelte — the Timeline's own panel ("Days"): the days in the range,
+  each jumping the feed to it, with the one at the feed's top marked.
+
+  v3.14.0: the From / To fields, ‹ › and presets left this panel. They were a
+  second copy of the feed head's range menu (RangeMenu), which is now the one
+  place to set the range; the panel's title line says which range it lists.
 
   The heat grid's job (the picture of the range), the summary, book filter and
   Load live once, in the feed's head (TimelineHead / TimelineFeed: Load session,
@@ -17,13 +21,12 @@
   import { onMount } from 'svelte';
   import {
     timelineIndex, timelineLoading, timelineError, timelineRange,
-    timelineRangeDays, timelineRangeExtent, loadTimeline, setTimelineRange
+    timelineRangeDays, loadTimeline
   } from '$stores/timeline.js';
   import { dataFolderReady } from '$stores/settings.js';
   import { bookAliases } from '$stores';
   import { feedDayInView, feedOrder, requestFeedJump } from '$stores/viewer.js';
-  import { dayStart, addDays } from '$lib/timeline.js';
-  import { RANGE_PRESETS, rangePreset } from '$lib/timeline-range.js';
+  import { dayStart } from '$lib/timeline.js';
   import { formatBookName } from '$utils/formatting.js';
   import { plural } from '$lib/plural.js';
 
@@ -45,24 +48,10 @@
     loadTimeline({ silent: true });
   }
 
-  function onFromInput(event) {
-    if (event.target.value) setTimelineRange(event.target.value, range.to || event.target.value);
-  }
-
-  function onToInput(event) {
-    if (event.target.value) setTimelineRange(range.from || event.target.value, event.target.value);
-  }
-
-  /** Same presets as the feed's Range ▾ (lib/timeline-range.js). */
-  function preset(kind) {
-    const r = rangePreset(kind, range, $timelineRangeExtent);
-    if (r) setTimelineRange(r.from, r.to);
-  }
-
-  function shift(n) {
-    if (!range.from || !range.to) return;
-    setTimelineRange(addDays(range.from, n), addDays(range.to, n));
-  }
+  $: days = $timelineRangeDays.length;
+  $: rangeNote = !range.from ? '' : range.from === range.to
+    ? longDate(range.from)
+    : `${longDate(range.from)} – ${longDate(range.to)}`;
 
   function longDate(day) {
     return dayStart(day)?.toLocaleDateString(undefined, {
@@ -88,29 +77,8 @@
   {:else if $timelineLoading && !$timelineIndex}
     <p class="notice">Reading capture dates…</p>
   {:else}
-    <div class="range">
-      <div class="field">
-        <label for="date-from">From</label>
-        <input id="date-from" type="date" value={range.from || ''} on:change={onFromInput} />
-      </div>
-      <div class="field">
-        <label for="date-to">To</label>
-        <input id="date-to" type="date" value={range.to || ''} on:change={onToInput} />
-      </div>
-      <div class="stepper">
-        <button type="button" title="Earlier" aria-label="Shift range earlier" on:click={() => shift(-1)}>‹</button>
-        <button type="button" title="Later" aria-label="Shift range later" on:click={() => shift(1)}>›</button>
-      </div>
-    </div>
-
-    <div class="presets">
-      {#each RANGE_PRESETS as p (p.id)}
-        <button type="button" on:click={() => preset(p.id)}>{p.label}</button>
-      {/each}
-    </div>
-
-    <p class="feed-note">
-      The Timeline is showing this range. Pick a day below to jump to it.
+    <p class="range-note" title="Set the range from the date at the top of the Timeline">
+      {days} {plural(days, 'day')} with ink · {rangeNote}
     </p>
 
     <div class="daylist">
@@ -177,89 +145,10 @@
     color: var(--error);
   }
 
-  .range {
-    display: flex;
-    gap: 8px;
-    align-items: flex-end;
-  }
-
-  .field {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    min-width: 0;
-  }
-
-  .field label {
-    font-size: 0.75rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-secondary);
-  }
-
-  .field input {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    color: var(--text-primary);
-    border-radius: 5px;
-    padding: 6px 7px;
-    font-size: 0.8rem;
-    width: 100%;
-  }
-
-  .stepper {
-    display: flex;
-    gap: 3px;
-  }
-
-  .stepper button {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    color: var(--text-secondary);
-    border-radius: 5px;
-    width: 26px;
-    height: 30px;
-    cursor: pointer;
-    font-size: 0.95rem;
-    line-height: 1;
-  }
-
-  .stepper button:hover {
-    color: var(--text-primary);
-    border-color: var(--accent);
-  }
-
-  .presets {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 5px;
-  }
-
-  .presets button {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    color: var(--text-secondary);
-    border-radius: 5px;
-    padding: 4px 9px;
-    font-size: 0.75rem;
-    cursor: pointer;
-  }
-
-  .presets button:hover {
-    color: var(--text-primary);
-    border-color: var(--accent);
-  }
-
-  .feed-note {
+  .range-note {
     margin: 0;
     font-size: 0.75rem;
-    line-height: 1.45;
-    color: #cdd7f2;
-    background: rgba(74, 124, 247, 0.1);
-    border: 1px solid rgba(74, 124, 247, 0.38);
-    border-radius: 6px;
-    padding: 8px 10px;
+    color: var(--text-secondary);
   }
 
   .daylist {

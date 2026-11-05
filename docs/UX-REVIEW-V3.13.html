@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UX Review v3.13</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Page chrome follows the viewer's theme; mockups use the app's own dark shell + light reading surface. */
+:root{
+  --bg:#f6f7fa; --surface:#fff; --fg:#1b1f2a; --muted:#5b6275; --rule:#dde1ea; --code-bg:#eceff5;
+  --accent:#3460d6; --bug:#c2362b; --bug-bg:#fdecea; --fric:#9a6700; --fric-bg:#fff6dc; --gap:#2d6a8f; --gap-bg:#e6f1f8;
+  --ok:#1f7a4d; --ok-bg:#e4f4ea;
+  --body:'IBM Plex Sans',system-ui,'Segoe UI',sans-serif; --mono:'IBM Plex Mono',ui-monospace,Consolas,monospace;
+  /* app palette (from the running app, same in both themes on purpose) */
+  --shell:#141a33; --shell2:#1b2347; --shell-line:#2a3463; --shell-ink:#e6e8f2; --shell-mut:#9aa3c7;
+  --a-bg:#f4f4f5; --a-card:#fff; --a-ink:#222; --a-mut:#888; --a-line:#ddd; --a-blue:#3f6fe0; --a-blue-bg:#eef3ff;
+  --proj:#0f766e; --proj-bg:#e3f5f2; --wait:#7a3fd0; --wait-bg:#f1eaff; --red:#e5484d; --green:#2f7d4f;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#12151d; --surface:#1a1e29; --fg:#e6e8ef; --muted:#9ba2b4; --rule:#2c3242; --code-bg:#242a38;
+  --accent:#7d9cf5; --bug:#ff8a7e; --bug-bg:#3a1d1b; --fric:#f1c35a; --fric-bg:#33290f; --gap:#7cc0e8; --gap-bg:#122a38;
+  --ok:#6fd49c; --ok-bg:#143022; color-scheme:dark }}
+:root[data-theme="dark"]{
+  --bg:#12151d; --surface:#1a1e29; --fg:#e6e8ef; --muted:#9ba2b4; --rule:#2c3242; --code-bg:#242a38;
+  --accent:#7d9cf5; --bug:#ff8a7e; --bug-bg:#3a1d1b; --fric:#f1c35a; --fric-bg:#33290f; --gap:#7cc0e8; --gap-bg:#122a38;
+  --ok:#6fd49c; --ok-bg:#143022; color-scheme:dark }
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 var(--body);margin:0}
+.wrap{max-width:1100px;margin:0 auto;padding:40px 16px 96px}
+.prose{max-width:780px}
+h1{font-size:2rem;margin:0 0 6px;letter-spacing:-.01em}
+h2{font-size:1.35rem;margin:56px 0 8px;padding-top:20px;border-top:1px solid var(--rule)}
+h3{font-size:1.02rem;margin:28px 0 6px}
+p{margin:8px 0}.sub{color:var(--muted)}
+code{font:.84em var(--mono);background:var(--code-bg);padding:1px 5px;border-radius:4px}
+.eyebrow{font:500 .72rem/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+nav.toc{display:flex;flex-wrap:wrap;gap:6px 16px;margin:18px 0 0;font-size:.85rem}
+nav.toc a{color:var(--muted);text-decoration:none}nav.toc a:hover{color:var(--accent)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:22px 0}
+.stat{background:var(--surface);border:1px solid var(--rule);border-radius:8px;padding:12px 14px}
+.stat b{display:block;font:600 1.6rem/1.1 var(--body)}.stat span{font-size:.82rem;color:var(--muted)}
+.stat.bug b{color:var(--bug)}.stat.fric b{color:var(--fric)}.stat.gap b{color:var(--gap)}
+.scroll{overflow-x:auto;margin:14px 0}
+table{border-collapse:collapse;width:100%;font-size:.87rem}
+th,td{text-align:left;padding:8px 9px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font:600 .7rem/1.3 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+td:first-child{font:600 .8rem var(--mono);white-space:nowrap}
+.sev{display:inline-block;font:600 .66rem/1.6 var(--mono);letter-spacing:.04em;text-transform:uppercase;padding:0 7px;border-radius:4px;white-space:nowrap}
+.sev.bug{background:var(--bug-bg);color:var(--bug)}.sev.fric{background:var(--fric-bg);color:var(--fric)}.sev.gap{background:var(--gap-bg);color:var(--gap)}
+.size{font:.74rem var(--mono);color:var(--muted)}
+.callout{border-left:3px solid var(--gap);background:var(--gap-bg);padding:12px 16px;border-radius:0 8px 8px 0;margin:16px 0}
+
+/* mockup frames */
+.mock{margin:16px 0 4px;display:grid;gap:14px}
+.mock.two{grid-template-columns:1fr 1fr}
+@media (max-width:860px){.mock.two{grid-template-columns:1fr}}
+.frame{min-width:0}
+.lbl{font:500 .7rem/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
+.lbl .now{color:var(--bug)}.lbl .fix{color:var(--ok)}
+.cap{font-size:.85rem;color:var(--muted);margin:6px 0 0}
+.shell{background:var(--shell);color:var(--shell-ink);border-radius:10px;padding:10px;font:13px/1.4 'Segoe UI',system-ui,sans-serif;overflow:hidden}
+.hdr{display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden}
+.brand{font-weight:700;margin-right:4px}
+.seg{display:inline-flex;background:var(--shell2);border-radius:7px;padding:2px}
+.seg span{padding:3px 9px;border-radius:5px;color:var(--shell-mut)}.seg span.on{background:#2c3a78;color:#fff;box-shadow:inset 0 -2px #6d8cff}
+.srch{flex:1;min-width:90px;background:var(--shell2);border:1px solid var(--shell-line);border-radius:7px;padding:3px 9px;color:var(--shell-mut);overflow:hidden;text-overflow:ellipsis}
+.hb{background:var(--shell2);border:1px solid var(--shell-line);border-radius:7px;padding:3px 8px;color:var(--shell-ink)}
+.hb.g{background:#1f5a3a;border-color:#2d7a50}.hb.r{background:#6b2430;border-color:#8b3040}.hb.pk{background:#8d3046;border-color:#b03a55}
+.hb.cn{background:var(--red);border-color:var(--red);color:#fff}
+.badge{background:#c26a1a;color:#fff;border-radius:99px;padding:0 6px;font-size:11px;margin-left:3px}
+.dim{opacity:.45}
+.over{outline:2px dashed var(--red);outline-offset:2px}
+.body{display:grid;grid-template-columns:200px 1fr;gap:10px;margin-top:10px}
+.body.nopanel{grid-template-columns:1fr}
+.lp{background:var(--shell2);border-radius:8px;padding:10px;min-height:160px}
+.tabs{display:flex;gap:12px;border-bottom:1px solid var(--shell-line);padding-bottom:6px;margin-bottom:8px;color:var(--shell-mut)}
+.tabs .on{color:#fff;box-shadow:0 8px 0 -6px #6d8cff}
+.lp .row{display:flex;justify-content:space-between;padding:3px 2px;border-bottom:1px solid var(--shell-line);font-size:12px}
+.lp .row.on{background:#2c3a78;border-radius:4px}
+.lp .h{font:600 10px/1 var(--mono);letter-spacing:.08em;color:var(--shell-mut);margin:10px 0 4px;text-transform:uppercase}
+.lp .muted{color:var(--shell-mut);font-size:12px}
+.pane{background:var(--a-bg);color:var(--a-ink);border-radius:8px;padding:10px;min-height:160px;min-width:0}
+.pt{display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap}
+.pt b{font-size:15px}
+.chip{display:inline-block;border:1px solid var(--a-line);background:#fff;border-radius:99px;padding:1px 8px;font-size:12px;color:#444;white-space:nowrap}
+.chip.on{border-color:var(--a-blue);color:var(--a-blue);background:var(--a-blue-bg);font-weight:600}
+.chip.w.on{border-color:var(--wait);color:var(--wait);background:var(--wait-bg)}
+.chip.zero{opacity:.45}
+.tag{display:inline-block;background:var(--proj-bg);color:var(--proj);border-radius:99px;padding:0 8px;font:600 11.5px/1.7 var(--mono);white-space:nowrap}
+.tag.on{outline:2px solid var(--proj)}
+.btn{display:inline-block;border:1px solid var(--a-line);background:#fff;border-radius:6px;padding:2px 9px;font-size:12px;color:#333;white-space:nowrap}
+.btn.p{background:var(--a-blue);border-color:var(--a-blue);color:#fff}
+.sp{flex:1}
+.card{background:#fff;border:1px solid #e3e3e6;border-radius:8px;padding:8px;font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.thumb{height:62px;border-radius:4px;background:repeating-linear-gradient(#fff 0 6px,#e7e7ea 6px 7px);border:1px solid #eee;margin-bottom:5px}
+.tile .meta{display:flex;gap:5px;align-items:center;font-size:11.5px}
+.tile .meta .d{background:#f0f0f2;border-radius:4px;padding:0 4px;color:#555}
+.ck{color:var(--green);margin-left:auto}
+.task{display:flex;gap:8px;padding:6px 4px;border-bottom:1px solid #eee;font-size:12.5px}
+.box{width:13px;height:13px;border:1.5px solid #999;border-radius:3px;flex:none;margin-top:2px}
+.task small{display:block;color:var(--a-mut);font-size:11px}
+.task small a{color:var(--a-blue)}
+.note{font-size:11.5px;color:var(--a-mut)}
+.canvas{background:#fff;border-radius:6px;min-height:150px;display:grid;place-items:center;text-align:center;color:#555;font-size:13px;padding:14px}
+.toolrow{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px}
+.pop{background:#fff;border:1px solid #d8d8de;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.15);padding:10px;font-size:12px;width:250px}
+.pop .r{display:flex;gap:5px;flex-wrap:wrap;margin:6px 0}
+.page{background:#fff;border:1px solid #e3e3e6;border-radius:4px;height:150px;position:relative;background-image:radial-gradient(#d6d6da 1px,transparent 1px);background-size:9px 9px}
+.page .ink{position:absolute;left:12px;right:30px;top:14px;height:60px;background:repeating-linear-gradient(#333 0 1.5px,transparent 1.5px 9px);opacity:.55;border-radius:2px}
+.rot{position:absolute;right:6px;top:6px;background:#fff;border:1px solid #ddd;border-radius:5px;padding:0 5px;font-size:12px;color:#666}
+.set{background:var(--shell2);border-radius:8px;padding:10px;font-size:12.5px}
+.set .s{border-bottom:1px solid var(--shell-line);padding:6px 0;display:flex;justify-content:space-between;gap:8px}
+.set .s span{color:var(--shell-mut)}
+ol.approve{padding-left:20px}ol.approve li{margin:6px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+<p class="eyebrow">smartpen-bridge · v3.13.0 · November 5, 2026 · all items approved and built in v3.14.0 (see CHANGELOG)</p>
+<h1>UI/UX review after v3.10–v3.13</h1>
+<p class="sub prose">This review covers the app as it stands after Back / Forward, task chips, tag-page tasks, the Tag-home groups and the Editor's
+move away from Dates. I drove the built app over CDP at a 1586×937 window, using a scratch copy of the data folder, and walked the Timeline,
+the Library home, a notebook grid, a tag page, Tasks, the reader, the Editor and Settings. No code is changed. Each item has an ID, so you can
+approve, reject or change items by ID.</p>
+<nav class="toc"><a href="#summary">Findings</a><a href="#m1">M1 Header</a><a href="#m2">M2 Timeline dates</a><a href="#m3">M3 Left panel</a>
+<a href="#m4">M4 Tag filter</a><a href="#m5">M5 Tag page</a><a href="#m6">M6 Reader</a><a href="#m7">M7 Editor</a><a href="#m8">M8 Settings</a><a href="#approve">Approve</a></nav>
+
+<div class="stats">
+  <div class="stat bug"><b>2</b><span>things that misbehave (U1, U2)</span></div>
+  <div class="stat fric"><b>9</b><span>duplicated or crowded UI to streamline</span></div>
+  <div class="stat gap"><b>3</b><span>wording and labels to make consistent</span></div>
+</div>
+
+<h2 id="summary">Findings and proposals</h2>
+<p class="prose sub">Effort: S is under half a day, M is about a day, L is several days. Items marked “needs check” depend on something I could not
+confirm from one session, and I'd confirm it before building.</p>
+<div class="scroll"><table>
+<thead><tr><th>ID</th><th>Kind</th><th>What I saw</th><th>Proposal</th><th>Size</th></tr></thead>
+<tbody>
+<tr><td>U1</td><td><span class="sev bug">Breaks</span></td>
+<td>In the Editor, the header gains Save, Delete, Undo, Clear and Transcribe, which brings it to 14 buttons. At a 1586 px window the page scrolls
+sideways (content is 1637 px wide), the Settings gear goes off-screen and search shrinks to “Search notes,”. The window's minimum width is 1200, so
+this happens at sizes the app allows.</td>
+<td>Move the Editor's actions into the Editor pane's own title row, beside “Stroke Preview”. The global header then shows the same items in every
+view. <a href="#m1">M1</a></td><td class="size">M</td></tr>
+<tr><td>U2</td><td><span class="sev bug">Dead click</span></td>
+<td>On a tag page, Tasks or a notebook grid, clicking the active <b>Library</b> tab does nothing (<code>navigateTo</code> returns
+<code>'same'</code>). The only way home is the breadcrumb or Back.</td>
+<td>Clicking the active Library tab goes to the Library home, the way a browser's home button does. The history records it as a normal entry.</td>
+<td class="size">S</td></tr>
+<tr><td>U3</td><td><span class="sev fric">Duplicate</span></td>
+<td>The Timeline has two date controls for one range. The left Dates tab has From / To, Latest day / 1 / 7 / 30 days, an explanation box and a day
+list. The feed head has a date dropdown, ‹ ›, Today, a histogram and Load range. “Latest day” and “Today” are separate buttons that look alike.</td>
+<td>Make the feed head the only range control: the date dropdown opens a popover with From / To and the presets, and “Latest day” joins
+Today. The left tab becomes just the day list (jump to a day), with no explanation box. <a href="#m2">M2</a></td><td class="size">M</td></tr>
+<tr><td>U4</td><td><span class="sev fric">Duplicate</span></td>
+<td>Library and Timeline both carry a <b>Transcripts</b> tab. Its Review half is empty outside the Editor (“No new transcripts to review”), and its
+Search half repeats the header's global search, which uses the same matching (<code>global-search.js</code> reuses
+<code>transcript-search.js</code>).</td>
+<td>Show Transcripts in the Editor only. Outside the Editor, “search saved transcripts” is the header search. <i>Needs check:</i> whether you
+use anything in Transcripts → Search that global search lacks (for example copying from results).</td><td class="size">S</td></tr>
+<tr><td>U5</td><td><span class="sev fric">Mismatch</span></td>
+<td>The Library's left panel always shows Contents, a notebook tree that repeats the home's notebook cards. On Tasks and on a tag page it has
+nothing to do with what's open.</td>
+<td>Make the left panel follow the Library view. On Tasks it lists projects with open counts and jumps to a group. On a tag page it lists all tags,
+so you can hop between projects. In a notebook or the reader it stays as Contents. <a href="#m3">M3</a></td><td class="size">M</td></tr>
+<tr><td>U6</td><td><span class="sev fric">Crowded</span></td>
+<td>The JPI Dotted grid's FILTER box holds 53 tag chips across 5 rows, which is about a third of the pane before the first page.</td>
+<td>Show one row: the 6–8 tags used most recently in this notebook, then “+45 more ▾”, which opens a type-to-filter list. Selected tags stay
+pinned in the row. The same component serves every grid. <a href="#m4">M4</a></td><td class="size">M</td></tr>
+<tr><td>U7</td><td><span class="sev fric">Redundant</span></td>
+<td>On the 2237-011 tag page, “2237-011 8” is the first filter chip (it matches every page) and every tile repeats the 2237-011 pill. The real
+co-tags get pushed to “+1 / +3”.</td>
+<td>On a tag's page, leave the tag itself out of the filter and off the tiles, so the tiles show the other tags. <a href="#m5">M5</a></td>
+<td class="size">S</td></tr>
+<tr><td>U8</td><td><span class="sev fric">Crowded</span></td>
+<td>The tag page's Tasks panel holds 5 state chips in a narrow column, and they wrap. Waiting 0 and Cancelled 0 take as much room as the
+others. The <b>All</b> chip is a toggle that resets to the default when everything is on, which is hard to predict.</td>
+<td>Use one set of chips everywhere: the four state toggles, with zero-count states dimmed, and a small “Reset” link that appears only when the
+choice isn't Open + Waiting. Drop <b>All</b>. On the tag page, show the counts in a compact form. <a href="#m5">M5</a></td><td class="size">S</td></tr>
+<tr><td>U9</td><td><span class="sev gap">Label</span></td>
+<td>One sort has three names: “Recently written” (Library home), “Recent” (notebook grid) and “Last edited” (tag page). Page order is
+called “Page ↑ / Page ↓” in one place and “Notebook” in another.</td>
+<td>Use <b>Recent</b> and <b>Page order</b> everywhere, keeping ↑ ↓ only where both directions exist. Keep “Last edited” out, because it
+suggests a file-write time, which is the <code>lastUpdated</code> trap.</td><td class="size">S</td></tr>
+<tr><td>U10</td><td><span class="sev gap">Label</span></td>
+<td>When P179 is opened from a Recent-sorted grid, the reader shows the spread “P179–P192 of 131”. The page ids look like a page range (P180–191
+don't exist), and “of 131” is a count, not a page number.</td>
+<td>The breadcrumb reads “P179 · P192”, with “113 / 131” as a separate muted position. Also consider making Single the default when a page
+is opened from a grid sorted by Recent, since the spread partner is not what you just looked at. <a href="#m6">M6</a></td><td class="size">S</td></tr>
+<tr><td>U11</td><td><span class="sev fric">Crowded</span></td>
+<td>Each reader page has its own row for the ↺ “Portrait” ▾ ↻ rotation control, and the row is always visible. Rotation is set about once
+per page, ever.</td>
+<td>Show rotation as a small ⟳ button on the page corner when you hover, with the choices in its menu. This gives the page one row back.
+<a href="#m6">M6</a></td><td class="size">S</td></tr>
+<tr><td>U12</td><td><span class="sev fric">Empty state</span></td>
+<td>The empty Editor shows two rows of disabled tools, “Page Resets ▾”, a bottom bar with “Filter: 0/0, No pages”, and the load hint in the left
+panel, not on the canvas.</td>
+<td>When the canvas is empty, hide the tool rows and put the hint on the canvas as buttons: Open Timeline, Pick pages, Connect pen. Rename
+“Page Resets ▾” to “Layout ▾” (it resets page positions and scaling). Rename “Stroke Preview” to “Editor”. <a href="#m7">M7</a></td><td class="size">S</td></tr>
+<tr><td>U13</td><td><span class="sev fric">Order</span></td>
+<td>Settings opens on MyScript keys, which are set once. Pen and Notebooks, which you change more often, are further down. Convert task boxes…, a
+one-off migration, sits among the Data Folder actions. The emoji icons don't match the app's line icons.</td>
+<td>Reorder to Pen, Notebooks, Data folder, Publish to LogSeq, MyScript, Maintenance (Convert task boxes, Activity Log). Make each section
+collapsible, and use line icons. <a href="#m8">M8</a></td><td class="size">S</td></tr>
+<tr><td>U14</td><td><span class="sev gap">Placement</span></td>
+<td>The Library home's top row mixes view controls (Notebook | Tag, the sorts) with maintenance (Rescan). Manage tags shows while grouped by
+Notebook, where it has nothing to act on.</td>
+<td>Move Rescan into a ⋯ menu at the end of the row (and keep it in Settings → Data folder). Show Manage tags only in Tag grouping.</td>
+<td class="size">S</td></tr>
+</tbody></table></div>
+
+<div class="callout prose">Working well, keep as is: Back / Forward with named tooltips, the sticky Tasks head, project headings that open the
+tag page, tile date ranges, the Timeline's Today, and the header Tasks count.</div>
+
+<!-- M1 -->
+<h2 id="m1">M1 · One header for every view (U1)</h2>
+<div class="mock">
+ <div class="frame"><p class="lbl"><span class="now">Now</span> · Editor at 1586 px, header 51 px wider than the window</p>
+  <div class="shell"><div class="hdr over">
+   <span class="brand">smartpen-bridge</span><span class="seg"><span>Library</span><span>Timeline</span><span class="on">Editor</span></span>
+   <span class="srch" style="flex:0 0 90px">Search notes,</span><span class="hb">‹</span><span class="hb dim">›</span>
+   <span class="hb g">Save</span><span class="hb r">Delete</span><span class="hb">Undo</span><span class="hb">Clear</span><span class="hb pk">Transcribe 0/0</span>
+   <span class="hb">Print</span><span class="hb">Tasks<span class="badge">27</span></span><span class="hb">Pen: not connected</span><span class="hb cn">Connect</span>
+  </div></div>
+  <p class="cap">⚙ Settings is cut off past the right edge, and the window shows a horizontal scrollbar.</p></div>
+ <div class="frame"><p class="lbl"><span class="fix">Proposed</span> · same header everywhere; Editor actions in its pane</p>
+  <div class="shell"><div class="hdr">
+   <span class="brand">smartpen-bridge</span><span class="seg"><span>Library</span><span>Timeline</span><span class="on">Editor</span></span>
+   <span class="srch">Search notes, dates, notebooks…  Ctrl K</span><span class="hb">‹</span><span class="hb dim">›</span><span class="sp"></span>
+   <span class="hb">Print</span><span class="hb">Tasks<span class="badge">27</span></span><span class="hb">● Pen: not connected</span><span class="hb cn">Connect</span><span class="hb">⚙</span>
+  </div>
+  <div class="body nopanel"><div class="pane">
+   <div class="pt"><b>Editor</b><span class="note">569 strokes · 4 pages</span><span class="sp"></span>
+    <span class="btn">↶ Undo</span><span class="btn">Clear</span><span class="btn" style="color:#b3261e">Delete</span>
+    <span class="btn" style="border-color:#c0436a;color:#c0436a">✎ Transcribe 4</span><span class="btn p">Save</span></div>
+   <div class="toolrow"><span class="btn">Decorative</span><span class="btn">Duplicate</span><span class="btn">Edit Points</span><span class="btn">Volume ▾</span><span class="btn">Set time…</span><span class="btn">Text</span><span class="btn">Copy</span><span class="sp"></span><span class="btn">Layout ▾</span></div>
+   <div class="canvas" style="min-height:70px">canvas</div>
+  </div></div></div>
+  <p class="cap">Save sits rightmost, where the eye ends, and is the only filled button. Destructive actions sit apart from it. The header stays
+  the same width in all three views.</p></div>
+</div>
+
+<!-- M2 -->
+<h2 id="m2">M2 · One place to set the Timeline's range (U3)</h2>
+<div class="mock two">
+ <div class="frame"><p class="lbl"><span class="now">Now</span> · two range controls</p>
+  <div class="shell"><div class="body" style="grid-template-columns:170px 1fr;margin:0">
+   <div class="lp"><div class="tabs"><span class="on">Dates</span><span>Transcripts</span></div>
+    <div class="muted">FROM ▢ 11/05 &nbsp; TO ▢ 11/05 ‹ ›</div>
+    <div style="margin:6px 0;display:flex;gap:4px;flex-wrap:wrap"><span class="hb">Latest day</span><span class="hb">1 day</span><span class="hb">7 days</span><span class="hb">30 days</span></div>
+    <div class="muted" style="border:1px solid var(--shell-line);border-radius:6px;padding:5px">The Timeline is showing this range. Pick a day below to jump to it.</div>
+    <div class="row" style="margin-top:6px"><span>Thu, Nov 5</span><span>569</span></div></div>
+   <div class="pane"><div class="pt"><span class="btn">‹</span><b>November 5, 2026 ▾</b><span class="btn">›</span><span class="btn">Today</span><span class="sp"></span><span class="btn">All books ▾</span><span class="btn">Load range into Editor</span></div>
+    <div class="thumb" style="height:30px;background:repeating-linear-gradient(90deg,#c9d6f7 0 4px,transparent 4px 7px)"></div></div>
+  </div></div></div>
+ <div class="frame"><p class="lbl"><span class="fix">Proposed</span> · the feed head owns the range</p>
+  <div class="shell"><div class="body" style="grid-template-columns:150px 1fr;margin:0">
+   <div class="lp"><div class="tabs"><span class="on">Days</span></div>
+    <div class="row on"><span>Thu, Nov 5</span><span>569</span></div><div class="row"><span>Wed, Nov 4</span><span>212</span></div><div class="row"><span>Mon, Nov 2</span><span>88</span></div><div class="row"><span>Fri, Oct 30</span><span>301</span></div></div>
+   <div class="pane" style="position:relative"><div class="pt"><span class="btn">‹</span><b>Nov 5, 2026 ▾</b><span class="btn">›</span><span class="btn">Today</span><span class="sp"></span><span class="btn">All books ▾</span><span class="btn">Load into Editor</span></div>
+    <div class="pop" style="position:absolute;left:40px;top:40px">
+     <b>Show</b><div class="r"><span class="chip on">1 day</span><span class="chip">7 days</span><span class="chip">30 days</span><span class="chip">Custom</span></div>
+     <div class="r"><span class="btn">From 11/05/2026</span><span class="btn">To 11/05/2026</span></div>
+     <div class="note">“Latest day with ink” is ‹ from today when today is empty.</div></div>
+    <div class="thumb" style="height:30px;margin-top:120px;background:repeating-linear-gradient(90deg,#c9d6f7 0 4px,transparent 4px 7px)"></div></div>
+  </div></div>
+  <p class="cap">The left panel becomes the day list only. The range lives in one popover, and Today plus ‹ › cover “Latest day”.</p></div>
+</div>
+
+<!-- M3 -->
+<h2 id="m3">M3 · The left panel follows the Library view (U4, U5)</h2>
+<div class="mock two">
+ <div class="frame"><p class="lbl"><span class="fix">Proposed</span> · on Tasks</p>
+  <div class="shell"><div class="body" style="grid-template-columns:160px 1fr;margin:0">
+   <div class="lp"><div class="h">Projects · open</div>
+    <div class="row"><span>2002-107</span><span>1</span></div><div class="row"><span>2023-036</span><span>1</span></div><div class="row on"><span>2206-017</span><span>3</span></div>
+    <div class="row"><span>2237-011</span><span>2</span></div><div class="row"><span>2327-017</span><span>2</span></div><div class="row"><span>No project</span><span>6</span></div></div>
+   <div class="pane"><div class="pt"><b>Tasks</b><span class="chip on">Open 27</span><span class="chip w on">Waiting 8</span><span class="chip">Done 81</span><span class="chip">Cancelled 7</span></div>
+    <span class="tag">2206-017</span> <span class="note">3 tasks</span>
+    <div class="task"><span class="box"></span><div>schedule Port Lavaca site visit…<small><a>JPI Dotted · p.176</a> · Oct 27–29</small></div></div>
+    <div class="task"><span class="box"></span><div>Gap in men's room needs to be called…<small><a>JPI Dotted · p.175</a> · Oct 23–27</small></div></div></div>
+  </div></div>
+  <p class="cap">Clicking a project scrolls to its group, and its counts follow the state chips. The list also follows Group by (dates or notebooks).</p></div>
+ <div class="frame"><p class="lbl"><span class="fix">Proposed</span> · on a tag page</p>
+  <div class="shell"><div class="body" style="grid-template-columns:160px 1fr;margin:0">
+   <div class="lp"><div class="h">Projects</div>
+    <div class="row"><span>2206-017</span><span>3 pp</span></div><div class="row on"><span>2237-011</span><span>8 pp</span></div><div class="row"><span>2327-017</span><span>7 pp</span></div><div class="row"><span>P2026-194</span><span>2 pp</span></div>
+    <div class="h">Keywords</div><div class="row"><span>meeting</span><span>12 pp</span></div><div class="row"><span>Untagged</span><span>41 pp</span></div></div>
+   <div class="pane"><div class="pt"><b>Project</b><span class="tag">2237-011</span><span class="note">8 pages · 3 notebooks</span></div>
+    <div class="grid" style="grid-template-columns:repeat(3,1fr)"><div class="card tile"><div class="thumb"></div><div class="meta"><b>P29</b><span class="d">Jun 27</span></div></div><div class="card tile"><div class="thumb"></div><div class="meta"><b>P3</b><span class="d">Oct 28</span></div></div><div class="card tile"><div class="thumb"></div><div class="meta"><b>P142</b><span class="d">Aug 31–Oct 23</span></div></div></div></div>
+  </div></div>
+  <p class="cap">Moving between projects takes one click and no trip home. In a notebook or the reader the panel stays Contents. Transcripts
+  shows only in the Editor (U4).</p></div>
+</div>
+
+<!-- M4 -->
+<h2 id="m4">M4 · A tag filter that fits on one line (U6)</h2>
+<div class="mock two">
+ <div class="frame"><p class="lbl"><span class="now">Now</span> · 53 chips, 5 rows</p>
+  <div class="pane"><div class="pt"><b>JPI Dotted</b><span class="note">131 pages</span><span class="sp"></span><span class="chip on">Recent</span><span class="chip">Page ↑</span><span class="chip">Page ↓</span></div>
+   <div class="card" style="line-height:2"><span class="note">FILTER</span>
+    <span class="tag">2002-107</span> <span class="tag">2007-147</span> <span class="tag">2023-036</span> <span class="tag">2084-017</span> <span class="tag">2206-017</span> <span class="tag">2225-258</span> <span class="tag">2225-279</span> <span class="tag">2237-011</span> <span class="tag">2325-010</span> <span class="tag">2327-017</span> <span class="tag">2327-018</span> <span class="tag">2327-020</span> <span class="tag">2327-021</span> <span class="tag">2662-007</span> <span class="tag">2694-045</span> <span class="tag">3388-003</span> <span class="tag">3536-224</span> <span class="tag">4045-003</span> <span class="tag">4741-003</span> <span class="tag">4981-003</span> <span class="tag">5444-005</span> <span class="tag">5444-006</span> <span class="tag">5656-006</span> <span class="note">… 30 more</span></div></div></div>
+ <div class="frame"><p class="lbl"><span class="fix">Proposed</span> · recent tags plus a search</p>
+  <div class="pane" style="position:relative"><div class="pt"><b>JPI Dotted</b><span class="note">131 pages</span><span class="sp"></span><span class="chip on">Recent</span><span class="chip">Page order ↑↓</span><span class="btn">☐ Select</span></div>
+   <div class="card" style="display:flex;gap:5px;align-items:center;flex-wrap:wrap"><span class="note">FILTER</span><span class="tag on">2237-011 ✕</span>
+    <span class="tag">5656-006</span><span class="tag">2206-017</span><span class="tag">6032-001</span><span class="tag">5444-006</span><span class="tag">P2026-194</span><span class="btn">+47 tags ▾</span></div>
+   <div class="pop" style="position:absolute;right:10px;top:78px"><span class="btn" style="display:block">🔍 Find a tag…  “23”</span>
+    <div style="margin-top:6px;line-height:2"><span class="tag">2325-010</span> <span class="tag">2327-017</span> <span class="tag">2327-018</span> <span class="tag">2327-020</span> <span class="tag">2327-021</span> <span class="tag">2023-036</span></div></div>
+   <div class="grid" style="margin-top:8px"><div class="card tile"><div class="thumb"></div></div><div class="card tile"><div class="thumb"></div></div><div class="card tile"><div class="thumb"></div></div><div class="card tile"><div class="thumb"></div></div></div></div>
+  <p class="cap">Selected tags stay pinned in the row. The others are ordered by the last day each was written, so this week's projects are
+  one click away.</p></div>
+</div>
+
+<!-- M5 -->
+<h2 id="m5">M5 · Tag page: show the other tags; compact task chips (U7, U8)</h2>
+<div class="mock two">
+ <div class="frame"><p class="lbl"><span class="now">Now</span></p>
+  <div class="pane"><div class="pt"><b>Project</b><span class="tag">2237-011</span><span class="sp"></span><span class="chip on">Notebook</span><span class="chip">Last edited</span></div>
+   <div style="display:grid;grid-template-columns:1fr 150px;gap:8px">
+    <div><div class="card" style="margin-bottom:6px"><span class="note">FILTER</span> <span class="tag">2237-011 8</span> <span class="tag">2327-017</span> <span class="tag">5444-006</span> …</div>
+     <div class="grid" style="grid-template-columns:1fr 1fr"><div class="card tile"><div class="thumb"></div><div class="meta"><b>P142</b><span class="d">Aug 31–Oct 23</span><span class="ck">✓</span></div><span class="tag">2237-011</span> <span class="tag">2327-017</span> <span class="note">+1</span></div>
+      <div class="card tile"><div class="thumb"></div><div class="meta"><b>P178</b><span class="d">Oct 30–Nov 5</span><span class="ck">✓</span></div><span class="tag">2237-011</span> <span class="tag">5444-006</span> <span class="note">+3</span></div></div></div>
+    <div><div class="note">TASKS 9</div><div style="line-height:2"><span class="chip on">Open 2</span> <span class="chip w on">Waiting 0</span> <span class="chip">Done 7</span> <span class="chip">Cancelled 0</span> <span class="chip">All 9</span></div></div>
+   </div></div></div>
+ <div class="frame"><p class="lbl"><span class="fix">Proposed</span></p>
+  <div class="pane"><div class="pt"><b>Project</b><span class="tag">2237-011</span><span class="sp"></span><span class="chip on">Page order</span><span class="chip">Recent</span></div>
+   <div style="display:grid;grid-template-columns:1fr 150px;gap:8px">
+    <div><div class="card" style="margin-bottom:6px"><span class="note">ALSO TAGGED</span> <span class="tag">2327-017</span> <span class="tag">5444-006</span> <span class="tag">5656-006</span> <span class="btn">+6</span></div>
+     <div class="grid" style="grid-template-columns:1fr 1fr"><div class="card tile"><div class="thumb"></div><div class="meta"><b>P142</b><span class="d">Aug 31–Oct 23</span><span class="ck">✓</span></div><span class="tag">2327-017</span> <span class="tag">4981-003</span></div>
+      <div class="card tile"><div class="thumb"></div><div class="meta"><b>P178</b><span class="d">Oct 30–Nov 5</span><span class="ck">✓</span></div><span class="tag">5444-006</span> <span class="tag">6206-001</span> <span class="note">+2</span></div></div></div>
+    <div><div class="note">TASKS</div><div style="line-height:2"><span class="chip on">Open 2</span> <span class="chip">Done 7</span> <span class="chip w zero">Waiting 0</span> <span class="chip zero">Cancelled 0</span></div>
+     <div class="task"><span class="box"></span><div>Look into reducing through bolt spacing…<small><a>p.178</a></small></div></div></div>
+   </div></div>
+  <p class="cap">The filter is labelled “Also tagged” and leaves out the page's own tag, so the tiles show what is different about each page.
+  Zero states are dimmed, not removed, so the chips don't jump around. There is no All chip. A “Reset” link shows only after you change the
+  choice (not shown).</p></div>
+</div>
+
+<!-- M6 -->
+<h2 id="m6">M6 · Reader: a clearer position, rotation on hover (U10, U11)</h2>
+<div class="mock two">
+ <div class="frame"><p class="lbl"><span class="now">Now</span></p>
+  <div class="shell"><div class="hdr"><span class="muted">Library › JPI Dotted ›</span> <b>P179–P192 of 131</b></div>
+   <div class="body nopanel"><div class="pane" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    <div><div class="pt"><b style="font-size:13px">JPI Dotted — P179</b><span class="sp"></span>🖨 ✎</div><div class="pt"><span class="sp"></span><span class="btn">↺</span><span class="btn">Portrait ▾</span><span class="btn">↻</span></div><div class="page"><div class="ink"></div></div></div>
+    <div><div class="pt"><b style="font-size:13px">JPI Dotted — P192</b><span class="sp"></span>🖨 ✎</div><div class="pt"><span class="sp"></span><span class="btn">↺</span><span class="btn">Portrait ▾</span><span class="btn">↻</span></div><div class="page"></div></div>
+   </div></div></div></div>
+ <div class="frame"><p class="lbl"><span class="fix">Proposed</span></p>
+  <div class="shell"><div class="hdr"><span class="muted">Library › JPI Dotted ›</span> <b>P179 · P192</b> <span class="muted">&nbsp;page 113 of 131</span></div>
+   <div class="body nopanel"><div class="pane" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    <div><div class="pt"><b style="font-size:13px">JPI Dotted — P179</b><span class="sp"></span>🖨 ✎</div><div class="page" style="height:178px"><div class="ink"></div><span class="rot">⟳ ▾</span></div></div>
+    <div><div class="pt"><b style="font-size:13px">JPI Dotted — P192</b><span class="sp"></span>🖨 ✎</div><div class="page" style="height:178px"></div></div>
+   </div></div></div>
+  <p class="cap">The ⟳ button appears on the page you hover. Its menu holds ↺ / ↻ and Portrait / 90° / 180° / 270°. A page that is already
+  turned keeps a faint ⟳ visible, so you can tell it was turned.</p></div>
+</div>
+
+<!-- M7 -->
+<h2 id="m7">M7 · An Editor that starts empty (U12)</h2>
+<div class="mock two">
+ <div class="frame"><p class="lbl"><span class="now">Now</span></p>
+  <div class="pane"><div class="pt"><b>Stroke Preview</b><span class="btn dim">Select All</span><span class="btn dim">Deselect</span><span class="sp"></span><span class="note">0 strokes</span></div>
+   <div class="toolrow dim"><span class="btn">Decorative</span><span class="btn">Duplicate</span><span class="btn">Edit Points</span><span class="btn">Volume ▾</span><span class="btn">Set time…</span><span class="btn">Text</span><span class="btn">Copy</span><span class="btn">Portrait ▾</span></div>
+   <div class="toolrow"><span class="sp"></span><span class="btn p">Page Resets ▾</span></div>
+   <div class="canvas"></div>
+   <div class="toolrow" style="margin-top:6px"><span class="btn">− 100% +</span><span class="btn">Fit</span><span class="btn">Reset View</span><span class="btn">Order Book | Date</span><span class="btn">Filter: 0/0 · No pages</span><span class="btn dim">Sketch</span><span class="btn">Export ▾</span></div></div></div>
+ <div class="frame"><p class="lbl"><span class="fix">Proposed</span></p>
+  <div class="pane"><div class="pt"><b>Editor</b><span class="sp"></span><span class="note">empty</span></div>
+   <div class="canvas" style="min-height:226px"><div><b style="font-size:15px">Nothing on the canvas</b><br>
+    <span class="note">Write with the pen, or bring saved pages in.</span><br><br>
+    <span class="btn p">Load a day from the Timeline</span> <span class="btn">Pick pages…</span> <span class="btn">Connect pen</span></div></div></div>
+  <p class="cap">The tools appear with the first stroke. The left panel's paragraph goes away, and its Strokes tab simply lists nothing.</p></div>
+</div>
+
+<!-- M8 -->
+<h2 id="m8">M8 · Settings ordered by use (U13)</h2>
+<div class="mock two">
+ <div class="frame"><p class="lbl"><span class="now">Now</span></p>
+  <div class="set"><div class="s"><b>MyScript Configuration</b><span>keys · test</span></div><div class="s"><b>Data Folder</b><span>Browse · Verify · Explorer · Convert task boxes…</span></div>
+   <div class="s"><b>Pen</b><span>auto-connect</span></div><div class="s"><b>Notebooks</b><span>names · volumes</span></div><div class="s"><b>Publish to LogSeq Graph</b><span>folder</span></div><div class="s"><b>Troubleshooting</b><span>Activity Log</span></div></div></div>
+ <div class="frame"><p class="lbl"><span class="fix">Proposed</span></p>
+  <div class="set"><div class="s"><b>▾ Pen</b><span>auto-connect · last pen</span></div><div class="s"><b>▾ Notebooks</b><span>names · volumes</span></div>
+   <div class="s"><b>▸ Data folder</b><span>path · Browse · Open · Rescan</span></div><div class="s"><b>▸ Publish to LogSeq</b><span>graph folder</span></div>
+   <div class="s"><b>▸ Handwriting recognition</b><span>MyScript keys ✓ set</span></div><div class="s"><b>▸ Maintenance</b><span>Convert task boxes… · Activity Log</span></div></div>
+  <p class="cap">Sections that are already set start collapsed and show a one-line status, such as “MyScript keys ✓ set”. Rescan moves here
+  from the Library home (U14).</p></div>
+</div>
+
+<h2 id="approve">Approval list</h2>
+<p class="prose">Reply with IDs, for example “U1, U2, U6, U7 yes; U3 later; no U13”. Suggested order, with the cheapest and most visible
+first:</p>
+<ol class="approve prose">
+ <li><b>Fix first:</b> U1 (Editor header overflow) and U2 (Library tab goes home).</li>
+ <li><b>Small, clear wins:</b> U7, U8, U9, U10, U12, U14.</li>
+ <li><b>Layout changes worth a mockup round in the app:</b> U6 (tag filter), U11 (rotation on hover), U13 (Settings).</li>
+ <li><b>Bigger restructures:</b> U3 (one Timeline range control), and U4 with U5 (a left panel that follows the view). These touch
+ <code>lib/left-panel.js</code> <code>CONTEXT_TABS</code> and should go in one change.</li>
+</ol>
+<p class="prose sub">None of these change storage, PageDoc format, task writes or tags in <code>_tags.json</code>. They are display and layout only. U1
+moves buttons but keeps their handlers (<code>ActionBar</code>, which is over the ~300-line guideline and would be split while it is touched).</p>
+</div>
+</body>
+</html>

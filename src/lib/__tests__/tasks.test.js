@@ -8,7 +8,7 @@ import {
   markerField, markerOf, isClosedState, taskStateOf, withTaskState, toggledState, stateLabel, buildTaskRows, taskCounts,
   filterTaskRows, groupTaskRows, searchTaskRows, summaryWithState, taskMenuChoices, NOT_A_TASK, isTaskState, isLineState, taskKey, parseTaskFilter,
   parseTaskGroup, latestTaskRows, NO_PROJECT, NO_DATE,
-  parseShownStates, toggleShownState, toggleAllShownStates, rowsInStates, taskRowsForTag, DEFAULT_SHOWN_STATES
+  parseShownStates, toggleShownState, isDefaultShown, rowsInStates, taskRowsForTag, DEFAULT_SHOWN_STATES
 } from '../tasks.js';
 
 describe('task state', () => {
@@ -259,8 +259,11 @@ describe('state chips as toggles (v3.12.0)', () => {
   });
 
   it('All turns everything on, then back to the default', () => {
-    expect(toggleAllShownStates(['todo'])).toEqual(['todo', 'waiting', 'done', 'cancelled']);
-    expect(toggleAllShownStates(['cancelled', 'done', 'waiting', 'todo'])).toEqual(['todo', 'waiting']);
+    expect(isDefaultShown(['waiting', 'todo'])).toBe(true);
+    expect(isDefaultShown(['todo'])).toBe(false);
+    expect(isDefaultShown(['todo', 'waiting', 'done'])).toBe(false);
+    expect(isDefaultShown([])).toBe(false);
+    expect(isDefaultShown('junk')).toBe(true); // unreadable falls back to the default
   });
 
   it('keeps the rows in the shown states', () => {

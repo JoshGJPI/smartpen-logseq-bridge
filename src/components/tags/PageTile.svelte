@@ -29,13 +29,16 @@
   export let pending = false;
   /** (event) => void: open, or tick in select mode */
   export let onClick = () => {};
+  /** Left off the label chips (a tag's own page, v3.14.0); the tag editor still has it. */
+  export let hideTag = null;
 
   let popOpen = false;
   let pop;
   let input;
 
   $: tags = $pageTags[tile.key] || [];
-  $: shown = tags.slice(0, 2);
+  $: labelTags = hideTag ? tags.filter((t) => t !== hideTag) : tags;
+  $: shown = labelTags.slice(0, 2);
   $: book = tile.record.book;
   $: title = `${notebook ? `${notebook}, ` : ''}P${tile.pageId} · ${(tile.record.strokeCount || 0).toLocaleString()} strokes · ${tile.first ? `${writtenRange(tile.first, tile.last)}${tile.days > 1 ? ` (${tile.days} ${plural(tile.days, 'day')})` : ''}` : 'no dated ink'}${tile.transcribed ? ' · transcribed' : ''}${tags.length ? ` · ${tags.join(', ')}` : ''}`;
   $: if (selecting) popOpen = false;
@@ -62,7 +65,7 @@
     </span>
     <span class="pt-tags">
       {#each shown as t (t)}<TagChip tag={t} />{/each}
-      {#if tags.length > 2}<span class="pt-n">+{tags.length - 2}</span>{/if}
+      {#if labelTags.length > 2}<span class="pt-n">+{labelTags.length - 2}</span>{/if}
       {#if !tags.length}<span class="pt-none">no tags</span>{/if}
     </span>
   </button>

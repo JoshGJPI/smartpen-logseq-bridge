@@ -25,9 +25,10 @@ export function pageIdOf(record) {
  * @param {{book: string, pageId: string}|null} selection
  * @param {Record<string, Array<{pageId?: string, page?: number}>>} pagesByBook
  * @param {boolean} spread
- * @returns {{index: number, total: number, left: string, right: string|null, label: string}|null}
+ * @returns {{index: number, total: number, left: string, right: string|null, names: string, where: string, label: string}|null}
  *          null when nothing is open or the page is not in the scan;
- *          label is "P12 of 48" or "P12–P13 of 48"
+ *          names is "P12" or "P12 · P13", where is the position ("5 of 48", "5–6 of 48"),
+ *          label is both: "P12 · P13 (5–6 of 48)"
  */
 export function pagePosition(selection, pagesByBook, spread) {
   if (!selection) return null;
@@ -36,8 +37,11 @@ export function pagePosition(selection, pagesByBook, spread) {
   if (index < 0) return null;
   const left = pageIdOf(pages[index]);
   const right = spread && index + 1 < pages.length ? pageIdOf(pages[index + 1]) : null;
-  const range = right ? `P${left}–P${right}` : `P${left}`;
-  return { index, total: pages.length, left, right, label: `${range} of ${pages.length}` };
+  // "P179 · P192", not "P179–P192": the right page is the next one that exists,
+  // so a dash read as a range of pages that aren't there (v3.14.0).
+  const names = right ? `P${left} · P${right}` : `P${left}`;
+  const where = `${index + 1}${right ? `–${index + 2}` : ''} of ${pages.length}`;
+  return { index, total: pages.length, left, right, names, where, label: `${names} (${where})` };
 }
 
 /**

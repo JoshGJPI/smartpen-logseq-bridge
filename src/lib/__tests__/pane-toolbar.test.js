@@ -7,7 +7,7 @@
  * pairs pages exactly as BookViewer's spread does, including suffixed pages.
  */
 import { describe, it, expect } from 'vitest';
-import { viewOptionsFor, pageCrumb } from '$lib/pane-toolbar.js';
+import { viewOptionsFor, pageCrumb, pageCrumbParts } from '$lib/pane-toolbar.js';
 
 describe('viewOptionsFor', () => {
   it('Editor: nothing', () => {
@@ -45,6 +45,14 @@ describe('viewOptionsFor', () => {
   });
 });
 
+describe('pageCrumbParts', () => {
+  const pages = { '388': [{ pageId: '179', page: 179 }, { pageId: '192', page: 192 }] };
+  it('names the pages apart from their position', () => {
+    expect(pageCrumbParts({ book: '388', pageId: '179' }, pages, true)).toEqual({ names: 'P179 · P192', where: '1–2 of 2' });
+    expect(pageCrumbParts(null, pages, true)).toBeNull();
+  });
+});
+
 describe('pageCrumb', () => {
   const pages = {
     '388': [{ pageId: '12', page: 12 }, { pageId: '13', page: 13 }, { pageId: '13b', page: 13 }],
@@ -52,20 +60,20 @@ describe('pageCrumb', () => {
   };
 
   it('single page', () => {
-    expect(pageCrumb({ book: '388', pageId: '12' }, pages, false)).toBe('P12 of 3');
+    expect(pageCrumb({ book: '388', pageId: '12' }, pages, false)).toBe('P12 (1 of 3)');
   });
 
   it('spread pairs with the next record, suffix included', () => {
-    expect(pageCrumb({ book: '388', pageId: '12' }, pages, true)).toBe('P12–P13 of 3');
-    expect(pageCrumb({ book: '388', pageId: '13' }, pages, true)).toBe('P13–P13b of 3');
+    expect(pageCrumb({ book: '388', pageId: '12' }, pages, true)).toBe('P12 · P13 (1–2 of 3)');
+    expect(pageCrumb({ book: '388', pageId: '13' }, pages, true)).toBe('P13 · P13b (2–3 of 3)');
   });
 
   it('last page of a book in a spread shows alone', () => {
-    expect(pageCrumb({ book: '388', pageId: '13b' }, pages, true)).toBe('P13b of 3');
+    expect(pageCrumb({ book: '388', pageId: '13b' }, pages, true)).toBe('P13b (3 of 3)');
   });
 
   it('falls back to page number when a record has no pageId', () => {
-    expect(pageCrumb({ book: '388v2', pageId: '4' }, pages, true)).toBe('P4 of 1');
+    expect(pageCrumb({ book: '388v2', pageId: '4' }, pages, true)).toBe('P4 (1 of 1)');
   });
 
   it('empty for no selection, unknown book or page', () => {

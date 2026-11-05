@@ -1,8 +1,11 @@
 <!--
   ActionBar.svelte - The capture controls: Save, Delete, Undo, Clear, Transcribe.
 
-  Sits inline in the header row (compact buttons, labels drop to icons on a
-  narrow window) so a connected pen doesn't add a second header line.
+  Mounted in the header. In the Editor (v3.14.0) its row is drawn in the Editor
+  pane's title row instead (stores/editor-actions.js `placeIn`), so the header
+  keeps one width in every view. Elsewhere it shows only when there is capture
+  work (lib/capture-bar.js), and then only Save: Delete, Undo, Clear and
+  Transcribe act on the canvas, which is the Editor's.
 
   Always mounted (it owns the save dialog, the progress popups and the in-flight
   save / transcribe handlers); `visible` only decides whether the buttons are
@@ -58,6 +61,8 @@
   import { clearContextInk, contextInkPageKeys } from '$stores/context-ink.js';
   import { writable } from 'svelte/store';
   import SaveConfirmDialog from '$components/dialog/SaveConfirmDialog.svelte';
+  import { viewerMode } from '$stores';
+  import { editorActionsSlot, placeIn } from '$stores/editor-actions.js';
   
   // Transcription progress state
   const transcriptionProgress = writable({
@@ -89,6 +94,9 @@
   
   /** Whether the bar's row is drawn. The dialog and popups' logic run regardless. */
   export let visible = true;
+
+  // In the Editor the row lives in the Editor pane; elsewhere it is Save only.
+  $: inPane = $viewerMode === 'editor' && !!$editorActionsSlot;
 
   let isSaving = false;
   let showSaveConfirmDialog = false;
@@ -627,7 +635,7 @@
   on:cancel={handleCancelSave}
 />
 
-<div class="action-bar" class:hidden={!visible}>
+<div class="action-bar" class:hidden={!visible} class:in-pane={inPane} class:save-only={!inPane} use:placeIn={inPane ? $editorActionsSlot : null}>
   <!-- Transcription Progress Popup -->
   {#if $transcriptionProgress.active}
     <div class="transcription-popup">
@@ -746,7 +754,7 @@
   </button>
   
   <button 
-    class="action-btn minor"
+    class="action-btn clear-btn minor"
     on:click={handleClearCanvas}
     title="Clear all strokes from canvas"
     aria-label="Clear canvas"
@@ -796,6 +804,20 @@
   .action-bar.hidden {
     display: none;
   }
+
+  /* Outside the Editor only Save shows (and the progress popups). */
+  .action-bar.save-only .action-btn:not(.save-btn),
+  .action-bar.save-only .divider {
+    display: none;
+  }
+
+  /* In the Editor pane: Undo, Clear, Delete, then Transcribe, Save last (v3.14.0). */
+  .action-bar.in-pane .undo-btn { order: 1; }
+  .action-bar.in-pane .clear-btn { order: 2; }
+  .action-bar.in-pane .delete-btn { order: 3; }
+  .action-bar.in-pane .divider { order: 4; }
+  .action-bar.in-pane .transcribe-btn { order: 5; }
+  .action-bar.in-pane .save-btn { order: 6; }
 
   .action-btn {
     display: flex;

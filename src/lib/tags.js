@@ -447,7 +447,7 @@ export function untaggedCard(records, map, dates = null) {
 export const TAG_SORT_ORDERS = [
   { id: 'pages', label: 'Most pages' },
   { id: 'name', label: 'Name' },
-  { id: 'recent', label: 'Recently written' }
+  { id: 'recent', label: 'Recent', title: 'Newest page written under the tag first' }
 ];
 
 export const TAG_SORT_KEY = 'smartpen-library-tag-sort';
@@ -487,8 +487,8 @@ export function parseCollapsedGroups(raw) {
 
 /** Sorts for the pages under one tag (or Untagged), in display order. */
 export const TAG_PAGE_SORT_ORDERS = [
-  { id: 'notebook', label: 'Notebook', title: 'By notebook, then page number' },
-  { id: 'recent', label: 'Last edited', title: 'Most recently written first (a page written on several days counts its latest stroke)' }
+  { id: 'notebook', label: 'Page order', title: 'By notebook, then page number' },
+  { id: 'recent', label: 'Recent', title: 'Most recently written first (a page written on several days counts its latest stroke)' }
 ];
 export const TAG_PAGE_SORT_KEY = 'smartpen-tag-page-sort';
 
@@ -610,6 +610,28 @@ export function filterChoices(items, chosen = [], mode = 'any') {
     .map(([tag, count]) => ({ tag, count }))
     .sort((a, b) => compareTags(a.tag, b.tag));
 }
+
+/**
+ * Filter choices most recently written first (v3.14.0), so a long filter row can
+ * show only the first few: each tag ranks by the newest `lastMs` among the items
+ * carrying it, then by count, then by name. Items without `lastMs` rank last.
+ * @param {Array<{tag: string, count: number}>} choices  filterChoices()
+ * @param {Array<{tags?: string[], lastMs?: number|null}>} items
+ * @returns {Array<{tag: string, count: number}>} a new array
+ */
+export function rankFilterChoices(choices, items) {
+  const newest = new Map();
+  for (const it of items || []) {
+    const ms = Number.isFinite(it.lastMs) ? it.lastMs : -Infinity;
+    for (const t of it.tags || []) if (!newest.has(t) || ms > newest.get(t)) newest.set(t, ms);
+  }
+  const at = (t) => (newest.has(t) ? newest.get(t) : -Infinity);
+  return [...(choices || [])].sort((a, b) =>
+    (at(b.tag) - at(a.tag)) || (b.count - a.count) || compareTags(a.tag, b.tag));
+}
+
+/** How many filter chips a grid shows before "+N tags" (v3.14.0). */
+export const FILTER_CHIPS_SHOWN = 8;
 
 /**
  * Type-ahead for the tag editor: existing tags containing the typed text (the

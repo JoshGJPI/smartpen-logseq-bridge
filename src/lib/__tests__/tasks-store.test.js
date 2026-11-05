@@ -22,7 +22,7 @@ import { timelineIndex } from '$stores/timeline.js';
 import { logMessages } from '$stores/ui.js';
 import {
   taskRows, taskCountsStore, openTaskCount, taskOverrides, taskUndo, changeTask, toggleTask,
-  undoTaskChange, clearTasks, setTaskGroupBy, taskGroupBy, toggleTaskState, toggleAllTaskStates, taskStatesShown
+  undoTaskChange, clearTasks, setTaskGroupBy, taskGroupBy, toggleTaskState, resetTaskStates, taskStatesShown
 } from '$stores/tasks.js';
 
 const lastLog = () => get(logMessages)[0] || {};
@@ -92,9 +92,7 @@ describe('derived rows', () => {
     expect(get(taskStatesShown)).toEqual(['waiting', 'done']);
     toggleTaskState('nonsense');
     expect(get(taskStatesShown)).toEqual(['waiting', 'done']);
-    toggleAllTaskStates();
-    expect(get(taskStatesShown)).toEqual(['todo', 'waiting', 'done', 'cancelled']);
-    toggleAllTaskStates();
+    resetTaskStates();
     expect(get(taskStatesShown)).toEqual(['todo', 'waiting']);
     setTaskGroupBy('book');
     expect(get(taskGroupBy)).toBe('book');

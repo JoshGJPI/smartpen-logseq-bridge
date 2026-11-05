@@ -90,13 +90,13 @@
 
   <div class="button-group">
     <button class="btn btn-secondary" on:click={handleBrowse}>
-      📁 Browse…
+      Browse…
     </button>
     <button class="btn btn-secondary" on:click={handleVerify} disabled={isChecking || !$graphRoot}>
-      {isChecking ? 'Checking…' : '🔄 Verify'}
+      {isChecking ? 'Checking…' : 'Verify'}
     </button>
     <button class="btn btn-secondary" on:click={handleOpen} disabled={!$graphFolderReady}>
-      🗂️ Open in Explorer
+      Open in Explorer
     </button>
   </div>
 

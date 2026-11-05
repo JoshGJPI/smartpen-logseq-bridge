@@ -201,8 +201,11 @@
       </div>
       <SittingHover {svgEl} frameEl={contentEl} {strokes} {dayModel} {viewBounds} view="{zoom},{panX},{panY}" paused={isPanning} bind:hot={hotSitting} on:open={(e) => onOpenDay(e.detail.day)} />
     </div>
-    <div class="pi-corner">
-      <OrientationControl {book} {pageId} compact />
+    <!-- One small ⟳ until the page is hovered (v3.14.0); the full control then.
+         A turned page keeps the ⟳ faintly visible, so you can tell. -->
+    <div class="pi-corner" class:turned={rotation !== 0}>
+      <span class="pi-rot" aria-hidden="true" title="Rotate (hover)">&#x27F3;</span>
+      <span class="pi-rot-full"><OrientationControl {book} {pageId} compact /></span>
     </div>
   {:else}
     <div class="pi-empty">No strokes on this page</div>
@@ -235,7 +238,9 @@
   svg.dimmed path { stroke: #c3c7d4; }
   .pi-canvas:not(.panning) svg.dimmed { cursor: pointer; }
 
-  /* Rotation is per page, so it sits on the page: quiet until the page is hovered. */
+  /* Rotation is per page, so it sits on the page. It is set about once per page,
+     so it stays out of sight (v3.14.0): hidden until the page is hovered, a small
+     ⟳ then, the full control when the ⟳ itself is hovered or focused. */
   .pi-corner {
     position: absolute;
     top: 6px;
@@ -244,11 +249,19 @@
     padding: 2px;
     border-radius: 7px;
     background: rgba(255, 255, 255, 0.9);
-    opacity: 0.55;
+    opacity: 0;
     transition: opacity 0.15s;
   }
+  .pi-corner.turned { opacity: 0.45; }
   .pi:hover .pi-corner,
   .pi-corner:focus-within { opacity: 1; }
+  .pi-rot { display: inline-block; padding: 0 6px; font-size: 14px; line-height: 22px; color: #666; cursor: default; }
+  /* Collapsed, not display:none, so Tab still reaches the buttons (focus-within opens it). */
+  .pi-rot-full { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .pi-corner:hover .pi-rot-full,
+  .pi-corner:focus-within .pi-rot-full { position: static; width: auto; height: auto; overflow: visible; clip-path: none; display: inline-flex; }
+  .pi-corner:hover .pi-rot,
+  .pi-corner:focus-within .pi-rot { display: none; }
 
   .pi-empty {
     flex: 1;

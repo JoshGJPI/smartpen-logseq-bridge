@@ -2,8 +2,9 @@
   LibraryHomeHead.svelte — the Library home's header row: title and summary,
   Group by Notebook | Tag (v3.1.0), the sort chips for that grouping, the
   Suggestions (n) entry when there are unreviewed project numbers, Manage
-  tags (v3.2.0, the tag manager as a Library view) and Rescan. In Tag grouping,
-  Cards | Pills (v3.11.0) picks the tag display. Choices persist per viewer
+  tags (v3.2.0, the tag manager as a Library view; shown in Tag grouping only since
+  v3.14.0) and a ⋯ menu with Rescan (v3.14.0; also in Settings → Data folder). In
+  Tag grouping, Cards | Pills (v3.11.0) picks the tag display. Choices persist per viewer
   (stores/library.js).
 -->
 <script>
@@ -14,10 +15,8 @@
   import { dataFolderReady } from '$stores/settings.js';
   import { suggestionCount, ensureSuggestionScan } from '$stores/tag-suggestions.js';
   import { openLibraryView } from '$stores/viewer.js';
-  import { loadTimeline } from '$stores/timeline.js';
-  import { scanLocalPages } from '$lib/storage/scan.js';
-  import { clearPageCache } from '$lib/viewer/page-cache.js';
-  import { thumbs } from '$lib/viewer/thumbs.js';
+  import { rescanLibrary } from '$lib/storage/rescan.js';
+  import OverflowMenu from './OverflowMenu.svelte';
   import { SORT_ORDERS } from '$lib/library-home.js';
   import { TAG_SORT_ORDERS } from '$lib/tags.js';
   import { plural } from '$lib/plural.js';
@@ -40,12 +39,12 @@
     else setLibrarySort(id);
   }
 
-  async function rescan() {
-    thumbs.clear();
-    clearPageCache();
-    await scanLocalPages();
-    loadTimeline({ silent: true });
-  }
+  $: moreItems = [{
+    label: $isScanning ? 'Scanning…' : 'Rescan data folder',
+    title: 'Read every page in the data folder again (after copying pages in from elsewhere)',
+    disabled: $isScanning || !$dataFolderReady,
+    onSelect: rescanLibrary
+  }];
 </script>
 
 <div class="lh-head">
@@ -76,14 +75,13 @@
       Suggestions <span class="badge">{$suggestionCount}</span>
     </button>
   {/if}
-  {#if $dataFolderReady}
+  {#if $dataFolderReady && byTag}
     <button class="lh-rescan" on:click={() => openLibraryView({ kind: 'tags' })} title="Rename, merge or delete tags; bring back dismissed suggestions">
       Manage tags
     </button>
   {/if}
-  <button class="lh-rescan" on:click={rescan} disabled={$isScanning || !$dataFolderReady}>
-    {$isScanning ? 'Scanning…' : 'Rescan'}
-  </button>
+  {#if $isScanning}<span class="lh-sum">Scanning…</span>{/if}
+  <OverflowMenu items={moreItems} label="More for the Library" />
 </div>
 
 <style>

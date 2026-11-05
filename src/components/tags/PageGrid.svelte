@@ -19,7 +19,7 @@
   import { dataFolderReady } from '$stores/settings.js';
   import { pendingSuggestions, ensureSuggestionScan } from '$stores/tag-suggestions.js';
   import { formatBookName } from '$utils/formatting.js';
-  import { recordTagKey, filterByTags, filterChoices } from '$lib/tags.js';
+  import { recordTagKey, filterByTags, filterChoices, rankFilterChoices } from '$lib/tags.js';
   import { buildSequence } from '$lib/viewer/reading-order.js';
   import { plural } from '$lib/plural.js';
   import TagFilterRow from './TagFilterRow.svelte';
@@ -37,6 +37,9 @@
   /** (record, sequence) => void: sequence is null when Tag order would equal Book order. */
   export let onOpen = () => {};
   export let emptyText = 'No pages.';
+  /** A tag's own page (v3.14.0): every page has this tag, so it is left out of the
+      filter and off the tiles, which then show what else each page is tagged. */
+  export let hideTag = null;
 
   const NO_FILTER = { chosen: [], mode: 'any' };
   let selecting = false;
@@ -48,7 +51,8 @@
 
   $: items = tiles.map((t) => {
     const key = recordTagKey(t.record);
-    return { ...t, key, tags: $pageTags[key] || [] };
+    const all = $pageTags[key] || [];
+    return { ...t, key, tags: hideTag ? all.filter((x) => x !== hideTag) : all };
   });
   $: filter = (filterKey && $gridFilters[filterKey]) || NO_FILTER;
   $: chosen = filter.chosen;
@@ -59,7 +63,7 @@
     setFilter(chosen.filter((c) => items.some((it) => it.tags.includes(c))), mode);
   }
   $: shown = filterByTags(items, chosen, mode);
-  $: choices = filterChoices(items, chosen, mode);
+  $: choices = rankFilterChoices(filterChoices(items, chosen, mode), items);
   $: hasTags = items.some((it) => it.tags.length);
   $: selectedKeys = shown.filter((it) => selected.has(it.key)).map((it) => it.key);
 
@@ -111,7 +115,7 @@
     <div class="pg-bar">
       {#if hasTags || chosen.length}
         <div class="pg-filter">
-          <TagFilterRow {choices} {chosen} {mode} onToggle={toggleTag} onMode={(m) => setFilter(chosen, m)} onClear={() => setFilter([], mode)} />
+          <TagFilterRow {choices} {chosen} {mode} label={hideTag ? 'Also tagged' : 'Filter'} onToggle={toggleTag} onMode={(m) => setFilter(chosen, m)} onClear={() => setFilter([], mode)} />
         </div>
       {:else}
         <span class="grow"></span>
@@ -129,6 +133,7 @@
         <PageTile
           tile={it}
           notebook={showNotebook ? nameOf(it.record.book) : ''}
+          {hideTag}
           {selecting}
           selected={selected.has(it.key)}
           pending={!!$pendingSuggestions.get(it.key)}

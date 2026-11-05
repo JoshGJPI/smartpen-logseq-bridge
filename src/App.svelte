@@ -214,7 +214,8 @@
           class="view-switch-btn"
           class:active={$destination === dest}
           aria-pressed={$destination === dest}
-          on:click={() => navigateTo(dest)}
+          on:click={() => (dest === 'library' && $destination === 'library' ? bookViewer?.goHome() : navigateTo(dest))}
+          title={dest === 'library' && $destination === 'library' ? 'Library home' : undefined}
         >{DESTINATION_LABELS[dest]}</button>
       {/each}
     </div>

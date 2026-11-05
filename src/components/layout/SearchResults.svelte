@@ -28,6 +28,8 @@
   /** (index, shift) => void */
   export let onPick = () => {};
   export let onBrowseAll = () => {};
+  /** Offer the footer link (the Editor only). */
+  export let browseAll = true;
 
   const TITLES = { tags: 'Tags', pages: 'Pages', notebooks: 'Notebooks', days: 'Days' };
   const idOf = (r) => (r.pageId != null ? String(r.pageId) : String(r.page));
@@ -106,7 +108,10 @@
       {/each}
     {/each}
   {/if}
-  <button type="button" class="sr-foot" on:click={onBrowseAll}>Browse every transcript in Transcripts → Search</button>
+  <!-- Transcripts → Search is an Editor panel (v3.14.0). -->
+  {#if browseAll}
+    <button type="button" class="sr-foot" on:click={onBrowseAll}>Browse every transcript in Transcripts → Search</button>
+  {/if}
 </div>
 
 <style>

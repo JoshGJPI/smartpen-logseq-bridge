@@ -16,9 +16,10 @@
   Transcripts badge. The tab content is not mounted while collapsed.
 
   Contextual (package C): the tabs follow the destination on the right
-  (lib/left-panel.js CONTEXT_TABS): Library → Contents, Timeline → Dates,
-  Editor → Strokes, Pages (Dates left the Editor in v3.10.0: the Timeline loads
-  by date); Transcripts (search, review) everywhere.
+  (lib/left-panel.js CONTEXT_TABS): Library → Contents, Timeline → Days,
+  Editor → Strokes, Transcripts (search, review; the Editor's only since
+  v3.14.0), Pages. The Library's one tab follows its view (v3.14.0, LibraryNav):
+  Contents, Groups beside Tasks, Tags beside a tag's page.
   `panelTab` resolves an `activeTab` that is not in the current set to the
   set's first tab. Notebook names and volume routing (the old Books tab) are
   in Settings → Notebooks.
@@ -26,14 +27,14 @@
 <script>
   import StrokeList from '../strokes/StrokeList.svelte';
   import SavedPagesTab from '../saved-pages/SavedPagesTab.svelte';
-  import LibraryContents from '../saved-pages/LibraryContents.svelte';
+  import LibraryNav from '../library-nav/LibraryNav.svelte';
   import TranscriptsPanel from '../transcription/TranscriptsPanel.svelte';
   import DatesTab from '../dates/DatesTab.svelte';
-  import { tabsFor } from '$lib/left-panel.js';
+  import { tabsFor, libraryNavKind, LIBRARY_NAV_LABELS } from '$lib/left-panel.js';
 
   import {
     panelTab, setActiveTab, pageTranscriptionCount, destination,
-    leftPanelCollapsed, toggleLeftPanel, revealLeftPanel
+    leftPanelCollapsed, toggleLeftPanel, revealLeftPanel, libraryView, viewerSelection
   } from '$stores';
 
   // `icon` is an SVG path set (24×24, stroked) for the collapsed rail.
@@ -43,11 +44,13 @@
     'saved-pages': { label: 'Pages', icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6' },
     contents: { label: 'Contents',
       icon: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z' },
-    dates: { label: 'Dates',
+    dates: { label: 'Days',
       icon: 'M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM16 2v4M8 2v4M3 10h18' }
   };
 
-  $: tabs = tabsFor($destination).map((id) => ({ id, ...TAB_META[id] }));
+  // The Library's tab follows its view (v3.14.0): Contents, Groups (Tasks) or Tags.
+  $: contentsLabel = LIBRARY_NAV_LABELS[libraryNavKind($libraryView, !!$viewerSelection)];
+  $: tabs = tabsFor($destination).map((id) => ({ id, ...TAB_META[id], ...(id === 'contents' ? { label: contentsLabel } : {}) }));
 </script>
 
 <aside class="left-panel panel" class:collapsed={$leftPanelCollapsed}>
@@ -117,7 +120,7 @@
       {:else if $panelTab === 'saved-pages'}
         <SavedPagesTab />
       {:else if $panelTab === 'contents'}
-        <LibraryContents />
+        <LibraryNav />
       {:else if $panelTab === 'dates'}
         <DatesTab />
       {/if}

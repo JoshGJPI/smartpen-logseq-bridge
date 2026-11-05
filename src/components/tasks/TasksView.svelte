@@ -15,9 +15,9 @@
   import { onMount } from 'svelte';
   import { savedPages, isScanning, bookAliases, openPageInLibrary, focusReaderLineId, ensureTimelineLoaded, openLibraryView } from '$stores';
   import { dataFolderReady } from '$stores/settings.js';
-  import { taskRows, taskCountsStore, taskStatesShown, taskGroupBy, setTaskGroupBy } from '$stores/tasks.js';
+  import { taskRows, taskCountsStore, taskStatesShown, taskGroupBy, setTaskGroupBy, taskQuery, shownTaskGroups } from '$stores/tasks.js';
   import { scanLocalPages } from '$lib/storage/scan.js';
-  import { rowsInStates, searchTaskRows, groupTaskRows, stateLabel, TASK_GROUPS, NO_PROJECT } from '$lib/tasks.js';
+  import { rowsInStates, stateLabel, taskGroupDomId, TASK_GROUPS, NO_PROJECT } from '$lib/tasks.js';
   import { dayStart } from '$lib/timeline.js';
   import { formatBookName } from '$utils/formatting.js';
   import { plural } from '$lib/plural.js';
@@ -25,11 +25,12 @@
   import TagChip from '../tags/TagChip.svelte';
   import TaskStateChips from './TaskStateChips.svelte';
 
-  let query = '';
   let stuck = false;
+  // The groups come from the store (v3.14.0) so the left panel lists the same ones.
+  $: query = $taskQuery;
   $: byState = rowsInStates($taskRows, $taskStatesShown);
-  $: shown = searchTaskRows(byState, query, (b) => formatBookName(b, $bookAliases, 'full'));
-  $: groups = groupTaskRows(shown, $taskGroupBy);
+  $: groups = $shownTaskGroups;
+  $: shown = groups.flatMap((g) => g.rows);
   $: counts = $taskCountsStore;
 
   function groupLabel(g) {
@@ -63,7 +64,7 @@
     <h2>Tasks</h2>
     <TaskStateChips {counts} />
     <input class="q" type="search" placeholder="Find in tasks, notebook, page, tag, date…" aria-label="Find tasks"
-      bind:value={query} on:keydown={(e) => { if (e.key === 'Escape' && query) { query = ''; e.preventDefault(); } }} />
+      bind:value={$taskQuery} on:keydown={(e) => { if (e.key === 'Escape' && $taskQuery) { $taskQuery = ''; e.preventDefault(); } }} />
     <span class="grow"></span>
     <label class="sel">Group by
       <select value={$taskGroupBy} on:change={(e) => setTaskGroupBy(e.currentTarget.value)}>
@@ -80,7 +81,7 @@
     <div class="empty">{query.trim() && byState.length ? `No ${shownWords} tasks match “${query.trim()}”.` : emptyText}</div>
   {:else}
     {#each groups as g (g.kind + ':' + g.id)}
-      <section class="grp">
+      <section class="grp" id={taskGroupDomId(g)}>
         <h3>
           {#if g.kind === 'project' && g.id}
             <button type="button" class="tag-link" title="Open {g.id}: its pages and tasks"
@@ -130,7 +131,8 @@
   .sel { font-size: 12px; color: #666; display: inline-flex; align-items: center; gap: 6px; }
   .sel select { font: inherit; font-size: 12px; padding: 3px 6px; border: 1px solid #ddd; border-radius: 6px; background: #fff; }
 
-  .grp { margin-bottom: 16px; max-width: 980px; }
+  /* scroll-margin: a jump from the left panel lands below the sticky head. */
+  .grp { margin-bottom: 16px; max-width: 980px; scroll-margin-top: 64px; }
   .grp h3 {
     display: flex;
     align-items: center;

@@ -16,14 +16,15 @@
 
   Ctrl K (isSearchShortcut) never fires while typing in another field or while
   a transcript is edited. Ctrl+F (canvas find) and Ctrl+Shift+F (Transcripts →
-  Search) stay with the Editor's canvas.
+  Search) stay with the Editor's canvas, and so does the results' "Browse every
+  transcript" link (v3.14.0: Transcripts is an Editor tab).
 -->
 <script>
   import { onDestroy, tick } from 'svelte';
   import {
     globalSearchIndex, searchRecords, searchDates, notebookNames, transcriptEditing,
     ensureTimelineLoaded, openPageInLibrary, openNotebookInLibrary, focusReaderLine,
-    navigateTo, setTimelineRange, setActiveTab, openTranscriptSearch, openLibraryView, tagStatsList
+    navigateTo, setTimelineRange, setActiveTab, openTranscriptSearch, openLibraryView, tagStatsList, destination
   } from '$stores';
   import { timelineIndexFiltered } from '$stores/timeline.js';
   import { parseSearchQuery } from '$lib/search-query.js';
@@ -158,6 +159,7 @@
       onHover={(i) => (active = i)}
       onPick={(i, shift) => activate(flat[i], shift)}
       onBrowseAll={browseAll}
+      browseAll={$destination === 'editor'}
     />
   {/if}
 </div>

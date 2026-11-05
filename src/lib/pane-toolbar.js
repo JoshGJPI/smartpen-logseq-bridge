@@ -40,7 +40,7 @@ export function viewOptionsFor({ destination, hasSelection = false, contentMode 
 }
 
 /**
- * Page label for the breadcrumb: "P12 of 48", or "P12–P13 of 48" for a spread.
+ * Page label for the breadcrumb: "P12 (5 of 48)", or "P12 · P13 (5–6 of 48)" for a spread.
  * The right page is the next record in the book, as BookViewer pairs them.
  *
  * @param {{book: string, pageId: string}|null} selection
@@ -51,4 +51,13 @@ export function viewOptionsFor({ destination, hasSelection = false, contentMode 
 export function pageCrumb(selection, pagesByBook, spread) {
   const pos = pagePosition(selection, pagesByBook, spread);
   return pos ? pos.label : '';
+}
+
+/**
+ * The same, in two parts for the breadcrumb, which mutes the position:
+ * `{ names: 'P12 · P13', where: '5–6 of 48' }`, or null.
+ */
+export function pageCrumbParts(selection, pagesByBook, spread) {
+  const pos = pagePosition(selection, pagesByBook, spread);
+  return pos ? { names: pos.names, where: pos.where } : null;
 }

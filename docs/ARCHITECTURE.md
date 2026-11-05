@@ -11,8 +11,9 @@ The right pane is one of three destinations, **Library** (`BookViewer`), **Timel
 **Editor** (`StrokeCanvas`), a view over `viewerMode` + `bookViewMode` (`lib/navigation.js`). Every route between
 them goes through `navigateTo()` / `openPageInLibrary()` (`stores/viewer.js`), the one place the unsaved-transcript
 prompt is asked. The app opens on the Timeline, and live pen ink switches to the Editor. The left panel's tabs follow
-the destination (`CONTEXT_TABS` in `lib/left-panel.js`: Library → Contents · Transcripts, Timeline → Dates ·
-Transcripts, Editor → Strokes · Transcripts · Pages · Dates; `panelTab` is what shows); notebook names and volume
+the destination (`CONTEXT_TABS` in `lib/left-panel.js`: Library → Contents, Timeline → Days, Editor → Strokes ·
+Transcripts · Pages; `panelTab` is what shows). The Library's one tab follows its view (v3.14.0, `LibraryNav`,
+`libraryNavKind()`): Contents, Groups beside Tasks (the Tasks view's groups), Tags beside a tag's page; notebook names and volume
 routing are in Settings → Notebooks. With no page open the Library (`LibraryBrowse`) shows notebook cards
 (`LibraryHome`), or tag cards when grouped by Tag (`libraryGroupBy`), one notebook's page grid (`NotebookPages`,
 `libraryNotebook`), a tag's or the Untagged pages (`TagPages`), or the suggestions queue (`TagSuggestionQueue`); the
@@ -61,15 +62,17 @@ App.svelte (Root)
 │   │   └── TranscriptSearch (Search — full-text over saved pages on disk)
 │   │       └── SearchResultCard (per-result import / open in the Library)
 │   ├── SavedPagesTab ("Pages", Editor — folder-backed page list: import, export, edit structure)
-│   └── DatesTab ("Dates", Timeline only since v3.10.0 — range fields, presets, day list that jumps the feed)
+│   └── DatesTab ("Days", Timeline only — the day list that jumps the feed; the range is the feed head's RangeMenu, v3.14.0)
 └── Canvas Section (destination from `$destination`, in App.svelte)
     ├── PaneToolbar (Library and Timeline only: breadcrumb + ViewMenu "View ▾")
     │   └── SpreadToolbar (open Library page or page grid: Book | Tag order (when there is a sequence) ·
     │                      Go to page · − % + Fit for both pages)
     ├── StrokeCanvas (Editor — live capture/edit)
-    │   ├── panel header: Select All · Deselect · CanvasSearch · stroke count
+    │   ├── panel header ("Editor"): Select All · Deselect · CanvasSearch · stroke count ·
+    │   │                ActionBar's row (Undo · Clear · Delete · Transcribe · Save, moved here, v3.14.0)
     │   ├── top toolbar: Decorative · Duplicate · Edit Points · Volume ▾ ·
-    │   │                Text · Copy · Page Resets ▾
+    │   │                Text · Copy · Layout ▾ (hidden with the bottom bar while the canvas is empty)
+    │   ├── EditorEmptyState (empty canvas: Load a day from the Timeline · Pick pages… · Connect pen)
     │   ├── bottom bar: zoom · Fit · Reset View · Sketch · Unmark ·
     │   │               SketchStylePopover · PageSelector · Export ▾
     │   ├── Canvas Renderer (Drawing engine)
@@ -165,10 +168,11 @@ still captured.
 **Collapsible left panel (v3.0 package B).** `leftPanelCollapsed` (`stores/left-panel.js`, localStorage, a missing, corrupt or blocked value means expanded) folds the panel to a 48 px rail: expand chevron, one icon per tab (click = `revealLeftPanel(tab)`), the Transcripts badge. `App.svelte` adds `panel-collapsed` to `.main-grid` (`48px 1fr`) and handles the `[` key (`isPanelToggleKey()` in `lib/left-panel.js`). Tab content is *not mounted* while collapsed. Callers that mean "show me the panel" use `revealLeftPanel()` (`ui.js`: `openTranscriptSearch`, `openTranscriptReview`); passive callers keep `setActiveTab()` so a collapsed panel stays collapsed. `.app` has no max width: every destination fills the window (the Editor kept a 1600 px cap until the v3.0.0 pre-release review).
 
 **Left panel tabs (contextual since v3.0 package C).** The tabs follow the
-destination (`lib/left-panel.js` `CONTEXT_TABS`): Library → Contents ·
-Transcripts; Timeline → Dates · Transcripts; Editor → Strokes · Transcripts ·
-Pages · Dates. Transcripts is in every set because search opens there from any
-view. `panelTab` (`stores/ui.js`, derived) shows `activeTab` when it belongs to
+destination (`lib/left-panel.js` `CONTEXT_TABS`): Library → Contents
+(LibraryNav: Contents, Groups or Tags by the Library view, v3.14.0); Timeline →
+Days; Editor → Strokes · Transcripts · Pages. Transcripts is the Editor's only
+since v3.14.0: its openers (canvas Ctrl+Shift+F, a finished run, the global
+search's "Browse every transcript", shown in the Editor only) are all there. `panelTab` (`stores/ui.js`, derived) shows `activeTab` when it belongs to
 the current set and the set's first tab otherwise, so nothing is rewritten when
 you move. Tab *ids* are unchanged from the pre-v2.7 nested version
 (`'strokes'`, `'transcription'`, `'saved-pages'`, `'books'`, `'dates'`, plus
@@ -215,7 +219,7 @@ on a page with an unsaved transcript draft. `stores/tasks.js` applies it
 optimistically, with Undo and per-task rollback.
 
 **Three resets, deliberately distinct.** `Reset View` (bottom bar) is zoom/pan.
-`Page Resets ▾` holds `Reset Layout` (dragged page positions) and `Reset Sizes`
+`Layout ▾` (was `Page Resets ▾`) holds `Reset Layout` (dragged page positions) and `Reset Sizes`
 (page scaling). The bottom-bar button was labelled just "Reset", which read as if
 it covered all three.
 

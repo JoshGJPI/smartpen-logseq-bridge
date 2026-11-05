@@ -20,7 +20,7 @@
     destination, viewerSelection, pagesByBook, bookAliases, backgroundsAvailable, libraryView,
     readingList, readingLabel
   } from '$stores';
-  import { viewOptionsFor, pageCrumb } from '$lib/pane-toolbar.js';
+  import { viewOptionsFor, pageCrumbParts } from '$lib/pane-toolbar.js';
   import { sequenceCrumb } from '$lib/viewer/reading-order.js';
   import { pageIdOf } from '$lib/viewer/page-reader.js';
   import { formatBookName } from '$utils/formatting.js';
@@ -46,7 +46,7 @@
   });
   $: open = $destination === 'library' && openBook != null;
   $: bookLabel = open ? formatBookName(openBook, $bookAliases, 'alias-only') : '';
-  $: pagesLabel = open && hasSelection && $viewerSelection ? pageCrumb($viewerSelection, $pagesByBook, spread) : '';
+  $: pagesLabel = open && hasSelection && $viewerSelection ? pageCrumbParts($viewerSelection, $pagesByBook, spread) : null;
   // Tag order: where the open page sits among the tagged pages.
   $: tagOrder = open && hasSelection && $readingList.order === 'tag' && $viewerSelection;
   $: seqIndex = tagOrder
@@ -82,7 +82,8 @@
         {/if}
         {#if pagesLabel}
           <span class="sep" aria-hidden="true">›</span>
-          <span class="crumb here">{pagesLabel}</span>
+          <span class="crumb here">{pagesLabel.names}</span>
+          <span class="crumb where" title="Position in this notebook">{pagesLabel.where}</span>
         {/if}
       {:else if viewLabel}
         <button type="button" class="crumb link" on:click={onHome} title="Back to the Library">Library</button>
@@ -130,6 +131,12 @@
   .crumb.here {
     color: var(--text-primary);
     font-weight: 600;
+  }
+
+  .crumb.where {
+    margin-left: 8px;
+    font-size: 0.85em;
+    white-space: nowrap;
   }
 
   .crumb.link {

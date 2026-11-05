@@ -9,7 +9,7 @@ import {
   normalizeTagsFile, withPageList, addTagToKeys, removeTagFromKeys, renameTagInMap,
   deleteTagFromMap, tagExists, diffTagMaps, rollbackPatch, findProjectNumbers,
   suggestProjectNumbers, splitSuggestionLine, buildTagIndex, recordsForKeys, untaggedRecords,
-  tagCards, untaggedCard, sortTagCards, tagStats, filterByTags, filterChoices, tagOptions, tagEnterChoice, backspaceRemovesTag,
+  tagCards, untaggedCard, sortTagCards, tagStats, filterByTags, filterChoices, rankFilterChoices, tagOptions, tagEnterChoice, backspaceRemovesTag,
   parseTagSort, parseGroupBy, planTagCarry, MAX_TAG_LENGTH,
   parseTagView, parseCollapsedGroups, parseTagPageSort, sortTagPageTiles
 } from '$lib/tags.js';
@@ -527,5 +527,35 @@ describe('sortTagPageTiles (v3.11.0)', () => {
     sortTagPageTiles(tiles, 'recent');
     expect(tiles).toEqual(copy);
     expect(sortTagPageTiles(null, 'notebook')).toEqual([]);
+  });
+});
+
+describe('rankFilterChoices (v3.14.0)', () => {
+  const items = [
+    { tags: ['2237-011', 'beam'], lastMs: 300 },
+    { tags: ['5444-006'], lastMs: 500 },
+    { tags: ['beam'], lastMs: 100 },
+    { tags: ['zeta'], lastMs: null },
+    { tags: ['alpha'] }
+  ];
+  const choices = [
+    { tag: '2237-011', count: 1 }, { tag: '5444-006', count: 1 }, { tag: 'alpha', count: 1 },
+    { tag: 'beam', count: 2 }, { tag: 'zeta', count: 1 }
+  ];
+
+  it('newest written first, by the newest page carrying the tag; a tie goes to the bigger count', () => {
+    expect(rankFilterChoices(choices, items).map((c) => c.tag).slice(0, 3)).toEqual(['5444-006', 'beam', '2237-011']);
+  });
+
+  it('undated tags last, by count then name', () => {
+    expect(rankFilterChoices(choices, items).map((c) => c.tag).slice(3)).toEqual(['alpha', 'zeta']);
+  });
+
+  it('leaves the input alone and handles empty input', () => {
+    const copy = [...choices];
+    rankFilterChoices(choices, items);
+    expect(choices).toEqual(copy);
+    expect(rankFilterChoices([], items)).toEqual([]);
+    expect(rankFilterChoices(null, null)).toEqual([]);
   });
 });

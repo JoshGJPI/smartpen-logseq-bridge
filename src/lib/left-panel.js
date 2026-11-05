@@ -69,9 +69,12 @@ export function isPanelToggleKey(e) {
 /* ------------------------------------------------------------------
  * Contextual tabs (reading-first package C). The panel shows the tabs that
  * belong to the destination on the right: reading tools beside the Library
- * and the Timeline, capture tools beside the Editor. Transcripts is in every
- * set, because search (header button, Ctrl+Shift+F) opens there from any
- * view, and nothing may open into a panel that is not on screen.
+ * and the Timeline, capture tools beside the Editor. Transcripts (review a
+ * MyScript run, search saved transcripts) is the Editor's only since v3.14.0:
+ * outside it Review had nothing to show, and the header search covers saved
+ * transcripts with the same matching. Its openers (Ctrl+Shift+F on the canvas,
+ * a finished transcription run) are all in the Editor, and the global search
+ * offers "Browse every transcript" only there.
  *
  * Ids are the long-standing `setActiveTab` ids plus 'contents' (the Library's
  * table of contents). 'books' is in no set any more (its content moved to
@@ -80,8 +83,10 @@ export function isPanelToggleKey(e) {
  * ------------------------------------------------------------------ */
 
 export const CONTEXT_TABS = {
-  library: ['contents', 'transcription'],
-  timeline: ['dates', 'transcription'],
+  // 'contents' follows the Library view (v3.14.0, LibraryNav): the notebook
+  // contents, the Tasks view's groups, or every tag beside a tag's page.
+  library: ['contents'],
+  timeline: ['dates'],
   // Pages stays with the Editor: it loads onto the canvas (Import, Import all)
   // and its cards carry Export to graph, Edit structure and Reset transcript,
   // which have no other home yet. Dates left the Editor in v3.10.0: loading by
@@ -103,3 +108,22 @@ export function resolvePanelTab(destination, activeTab) {
   const tabs = tabsFor(destination);
   return tabs.includes(activeTab) ? activeTab : tabs[0];
 }
+
+/**
+ * What the Library's left-panel tab shows (v3.14.0): 'tasks' beside the Tasks
+ * view (its groups), 'tags' beside a tag's page, Untagged, the tag manager or
+ * the suggestions queue (every tag), else 'contents' (the notebooks). An open
+ * page is always read beside the contents, even when it was opened from a tag.
+ * @param {{kind: string}|null|undefined} view  `libraryView`
+ * @param {boolean} [pageOpen]  a page is open in the reader
+ * @returns {'contents'|'tasks'|'tags'}
+ */
+export function libraryNavKind(view, pageOpen = false) {
+  if (pageOpen || !view) return 'contents';
+  if (view.kind === 'tasks') return 'tasks';
+  if (['tag', 'untagged', 'tags', 'suggestions'].includes(view.kind)) return 'tags';
+  return 'contents';
+}
+
+/** The tab's label for each libraryNavKind(). */
+export const LIBRARY_NAV_LABELS = { contents: 'Contents', tasks: 'Groups', tags: 'Tags' };

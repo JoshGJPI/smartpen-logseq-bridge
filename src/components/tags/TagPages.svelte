@@ -64,6 +64,7 @@
     origin={view.kind === 'tag' ? { kind: 'tag', tag: view.tag } : { kind: 'untagged' }}
     filterKey={view.kind === 'tag' ? `tag:${view.tag}` : 'untagged'}
     {onOpen}
+    hideTag={view.kind === 'tag' ? view.tag : null}
     emptyText={view.kind === 'tag' ? 'No page carries this tag any more.' : 'Every page has a tag.'}
   />
   </div>

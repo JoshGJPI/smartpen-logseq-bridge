@@ -17,12 +17,14 @@
 import { writable, derived, get } from 'svelte/store';
 import { savedPages } from './saved-pages.js';
 import { pageTags } from './tags.js';
+import { bookAliases } from './book-aliases.js';
+import { formatBookName } from '$utils/formatting.js';
 import { libraryPageDates } from './library.js';
 import { isViewerPageDirty } from './viewer.js';
 import { log } from './ui.js';
 import {
   buildTaskRows, taskCounts, taskKey, parseTaskGroup, isLineState, toggledState, TASK_GROUP_KEY,
-  DEFAULT_SHOWN_STATES, toggleShownState, toggleAllShownStates
+  DEFAULT_SHOWN_STATES, toggleShownState, rowsInStates, searchTaskRows, groupTaskRows
 } from '$lib/tasks.js';
 import { setTaskState, taskChangeLabel } from '$lib/viewer/task-state.js';
 import { readString, write } from '$lib/safe-storage.js';
@@ -55,10 +57,13 @@ export function toggleTaskState(state) {
   taskStatesShown.update((s) => toggleShownState(s, state));
 }
 
-/** The All chip: every state, or back to Open + Waiting when all are on. */
-export function toggleAllTaskStates() {
-  taskStatesShown.update((s) => toggleAllShownStates(s));
+/** Back to Open + Waiting (the chips' Reset link, v3.14.0; replaced the All chip). */
+export function resetTaskStates() {
+  taskStatesShown.set([...DEFAULT_SHOWN_STATES]);
 }
+
+/** The Tasks view's find box (session-only; shared with the left panel's group list, v3.14.0). */
+export const taskQuery = writable('');
 
 /** Group by 'project' | 'date' | 'book'. A per-viewer convenience. */
 export const taskGroupBy = writable(parseTaskGroup(readString(TASK_GROUP_KEY)));
@@ -177,3 +182,13 @@ export function clearTasks() {
   taskOverrides.set(new Map());
   taskUndo.set(null);
 }
+
+/**
+ * The Tasks view's groups as shown: the chips' states, the find box, Group by
+ * (v3.14.0, shared so the left panel lists exactly the groups on screen).
+ */
+export const shownTaskGroups = derived(
+  [taskRows, taskStatesShown, taskQuery, taskGroupBy, bookAliases],
+  ([$rows, $shown, $q, $by, $aliases]) =>
+    groupTaskRows(searchTaskRows(rowsInStates($rows, $shown), $q, (b) => formatBookName(b, $aliases, 'full')), $by)
+);

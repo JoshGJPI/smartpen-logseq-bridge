@@ -12,7 +12,7 @@ import { addDays, dayStart } from './timeline.js';
 const DAY_MS = 86400000;
 
 export const RANGE_PRESETS = [
-  { id: 'latest', label: 'Latest day' },
+  { id: 'latest', label: 'Latest day with ink' },
   { id: 'day', label: '1 day' },
   { id: 'week', label: '7 days' },
   { id: 'month', label: '30 days' }

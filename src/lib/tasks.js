@@ -324,9 +324,10 @@ export function toggleShownState(shown, state) {
   return parseShownStates(now.includes(state) ? now.filter((s) => s !== state) : [...now, state]);
 }
 
-/** The "All" chip: every state on, or back to the default when they already are. */
-export function toggleAllShownStates(shown) {
-  return parseShownStates(shown).length === CHIP_ORDER.length ? [...DEFAULT_SHOWN_STATES] : [...CHIP_ORDER];
+/** True when `shown` is the default (Open + Waiting): the chips' Reset link hides then (v3.14.0). */
+export function isDefaultShown(shown) {
+  const now = parseShownStates(shown);
+  return now.length === DEFAULT_SHOWN_STATES.length && DEFAULT_SHOWN_STATES.every((s) => now.includes(s));
 }
 
 /** Rows whose state is one of `shown` (a new array). */
@@ -456,6 +457,15 @@ export function groupTaskRows(rows, by) {
     ...g,
     label: g.id || (mode === 'project' ? NO_PROJECT : NO_DATE)
   }));
+}
+
+/**
+ * The DOM id of a group's section in the Tasks view, so the left panel's list
+ * of groups (v3.14.0) can scroll to it. Stable for the same group.
+ * @param {{kind: string, id: string}} g
+ */
+export function taskGroupDomId(g) {
+  return `task-grp-${g.kind}-${encodeURIComponent(g.id || 'none')}`;
 }
 
 /**
