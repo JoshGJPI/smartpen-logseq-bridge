@@ -120,7 +120,7 @@
   // toolbar's breadcrumb, View menu and the reader's shared controls can drive
   // Home, the content mode, Single/Spread, zoom and Go to page.
   let bookViewer;
-  let bookViewerContentMode = 'strokes';
+  let bookViewerContentMode = 'inktext'; // the reader opens on Ink + text (v3.15.0)
   let bookViewerSpread = true;
   let bookViewerHasSelection = false;
   let bookViewerZoom = '';

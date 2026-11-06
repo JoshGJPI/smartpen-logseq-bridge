@@ -6,6 +6,7 @@ const https = require('https');
 const fs = require('fs');
 const fsp = require('fs').promises;
 const tagsSidecar = require('./tags-sidecar.cjs');
+const bookTypesSidecar = require('./book-types-sidecar.cjs');
 const retimedSidecar = require('./retimed-sidecar.cjs');
 const penMatch = require('./pen-match.cjs');
 const { buildTaskSummary } = require('./task-summary.cjs');
@@ -366,6 +367,10 @@ function orientationPath(root) {
 
 function tagsPath(root) {
   return path.join(pagesDir(root), '_tags.json');
+}
+
+function bookTypesPath(root) {
+  return path.join(pagesDir(root), '_book-types.json');
 }
 
 function retimedPath(root) {
@@ -961,6 +966,36 @@ ipcMain.handle('storage:removeAlias', ipcSafe(async (root, book) => {
   await writeAliases(root, aliases);
   return aliases;
 }));
+
+// Notebook types (v3.15.0): `{ "<bookKey>": "Work" }` in pages/_book-types.json.
+// Same read rules as _tags.json (electron/book-types-sidecar.cjs); one lock.
+async function readBookTypes(root) {
+  let text = null;
+  try {
+    text = await fsp.readFile(bookTypesPath(root), 'utf8');
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+  }
+  const res = bookTypesSidecar.parseBookTypesFile(text);
+  if (res.state === 'corrupt') console.warn('[storage] _book-types.json is unreadable; showing no notebook types');
+  return res;
+}
+let bookTypesChain = Promise.resolve();
+function withBookTypesLock(fn) {
+  const run = bookTypesChain.then(fn, fn);
+  bookTypesChain = run.catch(() => {});
+  return run;
+}
+ipcMain.handle('storage:getBookTypes', ipcSafe(async (root) => (await readBookTypes(root)).file.books));
+ipcMain.handle('storage:setBookType', ipcSafe(async (root, book, type) => withBookTypesLock(async () => {
+  const { file, state } = await readBookTypes(root);
+  if (state === 'newer') {
+    throw new Error(`_book-types.json is from a newer version of the app (v${file.version}); not changing it`);
+  }
+  const next = bookTypesSidecar.applyBookType(file, book, type, { requireBookKey });
+  await writeFileAtomic(bookTypesPath(root), bookTypesSidecar.serializeBookTypesFile(next));
+  return next.books;
+})));
 
 ipcMain.handle('storage:getVolumes', ipcSafe(async (root) => readVolumes(root)));
 ipcMain.handle('storage:setActiveVolume', ipcSafe(async (root, ncodeBook, volume) => {

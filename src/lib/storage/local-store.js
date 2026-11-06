@@ -159,6 +159,18 @@ export async function removeAlias(book) {
   return unwrap(res, 'removeAlias');
 }
 
+/** Notebook types (v3.15.0): `{ "<bookKey>": "Work" }`, unnormalized (see lib/book-types.js). */
+export async function getBookTypes() {
+  const res = await getBackend().getBookTypes(requireRoot());
+  return unwrap(res, 'getBookTypes') || {};
+}
+
+/** Set one notebook's type, or clear it with null. Resolves to the file's types after the write. */
+export async function setBookType(book, type) {
+  const res = await getBackend().setBookType(requireRoot(), String(book), type ?? null);
+  return unwrap(res, 'setBookType') || {};
+}
+
 /* ============================================================
  *  Capture-date index
  * ============================================================ */

@@ -81,6 +81,9 @@ contextBridge.exposeInMainWorld('storageAPI', {
   getAliases:       (root)                   => ipcRenderer.invoke('storage:getAliases', root),
   setAlias:         (root, book, alias)      => ipcRenderer.invoke('storage:setAlias', root, book, alias),
   removeAlias:      (root, book)             => ipcRenderer.invoke('storage:removeAlias', root, book),
+  // Notebook types — "Work", "Personal", … per book key, pages/_book-types.json
+  getBookTypes:     (root)                   => ipcRenderer.invoke('storage:getBookTypes', root),
+  setBookType:      (root, book, type)       => ipcRenderer.invoke('storage:setBookType', root, book, type),
 
   // Volumes — which volume new strokes route to, per NCode book
   getVolumes:       (root)                       => ipcRenderer.invoke('storage:getVolumes', root),

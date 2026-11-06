@@ -1,7 +1,8 @@
 <!--
   NotebookCard.svelte — one notebook on the Library home (reading-first
   package E): a fan of its three most recently written pages, its name and
-  volume, page count, when it was written and how much is transcribed.
+  volume, page count, when it was written and how much is transcribed. Its
+  notebook type (v3.15.0) shows as a quiet chip beside the name.
 
   Every number is from `notebookCards()` (lib/library-home.js): scan records
   and the capture-date index, no page reads. Only the fan's thumbnails read
@@ -11,6 +12,8 @@
   import PageThumb from './PageThumb.svelte';
   import { writtenRange, relativeDay } from '$lib/library-home.js';
   import { plural } from '$lib/plural.js';
+  import { bookTypes } from '$stores/book-types.js';
+  import { bookTypeOf } from '$lib/book-types.js';
 
   /** A card from notebookCards(). */
   export let card;
@@ -22,6 +25,7 @@
   $: range = writtenRange(card.first, card.last);
   $: lastLabel = card.last ? relativeDay(card.last) : '';
   $: meta = `${card.pageCount} ${plural(card.pageCount, 'page')}` + (lastLabel ? ` · last written ${lastLabel}` : '');
+  $: type = bookTypeOf(card.book, $bookTypes);
   $: fan = card.fan.slice(0, 3).reverse(); // oldest at the back, newest on top
 </script>
 
@@ -43,6 +47,7 @@
     <div class="nc-title">
       <span class="nc-name">{card.name}</span>
       {#if card.volume > 1}<span class="nc-vol" title="Volume {card.volume} of this notebook">Vol {card.volume}</span>{/if}
+      {#if type}<span class="nc-type" title="Notebook type">{type}</span>{/if}
     </div>
     <div class="nc-meta">
       {meta}
@@ -110,6 +115,18 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .nc-type {
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 0 7px;
+    border: 1px solid #dcdce2;
+    border-radius: 9px;
+    color: #62626e;
+    font-size: 11px;
   }
   .nc-vol {
     flex-shrink: 0;

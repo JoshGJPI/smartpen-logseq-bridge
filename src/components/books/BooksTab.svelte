@@ -14,6 +14,9 @@
   whether or not it has pages yet. That is deliberate: the old alias manager
   listed only books with pages on disk, so a fresh notebook could not be named
   until after it had been written in.
+
+  Each row also carries the notebook's type (v3.15.0, BookTypeField), which the
+  Library home and the book filter can show one of.
 -->
 <script>
   import {
@@ -32,6 +35,7 @@
   } from '$lib/storage/local-store.js';
   import { makeBookKey, ncodeBookOf, bookDirName } from '$lib/volumes.js';
   import { formatBookName } from '$utils/formatting.js';
+  import BookTypeField from './BookTypeField.svelte';
 
   /** Book keys currently being renamed. */
   let editingKeys = new Set();
@@ -162,7 +166,8 @@
     </div>
   {:else}
     <p class="intro">
-      Name your notebooks and choose which volume new strokes are saved to.
+      Name your notebooks, give each a type (Work, Personal, …) to filter by, and
+      choose which volume new strokes are saved to.
       {#if !$dataFolderReady}
         <span class="warning">⚠️ Set a Data Folder to keep these settings between sessions.</span>
       {/if}
@@ -224,6 +229,8 @@
                   {#if row.isActive}
                     <span class="capturing-chip">capturing</span>
                   {/if}
+
+                  <BookTypeField bookKey={row.key} />
 
                   <span class="page-count">
                     {row.pages} pp

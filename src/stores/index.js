@@ -59,6 +59,8 @@ export {
   setCanvasPageOrder,
   // Book filter (shared by the Dates tab and the Timeline feed)
   timelineExcludedBooks,
+  timelineTypeExcludedBooks,
+  timelineFiltering,
   timelineIndexFiltered,
   timelineBooks,
   setBookIncluded,
@@ -391,6 +393,17 @@ export {
   registerBookId,
   registerBookIds
 } from './book-aliases.js';
+
+// Notebook types (v3.15.0) and the type filter
+export {
+  bookTypes,
+  bookTypeNames,
+  bookTypeFilter,
+  setBookTypeFilter,
+  setNotebookType,
+  loadBookTypes,
+  clearBookTypes
+} from './book-types.js';
 
 // Page Positions (Spatial Layout)
 export {

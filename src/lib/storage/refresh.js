@@ -12,7 +12,7 @@
  *   refreshAfterSave(pages)  an Editor / Create Page save: drop those pages'
  *                            cached docs and thumbnails, rescan, refresh dates
  *   resetForDataFolder()     a different folder: drop everything read from the
- *                            old one (tags too), then load the new one as boot
+ *                            old one (tags and notebook types too), then load the new one as boot
  *                            does (the scan reloads the sidecars)
  *
  * The scan is metadata-only and the index rebuild is incremental (mtime/size),
@@ -26,6 +26,7 @@ import {
 import { timelineIndex, loadTimeline } from '$stores/timeline.js';
 import { loadVolumes } from '$stores/volumes.js';
 import { clearTags } from '$stores/tags.js';
+import { clearBookTypes } from '$stores/book-types.js';
 import { clearRetimed } from '$stores/retimed.js';
 import { clearTasks } from '$stores/tasks.js';
 import { clearSuggestions } from '$stores/tag-suggestions.js';
@@ -68,6 +69,7 @@ export async function resetForDataFolder() {
   thumbs.clear();
   clearSavedPages();
   clearTags();
+  clearBookTypes();
   clearRetimed();
   clearTasks();
   clearSuggestions();

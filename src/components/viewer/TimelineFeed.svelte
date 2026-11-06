@@ -35,7 +35,7 @@
     importDateRangeFromFolder, importSessionFromFolder, LARGE_LOAD_STROKES
   } from '$lib/storage/load-range.js';
   import {
-    timelineIndex, timelineIndexFiltered, timelineExcludedBooks, timelineLoading, timelineError,
+    timelineIndex, timelineIndexFiltered, timelineExcludedBooks, timelineTypeExcludedBooks, timelineFiltering, timelineLoading, timelineError,
     timelineRange, timelineDays, timelineSummary, loadTimeline, setTimelineRange,
     setCanvasPageOrder, feedOrder, feedDayInView, feedJumpRequest, navigateTo,
     openPageInLibrary, setActiveTab
@@ -57,7 +57,7 @@
   $: skeleton = feedSkeleton($timelineIndexFiltered, $timelineDays, range.from, range.to, order);
   $: pxPerUnit = Math.max(4, (colWidth - RAIL) / PAGE_MIN_WIDTH);
   $: more = extendFeedRange($timelineDays, range.from, range.to, order, EXTEND_DAYS);
-  $: filtering = $timelineExcludedBooks.size > 0;
+  $: filtering = $timelineFiltering;
 
   // ---- labels ---------------------------------------------------------------
   function spanLabel(from, to, opts) {
@@ -181,7 +181,7 @@
   // end — endless scroll, or dragging the grid further back — keeps your place.
   let lastKey = '';
   $: nearEnd = order === 'oldest' ? range.from : range.to;
-  $: filterKey = [...$timelineExcludedBooks].sort().join(',');
+  $: filterKey = [...$timelineExcludedBooks, ...$timelineTypeExcludedBooks].sort().join(',');
   $: feedKey = `${nearEnd}|${order}|${filterKey}`;
   $: if (feedKey !== lastKey) {
     lastKey = feedKey;

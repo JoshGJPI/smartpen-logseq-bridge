@@ -6,6 +6,35 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.15.0 — Notebook types and a type filter; the reader opens on Ink + text (November 2026)
+
+Josh asked to tag notebooks by type (Work, Personal, …) and show only one type, "within settings or as an option in
+the book filter drop down", and for a notebook's pages to open in Ink + text.
+
+- **One type per notebook, in `pages/_book-types.json`** (`{ version: 1, books: { "<bookKey>": "Work" } }`). Not in
+  `_aliases.json`: every reader of that file (the app's `formatBookName`, the MCP's `readAliases`, graph export)
+  expects string values. A separate sidecar keeps the alias format untouched. Written like a tag change: at once,
+  optimistic with rollback (`stores/book-types.js`), main applies one book per call under its own lock
+  (`electron/book-types-sidecar.cjs`, same missing / corrupt / newer rules as `_tags.json`). Never in a PageDoc.
+- **Free text, not a fixed list.** Types are compared without case and a new spelling that differs only in case joins
+  the existing type (`canonicalType`), so "work" can't split Work in two. Rejected: several types per notebook; that
+  is what page tags are for, and one type keeps the filter a single choice.
+- **A volume inherits volume 1's type** until it gets its own (`bookTypeOf`), so starting Volume 2 of a work notebook
+  doesn't drop it out of the Work filter. The Books tab shows the inherited type as the placeholder ("Work (from v1)").
+- **Set in Settings → Notebooks** (BookTypeField on each volume row, suggestions from the types in use). Shown as a
+  chip on the Library's notebook cards.
+- **One filter, `bookTypeFilter` (localStorage, per viewer), for every notebook list:** the Library home (Notebook
+  grouping) and its left Contents list, and the date features through `timelineIndexFiltered` (Days tab, Timeline
+  feed, date loads into the Editor). It is picked from the Library header or from the book filter ▾'s "Notebook type"
+  row (BookTypeFilterSelect, the same store). It is kept apart from the per-book exclusions
+  (`timelineTypeExcludedBooks`), so "All types" restores exactly what the type hid and a new notebook of the chosen
+  type appears without a click. The per-book filter still never hides a Library card; the type filter, a deliberate
+  "show me only work", does. "No type" lists untyped notebooks. A filter naming a type nobody has any more stays
+  listed as "(none)" so it can be seen and cleared. The open page's notebook stays in Contents whatever its type.
+- Not filtered by type: Tasks, tag pages and search, which work across notebooks by design.
+- **The reader opens on Ink + text** (was Strokes): the content mode's starting value in App.svelte / BookViewer.
+  Still session-only; View ▾ changes it until the next launch.
+
 ## v3.14.0 — UX review after v3.13: one header, a left panel that follows the Library, quieter grids (November 2026)
 
 Josh asked for another UI/UX review once Back / Forward, task chips and tag-page tasks had landed, and approved every

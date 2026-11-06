@@ -26,7 +26,8 @@ electron/main.cjs, preload.cjs   all disk IO + MyScript proxy, exposed as window
 src/stores/        one store per concern (strokes, selection, pending-changes, viewer, timeline, volumes, tags, ...)
 src/lib/           pure logic, no UI, testable without DOM (tags.js, tag-suggestions.js: page tags, v3.1.0;
                    task-markers.js: ☐ / ☑ → TODO / DONE, v3.3.0; tasks.js: task state, WAITING, task list, v3.4.0,
-                   CANCELLED, v3.5.0; state toggle chips and a tag's tasks, v3.12.0; retime.js: shift selected strokes in time, v3.6.0)
+                   CANCELLED, v3.5.0; state toggle chips and a tag's tasks, v3.12.0; retime.js: shift selected strokes in time, v3.6.0;
+                   book-types.js: notebook types and the type filter, v3.15.0)
 src/lib/storage/   PageDoc layer: local-store (IPC facade), save-page, load-page, load-range, scan, page-changes, graph-export,
                    convert-task-boxes (one-off conversion of old transcripts)
 src/lib/viewer/    reader helpers: SVG render, page cache, thumbnails, transcript markdown/save, feed loader,
@@ -37,6 +38,7 @@ mcp/               read-only stdio MCP server over the data folder (9 tools, PNG
                    by pixels), imports src/lib unchanged; registered from this checkout's mcp/server.js (mcp/README.md)
 electron/task-summary.cjs   the scan's per-page task summary; mirrors lib/tasks.js buildTaskSummary (tested together)
 electron/retimed-sidecar.cjs  pure parse / record of pages/_retimed.json for main (tested from Vitest)
+electron/book-types-sidecar.cjs  pure parse / set of pages/_book-types.json for main (tested from Vitest)
 src/lib/print/     Print to PDF (v3.8.0): print-layout.js (sheets, 2-up columns, Auto, ink scale), print-html.js (the
                    self-contained document), print-list.js (cross-notebook print order), print-selection.js (the Editor's
                    Print selection…: selected canvas strokes by page, in memory); stores/print.js holds the session
@@ -50,7 +52,7 @@ The right pane is one of three destinations, **Library** (`BookViewer`), **Timel
 **Editor** (`StrokeCanvas`), a view over `viewerMode` + `bookViewMode` (`lib/navigation.js`). Every route between
 them goes through `navigateTo()` / `openPageInLibrary()` (`stores/viewer.js`), the one place the unsaved-transcript
 prompt is asked. Back / Forward (v3.13.0, `stores/view-history.js`) records from those stores rather than from each
-route and restores them itself (same prompt); a reader page turn calls `replaceNextView()` first. The app opens on the Timeline, and live pen ink switches to the Editor. Tab ids (`'strokes'`,
+route and restores them itself (same prompt); a reader page turn calls `replaceNextView()` first. The app opens on the Timeline, and live pen ink switches to the Editor. The Library reader opens on Ink + text (v3.15.0). Tab ids (`'strokes'`,
 `'transcription'`, `'saved-pages'`, `'books'`, `'dates'`, `'contents'`) predate the labels, so don't rename them
 (`ActionBar` calls `setActiveTab('transcription')`). The open page, reading order and grid filters are session-only:
 each launch opens the Library on its home. Left panel tabs, Library views, the reader, search and Tasks:
@@ -107,6 +109,10 @@ each launch opens the Library on its home. Left panel tabs, Library views, the r
   `_retimed.json` (v3.6.0, pen ids retimed away, `{ version: 1, pages: { "<ncodeBook>/<page>": { "s<penId>": "s<idNow>" } } }`,
   keyed by the PHYSICAL page, not the book key; offline import drops pen strokes listed here. Not a cache: deleting it
   lets a pen re-import bring retimed strokes back at their old times).
+  `_book-types.json` (v3.15.0, notebook types, `{ version: 1, books: { "<bookKey>": "Work" } }`; a volume without one
+  takes volume 1's; untyped by absence; missing or corrupt = no types). Display metadata like tags: set at once through
+  `stores/book-types.js` `setNotebookType()`, never in a PageDoc. The type filter (`bookTypeFilter`, localStorage) is one
+  store read by the Library home, Contents and `timelineIndexFiltered`; `lib/book-types.js` has the rules.
 
 ## Invariants
 

@@ -22,6 +22,7 @@ import { toBookKey, parseBookKey } from '$lib/volumes.js';
 import { listPages, getAliases } from './local-store.js';
 import { loadOrientations } from '$stores/orientation.js';
 import { loadTags } from '$stores/tags.js';
+import { loadBookTypes } from '$stores/book-types.js';
 import { loadRetimed } from '$stores/retimed.js';
 import { normalizeTaskSummary } from '$lib/tasks.js';
 
@@ -111,6 +112,7 @@ export async function scanLocalPages() {
     // Page rotations, page tags and retimed pen ids (small sidecars; never fail the scan).
     await loadOrientations();
     await loadTags();
+    await loadBookTypes();
     await loadRetimed();
 
     // List all pages (lightweight metadata — no strokes loaded). This single

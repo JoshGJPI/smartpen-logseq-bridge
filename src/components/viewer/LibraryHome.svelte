@@ -18,6 +18,8 @@
   import { dataFolderReady } from '$stores/settings.js';
   import { scanLocalPages } from '$lib/storage/scan.js';
   import { formatBookName } from '$utils/formatting.js';
+  import { bookTypeFilter, setBookTypeFilter } from '$stores/book-types.js';
+  import { typeFilterLabel } from '$lib/book-types.js';
   import { sortNotebooks, recentRecords } from '$lib/library-home.js';
   import NotebookCard from './NotebookCard.svelte';
   import PageThumb from './PageThumb.svelte';
@@ -55,6 +57,11 @@
     </div>
   {:else if $isScanning && cards.length === 0}
     <div class="lh-msg">Reading your notebooks…</div>
+  {:else if cards.length === 0 && $bookTypeFilter && $savedPages.length}
+    <div class="lh-msg">
+      <p>No notebooks of type “{typeFilterLabel($bookTypeFilter)}”.</p>
+      <p class="sub"><button type="button" class="lh-link" on:click={() => setBookTypeFilter(null)}>Show all types</button></p>
+    </div>
   {:else if cards.length === 0}
     <div class="lh-msg">
       <p>No notebooks to read yet.</p>
@@ -95,6 +102,9 @@
   .lh-msg { color: #999; font-size: 14px; padding: 40px 0; text-align: center; }
   .lh-msg p { margin: 0; }
   .lh-msg .sub { font-size: 12px; color: #aaa; margin-top: 6px; }
+
+  .lh-link { border: none; background: none; padding: 0; color: #2f5fd8; font-size: 12px; cursor: pointer; }
+  .lh-link:hover { text-decoration: underline; }
 
   .lh-recent { margin-bottom: 20px; }
   .lh-recent h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #666; }

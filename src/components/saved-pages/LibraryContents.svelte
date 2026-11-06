@@ -8,6 +8,9 @@
   in the Library (`openPageInLibrary`, which asks before dropping unsaved
   transcript edits). No page file is read here. Which notebooks are open is
   kept in a store, since this tab is unmounted when the panel collapses.
+
+  The notebook type filter (v3.15.0) applies here as on the Library home; the
+  open page's notebook stays listed whatever its type, so its highlight shows.
 -->
 <script>
   import { onMount, tick } from 'svelte';
@@ -20,11 +23,14 @@
   import { buildContents } from '$lib/library-contents.js';
   import { formatBookName } from '$utils/formatting.js';
   import { plural } from '$lib/plural.js';
+  import { bookTypes, bookTypeFilter } from '$stores/book-types.js';
+  import { matchesTypeFilter, typeFilterLabel } from '$lib/book-types.js';
 
   let listEl;
 
-  $: contents = buildContents($pagesByBook, $bookIds, (b) => formatBookName(b, $bookAliases, 'alias-only'));
   $: sel = $viewerSelection;
+  $: shownBooks = $bookIds.filter((b) => matchesTypeFilter(b, $bookTypeFilter, $bookTypes) || (sel && String(sel.book) === String(b)));
+  $: contents = buildContents($pagesByBook, shownBooks, (b) => formatBookName(b, $bookAliases, 'alias-only'));
   $: totalPages = contents.reduce((n, b) => n + b.pages.length, 0);
 
   // Opening a page opens its notebook here, so the highlight is visible; the
@@ -53,11 +59,13 @@
     <p class="note">Choose a data folder in Settings to see your notebooks.</p>
   {:else if $isScanning && contents.length === 0}
     <p class="note">Scanning the data folder…</p>
+  {:else if contents.length === 0 && $bookTypeFilter && $bookIds.length}
+    <p class="note">No notebooks of type “{typeFilterLabel($bookTypeFilter)}”.</p>
   {:else if contents.length === 0}
     <p class="note">No saved pages yet.</p>
   {:else}
     <p class="summary">
-      {contents.length} {plural(contents.length, 'notebook')} · {totalPages} {plural(totalPages, 'page')}
+      {#if $bookTypeFilter}{typeFilterLabel($bookTypeFilter)} · {/if}{contents.length} {plural(contents.length, 'notebook')} · {totalPages} {plural(totalPages, 'page')}
       <span class="legend"><i class="dot"></i> transcribed</span>
     </p>
     <div class="list" bind:this={listEl}>

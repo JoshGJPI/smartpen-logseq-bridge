@@ -5,18 +5,22 @@
   tags (v3.2.0, the tag manager as a Library view; shown in Tag grouping only since
   v3.14.0) and a ⋯ menu with Rescan (v3.14.0; also in Settings → Data folder). In
   Tag grouping, Cards | Pills (v3.11.0) picks the tag display. Choices persist per viewer
-  (stores/library.js).
+  (stores/library.js). The notebook Type picker (v3.15.0) shows in Notebook grouping
+  once any notebook has a type; it is the same filter as the Timeline's book filter.
 -->
 <script>
   import {
     savedPages, isScanning, librarySort, setLibrarySort, libraryGroupBy, setLibraryGroupBy,
-    libraryTagSort, setLibraryTagSort, tagCardList, untaggedSummary, libraryTagView, setLibraryTagView
+    libraryTagSort, setLibraryTagSort, tagCardList, untaggedSummary, libraryTagView, setLibraryTagView,
+    notebookCardList
   } from '$stores';
   import { dataFolderReady } from '$stores/settings.js';
   import { suggestionCount, ensureSuggestionScan } from '$stores/tag-suggestions.js';
   import { openLibraryView } from '$stores/viewer.js';
   import { rescanLibrary } from '$lib/storage/rescan.js';
   import OverflowMenu from './OverflowMenu.svelte';
+  import BookTypeFilterSelect from '../books/BookTypeFilterSelect.svelte';
+  import { bookTypeFilter } from '$stores/book-types.js';
   import { SORT_ORDERS } from '$lib/library-home.js';
   import { TAG_SORT_ORDERS } from '$lib/tags.js';
   import { plural } from '$lib/plural.js';
@@ -28,11 +32,13 @@
   $: orders = byTag ? TAG_SORT_ORDERS : SORT_ORDERS;
   $: current = byTag ? $libraryTagSort : $librarySort;
   $: totalPages = $savedPages.length;
+  // With a type filter the notebook summary counts that type's pages only.
+  $: shownPages = $bookTypeFilter ? $notebookCardList.reduce((n, c) => n + c.pageCount, 0) : totalPages;
   // The suggestion pass reads stored transcripts only; it reruns after a scan.
   $: if ($savedPages && !$isScanning) ensureSuggestionScan();
   $: summary = byTag
     ? `${$tagCardList.length} ${plural($tagCardList.length, 'tag')} · ${$untaggedSummary.pageCount} of ${totalPages} ${plural(totalPages, 'page')} untagged`
-    : `${notebookCount} ${plural(notebookCount, 'notebook')} · ${totalPages} ${plural(totalPages, 'page')}`;
+    : `${notebookCount} ${plural(notebookCount, 'notebook')} · ${shownPages} ${plural(shownPages, 'page')}`;
 
   function sortBy(id) {
     if (byTag) setLibraryTagSort(id);
@@ -49,7 +55,7 @@
 
 <div class="lh-head">
   <h2>Library</h2>
-  {#if notebookCount}
+  {#if notebookCount || (!byTag && $bookTypeFilter)}
     <span class="lh-sum">{summary}</span>
     <span class="seg" role="group" aria-label="Group by">
       <button type="button" class:on={!byTag} aria-pressed={!byTag} on:click={() => setLibraryGroupBy('book')}>Notebook</button>
@@ -60,6 +66,9 @@
         <button type="button" class="chip" class:on={current === o.id} aria-pressed={current === o.id} on:click={() => sortBy(o.id)}>{o.label}</button>
       {/each}
     </div>
+    {#if !byTag}
+      <BookTypeFilterSelect label="" />
+    {/if}
     {#if byTag}
       <span class="seg" role="group" aria-label="Show tags as">
         <button type="button" class:on={$libraryTagView === 'cards'} aria-pressed={$libraryTagView === 'cards'}

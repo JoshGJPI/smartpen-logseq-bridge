@@ -15,6 +15,8 @@ import {
 import { defaultTimelineDay } from '$lib/timeline-range.js';
 import { dataRoot, dataFolderReady } from './settings.js';
 import { log } from './ui.js';
+import { bookTypes, bookTypeFilter } from './book-types.js';
+import { booksOutsideType, matchesTypeFilter } from '$lib/book-types.js';
 
 /** The raw index, or null before the first load. */
 export const timelineIndex = writable(null);
@@ -95,16 +97,37 @@ export function includeOnlyBook(book) {
   timelineExcludedBooks.set(next);
 }
 
-/** The index as the date features see it — with excluded books removed. */
-export const timelineIndexFiltered = derived(
-  [timelineIndex, timelineExcludedBooks],
-  ([$index, $excluded]) => filterIndexByBooks($index, $excluded)
+/**
+ * Book keys the notebook-type filter (v3.15.0) leaves out. Kept apart from the
+ * exclusions above so choosing "All types" brings back exactly what the type
+ * hid, and a new notebook of the chosen type shows up without a click.
+ */
+export const timelineTypeExcludedBooks = derived(
+  [timelineIndex, bookTypes, bookTypeFilter],
+  ([$index, $types, $filter]) => booksOutsideType(indexBooks($index).map((b) => b.book), $filter, $types)
 );
 
-/** Every book in the (unfiltered) index, with strokes in the current range. */
+/** True while either the book filter or the type filter leaves a notebook out. */
+export const timelineFiltering = derived(
+  [timelineExcludedBooks, timelineTypeExcludedBooks],
+  ([$excluded, $byType]) => $excluded.size > 0 || $byType.size > 0
+);
+
+/** The index as the date features see it — with excluded books removed. */
+export const timelineIndexFiltered = derived(
+  [timelineIndex, timelineExcludedBooks, timelineTypeExcludedBooks],
+  ([$index, $excluded, $byType]) =>
+    filterIndexByBooks($index, $byType.size ? new Set([...$excluded, ...$byType]) : $excluded)
+);
+
+/**
+ * Every book in the index with strokes in the current range: the book filter's
+ * rows, so only notebooks of the chosen type when a type filter is on.
+ */
 export const timelineBooks = derived(
-  [timelineIndex, timelineRange],
-  ([$index, $range]) => indexBooks($index, $range.from, $range.to)
+  [timelineIndex, timelineRange, bookTypes, bookTypeFilter],
+  ([$index, $range, $types, $filter]) =>
+    indexBooks($index, $range.from, $range.to).filter((b) => matchesTypeFilter(b.book, $filter, $types))
 );
 
 /** Every day with captured ink, ascending. */

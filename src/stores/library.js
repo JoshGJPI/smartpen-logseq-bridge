@@ -10,6 +10,8 @@
 import { writable, derived, get } from 'svelte/store';
 import { savedPages, pagesByBook, bookIds } from './saved-pages.js';
 import { bookAliases } from './book-aliases.js';
+import { bookTypes, bookTypeFilter } from './book-types.js';
+import { matchesTypeFilter } from '$lib/book-types.js';
 import { timelineIndex, timelineIndexFiltered, loadTimeline } from './timeline.js';
 import { dataFolderReady } from './settings.js';
 import { formatBookName } from '$utils/formatting.js';
@@ -55,10 +57,15 @@ export const libraryPageDates = derived(timelineIndex, ($index) => pageDates($in
 
 const nameOf = ($aliases) => (b) => formatBookName(b, $aliases, 'alias-only');
 
-/** One card per notebook (book key), unsorted. */
+/**
+ * One card per notebook (book key), unsorted: those of the chosen notebook type
+ * (v3.15.0) when the type filter is on. The Timeline's per-book filter never
+ * hides a card; the type filter is the one choice both views share.
+ */
 export const notebookCardList = derived(
-  [pagesByBook, bookIds, libraryPageDates, bookAliases],
-  ([$grouped, $ids, $dates, $aliases]) => notebookCards($grouped, $ids, $dates, nameOf($aliases))
+  [pagesByBook, bookIds, libraryPageDates, bookAliases, bookTypes, bookTypeFilter],
+  ([$grouped, $ids, $dates, $aliases, $types, $filter]) =>
+    notebookCards($grouped, $ids.filter((b) => matchesTypeFilter(b, $filter, $types)), $dates, nameOf($aliases))
 );
 
 /** `{book, name}` for every notebook, for notebook-name search. */

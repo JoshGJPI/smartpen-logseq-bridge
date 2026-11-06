@@ -52,7 +52,7 @@
 
   // Shared viewer state, bound by App.svelte so the pane toolbar (breadcrumb,
   // View ▾, spread toolbar) can show and drive it.
-  export let contentMode = 'strokes'; // 'strokes' | 'transcript' | 'inktext'
+  export let contentMode = 'inktext'; // 'strokes' | 'transcript' | 'inktext' (Ink + text by default, v3.15.0)
   export let twoPageMode = true;      // default to a two-page spread
   export let hasSelection = false;    // true when a page is open (not the home grid)
   export let zoomLabel = '';          // out: "62%", or "62% · 58%" when the pages differ

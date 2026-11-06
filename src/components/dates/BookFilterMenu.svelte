@@ -9,6 +9,9 @@
   Each row shows the book's strokes inside the selected range, so it's clear
   which books a change would actually affect. "Only" narrows to one book in a
   click — the common case of "just my meeting notes".
+
+  The Type picker (v3.15.0, BookTypeFilterSelect) narrows the rows to one
+  notebook type; it is the same filter as the Library home's.
 -->
 <script>
   import {
@@ -16,6 +19,9 @@
   } from '$stores/timeline.js';
   import { bookAliases } from '$stores';
   import { formatBookName } from '$utils/formatting.js';
+  import { bookTypeFilter, bookTypeNames } from '$stores/book-types.js';
+  import { typeFilterLabel } from '$lib/book-types.js';
+  import BookTypeFilterSelect from '../books/BookTypeFilterSelect.svelte';
 
   export let theme = 'light'; // 'light' | 'dark'
   /** Which edge the menu lines up with — 'right' where the button sits at a panel's right edge. */
@@ -28,7 +34,9 @@
   $: excluded = $timelineExcludedBooks;
   $: includedCount = books.filter((b) => !excluded.has(b.book)).length;
   $: filtering = includedCount < books.length;
-  $: label = !filtering ? 'All books' : `${includedCount} of ${books.length} books`;
+  $: booksLabel = !filtering ? 'All books' : `${includedCount} of ${books.length} books`;
+  $: label = $bookTypeFilter ? `${typeFilterLabel($bookTypeFilter)} · ${booksLabel}` : booksLabel;
+  $: typed = !!$bookTypeFilter || $bookTypeNames.length > 0;
 
   function onWindowClick(event) {
     if (open && root && !root.contains(event.target)) open = false;
@@ -42,8 +50,8 @@
 <svelte:window on:click={onWindowClick} on:keydown={onWindowKey} />
 
 <div class="bf {theme}" class:align-right={align === 'right'} bind:this={root}>
-  <button type="button" class="bf-btn" class:filtering aria-haspopup="true" aria-expanded={open}
-    on:click={() => (open = !open)} disabled={books.length === 0}>
+  <button type="button" class="bf-btn" class:filtering={filtering || !!$bookTypeFilter} aria-haspopup="true" aria-expanded={open}
+    on:click={() => (open = !open)} disabled={books.length === 0 && !typed}>
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
     </svg>
@@ -53,6 +61,9 @@
 
   {#if open}
     <div class="bf-menu" role="group" aria-label="Books to include">
+      {#if typed}
+        <div class="bf-type"><BookTypeFilterSelect {theme} label="Notebook type" /></div>
+      {/if}
       <div class="bf-top">
         <span>Include books</span>
         <button type="button" class="bf-link" on:click={includeAllBooks} disabled={!filtering}>All</button>
@@ -69,6 +80,9 @@
             title="Show only this book">Only</button>
         </div>
       {/each}
+      {#if books.length === 0}
+        <p class="bf-note">No notebooks of this type.</p>
+      {/if}
       <p class="bf-note">Counts are strokes in the selected range. Applies to the Dates tab, the timeline and loads into the Editor.</p>
     </div>
   {/if}
@@ -117,6 +131,8 @@
     letter-spacing: 0.06em;
     text-transform: uppercase;
   }
+
+  .bf-type { padding: 0 12px 8px; margin-bottom: 6px; border-bottom: 1px solid rgba(128, 128, 140, 0.25); }
 
   .bf-row {
     display: flex;
