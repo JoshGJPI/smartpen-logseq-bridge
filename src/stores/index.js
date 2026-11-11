@@ -358,7 +358,12 @@ export {
   isViewerPageDirty,
   focusReaderLineId,
   lastTaskWrite,
-  noteTaskWritten
+  noteTaskWritten,
+  // Claude's transcript edits (v3.18.0)
+  isTranscriptEditorOpen,
+  transcriptEditorHold,
+  lastPageWrite,
+  notePagesWritten
 } from './viewer.js';
 
 // Library home + global search (reading-first package E)

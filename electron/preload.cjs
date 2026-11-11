@@ -113,6 +113,21 @@ contextBridge.exposeInMainWorld('storageAPI', {
 
 // Print to PDF or a printer: main asks where to save, renders the document in a hidden
 // window and writes the PDF. Returns { ok, result: { path, bytes } | { canceled } }.
+// ===== Claude's transcript edits (v3.18.0) =====
+// The MCP server posts an edit to main's localhost endpoint (on only while the
+// setting is on); main hands it here and waits for replyEdit().
+contextBridge.exposeInMainWorld('mcpAPI', {
+  setEnabled: (on) => ipcRenderer.invoke('mcp:setEnabled', !!on),
+  /** handler({ reqId, payload }); registering it tells main the renderer is listening */
+  onEdit: (handler) => {
+    ipcRenderer.removeAllListeners('mcp:edit');
+    ipcRenderer.on('mcp:edit', (_, msg) => handler(msg));
+    ipcRenderer.send('mcp:ready');
+  },
+  replyEdit: (reqId, result) => ipcRenderer.send('mcp:edit-result', { reqId, result }),
+  editLog: (action, book, page, payload) => ipcRenderer.invoke('mcp:editLog', action, book, page, payload),
+});
+
 contextBridge.exposeInMainWorld('printAPI', {
   savePdf: (html, suggestedName, open) => ipcRenderer.invoke('print:savePdf', html, suggestedName, !!open),
   // Print through the Windows print dialog. Returns { ok, result: { printed, reason } }.

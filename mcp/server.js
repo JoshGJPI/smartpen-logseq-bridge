@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 /**
- * smartpen-bridge read-only MCP server (stdio).
+ * smartpen-bridge MCP server (stdio).
  *
  *   SMARTPEN_DATA_ROOT=<dir> node mcp/server.js     (or --data-root <dir>, or npm run mcp)
  *
  * Reads <root>/pages/B*\/P*.json directly; works with the Electron app closed.
- * Never writes. Logs go to stderr only (stdout is the protocol).
+ * Never writes a file. With SMARTPEN_MCP_WRITES=1 it also offers edit_transcript /
+ * undo_transcript_edit, which ask the RUNNING app to make the edit (core/app-client.js).
+ * Logs go to stderr only (stdout is the protocol).
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -17,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { resolveDataRoot } from './core/paths.js';
 import { Store } from './core/store.js';
 import { createTools, LIMITS } from './core/tools.js';
+import { createWriteTools } from './core/write-tools.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const { version } = JSON.parse(fs.readFileSync(path.join(here, '..', 'package.json'), 'utf8'));
@@ -107,6 +110,55 @@ reg('search',
   + 'Returns pages with snippets plus matching notebooks, days and tags. Transcribed text only.',
   { query: z.string() }, 'Search');
 
+// ===== Writes (v3.18.0): only with SMARTPEN_MCP_WRITES=1, and only through the running app =====
+const writes = process.env.SMARTPEN_MCP_WRITES === '1';
+if (writes) {
+  const wt = createWriteTools(root);
+  const WRITE = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false };
+  const n = z.number().int();
+  const edit = z.object({
+    op: z.enum(['set_text', 'set_indent', 'move', 'insert', 'delete']),
+    line: n.optional().describe('set_text / set_indent / delete: the stored line number (#n, 1-based, as check_transcript prints it)'),
+    expect: z.string().optional().describe('The exact text now on that line (for insert: on line `after`); a mismatch refuses the call'),
+    text: z.string().optional().describe('set_text / insert: the new text, one line'),
+    level: n.optional().describe('set_indent / insert: indent level 0–8, at most one deeper than the line above'),
+    with_children: z.boolean().optional().describe('set_indent: shift the line\'s sub-lines too (default true)'),
+    lines: z.array(n).optional().describe('move: the line numbers to move, in the order they should end up'),
+    expect_first: z.string().optional().describe('move: the exact text now on the first of `lines`'),
+    to: z.union([z.enum(['top', 'bottom']), z.object({ after: n, expect: z.string().optional() })]).optional()
+      .describe('move: "top", "bottom" or { after: n }'),
+    after: n.optional().describe('insert: the line to insert after; 0 = before the first line'),
+    task_ok: z.boolean().optional().describe('delete: required to delete a task line (TODO / DONE / WAITING / CANCELLED)'),
+  });
+  server.registerTool('edit_transcript', {
+    title: 'Edit transcript',
+    description: 'Correct one page\'s saved transcript through the running smartpen-bridge app (it must be open with '
+      + 'Settings → Data folder → "Allow Claude to edit transcripts" on). Ops: set_text, set_indent, move, insert, delete. '
+      + 'Address lines by the stored number (#n from check_transcript / get_transcript) plus `expect`, the exact text now on '
+      + 'that line; every number refers to the transcript BEFORE this call. All-or-nothing, at most 60 ops. '
+      + 'dry_run (default true) returns the result marked ~ changed, + inserted, ↕ moved, plus deleted lines, and the '
+      + 'revision; apply with dry_run: false and that revision, only after Josh has seen the dry run and said yes. '
+      + 'Never changes ink or task state: inserted lines get no ink; WAITING / CANCELLED / DOING / NOW / LATER can\'t '
+      + 'start a line\'s text; a typed TODO / DONE box in front of a plain line makes it a task, as in the app. '
+      + 'Refused while the page is open in an editor in the app. Undo with undo_transcript_edit.',
+    inputSchema: {
+      book, page,
+      edits: z.array(edit).min(1).max(60),
+      dry_run: z.boolean().optional().describe('Default true: show the result, save nothing'),
+      revision: z.string().optional().describe('Required with dry_run: false: the revision the dry run returned'),
+    },
+    annotations: WRITE,
+  }, async (args) => wt.edit_transcript(args));
+  server.registerTool('undo_transcript_edit', {
+    title: 'Undo transcript edit',
+    description: 'Undo the last edit_transcript applied to a page, through the running app. Refused if the page was '
+      + 'written since (a task tick, an edit in the app): undo it in the app instead. Restores the transcript exactly, '
+      + 'and the ink links a delete removed.',
+    inputSchema: { book, page },
+    annotations: WRITE,
+  }, async (args) => wt.undo_transcript_edit(args));
+}
+
 await server.connect(new StdioServerTransport());
 
 // Startup line on stderr (stdout carries the protocol): which folder, which code, how fresh the data is.
@@ -125,4 +177,5 @@ function newestPage() {
   }
   return newest ? new Date(newest).toISOString() : 'none';
 }
-console.error(`smartpen-bridge MCP ${version} (commit ${gitCommit()}): reading ${root}; newest page written ${newestPage()}`);
+console.error(`smartpen-bridge MCP ${version} (commit ${gitCommit()}): reading ${root}; newest page written ${newestPage()}`
+  + (writes ? '; transcript edits through the app ON (SMARTPEN_MCP_WRITES=1)' : ''));

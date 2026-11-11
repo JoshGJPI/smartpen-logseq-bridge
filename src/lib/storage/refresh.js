@@ -9,8 +9,10 @@
  * so a new page was missing from the Library until Rescan and a re-saved page
  * kept its old ink in the reader.
  *
- *   refreshAfterSave(pages)  an Editor / Create Page save: drop those pages'
- *                            cached docs and thumbnails, rescan, refresh dates
+ *   refreshAfterSave(pages)  an Editor / Create Page save, Claude's edits: drop
+ *                            those pages' cached docs and thumbnails, have an
+ *                            open reader page read its page again, rescan,
+ *                            refresh dates
  *   resetForDataFolder()     a different folder: drop everything read from the
  *                            old one (tags and notebook types too), then load the new one as boot
  *                            does (the scan reloads the sidecars)
@@ -21,7 +23,7 @@
 import { get } from 'svelte/store';
 import {
   isScanning, clearSavedPages, clearViewerSelection, showLibraryGrid, clearReaderFocus,
-  setReaderSequence, gridFilters
+  setReaderSequence, gridFilters, notePagesWritten
 } from '$stores';
 import { timelineIndex, loadTimeline } from '$stores/timeline.js';
 import { loadVolumes } from '$stores/volumes.js';
@@ -59,6 +61,8 @@ export async function refreshAfterSave(pages = []) {
     invalidatePage(String(p.book), pageId);
     thumbs.invalidate(String(p.book), pageId);
   }
+  // An open reader page holds its own doc: tell it to read the page again.
+  notePagesWritten(pages.filter(Boolean).map((p) => ({ book: String(p.book), pageId: String(p.pageId ?? p.page) })));
   await rescan();
   await loadTimeline({ silent: true });
 }

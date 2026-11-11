@@ -49,6 +49,47 @@ export function isViewerPageDirty(book, pageId) {
   return get(dirtyPages).has(`${book}:${pageId}`);
 }
 
+/*
+ * Pages with a transcript editor OPEN (Library Edit, the Pages tab's Edit
+ * Transcription dialog), dirty or not (v3.18.0). Each holds the transcript it
+ * opened with and would write it back over a change made meanwhile, so
+ * Claude's edits (stores/mcp-edits.js) are refused on these pages. Counted, so
+ * two editors on one page each release their own hold.
+ */
+const openEditors = new Map();
+
+/** True while a transcript editor is open on that page. */
+export function isTranscriptEditorOpen(book, pageId) {
+  return (openEditors.get(`${book}:${pageId}`) || 0) > 0;
+}
+
+/**
+ * A hold for one editor: `set(key, open)` as it opens, closes or changes page,
+ * `release()` when it goes away. Keys are `${book}:${pageId}`.
+ */
+export function transcriptEditorHold() {
+  let held = null;
+  const drop = () => {
+    if (held == null) return;
+    const n = (openEditors.get(held) || 1) - 1;
+    if (n > 0) openEditors.set(held, n);
+    else openEditors.delete(held);
+    held = null;
+  };
+  return {
+    set(key, open) {
+      const want = open && key ? String(key) : null;
+      if (want === held) return;
+      drop();
+      if (want) {
+        openEditors.set(want, (openEditors.get(want) || 0) + 1);
+        held = want;
+      }
+    },
+    release: drop,
+  };
+}
+
 /** @param {string} key - `${book}:${page}` */
 export function markViewerDirtyPage(key) {
   dirtyPages.update((s) => {
@@ -441,6 +482,20 @@ export function noteTaskWritten(book, pageId, lineId, state) {
   lastTaskWrite.update((w) => ({
     book: String(book), pageId: String(pageId), lineId: String(lineId), state, n: (w ? w.n : 0) + 1
   }));
+}
+
+/**
+ * Pages written from outside the reader (an Editor save, Claude's edits):
+ * `{ keys: Set<'${book}:${pageId}'>, n }`, set by refreshAfterSave() after it
+ * drops their cached copies. A reader showing one of them reads it again, so
+ * its transcript and ink follow without a Rescan or a page turn (v3.18.0).
+ */
+export const lastPageWrite = writable(null);
+
+export function notePagesWritten(pages) {
+  const keys = new Set((pages || []).filter(Boolean).map((p) => `${p.book}:${p.pageId ?? p.page}`));
+  if (!keys.size) return;
+  lastPageWrite.update((w) => ({ keys, n: (w ? w.n : 0) + 1 }));
 }
 
 export function clearReaderFocus() {

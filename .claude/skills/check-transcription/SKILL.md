@@ -11,7 +11,8 @@ MyScript, run in the smartpen-bridge app, makes the transcript **and** links eac
 links sketch ink to text lines, and skips ink that wasn't in the batch. This skill catches those: read the page
 yourself, blind, then diff and look at the links.
 
-Everything here is read-only. Corrections are made by Josh in the app. Never edit files in the data folder.
+Steps 1–7 are read-only. Step 8 can apply the corrections, but only through the running app (`edit_transcript`),
+only when Josh says so, and only after he has seen the dry run. Never edit files in the data folder.
 
 ## Tools (smartpen-bridge MCP)
 
@@ -23,8 +24,11 @@ Everything here is read-only. Corrections are made by Josh in the app. Never edi
 | `render_page {book, page}` | The ink, plain (~1,800 image tokens per page) |
 | `check_transcript {book, page, reference}` | Your reading vs the stored transcript: wording, indent, task state, missing lines, stroke counts |
 | `render_page {book, page, color_by_line}` | Each line's ink in its colour, with a key: mislinks, lines with no ink, ink in no line |
+| `edit_transcript {book, page, edits, dry_run}` | Step 8 only: apply corrections through the running app (dry run first) |
+| `undo_transcript_edit {book, page}` | Undo the last applied edit on a page |
 
-If the tools are missing, the MCP is not registered or Claude Code needs a restart (`mcp/README.md`).
+If the tools are missing, the MCP is not registered or Claude Code needs a restart (`mcp/README.md`). The two write
+tools appear only when the server is registered with `SMARTPEN_MCP_WRITES=1`; without them, step 8 is Josh's to type.
 
 ## Process
 
@@ -114,8 +118,32 @@ Ask Josh to transcribe the rest before checking the text; the diff would only li
 
 Keep cosmetic differences (case, a space around a dash) in one line per page, not one entry each (`X` / `x` in a
 dimension, `F. SEI` / `F.SEI`). A difference that changes meaning gets its own entry even when the diff calls it
-case-only (`EFO` / `EF0`, a capital that moved to the wrong word). After Josh applies
-the corrections, offer to run step 5 again.
+case-only (`EFO` / `EF0`, a capital that moved to the wrong word). After the corrections
+are applied (by Josh, or in step 8), offer to run step 5 again.
+
+### 8. Apply (only when Josh asks, one page at a time)
+The app must be open with Settings → Data folder → "Allow Claude to edit transcripts" on. Re-transcribe (step 7)
+comes first, in the app: a new transcription replaces edits applied before it.
+
+1. Build the edits from the **Corrections** list only. Never from "for Josh to decide" items unless he picked an
+   answer, never from "looks like your edit" lines, and nothing about task state (ticks, WAITING, CANCELLED are his,
+   in the app) or ink.
+   - Wording: `{ "op": "set_text", "line": n, "expect": "<text now on #n>", "text": "<new text>" }`
+   - Indent: `{ "op": "set_indent", "line": n, "expect": …, "level": 0–8 }` (its sub-lines move with it)
+   - Out of order: `{ "op": "move", "lines": [n, …], "expect_first": …, "to": "top" | "bottom" | { "after": n } }`
+   - Missing line: `{ "op": "insert", "after": n, "expect": <text on #n>, "level": …, "text": … }` (no ink is linked)
+   - Sketch label or junk line: `{ "op": "delete", "line": n, "expect": … }` (its sub-lines move up a level; a task
+     line also needs `"task_ok": true`, and only if Josh said to delete it)
+
+   `n` is the stored number from step 5's diff, and every number means the transcript as it was before the call.
+   `expect` is the exact stored text (copy it from `get_transcript`), not your reading.
+2. `edit_transcript` with `dry_run` left on. Show Josh the marked listing (`~` changed, `+` inserted, `↕` moved,
+   deleted lines below) and wait for his yes.
+3. On yes: the same call with `"dry_run": false` and the `revision` the dry run returned. "The page changed since the
+   dry run" means Josh (or the app) wrote it meanwhile: dry-run again. A refusal naming an editor or a draft means
+   the page is open for editing in the app: ask Josh to close it.
+4. Run step 5 again on the page. If something came out wrong, `undo_transcript_edit` puts the page back as long as
+   nothing else has written it since.
 
 ## Cost
 Per page: one plain render and one coloured render (~1,800 image tokens each) plus a few hundred text tokens. Do

@@ -23,7 +23,7 @@ beforeAll(async () => {
   await client.connect(new StdioClientTransport({
     command: process.execPath,
     args: [path.resolve(__dirname, '../server.js')],
-    env: { ...process.env, SMARTPEN_DATA_ROOT: root },
+    env: { ...process.env, SMARTPEN_DATA_ROOT: root, SMARTPEN_MCP_WRITES: '' },
     stderr: 'ignore'
   }));
 }, 30_000);

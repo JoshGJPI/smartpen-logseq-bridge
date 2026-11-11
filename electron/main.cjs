@@ -10,6 +10,8 @@ const bookTypesSidecar = require('./book-types-sidecar.cjs');
 const retimedSidecar = require('./retimed-sidecar.cjs');
 const penMatch = require('./pen-match.cjs');
 const { buildTaskSummary } = require('./task-summary.cjs');
+const mcpEndpoint = require('./mcp-endpoint.cjs');
+const mcpEditLog = require('./mcp-edit-log.cjs');
 
 // Must be set before 'ready' so Windows links the running process to the
 // installed shortcut and shows the correct taskbar icon (rather than grouping
@@ -95,7 +97,13 @@ function createWindow() {
     mainWindow.show();
   });
 
+  // Claude's transcript edits (mcp-endpoint): the renderer says when it is
+  // listening; a reload or a crash means it no longer is.
+  mainWindow.webContents.on('did-start-loading', () => mcpForwarder.setReady(false));
+  mainWindow.webContents.on('render-process-gone', () => mcpForwarder.setReady(false));
+
   mainWindow.on('closed', () => {
+    mcpForwarder.setReady(false);
     mainWindow = null;
   });
 
@@ -1491,6 +1499,67 @@ function confirmDiscardUnsaved() {
   });
   return choice === 1; // index 1 = "Discard & Close"
 }
+
+// ===== Claude's transcript edits (v3.18.0, docs/MCP-WRITE-SPEC.md) =====
+// A localhost endpoint the MCP server posts edits to, started only while the
+// renderer's setting "Allow Claude to edit transcripts" is on. Main forwards
+// each request to the renderer, which runs the guards and saves through the
+// app's one write path; main only checks the caller and the request's shape.
+const mcpForwarder = mcpEndpoint.createForwarder({
+  send: (msg) => {
+    if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
+      throw new Error('no window');
+    }
+    mainWindow.webContents.send('mcp:edit', msg);
+  },
+});
+let mcpServer = null;     // { port, token, file, close } while running
+let mcpStarting = null;   // the start in flight, so a second toggle waits for it
+
+async function setMcpEndpointEnabled(on) {
+  if (mcpStarting) await mcpStarting.catch(() => {});
+  if (on && !mcpServer) {
+    mcpStarting = mcpEndpoint.startEndpoint({
+      userDataDir: app.getPath('userData'),
+      version: app.getVersion(),
+      forwarder: mcpForwarder,
+      validate: { requireBookKey, requirePageId },
+    });
+    try {
+      mcpServer = await mcpStarting;
+    } finally {
+      mcpStarting = null;
+    }
+  } else if (!on && mcpServer) {
+    const s = mcpServer;
+    mcpServer = null;
+    await s.close();
+  }
+  return mcpServer ? { port: mcpServer.port } : null;
+}
+
+ipcMain.handle('mcp:setEnabled', ipcSafe(async (on) => setMcpEndpointEnabled(!!on)));
+ipcMain.on('mcp:ready', (event) => {
+  if (mainWindow && event.sender === mainWindow.webContents) mcpForwarder.setReady(true);
+});
+ipcMain.on('mcp:edit-result', (event, msg) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || !msg) return;
+  mcpForwarder.receive(msg.reqId, msg.result);
+});
+// The undo log: <userData>/mcp-edits/<bookKey>-<pageId>.jsonl, never in the data folder.
+ipcMain.handle('mcp:editLog', ipcSafe(async (action, book, page, payload) => {
+  const key = `${requireBookKey(book)}-${requirePageId(page)}`;
+  return mcpEditLog.handle(app.getPath('userData'), action, key, payload);
+}));
+
+app.on('will-quit', () => {
+  // Remove the endpoint file even when the quit skips the renderer.
+  if (mcpServer) {
+    const s = mcpServer;
+    mcpServer = null;
+    s.close().catch(() => {});
+  }
+});
 
 // The renderer finished releasing the BLE link in response to 'app-before-quit'.
 // Destroy now (faster than the gate's grace timer); window-all-closed then quits.

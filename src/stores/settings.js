@@ -69,6 +69,9 @@ export const myscriptHmacKey = createPersistedStore('myscriptHmacKey', '');
 export const dataRoot = createPersistedStore('dataRoot', '');           // absolute path
 export const dataFolderReady = writable(false);                          // updated at boot / on folder change
 export const dataFolderStatusText = writable('Folder: not set');
+// Claude's transcript edits (v3.18.0): the app starts its localhost endpoint for
+// the MCP's edit_transcript only while this is on. Off by default.
+export const allowClaudeEdits = createPersistedStore('allowClaudeEdits', false);
 
 // "Export to LogSeq" — the graph folder that curated stroke exports are
 // published into as assets (PageDoc + smartpen-index.json) for the JPI Tools

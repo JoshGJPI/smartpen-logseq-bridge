@@ -1,8 +1,9 @@
 # smartpen-bridge MCP server
 
-Read-only stdio MCP server over the data folder (`<root>/pages/B*/P*.json`). Works with the app closed (PageDocs are
-written atomically, so reading while the app runs is safe too). It never writes, opens no network port and never calls
-MyScript. Design: [docs/MCP-SERVER-SPEC.md](../docs/MCP-SERVER-SPEC.md).
+Stdio MCP server over the data folder (`<root>/pages/B*/P*.json`). Works with the app closed (PageDocs are
+written atomically, so reading while the app runs is safe too). It never writes a file, opens no port and never calls
+MyScript. Design: [docs/MCP-SERVER-SPEC.md](../docs/MCP-SERVER-SPEC.md). Opt-in, it can also ask the **running app**
+to correct a transcript (see "Editing a transcript through the app"; [docs/MCP-WRITE-SPEC.md](../docs/MCP-WRITE-SPEC.md)).
 
 ## Run
 
@@ -141,6 +142,37 @@ including how Claude writes its blind reading, is the project skill
   counts of boxes, underlines and circles. Same detector (`detectDecorativeIndices`) on every stroke of the page in raw
   Ncode, as the Editor runs it. A red task box (☐ / ☑) would be left out of the transcription and lose its TODO / DONE.
 
+## Editing a transcript through the app (v3.18.0)
+
+`edit_transcript` and `undo_transcript_edit` exist only when the server is started with `SMARTPEN_MCP_WRITES=1`, and
+work only while the app is open with Settings → Data folder → "Allow Claude to edit transcripts" on (default off). Off
+in either place = the read-only server. The server still writes nothing: it posts the edit to the app
+(`core/app-client.js`), and the app checks it, saves it through its own write path (Library Edit's save) and refreshes
+its views, so an open reader page shows the change at once. To turn it on, add `-e SMARTPEN_MCP_WRITES=1` to the
+`claude mcp add` line above (or `"SMARTPEN_MCP_WRITES": "1"` to the Desktop `env`) and restart the client.
+
+- **Finding the app:** `<userData>/mcp-endpoint.json` (`{ port, token, pid, version }`, written while the endpoint runs,
+  owner-only, removed on quit or when the setting goes off). Looked up at `SMARTPEN_APP_ENDPOINT`, else
+  `%APPDATA%\smartpen-logseq-bridge\` (the dev and the installed build share it), else `%APPDATA%\Smartpen LogSeq Bridge\`.
+  A file whose pid is gone is ignored. The endpoint is `127.0.0.1` only, with a bearer token that is new each start.
+- **Ops** (one page per call, ≤ 60, all-or-nothing): `set_text`, `set_indent` (sub-lines follow unless
+  `with_children: false`), `move` (`top`, `bottom`, `{ after: n }`), `insert` (no ink linked), `delete` (sub-lines move
+  up a level; a task needs `task_ok`). Lines are addressed by the stored number `#n` **plus `expect`**, the exact text
+  on it; numbers mean the transcript before the call. Indent: at most one deeper than the line above.
+- **Dry run first** (the default): the result as `get_transcript` bullets, numbered as it will be stored, marked `~`
+  changed, `+` inserted, `↕` moved, deleted lines listed after, plus the `revision` to apply with. Applying with
+  another revision is refused ("the page changed since the dry run").
+- **Refused** (dry runs too): the app's data folder isn't this server's; the page is open in a transcript editor in
+  the app (Library Edit or the Pages tab dialog, changed or not) or has an unsaved Library draft; an unsaved Editor
+  transcription or a re-transcribe reset on the page.
+- **Never** ink or task state: no tick / WAITING / CANCELLED (a line can't start with `WAITING`, `CANCELLED`, `DOING`,
+  `NOW`, `LATER`); a typed `TODO` / `DONE` / box in front of a plain line makes it a task, as Library Edit does.
+- **Undo:** `undo_transcript_edit {book, page}` restores the page's transcript (and the ink links a delete removed)
+  as it was before the last applied edit, only if nothing has written the page since. The log is
+  `<userData>/mcp-edits/<book>-<page>.jsonl`, 20 per page, never in the data folder.
+- **Timeout:** the app answers within 30 s, or the call fails saying an edit may still have landed (check with
+  `get_transcript`).
+
 ## Rendering
 
 - **Layout:** pages are laid out on Neo's printed frame (`_backgrounds/<book>/manifest.json`, geometry only; the JPGs are
@@ -163,14 +195,16 @@ including how Claude writes its blind reading, is the project skill
 `core/search.js` (wires the app's `parseSearchQuery` / `runSearch`), `core/tasks.js` (the Tasks view's
 rows, filters and groups), `core/check-colors.js` (`color_by_line` / `show_decorative`), `core/transcript-check.js`
 (`check_transcript`'s ink rows and diff), `core/tools.js` (transport-free
-handlers), `server.js`. Reuses `src/lib` unchanged: volumes, timeline, page-sittings, page-orientation, page-svg path
+handlers), `core/app-client.js` + `core/write-tools.js` (the opt-in edits through the app), `server.js`. Reuses `src/lib` unchanged: volumes, timeline, page-sittings, page-orientation, page-svg path
 helpers, tags, tasks, convert-task-boxes (detection only), global-search, search-query, neo-backgrounds, ink-text,
 `utils/formatting` (book names).
 
 Tests (`mcp/__tests__/`, synthetic data built in a temp folder): `mcp.test.js` (guard, sidecars, scan, bounds and
 outliers, PNG decode, pixel caps and paging, stored rotation, every tool), `search-parity.test.js` (MCP search vs the app's search
 pipeline, with main.cjs's own metadata functions), `tasks.test.js` (`list_tasks` filters, groups, paging, and parity
-with the app's Tasks view rows), `server.test.js` (stdio start-up, exactly the ten tools, all read-only), `dst.test.js` (fall-back /
+with the app's Tasks view rows), `server.test.js` (stdio start-up, exactly the ten tools, all read-only), `write-tools.test.js` (the write tools only
+with `SMARTPEN_MCP_WRITES=1`, their annotations, dry run / apply / stale revision / undo against a fake app behind the
+real endpoint, "app not running"), `dst.test.js` (fall-back /
 spring-forward days, local midnight). `__fixtures__/app-side.js` builds the synthetic folders and reads them back the
 app's way.
 

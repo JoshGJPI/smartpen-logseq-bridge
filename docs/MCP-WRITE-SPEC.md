@@ -1,6 +1,8 @@
 # MCP transcript edits through the app (option C) — spec
 
-Status: **proposed, not started** (Josh, 2026-11-11). Target v3.18.0.
+Status: **built in v3.18.0** (Josh, 2026-11-11). Answers to the open questions: opt-in in both places, a toast plus
+the Activity Log line, a 30 s timeout. Beyond the spec: Claude's edits are refused while a transcript editor is open
+on the page at all, not only when it is dirty (an open, clean Edit would save its old lines back).
 
 ## Goal
 

@@ -19,12 +19,14 @@
   page, and its ink lit only on trusted pages.
 
   A task tick (lib/viewer/task-state.js, from here or the Tasks view) patches
-  this page's doc from `lastTaskWrite`, so the transcript follows at once.
+  this page's doc from `lastTaskWrite`, so the transcript follows at once. A
+  page written elsewhere (refreshAfterSave: an Editor save, Claude's edits) is
+  read again from `lastPageWrite`.
 -->
 <script>
   import { tick } from 'svelte';
   import { get } from 'svelte/store';
-  import { setTimelineRange, navigateTo, setActiveTab, readerFocus, lastTaskWrite } from '$stores';
+  import { setTimelineRange, navigateTo, setActiveTab, readerFocus, lastTaskWrite, lastPageWrite } from '$stores';
   import { withTaskState } from '$lib/tasks.js';
   import { matchingLineId } from '$lib/global-search.js';
   import { getCachedPage } from '$lib/viewer/page-cache.js';
@@ -101,6 +103,25 @@
     if (!src.some((l) => l.id === w.lineId)) return;
     const next = src.map((l) => (l.id === w.lineId ? withTaskState(l, w.state) : l));
     doc = { ...doc, transcript: { ...doc.transcript, lines: next } };
+  }
+
+  // The page written from outside the reader (an Editor save, Claude's edits,
+  // v3.18.0): read it again, keeping the old doc on screen until the new one
+  // is in (refreshAfterSave dropped the cached copy first).
+  let seenPageWriteN = get(lastPageWrite)?.n || 0;
+  $: if ($lastPageWrite && $lastPageWrite.n !== seenPageWriteN) {
+    seenPageWriteN = $lastPageWrite.n;
+    if (record && $lastPageWrite.keys.has(`${record.book}:${idOf(record)}`)) reloadDoc(record);
+  }
+
+  async function reloadDoc(rec) {
+    const key = `${rec.book}:${idOf(rec)}`;
+    try {
+      const d = await getCachedPage(rec.book, idOf(rec));
+      if (loadedKey === key && d) doc = d;
+    } catch (e) {
+      console.warn('Library: failed to reload page', key, e);
+    }
   }
 
   // Reflect a transcript save back into the locally-held doc so display mode

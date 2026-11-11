@@ -27,7 +27,7 @@
 -->
 <script>
   import { tick, onDestroy } from 'svelte';
-  import { log, markViewerDirtyPage, clearViewerDirtyPage, viewerDirtyPages } from '$stores';
+  import { log, markViewerDirtyPage, clearViewerDirtyPage, viewerDirtyPages, transcriptEditorHold } from '$stores';
   import { linesToLogseqMarkdown, subtreeLines } from '$lib/viewer/transcript-markdown.js';
   import { saveTranscriptLines } from '$lib/viewer/save-transcript.js';
   import { markerField } from '$lib/tasks.js';
@@ -294,7 +294,13 @@
 
   // If this pane is torn down while still editing (e.g. the spread is
   // reconfigured), let Book View drop the paired strokes view.
+  // While Edit is open (dirty or not) Claude's edits are refused on this page:
+  // the draft would write its copy back over them (v3.18.0).
+  const editorHold = transcriptEditorHold();
+  $: editorHold.set(pageKey, editing);
+
   onDestroy(() => {
+    editorHold.release();
     if (editing) onEditingChange(false);
   });
 </script>

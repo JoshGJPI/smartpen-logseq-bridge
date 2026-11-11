@@ -35,8 +35,13 @@ src/lib/viewer/    reader helpers: SVG render, page cache, thumbnails, transcrip
                    task-state.js (the one task write path, v3.4.0)
 src/components/    grouped by feature (canvas, dialog, header, viewer, dates, books, tags, transcription, ...)
 electron/tags-sidecar.cjs   pure parse / patch of pages/_tags.json for main (tested from Vitest)
-mcp/               read-only stdio MCP server over the data folder (10 tools, PNG via @resvg/resvg-wasm, images capped
-                   by pixels), imports src/lib unchanged; registered from this checkout's mcp/server.js (mcp/README.md)
+mcp/               stdio MCP server over the data folder (10 read-only tools, PNG via @resvg/resvg-wasm, images capped
+                   by pixels), imports src/lib unchanged; registered from this checkout's mcp/server.js (mcp/README.md).
+                   With SMARTPEN_MCP_WRITES=1 also edit_transcript / undo_transcript_edit, which ask the running app
+                   (core/app-client.js) and never write a file (v3.18.0)
+electron/mcp-endpoint.cjs   main's localhost endpoint for those edits (token, body limit, request ids, 30 s timeout,
+                   <userData>/mcp-endpoint.json); mcp-edit-log.cjs their undo log in <userData>/mcp-edits/ (tested from Vitest)
+src/lib/mcp-edits.js, stores/mcp-edits.js   the op engine (pure) and the renderer side: guards, Library Edit save, refresh
 electron/task-summary.cjs   the scan's per-page task summary; mirrors lib/tasks.js buildTaskSummary (tested together)
 electron/retimed-sidecar.cjs  pure parse / record of pages/_retimed.json for main (tested from Vitest)
 electron/book-types-sidecar.cjs  pure parse / set of pages/_book-types.json for main (tested from Vitest)
@@ -161,7 +166,26 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   `lib/safe-storage.js` (or your own try/catch): a corrupt value read at module load must never stop the app starting.
 - **The reading views hold copies** (scan records, the reader's page cache, thumbnail SVGs, the capture-date index).
   Anything that writes PageDocs outside the Library reader calls `refreshAfterSave(pages)` afterwards, and a data-folder
-  change calls `resetForDataFolder()` (`lib/storage/refresh.js`); otherwise they show stale data until Rescan.
+  change calls `resetForDataFolder()` (`lib/storage/refresh.js`); otherwise they show stale data until Rescan. Since
+  v3.18.0 `refreshAfterSave` also signals `lastPageWrite`, so an open reader page reads its page again.
+
+### Claude's transcript edits (v3.18.0, docs/MCP-WRITE-SPEC.md)
+
+- **The MCP never writes a page.** `edit_transcript` posts to the running app's endpoint (`electron/mcp-endpoint.cjs`,
+  main checks only the token and the shape) and `stores/mcp-edits.js` saves through `saveTranscriptLines(…, { base })`,
+  then `refreshAfterSave()`. Opt-in in both places: `SMARTPEN_MCP_WRITES=1` registers the tools, and the app runs the
+  endpoint only while Settings → Data folder → "Allow Claude to edit transcripts" (`allowClaudeEdits`) is on.
+- **Refused, dry runs too** (`lib/mcp-edits.js` `editRefusal`): another data folder than the MCP's; a Library draft;
+  **any transcript editor open on the page** (`transcriptEditorHold()` in `stores/viewer.js`: a clean Edit still saves
+  its old lines back, so `isViewerPageDirty` is not enough; a new editor on a saved transcript must take a hold); a
+  pending Editor transcription; a re-transcribe reset.
+- `#n` plus `expect`; every number means the transcript before the call (resolved to ids first). All-or-nothing.
+  Applying needs the dry run's `revision` (`metadata.lastUpdated`). Untouched lines are compared field by field
+  (`untouchedChanged`) before and after the save.
+- **Never ink or task state**: inserted lines get no `lineId`s; no WAITING / CANCELLED / DOING / NOW / LATER as a
+  leading word; a deleted task needs `task_ok`. Task state stays with `setTaskState()`.
+- **Undo log in `<userData>/mcp-edits/`, never the data folder**: appended before the save, dropped if it fails,
+  stamped with the revision written; undo restores verbatim through `savePage()` only at that revision.
 
 ### Page tags (v3.1.0)
 

@@ -6,6 +6,7 @@
   import { dataRoot, dataFolderReady, dataFolderStatusText, setDataFolderStatus, log } from '$stores';
   import { pickFolder, isAvailable, openInExplorer } from '$lib/storage/local-store.js';
   import { resetForDataFolder } from '$lib/storage/refresh.js';
+  import { allowClaudeEdits } from '$stores/settings.js';
 
   let isChecking = false;
 
@@ -94,6 +95,16 @@
     Pages are saved to <code>&lt;folder&gt;/pages/B{`{book}`}/P{`{page}`}.json</code>.
     Exports go to <code>&lt;folder&gt;/exports/</code>. The app never touches version control.
   </p>
+
+  <label class="check">
+    <input type="checkbox" bind:checked={$allowClaudeEdits} />
+    Allow Claude to edit transcripts
+  </label>
+  <p class="hint">
+    Lets the smartpen-bridge MCP (registered with <code>SMARTPEN_MCP_WRITES=1</code>) correct a page's saved
+    transcript through this app while it is open: wording, indent, order, missing lines. Never ink or task
+    state. Refused on a page you are editing; each edit can be undone. Off = read-only.
+  </p>
 </div>
 
 <style>
@@ -122,6 +133,13 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+  }
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    cursor: pointer;
   }
   .hint {
     font-size: 0.75rem;

@@ -6,7 +6,52 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
-## Unreleased — Duplicate stroke ids: warning and cleanup (November 2026)
+## v3.18.0 — Claude edits transcripts through the running app; duplicate stroke ids (November 2026)
+
+### Claude's transcript edits (option C, [MCP-WRITE-SPEC.md](MCP-WRITE-SPEC.md))
+
+The check-transcription skill's first run (3017/180–186) produced about 25 corrections that Josh then had to retype.
+Three ways to let Claude apply them were weighed: (A) the MCP writes the PageDoc itself, (B) a proposal sidecar the
+app applies, (C) a local endpoint in the running app. A is a second writer: the app's copies (scan records, reader
+cache, thumbnails, the open reader's `doc`) go stale, an open Library Edit draft saves every line verbatim and would
+silently revert the edit, and it would need its own copy of the task / parent / `lineId` rules and the atomic write.
+B was rejected in v3.16.0. **C** keeps the one write path and the app's guards, at the cost of the app having to be open.
+
+- **Path.** `edit_transcript` (MCP) → `mcp/core/app-client.js` → `POST 127.0.0.1:<port>/transcript-edit` with a bearer
+  token → `electron/mcp-endpoint.cjs` (main: checks the token and the shape only) → IPC with a request id →
+  `stores/mcp-edits.js` (guards, `lib/mcp-edits.js` plan, `saveTranscriptLines(…, { base })`, `refreshAfterSave()`) →
+  the answer back. Main answers 503 while the renderer isn't listening and 504 after **30 s** (Josh, over the spec's 15 s,
+  for a minimised window; the reply says an edit may still have landed).
+- **Addressing.** `#n` (as `check_transcript` prints it) plus `expect`, the exact text there; every number means the
+  transcript before the call, resolved to ids first, so an insert never shifts a later op. All-or-nothing, ≤ 60 ops.
+  Dry run by default; applying needs the dry run's `revision` (`metadata.lastUpdated`). A line sits at most one level
+  under the line above wherever an op changed something nearby (the move or outdent that strands a child is caught too).
+- **Never ink or task state.** Inserted lines get no ink; a delete's ink is unlinked by the save's scrub; a deleted task
+  needs `task_ok`; `WAITING` / `CANCELLED` / `DOING` / `NOW` / `LATER` can't start a line. A typed box on a plain line
+  makes it a task, as Library Edit does. Untouched lines are compared field by field before and after the save.
+- **Guards** (also on dry runs): data folder set and the same as the MCP's; no Library draft; **no transcript editor
+  open** on the page (Library Edit or the Pages tab's dialog, dirty or not — a clean Edit still holds the old lines
+  and would save them back, so `isViewerPageDirty` alone wasn't enough: `transcriptEditorHold()` in `stores/viewer.js`);
+  no pending Editor transcription; not reset for re-transcription.
+- **Undo** `undo_transcript_edit`: the previous `transcript` and the scrubbed links go to
+  `<userData>/mcp-edits/<book>-<page>.jsonl` before the save (dropped if it fails, stamped with the new revision when
+  it lands; 20 per page). Undo restores it verbatim through `savePage()` only while the page is still at that revision.
+- **Opt-in in both places** (Josh): the MCP registers the two tools only with `SMARTPEN_MCP_WRITES=1`, and the app runs
+  the endpoint only while Settings → Data folder → "Allow Claude to edit transcripts" is on (default off). The endpoint
+  file `<userData>/mcp-endpoint.json` (port, token, pid) is written owner-only and removed on quit or when turned off.
+- **Notice:** a toast plus the Activity Log line for each applied edit or undo (Josh); dry runs show nothing.
+- **Reader refresh.** `refreshAfterSave()` dropped the cache but an open reader page kept its own `doc`, so an Editor
+  save (or now a Claude edit) wasn't shown until a page turn. It now signals `lastPageWrite`, and `PageSpreadView` reads
+  the page again without blanking.
+- Checked by hand on a scratch copy of 3017/180–181 in a separate profile over CDP: `IOP II` → `LOP II` and
+  `LOP II` → `LOP III` (the "continued use" line) on 180; `2,500ps:` → `2,500psi` and the dropped name "Jason
+  Thompson" inserted on 181. Dry run left the file alone; the open reader and the search followed the save; a clean
+  open Edit refused the edit; a stale revision was refused; undo brought both pages back identical except `lastUpdated`.
+
+Not done: a "Claude edits" list with Undo in Settings (optional in the spec), linking inserted lines to ink, task-state
+edits, multi-page calls.
+
+### Duplicate stroke ids: warning and cleanup
 
 Found on B1211/P20 (2026-11-11): two strokes with the same id `s1794350059087`. Not a copy: 9 and 8 points with
 different shapes and end times, saved in one go from the canvas. Their point timestamps overlap, which one pen

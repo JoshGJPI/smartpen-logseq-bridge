@@ -13,6 +13,8 @@
   import BookSelectionDialog from './components/dialog/BookSelectionDialog.svelte';
   import BluetoothDevicePicker from './components/dialog/BluetoothDevicePicker.svelte';
   import PrintDialog from './components/dialog/PrintDialog.svelte';
+  import McpEditToast from './components/layout/McpEditToast.svelte';
+  import { initMcpEdits } from '$stores/mcp-edits.js';
 
   // Canvas components
   import StrokeCanvas from './components/canvas/StrokeCanvas.svelte';
@@ -134,8 +136,13 @@
     toggleLeftPanel();
   }
 
+  let stopMcpEdits = () => {};
+
   onMount(() => {
     initializePenSDK();
+    // Claude's transcript edits (v3.18.0): listen for them; the local endpoint
+    // runs only while Settings → Data folder → "Allow Claude to edit" is on.
+    stopMcpEdits = initMcpEdits();
     log('smartpen-bridge ready. Click "Connect" in the header to pair the pen.', 'info');
 
     // Kick off data-folder availability check (non-blocking). Once the folder is
@@ -184,6 +191,7 @@
   });
 
   onDestroy(() => {
+    stopMcpEdits();
     // Release any live BLE link as the app tears down.
     try {
       disconnectAllPens();
@@ -276,6 +284,7 @@
   <BookSelectionDialog />
   <BluetoothDevicePicker />
   <PrintDialog />
+  <McpEditToast />
 </div>
 
 <style>

@@ -22,8 +22,10 @@
     resetPageTranscript,
     canvasPageKeys,
     isViewerPageDirty,
+    transcriptEditorHold,
     log
   } from '$stores';
+  import { onDestroy } from 'svelte';
 
   export let page; // lightweight page record (no strokes/pageDoc)
 
@@ -37,6 +39,10 @@
   let importProgress = { current: 0, total: 0 };
   let editedTranscription = page.transcriptionText || '';
   let showEditorModal = false;
+  // While the dialog is open Claude's edits are refused on this page (v3.18.0).
+  const editorHold = transcriptEditorHold();
+  $: editorHold.set(`${page.book}:${pageRef}`, showEditorModal);
+  onDestroy(() => editorHold.release());
   let editorLines = [];
   /** transcript.lines when the dialog opened, for keepDiskTaskState */
   let editorBase = [];
