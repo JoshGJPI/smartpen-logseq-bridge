@@ -507,6 +507,7 @@
 
           if (result.success) {
             recordSuccessfulSave(`B${book}/P${page}`, result);
+            if (result.reIded) log(`B${book}/P${page}: ${result.reIded} stroke${result.reIded === 1 ? '' : 's'} shared a start time with another and were saved 1 ms later`, 'warning');
             writtenPages.push({ book, page });
 
             // The edited strokes' points are now on disk, so the intent markers

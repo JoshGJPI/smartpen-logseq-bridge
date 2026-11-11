@@ -6,7 +6,8 @@
   recognition (MyScript keys, set once), Maintenance. Each heading carries a
   one-line status, so a folded section still says whether it is set. Rescan
   is under Data folder (also the Library home's ⋯ menu); Convert task boxes…, a
-  one-off, is under Maintenance with the Activity Log.
+  one-off, is under Maintenance with the Activity Log, and so is Clean up duplicate
+  strokes… (v3.18.0), whose count shows in the section heading.
 -->
 <script>
   import {
@@ -19,6 +20,8 @@
   } from '$stores';
   import ActivityLogDialog from '../dialog/ActivityLogDialog.svelte';
   import ConvertTaskBoxesDialog from '../dialog/ConvertTaskBoxesDialog.svelte';
+  import DuplicateStrokesDialog from '../dialog/DuplicateStrokesDialog.svelte';
+  import { pagesWithDuplicateStrokes } from '$stores/duplicate-strokes.js';
   import DataFolderSettings from '../settings/DataFolderSettings.svelte';
   import GraphFolderSettings from '../settings/GraphFolderSettings.svelte';
   import MyScriptSettings from '../settings/MyScriptSettings.svelte';
@@ -29,6 +32,7 @@
 
   let isOpen = false;
   let convertBoxesOpen = false;
+  let duplicatesOpen = false;
 
   function toggleDropdown() {
     isOpen = !isOpen;
@@ -48,6 +52,17 @@
 
   function handleConvertTaskBoxes() {
     convertBoxesOpen = true;
+    isOpen = false;  // the dialog is modal
+  }
+
+  $: duplicateCount = $pagesWithDuplicateStrokes.reduce((n, p) => n + p.duplicateStrokes, 0);
+  $: maintStatus = [
+    duplicateCount ? `${duplicateCount} duplicate ${duplicateCount === 1 ? 'stroke' : 'strokes'}` : '',
+    logProblemCount ? `${logProblemCount} ${logProblemCount === 1 ? 'problem' : 'problems'} in the log` : ''
+  ].filter(Boolean).join(' · ');
+
+  function handleDuplicateStrokes() {
+    duplicatesOpen = true;
     isOpen = false;  // the dialog is modal
   }
 
@@ -147,8 +162,8 @@
 
       <!-- One-offs and diagnostics -->
       <SettingsSection title="Maintenance" storageKey="smartpen-settings-open-maint"
-        status={logProblemCount ? `${logProblemCount} ${logProblemCount === 1 ? 'problem' : 'problems'} in the log` : ''}
-        warn={logProblemCount > 0}>
+        status={maintStatus}
+        warn={logProblemCount > 0 || duplicateCount > 0}>
         <button class="btn tool-btn" on:click={handleShowActivityLog}>
           <span class="button-text">Activity Log</span>
           {#if logProblemCount > 0}
@@ -168,6 +183,18 @@
           Older transcripts keep a drawn box as text (☐ Call Troy). This shows which lines would become
           TODO / DONE, and changes nothing until you confirm.
         </p>
+
+        <!-- Strokes on one page sharing an id (s{startTime}); counted by the capture-date scan -->
+        <button class="btn tool-btn" on:click={handleDuplicateStrokes} disabled={!$dataFolderReady}>
+          <span class="button-text">Clean up duplicate strokes…</span>
+          {#if duplicateCount > 0}
+            <span class="badge problems">{duplicateCount}</span>
+          {/if}
+        </button>
+        <p class="help-text">
+          Two strokes saved with the same id can't be told apart by a delete or an edit. This lists them,
+          removes exact copies, keeps different ink under its own id, and changes nothing until you confirm.
+        </p>
       </SettingsSection>
     </div>
   {/if}
@@ -177,6 +204,7 @@
      dropdown closing behind them. -->
 <ActivityLogDialog />
 <ConvertTaskBoxesDialog bind:open={convertBoxesOpen} />
+<DuplicateStrokesDialog bind:open={duplicatesOpen} />
 
 <style>
   .settings-dropdown {

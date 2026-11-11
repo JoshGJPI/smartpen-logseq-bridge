@@ -20,6 +20,7 @@ import { strokes, log, noteOnDiskStrokeIds } from '$stores';
 import { registerBookIds } from '$stores/book-aliases.js';
 import { toBookKey, bookKeyFromPageInfo, pageInfoWithBookKey } from '$lib/volumes.js';
 import { getPage } from './local-store.js';
+import { countDuplicateStrokes } from './duplicate-strokes.js';
 
 /**
  * Force value injected for pages saved before per-point pressure was persisted.
@@ -239,6 +240,15 @@ export async function importStrokesFromFolder(pageData, onProgress = null) {
       doc.pageInfo?.page ?? pageData.page,
       doc.strokes || []
     );
+
+    // Strokes on this page that share an id: the merge below keeps only the
+    // first, so the others can't be seen or edited here, and a delete or edit
+    // by id would hit them too. Say so; the cleanup is in Settings.
+    const sharedIds = countDuplicateStrokes(doc.strokes);
+    if (sharedIds > 0) {
+      log(`B${pageData.book}/P${pageData.pageId ?? pageData.page}: ${sharedIds} stroke${sharedIds === 1 ? '' : 's'} share${sharedIds === 1 ? 's' : ''} an id with another and ${sharedIds === 1 ? 'is' : 'are'} hidden in the Editor. `
+        + 'Settings → Maintenance → Clean up duplicate strokes…', 'warning');
+    }
 
     const canvasStrokes = transformStoredToCanvasFormat(doc, bookKey, onProgress);
     if (canvasStrokes.length === 0) {

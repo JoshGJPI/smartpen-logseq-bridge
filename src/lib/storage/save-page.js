@@ -73,6 +73,7 @@ import { noteOnDiskStrokeIds } from '$stores/pending-changes.js';
 import { parseTaskMarker, stripTaskMarker } from '$lib/task-markers.js';
 import { taskStateOf, withTaskState } from '$lib/tasks.js';
 import { round2, strokeToStored } from './stroke-format.js';
+import { sameInk, shiftStoredStroke } from './duplicate-strokes.js';
 
 /* -----------------------------------------------------------------
  *  Stroke shape conversion
@@ -627,11 +628,33 @@ export async function savePageToFolder(input) {
       return next;
     });
 
+    // Append new strokes. `existingIds` grows as they land, so two canvas
+    // strokes with the same start time can never both be written under one id
+    // (B1211/P20, 2026-11-11: every later delete / edit by id would hit both).
+    // An exact second copy is dropped; a DIFFERENT stroke that shares the time is
+    // real ink and lands on the next free millisecond (lib/storage/duplicate-strokes.js).
+    // Only strokes new to this page take part: one already on disk, matched by
+    // id above, keeps its id and is never re-timed here.
+    const appendedById = new Map();
+    let reIdedCount = 0;
     for (const s of newStored) {
       if (!existingIds.has(s.id)) {
         merged.push(s);
+        existingIds.add(s.id);
+        appendedById.set(s.id, s);
         addedCount++;
+        continue;
       }
+      const twin = appendedById.get(s.id);
+      if (!twin || sameInk(twin, s) || !Number.isFinite(s.startTime)) continue;
+      let t = s.startTime + 1;
+      while (existingIds.has(`s${t}`)) t++;
+      const moved = shiftStoredStroke(s, t - s.startTime);
+      merged.push(moved);
+      existingIds.add(moved.id);
+      appendedById.set(moved.id, moved);
+      addedCount++;
+      reIdedCount++;
     }
 
     merged.sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
@@ -713,6 +736,7 @@ export async function savePageToFolder(input) {
       added: addedCount,
       edited: editedCount,
       deleted: deletedCount,
+      reIded: reIdedCount,
       total: merged.length,
       lineCount: doc.transcript.lines.length,
       linesAdded,

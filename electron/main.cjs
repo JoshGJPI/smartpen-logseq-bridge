@@ -592,7 +592,8 @@ async function listAllPages(root) {
 // histogram, refreshed per file by mtime+size. A cold build over that corpus
 // takes ~1.6s; afterwards a refresh is one stat per page and reads nothing.
 
-const TIMELINE_VERSION = 1;
+// 2 (v3.18.0): entries carry `duplicateStrokes`; a version-1 cache is re-read once.
+const TIMELINE_VERSION = 2;
 
 function timelinePath(root) {
   return path.join(pagesDir(root), '_timeline.json');
@@ -623,18 +624,25 @@ function dayKeyLocal(ms) {
 function extractCaptureDays(raw) {
   const days = {};
   let firstStroke = null, lastStroke = null, strokes = 0;
+  // Strokes beyond the first per start time. The id IS `s{startTime}`, so this
+  // counts strokes that share an id (v3.18.0, lib/storage/duplicate-strokes.js):
+  // read here because this pass already visits every start time.
+  let duplicateStrokes = 0;
+  const seenTimes = new Set();
   const re = /"startTime":(\d+)/g;
   let m;
   while ((m = re.exec(raw)) !== null) {
     const t = Number(m[1]);
     if (!Number.isFinite(t) || t <= 0) continue;
     strokes++;
+    if (seenTimes.has(t)) duplicateStrokes++;
+    else seenTimes.add(t);
     if (firstStroke === null || t < firstStroke) firstStroke = t;
     if (lastStroke === null || t > lastStroke) lastStroke = t;
     const k = dayKeyLocal(t);
     days[k] = (days[k] || 0) + 1;
   }
-  return { days, strokes, firstStroke, lastStroke };
+  return { days, strokes, firstStroke, lastStroke, duplicateStrokes };
 }
 
 async function readTimeline(root) {

@@ -6,6 +6,32 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Unreleased — Duplicate stroke ids: warning and cleanup (November 2026)
+
+Found on B1211/P20 (2026-11-11): two strokes with the same id `s1794350059087`. Not a copy: 9 and 8 points with
+different shapes and end times, saved in one go from the canvas. Their point timestamps overlap, which one pen
+can't do, so one of them came in with a wrong start time (cause not pinned down; Josh had been snapping points on
+that ink). Two causes on our side let it reach disk and stay hidden:
+
+- **The save's append loop** checked each new id against the disk only, not against the other new strokes, so both
+  were written. `existingIds` now grows as strokes land: an exact second copy is dropped, and a different stroke that
+  shares the time is real ink and lands on the next free millisecond (start, end and point timestamps shift together,
+  as Set time… does; 1 ms changes no visible date). Only strokes new to the page take part; one already on disk keeps
+  its id. The save result counts these (`reIded`) and the Activity Log says so.
+- **The Editor's load** (`mergeCanvasStrokes`) keeps the first stroke per id, so the second copy can't be seen or
+  selected there, while a delete or point edit by id would hit both on disk. Loading such a page now logs a warning.
+
+**Warning.** Main's capture-date pass already reads every `startTime`, so it counts `duplicateStrokes` per page (the
+id IS the time); `TIMELINE_VERSION` went to 2 so existing caches are re-read once. `stores/duplicate-strokes.js`
+reads the index: Settings → Maintenance shows the count in its heading and on the button, and a new set is logged
+once as a warning (the Activity Log badge).
+
+**Cleanup** (Settings → Maintenance → Clean up duplicate strokes…, `lib/storage/duplicate-strokes.js`): preview
+first. The first stroke in file order keeps the id; an exact copy is removed; a different stroke is kept under a new
+id unless its Remove box is ticked. Each page is re-read and a copy whose stroke changed since the preview is skipped.
+Rejected: removing every later copy (B1211/P20's pair is two pieces of ink), and fixing duplicates silently on any
+save (the user asked to choose).
+
 ## v3.17.0 — Re-transcribe a saved page; move transcript lines as a group; check_transcript fixes (November 2026)
 
 From Josh's first full run of the check-transcription skill (3017/180–186).

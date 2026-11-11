@@ -126,6 +126,10 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   (`s{startTime}`), and applies only *explicit* deletions (`pending-changes.js` → `getDeletedStrokeIdsForPage()`).
   Missing from the canvas never means deleted on disk, which is why partial loads (date ranges, unloaded pages)
   are safe to save from.
+- **One id per stroke per page.** The save's append loop adds each landed id to `existingIds`, so two new strokes
+  with one start time never share an id: an exact copy is dropped, different ink lands 1 ms later
+  (`lib/storage/duplicate-strokes.js`). Pages that already have shared ids are counted by main's timeline pass
+  (`duplicateStrokes`) and cleaned from Settings → Maintenance → Clean up duplicate strokes… (preview first).
 - **One geometry exception.** Stored `points` are rewritten only when the canvas stroke carries the in-memory
   `pointsEdited` marker, which only `removeStrokePoints()` and `snapStrokePoints()` set. Never gate it on "canvas has
   fewer points than disk". An edit must keep `startTime`/`endTime` (so the id), each surviving point's force, and the
