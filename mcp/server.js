@@ -59,8 +59,22 @@ reg('get_transcript',
   { book, page }, 'Get transcript');
 reg('render_page',
   `See a page: its ink as a PNG, in the stored orientation, laid out on the printed page. Default ${LIMITS.page.width}px wide. `
-  + 'Costs image tokens: try get_transcript first when the page is transcribed.',
-  { book, page, width: width(LIMITS.page.width), fit }, 'Render page');
+  + 'Costs image tokens: try get_transcript first when the page is transcribed. '
+  + 'To check a transcription against the ink, pass color_by_line (each line\'s ink in its own colour, with a text key of line, colour, stroke count and text) '
+  + 'and/or show_decorative (strokes the app\'s Deselect Decorative would leave out, in red).',
+  { book, page, width: width(LIMITS.page.width), fit,
+    color_by_line: z.boolean().optional().describe('Colour ink by transcript line; the reply lists each line\'s colour. Plain ink where the page\'s line links are unreliable'),
+    show_decorative: z.boolean().optional().describe('Draw in red the strokes Deselect Decorative would take (boxes, underlines, circles)') },
+  'Render page');
+reg('check_transcript',
+  'Check a page\'s transcript against its ink. Without `reference`: the page\'s written rows measured from the ink (height, left margin, '
+  + 'indent column, rows that may be wrapped sentences), with NO transcript text, so it can be used before reading the page blind. '
+  + 'With `reference` (your own reading of the page as markdown bullets, nested with tabs, TODO/DONE/WAITING/CANCELLED in front of tasks): '
+  + 'the stored transcript aligned line by line with it, listing wording, indent and task-state differences, lines missing on either side, '
+  + 'and lines with no ink linked. Read-only: corrections are made in the app.',
+  { book, page,
+    reference: z.string().optional().describe('Your transcript of the page: "- text" lines, one tab per indent level') },
+  'Check transcript');
 reg('days_summary',
   'What was written on a day or range (local days): per-day stroke counts and the pages touched. Cheap; call before render_days.',
   { from: day, to: day.optional(), book: book.optional(), tag: z.string().optional() }, 'Summarize days');

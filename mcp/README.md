@@ -61,10 +61,11 @@ New pages show up without a restart: each call re-stats the folder and re-reads 
 | `list_pages` | One notebook's pages: strokes, days, tags, transcribed, open tasks, rotation. Tag / date filters, paged | text |
 | `list_tags` | Tags with page, notebook and open-task counts, untagged count; with `tag`, that tag's pages | text |
 | `list_tasks` | Task lines (TODO / DONE / WAITING / CANCELLED): the app's Tasks view rows, filtered by state, project, tags, notebook, days, text; grouped; paged | text, ~350 chars a row |
+| `check_transcript` | Without `reference`: the page's written rows from the ink (height, left margin, indent column, possible wraps), no transcript text. With `reference` (Claude's reading as markdown bullets): the stored transcript diffed against it (wording, indent, task state, missing lines, strokes per line). See "Checking a transcription" | text |
 | `get_transcript` | One page's lines with indent and TODO / DONE / WAITING / CANCELLED; flags pages whose stroke-to-line links are unreliable | text, few KB |
 | `search` | The app's header search: words, dates, notebook names / keys, tags (same code, same limits) | text |
 | `days_summary` | Per local day: strokes and pages touched | text |
-| `render_page` | One page as a PNG, stored rotation, on the printed page (`fit: "ink"` crops to the ink) | ~1,700 visual tokens at 1000 px |
+| `render_page` | One page as a PNG, stored rotation, on the printed page (`fit: "ink"` crops to the ink). `color_by_line` / `show_decorative` for checking a transcription (see "Checking a transcription") | ~1,700 visual tokens at 1000 px |
 | `render_days` | One PNG per page written on in the range: that range's ink dark, the rest of the page grey; `transcript: true` adds each page's text | 4 images, ~3,500 visual tokens at 700 px |
 
 Text tools are cheap; the tool descriptions point Claude at them first (`get_transcript` before `render_page`,
@@ -103,6 +104,39 @@ changing a task is done in the app.
 - Only lines whose state is stored are tasks. Pages transcribed before v3.3.0 that still have ☐ / ☑ in their text are
   counted in the reply ("not tasks yet"): run Convert task boxes… in the app.
 
+## Checking a transcription
+
+`check_transcript` and two `render_page` options compare a page's transcript with its ink. The server still never
+calls MyScript or writes anything. Transcribe in the app (Editor: load the pages by page, Select All → Deselect
+Decorative → Transcribe, save), then check here, and fix lines in the app's Edit Transcription. The whole process,
+including how Claude writes its blind reading, is the project skill
+[`.claude/skills/check-transcription/SKILL.md`](../.claude/skills/check-transcription/SKILL.md).
+
+- **`check_transcript` without `reference`:** the written rows, measured from letter-sized strokes (boxes, long lines
+  and sketches don't set a margin): height, left margin, right end, stroke count, and an indent **column** (one step
+  = `COLUMN_MM`, 4.6 mm, measured on JPI Dotted). `wrap?` marks a row that starts deeper under a row that reached the
+  right edge: a wrapped sentence or a sub-item, which only the text can tell. Rows written on other days are dated.
+  No transcript text is returned, so it can be read before a blind reading.
+- **`check_transcript` with `reference`:** the reference (markdown bullets, one tab or one space-unit per level,
+  `TODO` / `DONE` / `WAITING` / `CANCELLED` in front of tasks) is aligned with the stored lines in order (dynamic
+  programming over line similarity, so a missing or extra line doesn't shift the rest). Each stored line is reported
+  as exact, case/punctuation only, or worded differently, with indent and task-state differences, its stroke count
+  and `NO INK LINKED`; unmatched lines on either side are listed. Tested on raw MyScript output (3017/180–181):
+  indents all agreed, ~6% of words differed, and it found a heading's name whose text MyScript dropped.
+  `LINKS BROKEN?` marks a line holding more than 4× the median line's strokes (and at least 150): ink from other rows
+  is linked to it, usually because a drawing was in the MyScript batch (3017/182: 479 strokes on one line, none on
+  the five after it). On the 33 JPI Dotted pages with trustworthy links it fires on 4.
+
+- **`color_by_line`:** each stroke in the colour of the transcript line it is linked to (`lineId`), from an 8-colour
+  cycle in transcript order, so neighbouring lines always differ. The reply lists every line: number, colour, stroke
+  count (or `NO INK LINKED`), task state and text, plus how many strokes are linked to no line (drawn dark). resvg has
+  no fonts here, so the image carries no labels; the colour names in the key are the link. Only where
+  `isTrustworthyTranscript()` says the links are good (transcribed by the fixed matcher); otherwise the ink is plain and
+  the reply says why. Ink of one line drawn in another line's colour, or a line with no ink, is a mislink.
+- **`show_decorative`:** strokes the app's Deselect Decorative would take drawn red (wins over a line colour), with
+  counts of boxes, underlines and circles. Same detector (`detectDecorativeIndices`) on every stroke of the page in raw
+  Ncode, as the Editor runs it. A red task box (☐ / ☑) would be left out of the transcription and lose its TODO / DONE.
+
 ## Rendering
 
 - **Layout:** pages are laid out on Neo's printed frame (`_backgrounds/<book>/manifest.json`, geometry only; the JPGs are
@@ -123,7 +157,8 @@ changing a task is done in the app.
 `core/store.js` (Node scan, app-shaped records, in-memory capture-day index; `_timeline.json` is never read or written),
 `core/bounds.js` (paper / robust ink view box), `core/render.js` (SVG, PNG via `@resvg/resvg-wasm`, pixel caps),
 `core/search.js` (wires the app's `parseSearchQuery` / `runSearch`), `core/tasks.js` (the Tasks view's
-rows, filters and groups), `core/tools.js` (transport-free
+rows, filters and groups), `core/check-colors.js` (`color_by_line` / `show_decorative`), `core/transcript-check.js`
+(`check_transcript`'s ink rows and diff), `core/tools.js` (transport-free
 handlers), `server.js`. Reuses `src/lib` unchanged: volumes, timeline, page-sittings, page-orientation, page-svg path
 helpers, tags, tasks, convert-task-boxes (detection only), global-search, search-query, neo-backgrounds, ink-text,
 `utils/formatting` (book names).
@@ -131,7 +166,7 @@ helpers, tags, tasks, convert-task-boxes (detection only), global-search, search
 Tests (`mcp/__tests__/`, synthetic data built in a temp folder): `mcp.test.js` (guard, sidecars, scan, bounds and
 outliers, PNG decode, pixel caps and paging, stored rotation, every tool), `search-parity.test.js` (MCP search vs the app's search
 pipeline, with main.cjs's own metadata functions), `tasks.test.js` (`list_tasks` filters, groups, paging, and parity
-with the app's Tasks view rows), `server.test.js` (stdio start-up, exactly the nine tools, all read-only), `dst.test.js` (fall-back /
+with the app's Tasks view rows), `server.test.js` (stdio start-up, exactly the ten tools, all read-only), `dst.test.js` (fall-back /
 spring-forward days, local midnight). `__fixtures__/app-side.js` builds the synthetic folders and reads them back the
 app's way.
 

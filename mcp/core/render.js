@@ -59,12 +59,14 @@ export function fitWidth(aspect, width) {
 
 const outside = (b, v) => b.maxX < v.minX || b.minX > v.maxX || b.maxY < v.minY || b.minY > v.maxY;
 
-function strokePaths(strokes, bounds, color) {
+/** `colorOf(stroke)` may return a colour for one stroke; null keeps `baseColor`. */
+function strokePaths(strokes, bounds, baseColor, colorOf = null) {
   let out = '';
   for (const s of strokes) {
     if (!s || !s.points || s.points.length < 2) continue;
     const box = strokeBox(s);
     if (!box || outside(box, bounds)) continue;   // off the page: clipped anyway, skip the markup
+    const color = (colorOf && colorOf(s)) || baseColor;
     if (s.sketch) {
       for (const run of strokeToWidthRuns(s, bounds, DEFAULT_SKETCH_PROFILE)) {
         out += `<path d="${run.d}" stroke="${color}" stroke-width="${run.width}" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
@@ -78,9 +80,10 @@ function strokePaths(strokes, bounds, color) {
 
 /**
  * @param {Array} strokes   stored strokes drawn in full ink
- * @param {{context?: Array, rotation?: number, bounds?: object}} [opts]
+ * @param {{context?: Array, rotation?: number, bounds?: object, colorOf?: Function}} [opts]
  *   `bounds` is the view box (bounds.js viewBounds); default: ink bounds of strokes + context.
- *   Ink outside it is clipped.
+ *   Ink outside it is clipped. `colorOf(stroke)` overrides the ink colour of `strokes`
+ *   one stroke at a time (null = INK); context stays grey.
  * @returns {{svg: string, width: number, height: number, strokes: number}|null} null when nothing to draw
  */
 export function renderPageSvg(strokes, opts = {}) {
@@ -97,7 +100,7 @@ export function renderPageSvg(strokes, opts = {}) {
   const sh = shown.y1 - shown.y0;
   const turn = svgRotationTransform(rotation, frame);
 
-  const body = strokePaths(context, bounds, CONTEXT_INK) + strokePaths(strokes, bounds, INK);
+  const body = strokePaths(context, bounds, CONTEXT_INK) + strokePaths(strokes, bounds, INK, opts.colorOf);
   const clipped = `<clipPath id="page"><rect width="${w.toFixed(2)}" height="${h.toFixed(2)}"/></clipPath><g clip-path="url(#page)">${body}</g>`;
   const inner = turn ? `<g transform="${turn}">${clipped}</g>` : clipped;
   const W = sw + PAD * 2;

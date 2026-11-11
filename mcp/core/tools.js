@@ -15,6 +15,8 @@ import { Store, bookName } from './store.js';
 import { renderPageSvg, svgToPng, fitWidth, visualTokens, MAX_EDGE } from './render.js';
 import { viewBounds } from './bounds.js';
 import { createSearch } from './search.js';
+import { checkColoring } from './check-colors.js';
+import { inkRows, formatRows, diffTranscript, formatDiff } from './transcript-check.js';
 import { requireBookKey, requirePageId } from './paths.js';
 import { parseBookKey } from '../../src/lib/volumes.js';
 import { dayKey, dayStart, rangeBoundsMs, pagesInRange, pagesOnDay, eachDay, inRange } from '../../src/lib/timeline.js';
@@ -199,12 +201,34 @@ export function createTools(root) {
       const view = viewBounds({ strokes, frame: store.paperFrame(book, page), fit });
       if (!view) return { content: [text(`Page ${book}/${page} has no ink.`)] };
       const rotation = rotationFor(scan.orientations, book, page);
-      const r = renderPageSvg(strokes, { rotation, bounds: view.bounds });
+      const check = args.color_by_line || args.show_decorative
+        ? checkColoring(doc, { byLine: !!args.color_by_line, decorative: !!args.show_decorative })
+        : null;
+      const r = renderPageSvg(strokes, { rotation, bounds: view.bounds, colorOf: check && check.colorOf });
       const meta = `${label(scan.aliases, { book, pageId: page })}: ${strokes.length} strokes, rotation ${rotation}, `
         + `laid out on ${view.source === 'paper' ? 'the printed page' : 'the ink'}`
         + (view.clipped ? `; ${view.clipped} stray stroke(s) off the page not drawn` : '');
       const { blocks, notes } = emitImages([r], { width: widthFor(args, LIMITS.page), describe: () => meta });
+      if (check) notes.push(...check.key);
       return { content: [text(notes.join('\n')), ...blocks] };
+    },
+
+    check_transcript(args) {
+      const { book, page } = pageRef(args);
+      const scan = store.scan();
+      const doc = store.getPage(book, page);
+      if (!doc) return fail(`No page ${book}/${page}`);
+      const lines = (doc.transcript && doc.transcript.lines) || [];
+      const name = label(scan.aliases, { book, pageId: page });
+      if (args.reference == null || String(args.reference).trim() === '') {
+        // Text-free on purpose: safe to read before a blind reading of the page.
+        return { content: [text(`${name}: ${(doc.strokes || []).length} strokes, ${lines.length ? `transcribed (${lines.length} lines; text not shown here)` : 'not transcribed'}.\n`
+          + formatRows(inkRows(doc)))] };
+      }
+      if (!lines.length) return fail(`Page ${book}/${page} has no transcript to compare; transcribe it in the app first.`);
+      const note = isTrustworthyTranscript(doc) ? ''
+        : '\n(Stroke-to-line links on this page are unreliable (transcribed before the line-matching fix), so stroke counts per line mean little.)';
+      return { content: [text(`${name}, transcribed ${(doc.transcript.lastTranscribed || '').slice(0, 10)}:\n${formatDiff(diffTranscript(doc, args.reference))}${note}`)] };
     },
 
     days_summary(args) {

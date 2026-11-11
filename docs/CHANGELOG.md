@@ -6,6 +6,50 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.16.0 — MCP: check a transcription against its ink; the check-transcription skill (November 2026)
+
+Josh has about 25 untranscribed JPI Dotted pages to transcribe and tag, and asked what it would take for the MCP to
+send a page's strokes (after Deselect Decorative) to MyScript and compare the result with the ink.
+
+- **Transcription stays in the app; the MCP only checks.** The Editor already transcribes many pages in one go (one
+  MyScript call per page, untranscribed strokes only, sideways pages sent upright, lines matched to strokes on save).
+  Rejected after a review: MyScript calls from the MCP (keys in plain text in the Claude config, quota spent out of
+  sight, the batch origin and rotation would have to travel with a proposal, the "never calls MyScript" promise
+  broken), in-memory proposals keyed by id (lost on every restart), and a `_proposed/` staging folder with a review
+  queue in the app (a second write path; Edit Transcription already replaces a whole transcript safely).
+- **Two `render_page` options, still nine read-only tools.** `color_by_line` colours ink by stored `lineId` with a text
+  key (8 colours cycling in transcript order; around 15 distinct colours can't be told apart at 1000 px), only where
+  `isTrustworthyTranscript()` allows. `show_decorative` draws in red what `detectDecorativeIndices()` would take, so
+  a task box the detector would drop is visible before transcribing. No font is bundled: colour names in the key do
+  the labelling.
+- First real page (3017/178) showed what it is for: three lines with no ink linked, their ink drawn in a neighbouring
+  line's colour.
+- **Claude reads the page blind, then diffs.** Tried first: Claude's reading of three pages it hadn't seen (146,
+  169, 176) matched Josh's corrected transcripts line for line (94 / 94) with ~3% of words different, mostly
+  cosmetic; on raw MyScript output (180, 181, transcribed for the test) ~6% differed, every indent agreed, and the
+  diff found a speaker's name whose text MyScript dropped while keeping its ink. The indent disagreements on the
+  edited pages all sided with the ink. MyScript stays the step that makes the line links (Josh's call): linking
+  strokes to Claude's lines by row geometry agreed with MyScript's links for 87–95% of strokes, and some of the
+  disagreements were MyScript's mislinks, so it is a possible later fallback, not built.
+- **`check_transcript`, the tenth read-only tool.** Without a reference it returns the written rows measured from
+  the ink (left margin → indent column, a `wrap?` hint) and deliberately no transcript text, so it can be read
+  before a blind reading. With `reference` (Claude's reading as markdown bullets) it aligns the stored lines with it
+  in order and lists wording, indent, task-state and missing-line differences with each line's stroke count.
+  Geometry can't tell a wrapped sentence from a sub-item (both start deeper under a full row; a "wrap" rule was
+  wrong about half the time on 184), so rows only carry a hint and the text decides. The column step (4.6 mm) is
+  measured on JPI Dotted.
+- **The process is a project skill**, `.claude/skills/check-transcription/SKILL.md`: find pages, check
+  decorative strokes, Josh transcribes in the app (by page, not by date: a by-date load left 180's 11/6 block out),
+  Claude reads blind, diffs, checks the links, and reports corrections by stored line number. Its reading rules
+  were settled in the tests: one bullet per item, level from the column capped at parent + 1, write what is on the
+  page (Josh's abbreviations kept), struck text left out, sketches left out.
+- **A drawing in the batch breaks the links below it.** On 182 MyScript's text was nearly perfect, but its box for
+  the line above a sketch stretched over the drawing (yBounds 37–130 mm) and every later line's box came back
+  shifted, so that line got 479 strokes and the five below it none. `check_transcript` now flags a line with more
+  than 4× the median line's strokes (`LINKS BROKEN?`; 4 of the 33 trustworthy JPI Dotted pages), and the skill asks
+  for drawings between text to be deselected before Transcribe, and for a broken page to be reset and re-transcribed
+  before any text corrections. Not built: excluding sketches automatically (Deselect Decorative doesn't detect them).
+
 ## v3.15.0 — Notebook types and a type filter; the reader opens on Ink + text (November 2026)
 
 Josh asked to tag notebooks by type (Work, Personal, …) and show only one type, "within settings or as an option in

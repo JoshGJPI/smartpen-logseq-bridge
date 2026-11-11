@@ -4,7 +4,7 @@
 in [mcp/README.md](../mcp/README.md). Differences from this plan: renders lay pages out on Neo's printed frame (manifest
 geometry only) rather than the ink box, and search needed no extraction (`global-search.js` / `search-query.js` already
 import under plain Node). **Trimmed in v3.6.2** after a review found the server over-built around cost and deployment
-(reasons in [CHANGELOG.md](CHANGELOG.md)): nine tools, PNG only, images capped by pixels (at most 4 per call, each within
+(reasons in [CHANGELOG.md](CHANGELOG.md)): nine tools (ten since v3.16.0, `check_transcript`), PNG only, images capped by pixels (at most 4 per call, each within
 a 1,500 px long edge and 2,000 visual tokens) instead of bytes, `@resvg/resvg-wasm` instead of the native renderer, and
 the server runs from the development checkout. Gone: `get_strokes`, `format: "svg"`, the `composite` / `by_day` sheets,
 the `rotation` override, `context: false`, `maxBytes` and the custom PNG encoder. The plan below is kept as written,
