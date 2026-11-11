@@ -83,6 +83,15 @@ A `LINKS BROKEN?` line in the reply (one line with several times the median stro
 none) means the stroke links are wrong from there down. The text may still be fine. The fix is to re-transcribe, not
 to edit lines: see step 7.
 
+`MOVED` lines (and an `OUT OF ORDER` line in the summary) are stored somewhere other than where they are on the page,
+usually ink transcribed later and appended at the end (3017/180's 11/6 meeting). Report them as one entry: which lines
+and the line they belong after; Josh ticks them and uses Move (↑ / ↓ / Top / Bottom) in Library Edit or Edit
+Transcription.
+
+`PARTLY TRANSCRIBED?` (also in step 4's rows reply, which then marks rows `not transcribed`; `list_pages` shows the
+page as `partly`) means most of the ink was never sent to MyScript (3017/186: 6 lines saved, 84% of the ink in none).
+Ask Josh to transcribe the rest before checking the text; the diff would only list those lines as missing.
+
 ### 6. Look at the links
 `render_page {book, page, color_by_line: true}`. Look for:
 - `NO INK LINKED` lines, and their ink drawn in a neighbour's colour (MyScript gave it to the wrong line);
@@ -94,11 +103,12 @@ to edit lines: see step 7.
 1. **Corrections**, by stored line number (`#n` from the diff), with the exact replacement text, ready to type into
    Edit Transcription. Missing lines: the text, its level and the line it goes under.
 2. **For Josh to decide**: `[?]` readings, ambiguous characters, spelling he may want corrected.
-3. **Ink**: untranscribed blocks (transcribe them on their own), and broken links. To re-transcribe a page:
-   Editor, load the page, ↺ Reset on it in the Transcription tab (clears the strokes' links so they are sent
-   again), select the text strokes with any drawing deselected, Transcribe, save. Ask Josh to re-transcribe
-   **before** applying text corrections, which a new transcription would replace, then run step 5 again and check
-   the save didn't leave old and new lines side by side.
+3. **Ink**: untranscribed blocks (transcribe them on their own), lines out of order, and broken links. To
+   re-transcribe a page: Editor, load the whole page (by page, not by date), Transcripts tab → "Re-transcribe a saved
+   page" → ↺ Re-transcribe (unlinks its strokes so they are sent again), select the text strokes with any drawing
+   deselected, Transcribe, Save. The new run replaces the saved transcript (task states carry over where the text
+   matches; drawing ink left out ends up unlinked). Ask Josh to re-transcribe **before** applying text corrections,
+   which the new transcription would replace, then run step 5 again.
 4. **Tags**: the boxed project numbers on the page. Never invent one; if the logseq MCP is available, check it with
    `listActiveProjects` before suggesting it. Topic tags only as suggestions.
 

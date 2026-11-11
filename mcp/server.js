@@ -48,7 +48,7 @@ reg('list_notebooks',
   'List the handwriting notebooks (book keys like "388", "388v2"): names, page counts, stroke counts, transcribed pages, first and last day written.',
   {}, 'List notebooks');
 reg('list_pages',
-  'List the pages of one notebook with stroke counts, the days written on, tags and whether transcribed. Optional tag and date filters.',
+  'List the pages of one notebook with stroke counts, the days written on, tags and whether transcribed (`partly` when most of a transcribed page\'s ink is in no line). Optional tag and date filters.',
   { book, tag: z.string().optional(), from: day.optional(), to: day.optional(), limit: z.number().int().optional(), offset },
   'List pages');
 reg('list_tags',
@@ -68,9 +68,9 @@ reg('render_page',
   'Render page');
 reg('check_transcript',
   'Check a page\'s transcript against its ink. Without `reference`: the page\'s written rows measured from the ink (height, left margin, '
-  + 'indent column, rows that may be wrapped sentences), with NO transcript text, so it can be used before reading the page blind. '
+  + 'indent column, rows that may be wrapped sentences, rows not transcribed), with NO transcript text, so it can be used before reading the page blind. '
   + 'With `reference` (your own reading of the page as markdown bullets, nested with tabs, TODO/DONE/WAITING/CANCELLED in front of tasks): '
-  + 'the stored transcript aligned line by line with it, listing wording, indent and task-state differences, lines missing on either side, '
+  + 'the stored transcript aligned line by line with it, listing wording, indent and task-state differences, lines stored out of order, lines missing on either side, '
   + 'and lines with no ink linked. Read-only: corrections are made in the app.',
   { book, page,
     reference: z.string().optional().describe('Your transcript of the page: "- text" lines, one tab per indent level') },

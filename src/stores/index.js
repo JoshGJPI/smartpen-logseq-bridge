@@ -204,6 +204,17 @@ export {
   updatePageTranscriptionLines
 } from './transcription.js';
 
+// Re-transcribing a saved page (v3.17.0)
+export {
+  resetPages,
+  resetKey,
+  resetPageTranscript,
+  undoResetPageTranscript,
+  isPageReset,
+  forgetReset,
+  forgetAllResets
+} from './transcript-reset.js';
+
 // Settings
 export {
   myscriptAppKey,

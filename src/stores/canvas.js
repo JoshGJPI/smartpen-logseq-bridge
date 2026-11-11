@@ -13,6 +13,7 @@ import { adjustDeletionsAfterRemoval, pendingChanges } from './pending-changes.j
 import { pointEditMode, exitPointEditMode } from './point-edit.js';
 import { filteredStrokes } from './filtered-strokes.js';
 import { pageTranscriptions, clearPageTranscription } from './transcription.js';
+import { forgetReset } from './transcript-reset.js';
 import { removeContextInkForPage } from './context-ink.js';
 import { log } from './ui.js';
 
@@ -110,6 +111,7 @@ export function unloadPageFromCanvas(book, page, options = {}) {
       clearPageTranscription(pageKey);
     }
   }
+  forgetReset(bookKey, pageNum);
 
   if (!options.silent) {
     log(

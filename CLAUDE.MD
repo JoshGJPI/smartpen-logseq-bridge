@@ -27,6 +27,7 @@ src/stores/        one store per concern (strokes, selection, pending-changes, v
 src/lib/           pure logic, no UI, testable without DOM (tags.js, tag-suggestions.js: page tags, v3.1.0;
                    task-markers.js: ☐ / ☑ → TODO / DONE, v3.3.0; tasks.js: task state, WAITING, task list, v3.4.0,
                    CANCELLED, v3.5.0; state toggle chips and a tag's tasks, v3.12.0; retime.js: shift selected strokes in time, v3.6.0;
+                   move-lines.js: move ticked transcript lines as a group, v3.17.0;
                    book-types.js: notebook types and the type filter, v3.15.0)
 src/lib/storage/   PageDoc layer: local-store (IPC facade), save-page, load-page, load-range, scan, page-changes, graph-export,
                    convert-task-boxes (one-off conversion of old transcripts)
@@ -145,6 +146,11 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   updated in place by id, dropped ones removed (`applyEditorLines`). `save-page.js` `planTranscript()` decides both,
   and the save dialog (`page-changes.js`) asks it too, so never compare transcript text there. A saved page's
   transcription is cleared from `pageTranscriptions` (otherwise it stays "changed" and pending in Review).
+- **Re-transcribing a saved page** (v3.17.0, `stores/transcript-reset.js`): Reset unlinks a loaded page's strokes in
+  memory and marks its next transcription `replace`; that save drops the old lines, relinks every stroke of the page
+  from the new run (left-out ink, such as a drawing, ends up unlinked) and carries task state by text
+  (`carryTaskState`). Reset is refused while only part of the page is loaded. A null in-memory link never clears a
+  stored one, so a Reset that is never transcribed and saved changes nothing on disk.
 - Deletions marked but unsaved have a 15-minute undo window.
 - Settings and display prefs → localStorage. Where you are in the Library (open page, reading order, grid filters,
   `libraryView`) is session-only on purpose. Stroke and transcript data → PageDoc only. Read localStorage through

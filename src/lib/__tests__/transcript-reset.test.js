@@ -1,0 +1,54 @@
+/**
+ * stores/transcript-reset.js (v3.17.0): Reset unlinks a loaded page's ink for
+ * re-transcription, marks its next transcription `replace`, Undo restores the
+ * links, and a partly loaded page is refused.
+ */
+import { describe, it, expect, beforeEach } from 'vitest';
+import { get } from 'svelte/store';
+import { strokes } from '../../stores/strokes.js';
+import { savedPages } from '../../stores/saved-pages.js';
+import { pageTranscriptions, setPageTranscription, clearTranscription } from '../../stores/transcription.js';
+import {
+  resetPages, resetPageTranscript, undoResetPageTranscript, isPageReset, forgetAllResets
+} from '../../stores/transcript-reset.js';
+
+const info = (page) => ({ section: 3, owner: 1012, book: '3017', page });
+const s = (t, page, blockUuid) => ({ pageInfo: info(page), startTime: t, endTime: t + 10, blockUuid, dotArray: [{ x: 1, y: 1 }, { x: 2, y: 2 }] });
+
+beforeEach(() => {
+  forgetAllResets();
+  clearTranscription();
+  strokes.set([s(1, 182, 'L1'), s(2, 182, 'L1'), s(3, 182, null), s(4, 183, 'M1')]);
+  savedPages.set([{ book: '3017', page: 182, pageId: '182', strokeCount: 3 }, { book: '3017', page: 183, pageId: '183', strokeCount: 9 }]);
+});
+
+describe('resetPageTranscript', () => {
+  it('unlinks only that page and marks its next transcription replace', () => {
+    expect(resetPageTranscript('3017', 182)).toBe(3);
+    expect(get(strokes).map((x) => x.blockUuid)).toEqual([null, null, null, 'M1']);
+    expect(isPageReset('3017', 182)).toBe(true);
+    setPageTranscription('S3/O1012/B3017/P182', { lines: [{ text: 'x' }] }, info(182), 3, []);
+    expect(get(pageTranscriptions).get('S3/O1012/B3017/P182').replace).toBe(true);
+    setPageTranscription('S3/O1012/B3017/P183', { lines: [{ text: 'y' }] }, info(183), 1, []);
+    expect(get(pageTranscriptions).get('S3/O1012/B3017/P183').replace).toBeUndefined();
+  });
+  it('refuses a partly loaded page and a page with no ink', () => {
+    expect(resetPageTranscript('3017', 183)).toBe(-1);
+    expect(get(strokes)[3].blockUuid).toBe('M1');
+    expect(resetPageTranscript('3017', 999)).toBe(0);
+    expect(get(resetPages).size).toBe(0);
+  });
+  it('Undo restores the saved links; a second Reset keeps the first one\'s', () => {
+    resetPageTranscript('3017', 182);
+    resetPageTranscript('3017', 182);
+    expect(undoResetPageTranscript('3017', 182)).toBe(true);
+    expect(get(strokes).map((x) => x.blockUuid)).toEqual(['L1', 'L1', null, 'M1']);
+    expect(isPageReset('3017', 182)).toBe(false);
+    expect(undoResetPageTranscript('3017', 182)).toBe(false);
+  });
+  it('is forgotten when the page leaves the canvas', () => {
+    resetPageTranscript('3017', 182);
+    strokes.set([s(4, 183, 'M1')]);
+    expect(isPageReset('3017', 182)).toBe(false);
+  });
+});

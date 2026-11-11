@@ -19,8 +19,7 @@
   import {
     pageTranscriptions,
     clearPageTranscription,
-    clearStrokeBlockUuids,
-    getActiveStrokesForPageFromStore,
+    resetPageTranscript,
     canvasPageKeys,
     isViewerPageDirty,
     log
@@ -189,16 +188,15 @@
   }
 
   /**
-   * Reset transcript — strips blockUuid from all loaded strokes on this page
-   * and clears any in-memory transcription entry so the page can be re-transcribed.
-   * The saved transcript is not deleted; it is overwritten on the next save.
+   * Reset transcript — unlinks every loaded stroke of this page and clears any
+   * in-memory transcription entry so the page can be re-transcribed; the next
+   * run replaces the saved transcript on Save (stores/transcript-reset.js, v3.17.0).
    */
   function handleResetTranscript() {
-    const pageStrokes = getActiveStrokesForPageFromStore(page.book, page.page);
-    const timestamps = pageStrokes.map(s => s.startTime);
-
-    if (timestamps.length > 0) {
-      clearStrokeBlockUuids(timestamps);
+    const count = resetPageTranscript(page.book, page.page);
+    if (count < 0) {
+      log(`B${page.book}/P${page.page} is only partly loaded: load the whole page before re-transcribing it`, 'warning');
+      return;
     }
 
     for (const [key, trans] of $pageTranscriptions) {
@@ -208,8 +206,8 @@
       }
     }
 
-    const strokeMsg = timestamps.length > 0
-      ? `${timestamps.length} stroke(s) cleared for re-transcription`
+    const strokeMsg = count > 0
+      ? `${count} stroke(s) unlinked; the next Transcribe + Save replaces the saved transcript`
       : 'no strokes loaded in session (import strokes first to clear block associations)';
     log(`Reset transcript for B${page.book}/P${page.page} — ${strokeMsg}`, 'info');
   }

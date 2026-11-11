@@ -14,8 +14,7 @@
     updatePageTranscriptionLines,
     log,
     pageTranscriptionCount,
-    clearStrokeBlockUuids,
-    getActiveStrokesForPageFromStore
+    resetPageTranscript
   } from '$stores';
   import { bookAliases, viewerMode } from '$stores';
   // v2.0: folder-backed transcript edits
@@ -26,6 +25,7 @@
   import TranscriptionEditorModal from '$components/dialog/TranscriptionEditorModal.svelte';
   import PageTagsInline from '$components/tags/PageTagsInline.svelte';
   import ReviewTranscriptLines, { copyMarkdown } from './ReviewTranscriptLines.svelte';
+  import RetranscribePages from './RetranscribePages.svelte';
   import { linesToLogseqMarkdown, reviewLinesForCopy } from '$lib/viewer/transcript-markdown.js';
 
   const pageLabel = (pi) => `B${pi.book}/P${pi.page}`;
@@ -113,6 +113,16 @@
       log(`Could not load existing transcription: ${e.message}`, 'warning');
     }
 
+    // A re-transcription (Reset, v3.17.0) replaces the saved lines: the dialog
+    // opens on the new run only, and the saved ids go into editorBaseIds on
+    // confirm so the save drops them (save-page.js applyEditorLines).
+    if (pageData.replace) {
+      editingPageData = { ...pageData, mergedLines: mergeExistingAndNewLines([], pageData.lines || []), replaceBaseIds: existingLines.map(l => l.blockUuid) };
+      isLoadingEditor = false;
+      showEditorModal = true;
+      return;
+    }
+
     // Merge existing lines with new MyScript lines (text + Y-overlap dedupe)
     const mergedLines = mergeExistingAndNewLines(existingLines, pageData.lines || []);
 
@@ -160,6 +170,7 @@
     // A reopen keeps the first opening's ids, so a line removed then stays removed.
     const editorBaseIds = [...new Set([
       ...(editingPageData.editorBaseIds || []),
+      ...(editingPageData.replaceBaseIds || []),
       ...(editingPageData.mergedLines || []).map(l => l.blockUuid).filter(Boolean)
     ])];
     updatePageTranscriptionLines(editingPageData.pageKey, lines, {
@@ -181,17 +192,20 @@
   }
 
   /**
-   * Reset transcript for a page — clears both the in-memory transcription and
-   * the blockUuid property on every stroke so the page can be fully re-transcribed.
-   * The saved transcript is not deleted; it is overwritten when the user saves again.
+   * Reset transcript for a page — drops this run and unlinks every loaded stroke
+   * of the page so it can be transcribed again (stores/transcript-reset.js). The
+   * next run replaces the saved transcript on Save (v3.17.0; it used to be
+   * appended beside it).
    */
   function handleResetTranscript(pageData) {
     const { book, page } = pageData.pageInfo;
-    const pageStrokes = getActiveStrokesForPageFromStore(book, page);
-    const timestamps = pageStrokes.map(s => s.startTime);
-    clearStrokeBlockUuids(timestamps);
+    const n = resetPageTranscript(book, page);
+    if (n < 0) {
+      log(`B${book}/P${page} is only partly loaded: load the whole page (Pages tab) before re-transcribing it`, 'warning');
+      return;
+    }
     clearPageTranscription(pageData.pageKey);
-    log(`Reset transcript for Book ${book}/Page ${page} — ${timestamps.length} stroke(s) cleared for re-transcription`, 'info');
+    log(`Reset transcript for B${book}/P${page} — ${n} stroke(s) unlinked; the next Transcribe + Save replaces the saved transcript`, 'info');
   }
 </script>
 
@@ -214,6 +228,7 @@
         </a>
       </p>
     </div>
+    {#if $viewerMode !== 'book'}<RetranscribePages />{/if}
   {:else}
     <!-- Action Bar -->
     <div class="action-section">
@@ -383,6 +398,7 @@
         </div>
       {/each}
     </div>
+    <RetranscribePages />
   {/if}
 </div>
 

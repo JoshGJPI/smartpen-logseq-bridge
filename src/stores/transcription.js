@@ -5,6 +5,7 @@
 import { writable, derived } from 'svelte/store';
 import { setFilteredStrokes } from './filtered-strokes.js';
 import { batchOriginY } from '$lib/myscript-api.js';
+import { isPageReset } from './transcript-reset.js';
 
 // Last transcription result (legacy - combined view)
 export const lastTranscription = writable(null);
@@ -94,8 +95,12 @@ export function setPageTranscription(pageKey, transcription, pageInfo, strokeCou
 
   pageTranscriptions.update(pt => {
     const newMap = new Map(pt);
+    // A page reset for re-transcription (stores/transcript-reset.js): this run
+    // replaces its saved transcript on save instead of being appended to it.
+    const replace = (pageInfo && isPageReset(pageInfo.book, pageInfo.page)) || pt.get(pageKey)?.replace === true;
     newMap.set(pageKey, {
       ...transcription,
+      ...(replace ? { replace: true } : {}),
       pageInfo,
       strokeCount,
       transcribedStrokeIds, // NEW: Track which strokes were actually transcribed

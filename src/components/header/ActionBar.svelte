@@ -34,6 +34,7 @@
     setPageTranscription,
     clearTranscription,
     clearPageTranscription,
+    forgetReset,
     setIsTranscribing,
     setActiveTab,
     getMyScriptCredentials,
@@ -520,6 +521,8 @@
             // dialog kept listing the page as a transcript change and the Review
             // tab kept it pending, however often it was saved.
             if (pageTranscription) clearPageTranscription(pageKey);
+            // A reset page's re-transcription is on disk: its links are the new ones.
+            if (pageTranscription) forgetReset(book, page);
 
             // Same reasoning for move markers: the source page has now lost the
             // strokes on disk, so "still needs deleting here" would be a lie —

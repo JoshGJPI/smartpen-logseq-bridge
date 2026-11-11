@@ -6,6 +6,32 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.17.0 — Re-transcribe a saved page; move transcript lines as a group; check_transcript fixes (November 2026)
+
+From Josh's first full run of the check-transcription skill (3017/180–186).
+
+- **Re-transcribe a saved page.** The Reset that existed (Pages tab, inside an expanded card) only cleared the
+  in-memory links, and Josh couldn't find it once a page was saved and reloaded. It also didn't work: the save
+  skipped any stroke already linked on disk ("already linked — leave it alone"), so the new lines got no ink, and the
+  append-merge kept the old lines beside the new ones (or dropped a new line as a duplicate of an old one). Now
+  the Editor's Transcripts tab lists the loaded pages with links under "Re-transcribe a saved page"; ↺ Re-transcribe
+  (and the two older Reset buttons) marks the page, and its next transcription carries `replace`. That save writes
+  the new run as the whole transcript, relinks every stroke of the page from it (so a drawing left out of the batch
+  ends up unlinked, the 3017/182 fix), and carries task state from the old lines by text, the newly read box winning
+  where it disagrees on open/closed. Re-saving the same run is a no-op (ids kept). Refused while the page is only
+  partly loaded (a by-date load), since the replacement would have no lines for the rest. Undo restores the links
+  until the save. Rejected: deleting the old transcript at Reset time (a write before anything replaces it).
+- **Move ticked lines together** (`lib/move-lines.js`). Library Edit had per-line Alt+↑ / Alt+↓; the Edit
+  Transcription dialog had no move at all. Both now move the ticked lines (the dialog: else the focused line) one
+  step or to the Top / Bottom, keeping gaps between them. For 3017/180's 11/6 meeting, stored at the end: tick four
+  lines, Top. The dialog path (`applyEditorLines`) used to keep a line's `parentId` unless its indent changed; a
+  line whose parent is no longer above it is now reparented from indents.
+- **check_transcript:** lines out of order were reported as missing on both sides (4 + 4 on 180) and are now paired
+  as `MOVED`; spacing-only differences no longer count as wording (180 read 15.7% words different, mostly order and
+  `IBC 2024` / `IBC2024`); a page with most of its ink in no line is flagged `PARTLY TRANSCRIBED?` with its rows
+  marked `not transcribed`, and `list_pages` adds `partly` (186 was `transcribed: true` at 16%). Across the data folder
+  that flags 7 pages (3017/142, 148, 186; 553/4, 5, 12; 390v2/2).
+
 ## v3.16.0 — MCP: check a transcription against its ink; the check-transcription skill (November 2026)
 
 Josh has about 25 untranscribed JPI Dotted pages to transcribe and tag, and asked what it would take for the MCP to

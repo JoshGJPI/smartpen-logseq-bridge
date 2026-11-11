@@ -1,10 +1,13 @@
 <!--
   TranscriptionEditorModal.svelte - Single-column editor for transcription lines
   v3.1: Existing transcript lines are editable; changes saved by UUID
+  v3.17.0: ticked lines (else the focused line) move up / down / to the top or
+  bottom as a group (lib/move-lines.js; Alt+↑ / Alt+↓)
 -->
 <script>
   import { debug } from '$lib/debug.js';
   import { mergeEditorLines, splitEditorLine } from '$lib/editor-lines.js';
+  import { moveLines, moveLinesToEdge } from '$lib/move-lines.js';
   import { isTypingTarget } from '$lib/left-panel.js';
   import { autosize, oneLine } from '$lib/autosize.js';
   import { createEventDispatcher } from 'svelte';
@@ -203,6 +206,19 @@
     addToHistory();
   }
 
+  // Move the ticked lines (else the focused one) a step (-1 / 1) or to an edge ('top' / 'bottom').
+  function moveSelected(how) {
+    const sel = selectedIndices.size ? [...selectedIndices] : focusedIndex >= 0 ? [focusedIndex] : [];
+    const r = typeof how === 'number' ? moveLines(editedLines, sel, how) : moveLinesToEdge(editedLines, sel, how);
+    if (!r) return;
+    const movedSet = new Set(r.selected);
+    editedLines = r.lines.map((l, i) => (movedSet.has(i) ? { ...l, userModified: true } : l));
+    if (selectedIndices.size) selectedIndices = new Set(r.selected);
+    else focusedIndex = r.selected[0];
+    addToHistory();
+  }
+  $: canMove = selectedIndices.size > 0 || focusedIndex >= 0;
+
   // Undo last change
   function undo() {
     if (historyIndex > 0) {
@@ -377,6 +393,9 @@
         event.preventDefault();
         outdentLines();
       }
+    } else if (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      event.preventDefault();
+      moveSelected(event.key === 'ArrowUp' ? -1 : 1);
     } else if (event.key === 'Tab') {
       event.preventDefault();
       if (event.shiftKey) {
@@ -507,6 +526,17 @@
         >
           Indent &#8594;
         </button>
+      </div>
+
+      <div class="toolbar-group" role="group" aria-label="Move lines">
+        <button class="tool-btn" on:click={() => moveSelected(-1)} disabled={!canMove}
+          title="Move the ticked lines (or the focused line) up one line (Alt+↑)">&#8593; Up</button>
+        <button class="tool-btn" on:click={() => moveSelected(1)} disabled={!canMove}
+          title="Move the ticked lines (or the focused line) down one line (Alt+↓)">&#8595; Down</button>
+        <button class="tool-btn" on:click={() => moveSelected('top')} disabled={!canMove}
+          title="Move the ticked lines (or the focused line), in order, to the top">Top</button>
+        <button class="tool-btn" on:click={() => moveSelected('bottom')} disabled={!canMove}
+          title="Move the ticked lines (or the focused line), in order, to the bottom">Bottom</button>
       </div>
 
       {#if mergeSuggestions.length > 0}

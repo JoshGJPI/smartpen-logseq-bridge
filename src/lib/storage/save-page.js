@@ -45,6 +45,17 @@
  *       See applyEditorLines. Before Oct 2026 these lines went through the
  *       append-merge, which appended an edited line beside its original.
  *
+ *   Transcript (a page reset for re-transcription, v3.17.0):
+ *     - Reset (stores/transcript-reset.js) unlinks a loaded page's ink in
+ *       memory; the next transcription of that page carries `replace: true`.
+ *       Its lines become the whole transcript: the old lines are dropped (not
+ *       kept beside the new ones), strokes whose stored lineId pointed at them
+ *       take the new lines' links (every stroke of the page is relinked from
+ *       the run, so ink left out of it, such as a drawing, is unlinked), and
+ *       task state carries over by text
+ *       (carryTaskState). A Reset with no new transcription saved changes
+ *       nothing on disk (a null in-memory link never clears a stored one).
+ *
  *   planTranscript() is the one place that decides the written transcript,
  *   and the save dialog (page-changes.js) asks it too, so "will this save
  *   change the transcript?" has the same answer as the save.
@@ -390,10 +401,14 @@ function applyEditorLines(existingLines, pageTranscription, storedStrokes, origi
   // Saved lines the dialog never had (written since it opened): kept, at the end.
   for (const l of existingLines) if (!used.has(l.id) && !base.has(l.id)) out.push(l);
 
-  // parentId: kept unless the line moved, is new, or its parent is gone.
+  // parentId: kept unless the line's indent changed, it is new, or its parent is
+  // gone or no longer above it (the dialog's Move, v3.17.0).
   const live = new Set(out.map((l) => l.id));
+  const above = new Set();
   const lines = out.map((l, i) => {
-    if (!reparent.has(l.id) && (l.parentId == null || live.has(l.parentId))) return l;
+    const keep = !reparent.has(l.id) && (l.parentId == null || above.has(l.parentId));
+    above.add(l.id);
+    if (keep) return l;
     let parentId = null;
     for (let j = i - 1; j >= 0 && l.indentLevel > 0; j--) {
       if ((out[j].indentLevel || 0) < l.indentLevel) { parentId = out[j].id; break; }
@@ -425,17 +440,68 @@ export function planTranscript(existingLines, pageTranscription, storedStrokes =
   if (!pageTranscription || !Array.isArray(pageTranscription.lines) || !pageTranscription.lines.length) return none;
 
   const fromEditor = Array.isArray(pageTranscription.editorBaseIds);
-  const { lines, lineIdAssignments, lineIdRemap = new Map() } = fromEditor
+  // A page reset for re-transcription (v3.17.0): the new run is the whole
+  // transcript, so it merges onto nothing (no line is skipped as a duplicate of
+  // the old one) and the old lines go; the dialog path drops them because the
+  // Review tab adds their ids to editorBaseIds. Task state follows the text.
+  const replace = pageTranscription.replace === true;
+  let { lines, lineIdAssignments, lineIdRemap = new Map() } = fromEditor
     ? applyEditorLines(existing, pageTranscription, storedStrokes, originNcodeY)
-    : mergeTranscript(existing, pageTranscription.lines, storedStrokes, originNcodeY);
+    : mergeTranscript(replace ? [] : existing, pageTranscription.lines, storedStrokes, originNcodeY);
+  if (replace) {
+    lines = carryTaskState(existing, lines);
+    // The run already saved (the save dialog asking again): the same lines, kept.
+    const same = (a, b) => a.text === b.text && (a.indentLevel || 0) === (b.indentLevel || 0)
+      && (a.checked ?? null) === (b.checked ?? null) && (a.marker ?? null) === (b.marker ?? null);
+    if (!fromEditor && lines.length === existing.length && lines.every((l, i) => same(l, existing[i]))) {
+      const toOld = new Map(lines.map((l, i) => [l.id, existing[i].id]));
+      lineIdAssignments = new Map([...lineIdAssignments].map(([s, id]) => [s, toOld.get(id) || id]));
+      lines = existing;
+    }
+  }
   const before = new Set(existing.map((l) => l.id));
   return {
     lines,
+    replace,
     changed: !transcriptLinesEqual(existing, lines),
     linesAdded: lines.filter((l) => !before.has(l.id)).length,
     lineIdAssignments,
     lineIdRemap
   };
+}
+
+/**
+ * A re-transcription's lines take the task state of the old lines they replace
+ * (v3.17.0): matched by text with the task box stripped, case aside, each old
+ * line used once. The box the new run read wins where it disagrees on
+ * open / closed (the ink is newer than the click); WAITING and CANCELLED, which
+ * are never read from ink, carry when it agrees. Old lines still in `lines`
+ * (kept, not replaced) carry nothing.
+ *
+ * @param {Array} oldLines  transcript.lines before
+ * @param {Array} lines     the transcript about to be written
+ * @returns {Array} `lines`, with state set on the new lines that match
+ */
+export function carryTaskState(oldLines, lines) {
+  const kept = new Set(lines.map((l) => l.id));
+  const key = (t) => stripTaskMarker(String(t || '')).trim().toLowerCase();
+  const pool = new Map();
+  for (const o of oldLines || []) {
+    if (kept.has(o.id) || !taskStateOf(o)) continue;
+    const k = key(o.text);
+    if (!pool.has(k)) pool.set(k, []);
+    pool.get(k).push(o);
+  }
+  if (!pool.size) return lines;
+  const before = new Set((oldLines || []).map((o) => o.id));
+  return lines.map((l) => {
+    if (before.has(l.id)) return l;
+    const o = (pool.get(key(l.text)) || []).shift();
+    if (!o) return l;
+    const mine = taskStateOf(l);
+    if (mine && (l.checked === true) !== (o.checked === true)) return l;
+    return withTaskState(l, taskStateOf(o));
+  });
 }
 
 /**
@@ -587,11 +653,23 @@ export async function savePageToFolder(input) {
       transcriptChanged = plan.changed;
 
       if (plan.changed || plan.lineIdAssignments.size > 0) {
+        const planIds = new Set(plan.lines.map(l => l.id));
         merged = merged.map(s => {
+          // A re-transcription relinks the whole page from this run: its old
+          // links are what was wrong (a drawing in the batch, 3017/182), even
+          // where the text came out the same. The page was loaded whole
+          // (stores/transcript-reset.js refuses a partial load).
+          if (plan.replace) {
+            const id = plan.lineIdAssignments.get(s.id) || null;
+            return (s.lineId || null) === id ? s : { ...s, lineId: id };
+          }
           // A line merged away in the dialog hands its strokes to the survivor.
           const remapped = s.lineId && plan.lineIdRemap.get(s.lineId);
           if (remapped) return { ...s, lineId: remapped };
-          if (s.lineId) return s; // already linked — leave it alone
+          // Already linked to a line that stays — leave it alone. A link to a
+          // line this save removes (a re-transcription replacing the old
+          // transcript) is no link: the stroke may take a new line.
+          if (s.lineId && planIds.has(s.lineId)) return s;
           const newLineId = plan.lineIdAssignments.get(s.id);
           if (newLineId) return { ...s, lineId: newLineId };
           return s;

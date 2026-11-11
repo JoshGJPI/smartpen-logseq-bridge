@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createTools } from '../core/tools.js';
-import { inkRows, parseReference, alignLines, diffTranscript, formatDiff, swollenLines, COLUMN_MM } from '../core/transcript-check.js';
+import { inkRows, formatRows, parseReference, alignLines, movedPairs, diffTranscript, formatDiff, swollenLines, partlyTranscribedNote, linkedStrokeCount, COLUMN_MM } from '../core/transcript-check.js';
 
 // Synthetic data only: check_transcript's ink rows and transcript diff.
 const MM = 2.371;
@@ -120,7 +120,7 @@ describe('diffTranscript', () => {
     expect(c.stored.strokes).toBe(6);
     expect(d.rows.find((r) => r.kind === 'reference-only').ref.text).toBe('Jason Thompson');
     const text = formatDiff(d);
-    expect(text).toMatch(/#3 \(6\) case\/punct, indent/);
+    expect(text).toMatch(/#3 \(6\) case\/punct\/spacing, indent/);
     expect(text).toMatch(/REFERENCE ONLY {2}L1 Jason Thompson/);
     expect(text).toMatch(/#5 \(0\) NO INK LINKED/);
     expect(text).not.toMatch(/#1 /);
@@ -129,6 +129,62 @@ describe('diffTranscript', () => {
     const d = diffTranscript(page(), ref.replace('TODO ask', 'DONE ask'));
     expect(d.tally.state).toBe(1);
     expect(formatDiff(d)).toMatch(/#4 \(6\) state\n {4}stored: L1 TODO ask/);
+  });
+});
+
+describe('moved lines', () => {
+  // 3017/180: a meeting written at the top, transcribed later, stored at the end.
+  const doc = () => ({
+    ...page(),
+    transcript: { lastTranscribed: '2026-11-10T16:00:00Z', lines: [
+      line('a', '11/10/26'), line('b', 'NSSA Conference in Norman, OK'), line('c', 'Storm shelter Code Updates', 1),
+      line('d', '11/6/26'), line('e', '11:30 9999-110 Meeting w/ Joe H'), line('f', "It's not worth getting overwhelmed", 1)
+    ] }
+  });
+  const ref = ['- 11/6/26', '- 11:30 9999-110 Meeting w/ Joe H', "\t- It's not worth getting overwhelmed",
+    '- 11/10/26', '- NSSA Conference in Norman, OK', '\t- Storm shelter Code Updates'].join('\n');
+  it('pairs the same line found on both sides as moved, not missing twice', () => {
+    const d = diffTranscript(doc(), ref);
+    expect(d.tally).toMatchObject({ matched: 6, moved: 3, missing: 0, extra: 0 });
+    const text = formatDiff(d);
+    expect(text).toMatch(/out of order 3/);
+    expect(text).toMatch(/OUT OF ORDER: 3 stored line/);
+    expect(text).toMatch(/#4 \(\d+\) MOVED \(on the page it follows nothing: it is first\)/);
+    expect(text).toMatch(/#5 \(\d+\) MOVED \(on the page it follows "11\/6\/26"\)/);
+    expect(text).not.toMatch(/STORED ONLY|REFERENCE ONLY/);
+  });
+  it('leaves unlike lines missing on both sides', () => {
+    const pairs = [[0, null], [null, 0]];
+    expect(movedPairs(pairs, [{ text: 'alpha beta gamma' }], [{ text: 'something else entirely' }])).toEqual(pairs);
+    expect(movedPairs([[0, null], [null, 0]], [{ text: 'Typical, A-Block' }], [{ text: 'Typical, A-Block' }])).toEqual([[0, 0, true]]);
+  });
+});
+
+describe('spacing-only differences', () => {
+  it('count as case/punctuation/spacing, not wording', () => {
+    const d = diffTranscript({ ...page(), transcript: { lines: [line('a', 'IBC 2024'), line('b', 'Rolling steel ICC 500 doors')] } },
+      '- IBC2024\n- Rolling steel ICC500 doors');
+    expect(d.tally).toMatchObject({ minor: 2, wording: 0, wordDiffs: 0 });
+    expect(formatDiff(d)).toMatch(/#1 \(\d+\) case\/punct\/spacing/);
+  });
+});
+
+describe('partly transcribed pages', () => {
+  it('warns when most of the ink is in no line', () => {
+    expect(partlyTranscribedNote(190, 1209)).toMatch(/PARTLY TRANSCRIBED\? 1019 of 1209 strokes \(84%\)/);
+    expect(partlyTranscribedNote(1192, 1250)).toBe('');
+    expect(partlyTranscribedNote(0, 100, false)).toBe('');
+    expect(partlyTranscribedNote(0, 0)).toBe('');
+  });
+  it('counts linked strokes and marks rows with none', () => {
+    const doc = { ...page(), transcript: { lines: [line('a', 'x')] } };
+    expect(linkedStrokeCount(doc)).toBe(8);
+    const rows = inkRows(doc);
+    expect(rows.map((r) => r.linked > 0)).toEqual([true, false, false, false, false]);
+    const out = formatRows(rows, { links: true });
+    expect(out).toMatch(/4 of 5 rows/);
+    expect(out.split('\n').filter((l) => l.endsWith('not transcribed'))).toHaveLength(4);
+    expect(formatRows(rows)).not.toMatch(/not transcribed/);
   });
 });
 

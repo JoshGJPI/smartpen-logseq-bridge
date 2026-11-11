@@ -14,7 +14,8 @@ vi.mock('../storage/local-store.js', () => ({ getPage: vi.fn(), savePage: vi.fn(
 vi.mock('$stores/pending-changes.js', () => ({ noteOnDiskStrokeIds: vi.fn() }));
 
 import { getPage, savePage } from '../storage/local-store.js';
-import { savePageToFolder, planTranscript } from '../storage/save-page.js';
+import { savePageToFolder, planTranscript, carryTaskState } from '../storage/save-page.js';
+import { yBoundsToNcode } from '../myscript-api.js';
 import { computePageChangesFolder } from '../storage/page-changes.js';
 
 const PAGE_INFO = { section: 3, owner: 1012, book: 3017, page: 42 };
@@ -129,6 +130,25 @@ describe('planTranscript: the Edit Transcription result', () => {
     expect(plan.linesAdded).toBe(1);
   });
 
+  it('moved lines (v3.17.0) are written in the new order; a parent left below is worked out again', () => {
+    // 3017/180: the 11/6 meeting, stored last, moved to the top.
+    const saved = [
+      line('A', '11/10/26'), line('B', 'NSSA', { indentLevel: 1, parentId: 'A' }),
+      line('M', 'Meeting w/ Joe H'), line('N', 'not worth it', { indentLevel: 1, parentId: 'M' }),
+      line('X', 'stray', { indentLevel: 1, parentId: 'A' })
+    ];
+    const plan = planTranscript(saved, editor([
+      { text: 'Meeting w/ Joe H', blockUuid: 'M', indentLevel: 0 },
+      { text: 'not worth it', blockUuid: 'N', indentLevel: 1 },
+      { text: 'stray', blockUuid: 'X', indentLevel: 1 },
+      { text: '11/10/26', blockUuid: 'A', indentLevel: 0 },
+      { text: 'NSSA', blockUuid: 'B', indentLevel: 1 }
+    ], ['A', 'B', 'M', 'N', 'X']));
+    expect(plan.changed).toBe(true);
+    expect(plan.lines.map((l) => [l.id, l.parentId])).toEqual([['M', null], ['N', 'M'], ['X', 'M'], ['A', null], ['B', 'A']]);
+    expect(plan.lines[1]).toBe(saved[3]); // its parent is still above it: untouched
+  });
+
   it('a task merged under a plain saved line keeps its state (WAITING too)', () => {
     const saved = [line('L1', 'Smith'), line('L2', 'geotech report', { checked: false, marker: 'WAITING' })];
     // The dialog's merged line carries the task part's state (editor-lines.js mergeEditorLines).
@@ -177,5 +197,75 @@ describe('planTranscript: the Edit Transcription result', () => {
     expect(onDisk.transcript.lines.map((l) => [l.id, l.text])).toEqual([['L1', 'check the beam']]);
     expect(onDisk.strokes.find((s) => s.id === 's1000').lineId).toBe('L1');
     expect(after.transcriptionChanged).toBe(false);
+  });
+});
+
+describe('re-transcribing a reset page (replace, v3.17.0)', () => {
+  // 3017/182: one saved line held 479 strokes and the lines below none. The
+  // re-transcription has to replace the old lines and take their strokes.
+  const yb = { minY: 10, maxY: 15 };
+  const mid = (() => { const r = yBoundsToNcode(yb, 0); return (r.minY + r.maxY) / 2; })();
+  const stroke = (t, lineId) => ({ id: `s${t}`, startTime: t, endTime: t + 100, lineId, points: [[1, mid], [2, mid + 0.2]] });
+
+  it('replaces the saved lines, relinks their strokes and carries task state by text', async () => {
+    const saved = [
+      line('OLD1', 'Large Gym'),
+      line('OLD2', 'call Joe', { checked: false, marker: 'WAITING' }),
+      line('OLD3', 'Typical, A-Block, H-Block')
+    ];
+    const { onDisk, after } = await saveThenAsk(pageDoc(saved, [stroke(1000, 'OLD1'), stroke(2000, 'OLD3')]), {
+      replace: true, originNcodeY: 0,
+      lines: [
+        { text: 'Large Gym', indentLevel: 0, yBounds: yb },
+        { text: '☐ call Joe', indentLevel: 1, yBounds: { minY: 40, maxY: 45 } }
+      ]
+    });
+    const [gym, call] = onDisk.transcript.lines;
+    expect(onDisk.transcript.lines).toHaveLength(2);
+    expect(gym.id).not.toMatch(/^OLD/);
+    expect(call).toMatchObject({ text: 'call Joe', checked: false, marker: 'WAITING' });
+    expect(onDisk.strokes.map((s) => s.lineId)).toEqual([gym.id, gym.id]);
+    expect(after.transcriptionChanged).toBe(false);
+  });
+
+  it('same text as saved: lines and ids kept, but every stroke relinked from the run (a drawing unlinked)', async () => {
+    const saved = [line('L1', 'Large Gym'), line('L2', 'Arching was ignored')];
+    const far = { id: 's3000', startTime: 3000, endTime: 3100, lineId: 'L1', points: [[1, 900], [2, 901]] };
+    const { onDisk, after } = await saveThenAsk(pageDoc(saved, [stroke(1000, 'L2'), far]), {
+      replace: true, originNcodeY: 0,
+      lines: [{ text: 'Large Gym', indentLevel: 0, yBounds: yb }, { text: 'Arching was ignored', indentLevel: 0, yBounds: { minY: 40, maxY: 45 } }]
+    });
+    expect(onDisk.transcript.lines.map((l) => l.id)).toEqual(['L1', 'L2']);
+    expect(onDisk.strokes.map((s) => [s.id, s.lineId])).toEqual([['s1000', 'L1'], ['s3000', null]]);
+    expect(after.transcriptionChanged).toBe(false);
+  });
+
+  it('without replace the same run is appended, as before', () => {
+    const plan = planTranscript([line('OLD1', 'Large Gym', { yBounds: yb })], { lines: [{ text: 'Arching was ignored', yBounds: { minY: 40, maxY: 45 } }] });
+    expect(plan.lines.map((l) => l.text)).toEqual(['Large Gym', 'Arching was ignored']);
+  });
+
+  it('the dialog path drops saved lines whose ids it was given', () => {
+    const plan = planTranscript([line('OLD1', 'Large Gym'), line('OLD2', 'done thing', { checked: true })], {
+      replace: true, editorBaseIds: ['OLD1', 'OLD2'],
+      lines: [{ text: 'Large Gym', indentLevel: 0, yBounds: yb }, { text: 'done thing', indentLevel: 0, yBounds: yb }]
+    });
+    expect(plan.lines.map((l) => [l.text, l.checked])).toEqual([['Large Gym', null], ['done thing', true]]);
+    expect(plan.lines.every((l) => !l.id.startsWith('OLD'))).toBe(true);
+  });
+});
+
+describe('carryTaskState', () => {
+  const old = [line('A', 'call Joe', { checked: false, marker: 'WAITING' }), line('B', 'send RFI', { checked: true, marker: 'CANCELLED' })];
+  it('a new line with no box takes the old state; one box agreeing on open/closed keeps the marker', () => {
+    const out = carryTaskState(old, [line('n1', 'Call joe'), line('n2', 'send RFI', { checked: true })]);
+    expect(out.map((l) => [l.checked, l.marker])).toEqual([[false, 'WAITING'], [true, 'CANCELLED']]);
+  });
+  it('a box that disagrees wins; kept old lines and unmatched text carry nothing', () => {
+    const out = carryTaskState(old, [line('n1', 'call Joe', { checked: true }), line('B', 'send RFI', { checked: true }), line('n3', 'other')]);
+    expect(out[0]).toMatchObject({ checked: true });
+    expect(out[0].marker).toBeUndefined();
+    expect(out[2].checked).toBeNull();
+    expect(carryTaskState([], out)).toBe(out);
   });
 });

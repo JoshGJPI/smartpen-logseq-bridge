@@ -116,12 +116,16 @@ including how Claude writes its blind reading, is the project skill
   and sketches don't set a margin): height, left margin, right end, stroke count, and an indent **column** (one step
   = `COLUMN_MM`, 4.6 mm, measured on JPI Dotted). `wrap?` marks a row that starts deeper under a row that reached the
   right edge: a wrapped sentence or a sub-item, which only the text can tell. Rows written on other days are dated.
-  No transcript text is returned, so it can be read before a blind reading.
+  No transcript text is returned, so it can be read before a blind reading. On a transcribed page whose links can be
+  trusted, rows with no stroke in any line are marked `not transcribed`, and a `PARTLY TRANSCRIBED?` line warns when
+  under 75% of the page's strokes are in a line (3017/186: 84% in none). `list_pages` shows such a page as `partly`.
 - **`check_transcript` with `reference`:** the reference (markdown bullets, one tab or one space-unit per level,
   `TODO` / `DONE` / `WAITING` / `CANCELLED` in front of tasks) is aligned with the stored lines in order (dynamic
   programming over line similarity, so a missing or extra line doesn't shift the rest). Each stored line is reported
-  as exact, case/punctuation only, or worded differently, with indent and task-state differences, its stroke count
-  and `NO INK LINKED`; unmatched lines on either side are listed. Tested on raw MyScript output (3017/180–181):
+  as exact, case/punctuation/spacing only (`IBC 2024` / `IBC2024` is not a wording change), or worded differently,
+  with indent and task-state differences, its stroke count and `NO INK LINKED`. A line left unmatched on both sides
+  that is the same line (similarity ≥ 0.75) is paired and marked `MOVED`, with the reference line it follows: stored
+  out of order, usually ink transcribed later and appended (3017/180). Other unmatched lines are listed. Tested on raw MyScript output (3017/180–181):
   indents all agreed, ~6% of words differed, and it found a heading's name whose text MyScript dropped.
   `LINKS BROKEN?` marks a line holding more than 4× the median line's strokes (and at least 150): ink from other rows
   is linked to it, usually because a drawing was in the MyScript batch (3017/182: 479 strokes on one line, none on

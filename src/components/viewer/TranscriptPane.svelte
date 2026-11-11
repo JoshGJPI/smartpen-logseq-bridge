@@ -9,7 +9,9 @@
                 line deletes it, Merge (Ctrl+J) joins the ticked lines (or the
                 focused line and the next) into the first, for prose written
                 across several lines (lib/editor-lines.js mergeTranscriptLines;
-                the merged-away lines' strokes follow on save). Long lines wrap
+                the merged-away lines' strokes follow on save). Ticked lines
+                move together (v3.17.0, lib/move-lines.js): Alt+↑ / Alt+↓ or a
+                ticked row's arrows step the group, Top / Bottom gather it. Long lines wrap
                 (TranscriptEditRow). Task state isn't edited here: typing `TODO`,
                 `[ ]` or ☐ (`DONE`, `[x]`, ☑) in front of a plain line makes it a
                 task on save (save-transcript.js parseTypedTasks); a task's own
@@ -30,6 +32,7 @@
   import { saveTranscriptLines } from '$lib/viewer/save-transcript.js';
   import { markerField } from '$lib/tasks.js';
   import { mergeTranscriptLines } from '$lib/editor-lines.js';
+  import { moveLines, moveLinesToEdge } from '$lib/move-lines.js';
   import TranscriptLines from '../transcription/TranscriptLines.svelte';
   import TranscriptEditRow from './TranscriptEditRow.svelte';
 
@@ -180,7 +183,23 @@
       setDirty(true);
     }
   }
+  /** Ticked lines as one group: a step (dir -1 / 1) or to an edge ('top' / 'bottom'). */
+  async function moveTicked(how) {
+    const sel = draft.map((l, i) => (selectedIds.has(l.id) ? i : -1)).filter((i) => i >= 0);
+    const r = typeof how === 'number' ? moveLines(draft, sel, how) : moveLinesToEdge(draft, sel, how);
+    if (!r) return;
+    const focusId = activeIndex >= 0 ? draft[activeIndex]?.id : null;
+    draft = r.lines;
+    setDirty(true);
+    await tick();
+    const at = focusId ? draft.findIndex((l) => l.id === focusId) : -1;
+    if (at >= 0) inputEls[at]?.focus();
+    inputEls[r.selected[0]]?.scrollIntoView?.({ block: 'nearest' });
+  }
+  // A ticked line's own move takes the whole ticked group with it.
+  const movesGroup = (i) => selectedIds.size > 1 && selectedIds.has(draft[i]?.id);
   async function moveLineUp(i) {
+    if (movesGroup(i)) return moveTicked(-1);
     if (i <= 0) return;
     [draft[i - 1], draft[i]] = [draft[i], draft[i - 1]];
     draft = draft;
@@ -189,6 +208,7 @@
     inputEls[i - 1]?.focus();
   }
   async function moveLineDown(i) {
+    if (movesGroup(i)) return moveTicked(1);
     if (i >= draft.length - 1) return;
     [draft[i + 1], draft[i]] = [draft[i], draft[i + 1]];
     draft = draft;
@@ -304,6 +324,14 @@
           disabled={!canMerge}
           title={selectedIds.size >= 2 ? 'Join the ticked lines into one, in the first one\'s place (Ctrl+J)' : 'Join the selected line with the next one, or tick lines to join (Ctrl+J)'}
         >Merge{selectedIds.size >= 2 ? ` (${selectedIds.size})` : ''}</button>
+        {#if selectedIds.size}
+          <span class="tp-move" role="group" aria-label="Move the ticked lines">
+            <button class="tp-btn" on:mousedown|preventDefault on:click={() => moveTicked(-1)} title="Move the ticked lines up one line (Alt+↑ on a ticked line)">↑</button>
+            <button class="tp-btn" on:mousedown|preventDefault on:click={() => moveTicked(1)} title="Move the ticked lines down one line (Alt+↓ on a ticked line)">↓</button>
+            <button class="tp-btn" on:mousedown|preventDefault on:click={() => moveTicked('top')} title="Move the ticked lines, in order, to the top">Top</button>
+            <button class="tp-btn" on:mousedown|preventDefault on:click={() => moveTicked('bottom')} title="Move the ticked lines, in order, to the bottom">Bottom</button>
+          </span>
+        {/if}
         <span class="tp-toolbar-divider"></span>
         <button class="tp-btn" on:click={copy} title="Copy the whole transcript as LogSeq markdown">Copy all</button>
         <button class="tp-btn primary" on:click={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
@@ -317,7 +345,7 @@
 
   <div class="tp-body">
     {#if editing}
-      <div class="tp-edit-hint">Tab / Shift+Tab to indent · Alt+↑ / Alt+↓ to reorder · Enter for a new line · tick lines and Merge (Ctrl+J) to join them</div>
+      <div class="tp-edit-hint">Tab / Shift+Tab to indent · Alt+↑ / Alt+↓ to reorder (ticked lines move together) · Enter for a new line · tick lines and Merge (Ctrl+J) to join them</div>
       {#each draft as line, i (line.id)}
         <TranscriptEditRow
           bind:text={line.text}
@@ -390,6 +418,8 @@
   .tp-btn.danger { color: #c0392b; }
   .tp-btn.danger:hover:not(:disabled) { background: #fdeaea; border-color: #e6b0aa; }
   .tp-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .tp-move { display: inline-flex; gap: 2px; }
+  .tp-move .tp-btn { padding: 4px 8px; }
   .tp-toolbar-divider { width: 1px; align-self: stretch; background: #e6e6e6; margin: 2px 2px; }
 
   .tp-body {

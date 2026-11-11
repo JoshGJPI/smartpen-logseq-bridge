@@ -16,7 +16,7 @@ import { renderPageSvg, svgToPng, fitWidth, visualTokens, MAX_EDGE } from './ren
 import { viewBounds } from './bounds.js';
 import { createSearch } from './search.js';
 import { checkColoring } from './check-colors.js';
-import { inkRows, formatRows, diffTranscript, formatDiff } from './transcript-check.js';
+import { inkRows, formatRows, diffTranscript, formatDiff, linkedStrokeCount, partlyTranscribedNote, PARTLY_TRANSCRIBED_BELOW } from './transcript-check.js';
 import { requireBookKey, requirePageId } from './paths.js';
 import { parseBookKey } from '../../src/lib/volumes.js';
 import { dayKey, dayStart, rangeBoundsMs, pagesInRange, pagesOnDay, eachDay, inRange } from '../../src/lib/timeline.js';
@@ -48,6 +48,9 @@ const label = (aliases, p) => `${bookName(aliases, p.book)} (${p.book}) p.${p.pa
 const clampInt = (v, dflt, lo, hi) => Math.max(lo, Math.min(hi, Math.round(Number.isFinite(Number(v)) && v !== null && v !== undefined ? Number(v) : dflt)));
 const widthFor = (args, lim) => clampInt(args.width, lim.width, LIMITS.minWidth, LIMITS.maxEdge);
 const rangeText = (r) => `${r.from}${r.to !== r.from ? ` to ${r.to}` : ''}`;
+/** A transcribed page with most of its ink in no line: `"16% of ink in a line"`, else undefined. */
+const partly = (p) => (p.lineCount && p.linkedStrokes != null && p.strokes && p.linkedStrokes / p.strokes < PARTLY_TRANSCRIBED_BELOW
+  ? `${Math.round((100 * p.linkedStrokes) / p.strokes)}% of ink in a line` : undefined);
 
 function dayRange(from, to) {
   const end = to || from;
@@ -166,12 +169,13 @@ export function createTools(root) {
       const open = openTasksByPage(scan);
       const rows = pages.slice(offset, offset + limit).map((p) => ({
         page: p.pageId, strokes: p.strokes, days: Object.keys(p.days).sort(),
-        tags: scan.tags[pageKey(p)] || [], transcribed: p.lineCount > 0,
+        tags: scan.tags[pageKey(p)] || [], transcribed: p.lineCount > 0, partly: partly(p),
         openTasks: open.get(pageKey(p)) || undefined,
         rotation: rotationFor(scan.orientations, p.book, p.pageId) || undefined
       }));
       const more = pages.length > offset + limit ? ` (showing ${rows.length} of ${pages.length}; pass offset=${offset + limit} for more)` : '';
-      return { content: [text(`${bookName(scan.aliases, book)} (${book}): ${pages.length} pages${more}\n${JSON.stringify(rows)}`)] };
+      const note = rows.some((r) => r.partly) ? ' (partly = transcribed, but most of the ink is in no transcript line: transcribe the rest in the app)' : '';
+      return { content: [text(`${bookName(scan.aliases, book)} (${book}): ${pages.length} pages${more}${note}\n${JSON.stringify(rows)}`)] };
     },
 
     get_transcript(args) {
@@ -220,15 +224,20 @@ export function createTools(root) {
       if (!doc) return fail(`No page ${book}/${page}`);
       const lines = (doc.transcript && doc.transcript.lines) || [];
       const name = label(scan.aliases, { book, pageId: page });
+      const trusted = lines.length > 0 && isTrustworthyTranscript(doc);
+      const total = (doc.strokes || []).length;
+      const partlyNote = trusted ? partlyTranscribedNote(linkedStrokeCount(doc), total) : '';
       if (args.reference == null || String(args.reference).trim() === '') {
         // Text-free on purpose: safe to read before a blind reading of the page.
-        return { content: [text(`${name}: ${(doc.strokes || []).length} strokes, ${lines.length ? `transcribed (${lines.length} lines; text not shown here)` : 'not transcribed'}.\n`
-          + formatRows(inkRows(doc)))] };
+        return { content: [text(`${name}: ${total} strokes, ${lines.length ? `transcribed (${lines.length} lines; text not shown here)` : 'not transcribed'}.\n`
+          + (partlyNote ? `${partlyNote}\n` : '')
+          + formatRows(inkRows(doc), { links: trusted }))] };
       }
       if (!lines.length) return fail(`Page ${book}/${page} has no transcript to compare; transcribe it in the app first.`);
-      const note = isTrustworthyTranscript(doc) ? ''
+      const note = trusted ? ''
         : '\n(Stroke-to-line links on this page are unreliable (transcribed before the line-matching fix), so stroke counts per line mean little.)';
-      return { content: [text(`${name}, transcribed ${(doc.transcript.lastTranscribed || '').slice(0, 10)}:\n${formatDiff(diffTranscript(doc, args.reference))}${note}`)] };
+      const d = { ...diffTranscript(doc, args.reference), partly: partlyNote };
+      return { content: [text(`${name}, transcribed ${(doc.transcript.lastTranscribed || '').slice(0, 10)}:\n${formatDiff(d)}${note}`)] };
     },
 
     days_summary(args) {

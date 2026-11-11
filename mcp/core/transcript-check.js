@@ -50,24 +50,26 @@ function box(s) {
  * @returns {Array<{y:number,left:number,right:number,column:number,letters:number,day:string|null,wrap:boolean}>}
  */
 export function inkRows(doc) {
+  const lineIds = new Set(((doc && doc.transcript && doc.transcript.lines) || []).map((l) => l.id));
   const strokes = ((doc && doc.strokes) || [])
     .filter((s) => s && Array.isArray(s.points) && s.points.length > 1)
-    .map((s) => ({ t: Number(s.startTime) || 0, b: box(s) }))
+    .map((s) => ({ t: Number(s.startTime) || 0, b: box(s), linked: !!(s.lineId && lineIds.has(s.lineId)) }))
     .filter((s) => s.b && s.b.h >= LETTER.minH && s.b.h <= LETTER.maxH && s.b.w <= LETTER.maxW)
     .sort((a, b) => a.t - b.t);
 
   // Strokes in writing order: each joins the row at its height whose ends it's near.
   const rows = [];
-  for (const { t, b } of strokes) {
+  for (const { t, b, linked } of strokes) {
     const r = rows.find((r) => Math.abs(r.cy - b.cy) <= ROW_Y_TOL && b.x0 <= r.x1 + ROW_X_GAP && b.x1 >= r.x0 - ROW_X_GAP);
     if (r) {
       r.n++;
+      if (linked) r.linked++;
       r.x0 = Math.min(r.x0, b.x0);
       r.x1 = Math.max(r.x1, b.x1);
       r.cy += (b.cy - r.cy) / r.n;
       r.t = Math.min(r.t, t);
     } else {
-      rows.push({ cy: b.cy, x0: b.x0, x1: b.x1, n: 1, t });
+      rows.push({ cy: b.cy, x0: b.x0, x1: b.x1, n: 1, linked: linked ? 1 : 0, t });
     }
   }
   const kept = rows.filter((r) => r.n >= MIN_ROW_LETTERS).sort((a, b) => a.cy - b.cy);
@@ -82,6 +84,7 @@ export function inkRows(doc) {
       right: Math.round(r.x1),
       column: Math.max(0, Math.round((r.x0 - base) / COLUMN_MM)),
       letters: r.n,
+      linked: r.linked,
       day: r.t ? dayKey(r.t) : null,
       wrap: !!prev && r.x0 > prev.x0 + 2 && prev.x1 > right - WRAP_RIGHT_MM && r.cy - prev.cy < 9
     };
@@ -115,6 +118,8 @@ export function parseReference(md) {
 
 const norm = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9$%&?#@']+/g, ' ').trim();
 const words = (t) => norm(t).split(' ').filter(Boolean);
+/** Same letters and digits in the same order: case, punctuation and spacing aside (`IBC 2024` / `IBC2024`). */
+const sameLetters = (a, b) => norm(a).replace(/ /g, '') === norm(b).replace(/ /g, '');
 
 function editDistance(a, b) {
   let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
@@ -192,14 +197,16 @@ export function diffTranscript(doc, referenceMd) {
     n: i + 1, level: l.indentLevel || 0, text: l.text || '', state: stateOf(l), strokes: counts.get(l.id) || 0
   }));
   const ref = parseReference(referenceMd);
+  const pairs = movedPairs(alignLines(stored, ref), stored, ref);
   const rows = [];
-  const tally = { matched: 0, exact: 0, minor: 0, wording: 0, indent: 0, state: 0, missing: 0, extra: 0, words: 0, wordDiffs: 0 };
-  for (const [a, b] of alignLines(stored, ref)) {
+  const tally = { matched: 0, exact: 0, minor: 0, wording: 0, indent: 0, state: 0, moved: 0, missing: 0, extra: 0, words: 0, wordDiffs: 0 };
+  for (const [a, b, moved] of pairs) {
     const s = a === null ? null : stored[a];
     const r = b === null ? null : ref[b];
     if (s && r) {
       tally.matched++;
-      const wd = editDistance(words(s.text), words(r.text));
+      const same = sameLetters(s.text, r.text);
+      const wd = same ? 0 : editDistance(words(s.text), words(r.text));
       tally.words += words(r.text).length;
       tally.wordDiffs += wd;
       const kind = s.text === r.text ? 'exact' : wd === 0 ? 'minor' : 'wording';
@@ -208,7 +215,12 @@ export function diffTranscript(doc, referenceMd) {
       const state = (s.state || null) !== (r.state || null);
       if (indent) tally.indent++;
       if (state) tally.state++;
-      rows.push({ kind, indent, state, stored: s, ref: r });
+      const row = { kind, indent, state, stored: s, ref: r };
+      if (moved) {
+        tally.moved++;
+        row.moved = { after: b > 0 ? ref[b - 1].text : null };
+      }
+      rows.push(row);
     } else if (s) {
       tally.missing++;
       rows.push({ kind: 'stored-only', stored: s });
@@ -219,7 +231,73 @@ export function diffTranscript(doc, referenceMd) {
       rows.push({ kind: 'reference-only', ref: r });
     }
   }
-  return { rows, tally, unlinked, storedLines: stored.length, refLines: ref.length, swollen: swollenLines(stored) };
+  return {
+    rows, tally, unlinked, totalStrokes: ((doc && doc.strokes) || []).length,
+    storedLines: stored.length, refLines: ref.length, swollen: swollenLines(stored)
+  };
+}
+
+/** A stored-only and a reference-only line this alike are one line in another place, not two missing lines. */
+const MOVED_MIN = 0.75;
+
+/**
+ * Pair the lines the in-order alignment left on both sides that are the same line out of order (3017/180: a
+ * meeting written at the top of the page but transcribed later, so stored at the end). Best matches first; each
+ * pair takes the stored line's place in the result and is marked moved. Unpaired lines stay as they were.
+ * @param {Array<[number|null, number|null]>} pairs alignLines' result
+ * @returns {Array<[number|null, number|null, boolean?]>}
+ */
+export function movedPairs(pairs, stored, ref) {
+  const sOnly = pairs.filter(([a, b]) => b === null).map(([a]) => a);
+  const rOnly = pairs.filter(([a]) => a === null).map(([, b]) => b);
+  const cands = [];
+  for (const a of sOnly) {
+    for (const b of rOnly) {
+      const s = similarity(stored[a].text, ref[b].text);
+      if (s >= MOVED_MIN) cands.push({ a, b, s });
+    }
+  }
+  cands.sort((x, y) => y.s - x.s || Math.abs(x.a - x.b) - Math.abs(y.a - y.b));
+  const refFor = new Map();
+  const taken = new Set();
+  for (const c of cands) {
+    if (refFor.has(c.a) || taken.has(c.b)) continue;
+    refFor.set(c.a, c.b);
+    taken.add(c.b);
+  }
+  if (!refFor.size) return pairs;
+  const out = [];
+  for (const [a, b] of pairs) {
+    if (a === null && taken.has(b)) continue;
+    if (b === null && refFor.has(a)) out.push([a, refFor.get(a), true]);
+    else out.push([a, b]);
+  }
+  return out;
+}
+
+/** Below this share of the page's strokes linked to a line, a transcribed page is called partly transcribed. */
+export const PARTLY_TRANSCRIBED_BELOW = 0.75;
+
+/** Strokes linked to an existing transcript line. */
+export function linkedStrokeCount(doc) {
+  const ids = new Set(((doc && doc.transcript && doc.transcript.lines) || []).map((l) => l.id));
+  let n = 0;
+  for (const s of (doc && doc.strokes) || []) if (s && s.lineId && ids.has(s.lineId)) n++;
+  return n;
+}
+
+/**
+ * A warning when much of a transcribed page's ink is in no line (3017/186: 6 lines saved, 1,019 of 1,209 strokes
+ * never sent to MyScript), else ''. Boxes, underlines and sketches are left out on purpose, so a few unlinked
+ * strokes are normal. Only for pages whose links can be trusted (pass `trusted`).
+ */
+export function partlyTranscribedNote(linked, total, trusted = true) {
+  if (!trusted || !total) return '';
+  const share = linked / total;
+  if (share >= PARTLY_TRANSCRIBED_BELOW) return '';
+  return `PARTLY TRANSCRIBED? ${total - linked} of ${total} strokes (${Math.round(100 * (1 - share))}%) are linked to no line: `
+    + 'most likely ink that was never sent to MyScript (written on another day, or not selected). Transcribe it in the app '
+    + '(load the page by page, not by date) before checking the text.';
 }
 
 /** A line holding this many times the median line's strokes (and at least SWOLLEN_MIN) has ink from other rows. */
@@ -249,38 +327,55 @@ const show = (l) => `L${l.level} ${l.state ? `${l.state} ` : ''}${l.text}`;
 export function formatDiff(d) {
   const t = d.tally;
   const pct = t.words ? ((100 * t.wordDiffs) / t.words).toFixed(1) : '0.0';
+  const moved = t.moved || 0;
   const out = [
-    `Stored ${d.storedLines} line(s), reference ${d.refLines}; matched ${t.matched}: ${t.exact} exact, ${t.minor} case/punctuation only, `
-    + `${t.wording} worded differently (${pct}% of reference words differ); indent differs on ${t.indent}, task state on ${t.state}; `
+    `Stored ${d.storedLines} line(s), reference ${d.refLines}; matched ${t.matched}: ${t.exact} exact, ${t.minor} case/punctuation/spacing only, `
+    + `${t.wording} worded differently (${pct}% of reference words differ); indent differs on ${t.indent}, task state on ${t.state}`
+    + (moved ? `, out of order ${moved}` : '') + '; '
     + `${t.missing} stored line(s) not in the reference, ${t.extra} reference line(s) not stored. `
     + `${d.unlinked} stroke(s) linked to no line.`,
+    ...(moved ? [`OUT OF ORDER: ${moved} stored line(s) sit somewhere else than on the page (marked MOVED below, with the line they follow `
+      + 'in the reference). Usually ink transcribed later and appended at the end; reorder them in the app (tick them, then Move).'] : []),
     ...(d.swollen || []).map((s) => `LINKS BROKEN? #${s.n} has ${s.strokes} strokes (median line ${s.median})`
       + (s.emptyAfter ? ` and ${s.emptyAfter} later line(s) have none` : '')
       + ': ink from other rows, usually a drawing in the MyScript batch, is linked to it. Fix by re-transcribing the page '
       + 'with the drawing deselected, not by editing text.'),
-    'Differences (stored = what is on disk now, ref = the reference; #n = stored line number, (k) = strokes linked to it):'
+    ...(d.partly ? [d.partly] : [])
   ];
+  const head = out.length;
+  out.push('Differences (stored = what is on disk now, ref = the reference; #n = stored line number, (k) = strokes linked to it):');
   for (const r of d.rows) {
-    if (r.kind === 'exact' && !r.indent && !r.state) continue;
+    if (r.kind === 'exact' && !r.indent && !r.state && !r.moved) continue;
     if (r.kind === 'stored-only') { out.push(`#${r.stored.n} (${r.stored.strokes}) STORED ONLY  ${show(r.stored)}`); continue; }
     if (r.kind === 'reference-only') { out.push(`   REFERENCE ONLY  ${show(r.ref)}`); continue; }
-    const tags = [r.kind === 'wording' && 'wording', r.kind === 'minor' && 'case/punct', r.indent && 'indent', r.state && 'state'].filter(Boolean);
-    out.push(`#${r.stored.n} (${r.stored.strokes}) ${tags.join(', ')}${r.stored.strokes ? '' : ', NO INK LINKED'}\n    stored: ${show(r.stored)}\n    ref:    ${show(r.ref)}`);
+    const tags = [
+      r.moved && `MOVED (on the page it follows ${r.moved.after === null ? 'nothing: it is first' : `"${r.moved.after}"`})`,
+      r.kind === 'wording' && 'wording', r.kind === 'minor' && 'case/punct/spacing', r.indent && 'indent', r.state && 'state'
+    ].filter(Boolean);
+    const both = r.kind === 'exact' && !r.indent && !r.state ? '' : `\n    stored: ${show(r.stored)}\n    ref:    ${show(r.ref)}`;
+    out.push(`#${r.stored.n} (${r.stored.strokes}) ${tags.join(', ')}${r.stored.strokes ? '' : ', NO INK LINKED'}${both || `  ${show(r.stored)}`}`);
   }
-  const noInk = d.rows.filter((r) => r.stored && r.stored.strokes === 0 && r.kind === 'exact' && !r.indent && !r.state);
+  const noInk = d.rows.filter((r) => r.stored && r.stored.strokes === 0 && r.kind === 'exact' && !r.indent && !r.state && !r.moved);
   for (const r of noInk) out.push(`#${r.stored.n} (0) NO INK LINKED  ${show(r.stored)}`);
-  if (out.length === 2) out.push('(none)');
+  if (out.length === head + 1) out.push('(none)');
   return out.join('\n');
 }
 
-/** The ink rows as text for the tool reply. */
-export function formatRows(rows) {
+/**
+ * The ink rows as text for the tool reply.
+ * @param {object} [opts] `links: true` marks rows with no stroke in any transcript line ("not transcribed"); pass it
+ *   only for a transcribed page whose links can be trusted.
+ */
+export function formatRows(rows, { links = false } = {}) {
   if (!rows.length) return 'No written rows found (no letter-sized ink).';
   const days = [...new Set(rows.map((r) => r.day).filter(Boolean))];
+  const bare = links ? rows.filter((r) => !r.linked).length : 0;
   const head = `${rows.length} written row(s), top to bottom. column = indent column from the left margin (one step ≈ ${COLUMN_MM} mm); `
     + 'wrap? = starts deeper under a row that reached the right edge: a wrapped sentence OR a sub-item, the text decides.'
-    + (days.length > 1 ? ` Rows were written on ${days.length} days (${days.join(', ')}).` : '');
+    + (days.length > 1 ? ` Rows were written on ${days.length} days (${days.join(', ')}).` : '')
+    + (bare ? ` not transcribed = no stroke of the row is in any transcript line (${bare} of ${rows.length} rows).` : '');
   const body = rows.map((r) => `y ${String(r.y).padStart(3)} mm  column ${r.column}  left ${r.left.toFixed(1).padStart(5)}  right ${String(r.right).padStart(3)}  `
-    + `${String(r.letters).padStart(3)} strokes${days.length > 1 ? `  ${r.day}` : ''}${r.wrap ? '  wrap?' : ''}`);
+    + `${String(r.letters).padStart(3)} strokes${days.length > 1 ? `  ${r.day}` : ''}${r.wrap ? '  wrap?' : ''}`
+    + (links && !r.linked ? '  not transcribed' : ''));
   return [head, ...body].join('\n');
 }

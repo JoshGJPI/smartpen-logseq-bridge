@@ -23,6 +23,8 @@ import { formatBookName } from '../../src/utils/formatting.js';
 import { pageNumberOfId, manifestCoversPage } from '../../src/lib/neo-backgrounds.js';
 import { buildTaskSummary, normalizeTaskSummary } from '../../src/lib/tasks.js';
 import { mightHaveTaskBoxes } from '../../src/lib/storage/convert-task-boxes.js';
+import { isTrustworthyTranscript } from '../../src/lib/viewer/ink-text.js';
+import { linkedStrokeCount } from './transcript-check.js';
 
 const PAGE_FILE_RE = /^P(\d+)([a-zA-Z]?)\.json$/;
 
@@ -59,7 +61,10 @@ function summarize(doc, f, st) {
     transcribed: lines.length > 0,
     transcriptionText: text,
     tasks: normalizeTaskSummary(buildTaskSummary(lines)),
-    taskBoxesInText: mightHaveTaskBoxes(text)   // not converted to tasks yet (the app's Convert task boxes… step)
+    taskBoxesInText: mightHaveTaskBoxes(text),  // not converted to tasks yet (the app's Convert task boxes… step)
+    // Strokes linked to a transcript line, where the links can be trusted (else null): a page with most of its ink
+    // in no line is only partly transcribed (list_pages' `partly`).
+    linkedStrokes: lines.length && isTrustworthyTranscript(doc) ? linkedStrokeCount(doc) : null
   };
 }
 
