@@ -22,7 +22,8 @@ Reasons and history for each feature are in [CHANGELOG.md](CHANGELOG.md).
 - Global search covers transcribed text only; untranscribed pages are found by date or notebook (or by tag).
 - **Page tags (v3.1.0).** Suggestions are pattern-only: no check that a number is a real project, and letters read
   for digits (`P2O26-141`) are missed. Tags don't follow a *partial* volume move (they stay on the source page).
-  Project names aren't shown on chips; no tags on Timeline cards or in the Editor; tags aren't exported to LogSeq.
+  Project names aren't shown on chips; no tags on Timeline cards; tags aren't exported to LogSeq. The Editor
+  (v3.19.0) tags pages from the toolbar's 🏷 Tags (at most six pages listed at once) and the Pages tab cards.
   Tags on a page that is later deleted stay in `_tags.json` (hidden everywhere except the Manage Tags counts).
   "Recently written" in tag grouping uses the newest capture date under the tag (no tag timestamps are stored).
 - **Retime (v3.6.0).** Exported to LogSeq: `mergeGraphStrokes()` keeps the published copy by id, so re-exporting a

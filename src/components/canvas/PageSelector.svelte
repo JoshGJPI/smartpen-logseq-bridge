@@ -6,10 +6,20 @@
   import { pages } from '$stores';
   import { unloadPageFromCanvas, describePageUnload } from '$stores/canvas.js';
   import { BOOK_KEY_FRAGMENT, volumeBadge, ncodeBookOf, compareBookKeys } from '$lib/volumes.js';
+  import { pageTags } from '$stores/tags.js';
+  import { pageIdFromCanvasKey } from '$lib/canvas-page-targets.js';
 
   const PAGE_KEY_RE = new RegExp(`S(\\d+)\\/O(\\d+)\\/B(${BOOK_KEY_FRAGMENT})\\/P(\\d+)`);
 
   const dispatch = createEventDispatcher();
+
+  // The chip's tooltip names the page's tags, read-only (v3.19.0); the
+  // toolbar's Tags button edits them.
+  function chipTitle(key, tagsMap) {
+    const id = pageIdFromCanvasKey(key);
+    const tags = (id && tagsMap[id]) || [];
+    return `${key}\n${tags.length ? `Tags: ${tags.join(', ')}` : 'No tags'}`;
+  }
   
   // Selected page keys (Set for efficient lookup)
   export let selectedPages = new Set();
@@ -248,7 +258,7 @@
           <div class="pages-list">
             {#each bookData.pages as pageInfo (pageInfo.key)}
               <span class="page-chip">
-                <label class="page-checkbox" title="{pageInfo.key}">
+                <label class="page-checkbox" title={chipTitle(pageInfo.key, $pageTags)}>
                   <input
                     type="checkbox"
                     checked={selectedPages.has(pageInfo.key)}

@@ -28,6 +28,7 @@ src/lib/           pure logic, no UI, testable without DOM (tags.js, tag-suggest
                    task-markers.js: ☐ / ☑ → TODO / DONE, v3.3.0; tasks.js: task state, WAITING, task list, v3.4.0,
                    CANCELLED, v3.5.0; state toggle chips and a tag's tasks, v3.12.0; retime.js: shift selected strokes in time, v3.6.0;
                    move-lines.js: move ticked transcript lines as a group, v3.17.0;
+                   canvas-page-targets.js: which pages the Editor's rotate and 🏷 Tags act on, v3.19.0;
                    book-types.js: notebook types and the type filter, v3.15.0)
 src/lib/storage/   PageDoc layer: local-store (IPC facade), save-page, load-page, load-range, scan, page-changes, graph-export,
                    convert-task-boxes (one-off conversion of old transcripts)

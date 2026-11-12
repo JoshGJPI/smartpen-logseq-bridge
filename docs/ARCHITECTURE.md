@@ -61,7 +61,8 @@ App.svelte (Root)
 │   │   │       children; task boxes read by reviewLinesForCopy, v3.10.0)
 │   │   └── TranscriptSearch (Search — full-text over saved pages on disk)
 │   │       └── SearchResultCard (per-result import / open in the Library)
-│   ├── SavedPagesTab ("Pages", Editor — folder-backed page list: import, export, edit structure)
+│   ├── SavedPagesTab ("Pages", Editor — folder-backed page list: import, export, edit structure;
+│   │                 each PageCard has a compact PageTagsInline row, v3.19.0)
 │   └── DatesTab ("Days", Timeline only — the day list that jumps the feed; the range is the feed head's RangeMenu, v3.14.0)
 └── Canvas Section (destination from `$destination`, in App.svelte)
     ├── PaneToolbar (Library and Timeline only: breadcrumb + ViewMenu "View ▾")
@@ -71,10 +72,12 @@ App.svelte (Root)
     │   ├── panel header ("Editor"): Select All · Deselect · CanvasSearch · stroke count ·
     │   │                ActionBar's row (Undo · Clear · Delete · Transcribe · Save, moved here, v3.14.0)
     │   ├── top toolbar: Decorative · Duplicate · Edit Points · Volume ▾ ·
-    │   │                Text · Copy · Layout ▾ (hidden with the bottom bar while the canvas is empty)
+    │   │                Text · Copy · rotate · 🏷 Tags (CanvasPageTags: a PageTagsInline row per target page,
+│   │                lib/canvas-page-targets.js, v3.19.0) · Layout ▾ (hidden with the bottom bar while the
+│   │                canvas is empty)
     │   ├── EditorEmptyState (empty canvas: Load a day from the Timeline · Pick pages… · Connect pen)
     │   ├── bottom bar: zoom · Fit · Reset View · Sketch · Unmark ·
-    │   │               SketchStylePopover · PageSelector · Export ▾
+    │   │               SketchStylePopover · PageSelector (chip tooltips list the page's tags) · Export ▾
     │   ├── Canvas Renderer (Drawing engine)
     │   ├── PointEditPanel (Edit Points mode — stray-point list + delete)
     │   └── FilteredStrokesPanel (Decorative strokes)

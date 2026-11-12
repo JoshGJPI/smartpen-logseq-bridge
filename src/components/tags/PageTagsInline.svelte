@@ -1,6 +1,8 @@
 <!--
   PageTagsInline.svelte — one page's tags as a single row, for the Editor:
-  the Transcripts tab's page cards and the Edit Transcription dialog's footer.
+  the Transcripts tab's page cards, the Edit Transcription dialog's footer,
+  the Pages tab's cards (compact) and the canvas toolbar's Tags popover
+  (v3.19.0, one row per page, labelled with `heading`).
   Shortens connect → fetch → transcribe → tag → save: no trip to the Library
   to tag a page just transcribed.
 
@@ -30,6 +32,10 @@
   export let lines = [];
   /** Open the type-ahead list above the field (a footer). */
   export let dropUp = false;
+  /** Smaller, with no "Tags" label (the Pages tab's cards). */
+  export let compact = false;
+  /** Replaces the "Tags" label (the canvas popover names each page). */
+  export let heading = '';
 
   $: key = tagKey(book, pageId);
   $: tags = (key && $pageTags[key]) || [];
@@ -43,8 +49,12 @@
   const addAll = () => setPageTagList(book, pageId, [...tags, ...suggestions.map((s) => s.tag)]);
 </script>
 
-<div class="pti" data-own-keys>
-  <span class="pti-label">Tags</span>
+<div class="pti" class:compact data-own-keys>
+  {#if heading}
+    <span class="pti-label pti-heading">{heading}</span>
+  {:else if !compact}
+    <span class="pti-label">Tags</span>
+  {/if}
   {#if !$dataFolderReady}
     <span class="pti-msg">Choose a data folder to tag pages.</span>
   {:else}
@@ -81,7 +91,17 @@
     text-transform: uppercase;
     color: var(--text-secondary);
   }
+  .pti-heading {
+    font-family: var(--font-mono, monospace);
+    letter-spacing: 0.02em;
+    text-transform: none;
+    min-width: 5.5em;
+  }
   .pti-msg { font-size: 0.75rem; color: var(--text-secondary); }
+  .pti.compact { gap: 4px 6px; }
+  .pti.compact .pti-input { flex-basis: 160px; min-width: 140px; }
+  .pti.compact .pti-input :global(.tagbox) { min-height: 26px; padding: 1px 5px; }
+  .pti.compact .pti-msg { font-size: 0.6875rem; }
   .pti-input { flex: 1 1 220px; min-width: 180px; }
   .pti-input :global(.tagbox) { min-height: 30px; padding: 2px 6px; }
   .pti-sug { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; }

@@ -6,6 +6,31 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.19.0 — Tag pages from the Editor (November 2026)
+
+The Editor could tag a page only from a Transcripts card (after a MyScript run this session) or the Edit
+Transcription dialog's footer, so a saved page loaded onto the canvas had nowhere to be tagged. This finishes the
+"tags everywhere a page appears" item from the tags and tasks UX review (gap G15; "tags on the Editor canvas
+header", listed there as Later).
+
+- **🏷 Tags on the canvas toolbar**, beside Layout ▾ (`canvas/CanvasPageTags.svelte`). It opens a popover with one
+  `PageTagsInline` row per page: the selection's pages when strokes are selected, else every page shown, at most
+  six (`lib/canvas-page-targets.js` `tagTargetPages`). The button shows how many distinct tags those pages carry.
+  It sits in the fixed Tools group rather than the scrolling strip: at ordinary window widths the strip already
+  scrolls, and a button at its end was the first thing clipped. Rotate's rule (one page: the selection's, else the
+  only page shown) moved into the same file (`singlePageTarget`) so the two can't drift.
+- Suggestions come from the page's scan record (`transcriptionText`, no page read) plus any unsaved MyScript lines
+  for it (`suggestionLinesFor`); still never applied without a click.
+- **Keys stay in the popover.** It stops keydown propagation, so Delete or Backspace on a focused chip can't reach
+  the canvas and delete the selected strokes. Escape closes an open tag list first (TagInput), then the popover,
+  with preventDefault so the canvas's Escape doesn't also clear the selection.
+- **Pages tab cards** get a compact tag row under the header (`PageTagsInline` `compact`), suggesting from the
+  card's saved transcript text. `PageTagsInline` also takes a `heading` (the popover's B/P labels).
+- The page selector's chips list a page's tags in their tooltip (read-only).
+- Same storage rules as v3.1.0: `_tags.json` only, written at once, never an unsaved edit or a PageDoc write.
+- Letter-suffixed pages are not handled specially: the canvas tracks integer pages, and suffixed pages are an old
+  carryover (Josh, 2026-11-12).
+
 ## v3.18.0 — Claude edits transcripts through the running app; duplicate stroke ids (November 2026)
 
 ### Claude's transcript edits (option C, [MCP-WRITE-SPEC.md](MCP-WRITE-SPEC.md))

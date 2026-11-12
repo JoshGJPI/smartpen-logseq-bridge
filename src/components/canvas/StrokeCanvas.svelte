@@ -31,6 +31,8 @@
   import { canvasPageOrder } from '$stores/timeline.js';
   import { pageOrientations } from '$stores/orientation.js';
   import OrientationControl from '../viewer/OrientationControl.svelte';
+  import CanvasPageTags from './CanvasPageTags.svelte';
+  import { selectionPageIds as pageIdsOfSelection, shownPageIds as pageIdsShown, singlePageTarget } from '$lib/canvas-page-targets.js';
 
   // S#/O#/B<bookKey>/P# — the book portion may carry a volume suffix.
   const BOOK_PAGE_KEY_RE = new RegExp(`S\\d+\\/O\\d+\\/B(${BOOK_KEY_FRAGMENT})\\/P(\\d+)`);
@@ -530,21 +532,10 @@
 
   // The page the toolbar's orientation control acts on: the selection's page
   // when every selected stroke is on one page, else the only page shown.
-  const CANVAS_PAGE_KEY_RE = new RegExp(`^S\\d+\\/O\\d+\\/B(${BOOK_KEY_FRAGMENT})\\/P(\\d+)$`);
-  $: selectionPageIds = $hasSelection
-    ? [...new Set(Array.from($selectedIndices)
-        .map(i => $strokes[i]?.pageInfo)
-        .filter(pi => pi && pi.book !== undefined && pi.page !== undefined)
-        .map(pi => `${pi.book}/${pi.page}`))]
-    : [];
-  $: shownPageIds = [...selectedPages]
-    .filter(k => $pages.has(k))
-    .map(k => k.match(CANVAS_PAGE_KEY_RE))
-    .filter(Boolean)
-    .map(m => `${m[1]}/${m[2]}`);
-  $: orientationTargetId = selectionPageIds.length === 1
-    ? selectionPageIds[0]
-    : (selectionPageIds.length === 0 && shownPageIds.length === 1 ? shownPageIds[0] : null);
+  // The Tags popover lists the same pages, as a list (lib/canvas-page-targets.js).
+  $: selectionPageIds = $hasSelection ? pageIdsOfSelection($strokes, $selectedIndices) : [];
+  $: shownPageIds = pageIdsShown(selectedPages, $pages);
+  $: orientationTargetId = singlePageTarget(selectionPageIds, shownPageIds, selectionPageIds.length > 0);
   $: orientationTarget = orientationTargetId ? orientationTargetId.split('/') : [null, null];
 
   /* ---------------------------------------------------------------
@@ -2271,6 +2262,10 @@
     <span class="tb-sep" aria-hidden="true"></span>
 
     <div class="tb-group" role="group" aria-label="Tools">
+      <!-- Page tags (v3.19.0): the selection's pages, else every page shown.
+           Written straight to pages/_tags.json, so nothing to save. Kept out
+           of the scrolling strip so it never scrolls out of sight. -->
+      <CanvasPageTags selectionIds={selectionPageIds} shownIds={shownPageIds} hasSelection={$hasSelection} />
       <!-- Finding a page *on the canvas* is the search box in the header.
            Searching every saved page on disk is Transcripts → Search in the
            left panel, which Ctrl+F still reaches. -->

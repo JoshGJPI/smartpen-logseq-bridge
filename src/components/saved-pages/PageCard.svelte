@@ -14,6 +14,7 @@
   import { refreshAfterSave } from '$lib/storage/refresh.js';
   import TranscriptionPreview from './TranscriptionPreview.svelte';
   import TranscriptionEditorModal from '../dialog/TranscriptionEditorModal.svelte';
+  import PageTagsInline from '../tags/PageTagsInline.svelte';
   import { exportPageDocToGraph } from '$lib/storage/graph-export.js';
   import { graphFolderReady } from '$stores/settings.js';
   import {
@@ -354,6 +355,12 @@
     </button>
   </div>
 
+  <!-- Page tags (v3.19.0): saved at once to _tags.json, not by Save;
+       suggestions from the saved transcript text (no page read). -->
+  <div class="page-tags">
+    <PageTagsInline book={page.book} pageId={pageRef} lines={page.transcriptionText || ''} compact />
+  </div>
+
   <!-- ── Collapsible transcript section ────────────────────────────────── -->
   {#if transcriptExpanded && hasTranscription}
     <div class="transcription-section">
@@ -411,6 +418,10 @@
     display: flex;
     align-items: center;
     gap: 7px;
+  }
+
+  .page-tags {
+    padding: 5px 0 1px 1.45rem;
   }
 
   .page-icon {
