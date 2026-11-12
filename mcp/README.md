@@ -63,7 +63,7 @@ New pages show up without a restart: each call re-stats the folder and re-reads 
 | `list_tags` | Tags with page, notebook and open-task counts, untagged count; with `tag`, that tag's pages | text |
 | `list_tasks` | Task lines (TODO / DONE / WAITING / CANCELLED): the app's Tasks view rows, filtered by state, project, tags, notebook, days, text; grouped; paged | text, ~350 chars a row |
 | `check_transcript` | Without `reference`: the page's written rows from the ink (height, left margin, indent column, possible wraps), no transcript text. With `reference` (Claude's reading as markdown bullets): the stored transcript diffed against it (wording, indent, task state, missing lines, strokes per line). See "Checking a transcription" | text |
-| `get_transcript` | One page's lines with indent and TODO / DONE / WAITING / CANCELLED; flags pages whose stroke-to-line links are unreliable | text, few KB |
+| `get_transcript` | One page's lines, numbered `#n` (the stored line number `edit_transcript` takes), with indent and TODO / DONE / WAITING / CANCELLED; flags pages whose stroke-to-line links are unreliable | text, few KB |
 | `search` | The app's header search: words, dates, notebook names / keys, tags (same code, same limits) | text |
 | `days_summary` | Per local day: strokes and pages touched | text |
 | `render_page` | One page as a PNG, stored rotation, on the printed page (`fit: "ink"` crops to the ink). `color_by_line` / `show_decorative` for checking a transcription (see "Checking a transcription") | ~1,700 visual tokens at 1000 px |
@@ -158,7 +158,8 @@ its views, so an open reader page shows the change at once. To turn it on, add `
 - **Ops** (one page per call, ≤ 60, all-or-nothing): `set_text`, `set_indent` (sub-lines follow unless
   `with_children: false`), `move` (`top`, `bottom`, `{ after: n }`), `insert` (no ink linked), `delete` (sub-lines move
   up a level; a task needs `task_ok`). Lines are addressed by the stored number `#n` **plus `expect`**, the exact text
-  on it; numbers mean the transcript before the call. Indent: at most one deeper than the line above.
+  on it (a task's own label in front, as `get_transcript` prints it, is allowed, and is dropped from a `set_text` on
+  that task); numbers mean the transcript before the call. Indent: at most one deeper than the line above.
 - **Dry run first** (the default): the result as `get_transcript` bullets, numbered as it will be stored, marked `~`
   changed, `+` inserted, `↕` moved, deleted lines listed after, plus the `revision` to apply with. Applying with
   another revision is refused ("the page changed since the dry run").

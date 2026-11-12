@@ -185,10 +185,11 @@ export function createTools(root) {
       const lines = (doc.transcript && doc.transcript.lines) || [];
       if (!lines.length) return { content: [text(`Page ${book}/${page} has no transcript (${(doc.strokes || []).length} strokes).`)] };
       const when = doc.transcript.lastTranscribed || '';
-      const body = lines.map((l) => {
+      // #n = the stored line number edit_transcript and check_transcript use.
+      const body = lines.map((l, i) => {
         const state = taskStateOf(l);
         const mark = state ? `${stateLabel(state)} ` : '';
-        return `${'  '.repeat(l.indentLevel || 0)}- ${mark}${l.text}`;
+        return `#${String(i + 1).padEnd(3)} ${'  '.repeat(Math.max(0, l.indentLevel || 0))}- ${mark}${l.text}`;
       }).join('\n');
       const note = isTrustworthyTranscript(doc) ? ''
         : '\n(Stroke-to-line links on this page are unreliable (transcribed before the line-matching fix); the text itself is fine.)';

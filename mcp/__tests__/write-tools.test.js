@@ -15,6 +15,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { writePage } from '../__fixtures__/app-side.js';
 import { endpointCandidates, findEndpoint, AppError } from '../core/app-client.js';
+import { createWriteTools } from '../core/write-tools.js';
 
 const require = createRequire(import.meta.url);
 const { createForwarder, startEndpoint, endpointFilePath } = require('../../electron/mcp-endpoint.cjs');
@@ -126,6 +127,18 @@ describe('write tools', () => {
       await client.close();
     }
   }, 30_000);
+});
+
+describe('createWriteTools', () => {
+  it('a bad book or page is a tool error, and nothing is posted', async () => {
+    const posts = [];
+    const wt = createWriteTools('C:/data', { post: async (b) => { posts.push(b); return { ok: true }; } });
+    const r = await wt.edit_transcript({ book: '../x', page: '1', edits: [] });
+    expect(r.isError).toBe(true);
+    expect(textOf(r)).toMatch(/Invalid book key/);
+    expect((await wt.undo_transcript_edit({ book: '3017', page: 'P1' })).isError).toBe(true);
+    expect(posts).toEqual([]);
+  });
 });
 
 describe('app-client', () => {

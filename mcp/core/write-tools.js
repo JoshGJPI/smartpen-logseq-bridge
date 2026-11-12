@@ -28,7 +28,7 @@ export function createWriteTools(root, { post = postToApp } = {}) {
     return { content: [text(r.text || 'Done')] };
   }
 
-  return {
+  const tools = {
     edit_transcript(args) {
       const book = requireBookKey(args.book);
       const page = requirePageId(args.page);
@@ -42,4 +42,8 @@ export function createWriteTools(root, { post = postToApp } = {}) {
       return call({ action: 'undo', book: requireBookKey(args.book), page: requirePageId(args.page) });
     },
   };
+  // As in tools.js: a bad book or page is a tool error, not a thrown one.
+  return Object.fromEntries(Object.entries(tools).map(([name, fn]) => [name, async (args = {}) => {
+    try { return await fn(args || {}); } catch (e) { return fail(e.message); }
+  }]));
 }
