@@ -20,7 +20,7 @@ import { pageTags } from './tags.js';
 import { bookAliases } from './book-aliases.js';
 import { formatBookName } from '$utils/formatting.js';
 import { libraryPageDates } from './library.js';
-import { isViewerPageDirty } from './viewer.js';
+import { isViewerPageDirty, openPageInLibrary, focusReaderLineId } from './viewer.js';
 import { log } from './ui.js';
 import {
   buildTaskRows, taskCounts, taskKey, parseTaskGroup, isLineState, toggledState, TASK_GROUP_KEY,
@@ -175,6 +175,17 @@ export function undoTaskChange() {
   }
   taskUndo.set(null);
   return changeTask(u.book, u.pageId, u.lineId, u.prev, { undoable: false, allowPlain: true });
+}
+
+/**
+ * A task row's page link: open its page in the reader with the line marked
+ * (unless the unsaved-draft prompt was cancelled). The Tasks view and a tag's
+ * task panel share it.
+ * @param {{book: string, pageId: string, lineId: string}} row
+ */
+export function openTaskLine(row) {
+  if (openPageInLibrary(row.book, row.pageId) === 'cancelled') return;
+  focusReaderLineId(row.book, row.pageId, row.lineId);
 }
 
 /** Forget pending state (a data-folder change). Writes in flight still finish. */
