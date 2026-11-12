@@ -56,7 +56,7 @@
     <span class="pti-label">Tags</span>
   {/if}
   {#if !$dataFolderReady}
-    <span class="pti-msg">Choose a data folder to tag pages.</span>
+    <span class="pti-msg">Choose a data folder (Settings → Data Folder) to tag pages.</span>
   {:else}
     <div class="pti-input">
       {#key key}

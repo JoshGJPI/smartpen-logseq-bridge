@@ -22,6 +22,7 @@
   import { recordTagKey, filterByTags, filterChoices, rankFilterChoices } from '$lib/tags.js';
   import { buildSequence } from '$lib/viewer/reading-order.js';
   import { plural } from '$lib/plural.js';
+  import { modalOpen } from '$lib/left-panel.js';
   import TagFilterRow from './TagFilterRow.svelte';
   import BulkTagBar from './BulkTagBar.svelte';
   import PageTile from './PageTile.svelte';
@@ -101,7 +102,7 @@
   }
 
   function onKey(e) {
-    if (e.key === 'Escape' && selecting && !e.defaultPrevented) {
+    if (e.key === 'Escape' && selecting && !e.defaultPrevented && !modalOpen()) {
       e.preventDefault();
       setSelecting(false);
     }
