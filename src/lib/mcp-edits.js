@@ -4,7 +4,7 @@
  *
  * Claude addresses lines by their stored number (`#n`, 1-based, as
  * `check_transcript` and `get_transcript` print them) plus the text expected
- * there. Every number refers to the transcript BEFORE the call: `planEdits()`
+ * there (a task's own label in front, as get_transcript prints it, is allowed). Every number refers to the transcript BEFORE the call: `planEdits()`
  * resolves each one to a line id first (checking `expect`), then applies the
  * operations in order by id, so an insert or a move earlier in the list never
  * shifts the line a later op means. A call is all-or-nothing: any error and
@@ -67,10 +67,24 @@ function lineAt(original, n, expect, where, { needExpect = true } = {}) {
   const line = original[n - 1];
   if (expect == null) {
     if (needExpect) fail(`${where}: expect (the text now on #${n}) is required`);
-  } else if (typeof expect !== 'string' || expect.trim() !== (line.text || '').trim()) {
+  } else if (typeof expect !== 'string' || withoutOwnLabel(line, expect).trim() !== (line.text || '').trim()) {
     fail(`${where}: #${n} reads "${line.text}", not "${expect}"; the transcript changed, read it again`);
   }
   return line;
+}
+
+/**
+ * `raw` without a leading state label that matches the line's own state
+ * ("TODO call Brad" on a TODO line → "call Brad"). get_transcript prints tasks
+ * with their label in front, so text copied from it would otherwise compare
+ * unequal (expect) or keep the label as text (set_text). Any other leading word
+ * is left alone: this never changes, or implies, a state.
+ */
+function withoutOwnLabel(line, raw) {
+  const state = taskStateOf(line);
+  if (!state || typeof raw !== 'string') return raw;
+  const m = new RegExp(`^\\s*${stateLabel(state)}\\s+`).exec(raw);
+  return m ? raw.slice(m[0].length) : raw;
 }
 
 /**
@@ -114,8 +128,10 @@ function plan(original, edits, newId) {
     const where = `edit ${k + 1} (${op || '?'})`;
     if (!OPS.includes(op)) fail(`${where}: unknown op; use one of ${OPS.join(', ')}`);
     switch (op) {
-      case 'set_text':
-        return { op, where, id: lineAt(original, e.line, e.expect, where).id, text: cleanText(e.text, where) };
+      case 'set_text': {
+        const line = lineAt(original, e.line, e.expect, where);
+        return { op, where, id: line.id, text: cleanText(withoutOwnLabel(line, e.text), where) };
+      }
       case 'set_indent':
         return {
           op, where, id: lineAt(original, e.line, e.expect, where).id, level: cleanLevel(e.level, where),
