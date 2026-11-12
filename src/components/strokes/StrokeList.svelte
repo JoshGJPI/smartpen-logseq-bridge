@@ -6,6 +6,7 @@
   import { dataFolderReady } from '$stores/settings.js';
   import { selectionCount } from '$stores';
   import StrokeBookAccordion from './StrokeBookAccordion.svelte';
+  import { compareBookKeys } from '$lib/volumes.js';
   import { importStrokesForLoadedPagesFromFolder as importStrokesForLoadedPages } from '$lib/storage/load-page.js';
   
   // Import progress tracking
@@ -55,8 +56,8 @@
       pages: Array.from(bookEntry.pages.values()).sort((a, b) => a.page - b.page)
     }));
     
-    // Sort books by ID
-    return booksArray.sort((a, b) => a.bookId - b.bookId);
+    // Book ids are book keys: `a - b` is NaN for a volume key ("388v2").
+    return booksArray.sort((a, b) => compareBookKeys(String(a.bookId), String(b.bookId)));
   })();
   
   // Calculate total page count

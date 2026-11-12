@@ -26,16 +26,14 @@
   import { reassignVolume } from '$stores/strokes.js';
   import { knownBookIds } from '$stores/book-aliases.js';
   import { volumesForBook } from '$stores/volumes.js';
-  import { ncodeBookOf, volumeOf, BOOK_KEY_FRAGMENT } from '$lib/volumes.js';
+  import { ncodeBookOf, volumeOf } from '$lib/volumes.js';
+  import { collectVisibleTranscriptions, findPageKey } from '$lib/canvas-text-view.js';
   import { contextInk } from '$stores/context-ink.js';
   import { canvasPageOrder } from '$stores/timeline.js';
   import { pageOrientations } from '$stores/orientation.js';
   import OrientationControl from '../viewer/OrientationControl.svelte';
   import CanvasPageTags from './CanvasPageTags.svelte';
   import { selectionPageIds as pageIdsOfSelection, shownPageIds as pageIdsShown, singlePageTarget } from '$lib/canvas-page-targets.js';
-
-  // S#/O#/B<bookKey>/P# — the book portion may carry a volume suffix.
-  const BOOK_PAGE_KEY_RE = new RegExp(`S\\d+\\/O\\d+\\/B(${BOOK_KEY_FRAGMENT})\\/P(\\d+)`);
   import { dataFolderReady, graphFolderReady } from '$stores/settings.js';
   import { buildJsonExportData, buildMdExportData } from '$lib/stroke-storage.js';
   import { exportSelectionToGraph } from '$lib/storage/graph-export.js';
@@ -1775,89 +1773,13 @@
     log(`Displaying transcription text for ${transcriptions.length} page(s)`, 'info');
   }
   
-  // Get transcriptions for visible pages (from both MyScript and saved pages)
-  // This function now matches pages more intelligently, handling section/owner mismatches
+  // Transcripts for the pages shown: an unsaved MyScript run, else the saved
+  // page's text, ordered by book key then page (lib/canvas-text-view.js).
   function getVisibleTranscriptions() {
-    const transcriptions = [];
-    
-    // Helper to match pages ignoring section/owner when needed
-    function matchesPage(pageKey, book, page) {
-      // Try exact match first
-      if (selectedPages.has(pageKey)) return true;
-      
-      // Try matching just by book/page (ignore section/owner)
-      for (const selectedKey of selectedPages) {
-        const match = selectedKey.match(BOOK_PAGE_KEY_RE);
-        // Book keys compare as strings — parseInt("388v2") is 388, which would
-        // match volume 1's page as well as volume 2's.
-        if (match && match[1] === String(book) && parseInt(match[2]) === page) {
-          return true;
-        }
-      }
-      
-      return false;
-    }
-    
-    // Add MyScript transcriptions
-    if ($pageTranscriptionsArray) {
-      $pageTranscriptionsArray.forEach(pt => {
-        if (matchesPage(pt.pageKey, pt.pageInfo.book, pt.pageInfo.page)) {
-          transcriptions.push({
-            pageKey: pt.pageKey,
-            text: pt.text,
-            // Structured lines (indent levels / TODO-DONE state) drive the
-            // LogSeq-format copy; `text` is what the canvas renders.
-            lines: Array.isArray(pt.lines) ? pt.lines : null,
-            pageId: String(pt.pageInfo.page),
-            pageInfo: pt.pageInfo,
-            strokeCount: pt.strokeCount,
-            source: 'myscript'
-          });
-        }
-      });
-    }
-    
-    // Add saved pages (only if not already in MyScript transcriptions)
-    if ($savedPages) {
-      $savedPages.forEach(lsPage => {
-        if (!lsPage.transcriptionText) return;
-        
-        // Check if we already have this page from MyScript (match by book/page)
-        const alreadyExists = transcriptions.some(t => 
-          t.pageInfo.book === lsPage.book && t.pageInfo.page === lsPage.page
-        );
-        if (alreadyExists) return;
-        
-        // Use the stored pageKey format, but check if it matches any selected page
-        const pageKey = `S${lsPage.section || 0}/O${lsPage.owner || 0}/B${lsPage.book}/P${lsPage.page}`;
-        
-        if (!matchesPage(pageKey, lsPage.book, lsPage.page)) return;
-        
-        transcriptions.push({
-          pageKey: pageKey,
-          text: lsPage.transcriptionText,
-          // Metadata-only scan records carry no lines — the copy path lazily
-          // reads the PageDoc by pageId (suffix-safe) to get the hierarchy.
-          lines: null,
-          pageId: lsPage.pageId != null ? String(lsPage.pageId) : String(lsPage.page),
-          pageInfo: {
-            section: lsPage.section || 0,
-            owner: lsPage.owner || 0,
-            book: lsPage.book,
-            page: lsPage.page
-          },
-          strokeCount: lsPage.strokeCount || 0,
-          source: 'saved'
-        });
-      });
-    }
-    
-    // Sort by book then page
-    return transcriptions.sort((a, b) => {
-      if (a.pageInfo.book !== b.pageInfo.book) {
-        return a.pageInfo.book - b.pageInfo.book;
-      }
-      return a.pageInfo.page - b.pageInfo.page;
+    return collectVisibleTranscriptions({
+      selectedPages,
+      pageTranscriptions: $pageTranscriptionsArray,
+      savedPages: $savedPages
     });
   }
   
@@ -1884,21 +1806,11 @@
         return;
       }
       
-      // Need to find the actual pageKey used in the renderer
-      // The pageData.pageKey might be from a saved page (S0/O0/...) but renderer has real pen data (S3/O1012/...)
-      const book = pageData.pageInfo.book;
-      const page = pageData.pageInfo.page;
-      
-      // Find matching pageKey in renderer's pageOffsets (fuzzy match by book/page)
-      let matchingPageKey = null;
-      for (const [rendererPageKey, offset] of renderer.pageOffsets) {
-        const match = rendererPageKey.match(BOOK_PAGE_KEY_RE);
-        if (match && match[1] === String(book) && parseInt(match[2]) === page) {
-          matchingPageKey = rendererPageKey;
-          break;
-        }
-      }
-      
+      // A saved page's key (S0/O0/...) need not be the renderer's (the pen's
+      // real section / owner), so find the renderer's page by book and page.
+      const { book, page } = pageData.pageInfo;
+      const matchingPageKey = findPageKey(renderer.pageOffsets.keys(), book, page);
+
       if (!matchingPageKey) {
         debug('  ❌ No matching page in renderer for B', book, 'P', page);
         return;
