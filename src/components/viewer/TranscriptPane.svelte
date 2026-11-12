@@ -12,7 +12,8 @@
                 the merged-away lines' strokes follow on save). Ticked lines
                 move together (v3.17.0, lib/move-lines.js): Alt+↑ / Alt+↓ or a
                 ticked row's arrows step the group, Top / Bottom gather it. Long lines wrap
-                (TranscriptEditRow). Task state isn't edited here: typing `TODO`,
+                (TranscriptEditRow); the buttons are TranscriptEditToolbar and the
+                line maths lib/viewer/transcript-draft.js. Task state isn't edited here: typing `TODO`,
                 `[ ]` or ☐ (`DONE`, `[x]`, ☑) in front of a plain line makes it a
                 task on save (save-transcript.js parseTypedTasks); a task's own
                 state is kept (keepDiskTaskState). Ticks, WAITING, CANCELLED,
@@ -30,11 +31,14 @@
   import { log, markViewerDirtyPage, clearViewerDirtyPage, viewerDirtyPages, transcriptEditorHold } from '$stores';
   import { linesToLogseqMarkdown, subtreeLines } from '$lib/viewer/transcript-markdown.js';
   import { saveTranscriptLines } from '$lib/viewer/save-transcript.js';
-  import { markerField } from '$lib/tasks.js';
   import { mergeTranscriptLines } from '$lib/editor-lines.js';
   import { moveLines, moveLinesToEdge } from '$lib/move-lines.js';
+  import {
+    blankLine, cloneLines, indentAt, outdentAt, swapAt, siblingSlot, insertAt, removeAt, mergeIndices, tickedIndices
+  } from '$lib/viewer/transcript-draft.js';
   import TranscriptLines from '../transcription/TranscriptLines.svelte';
   import TranscriptEditRow from './TranscriptEditRow.svelte';
+  import TranscriptEditToolbar from './TranscriptEditToolbar.svelte';
 
   /** @type {Array<{id:string,text:string,indentLevel:number,checked:boolean|null}>} */
   export let lines = [];
@@ -73,27 +77,6 @@
   let base = [];
   /** index of the line whose input currently has focus (-1 = none selected) */
   let activeIndex = -1;
-
-  function makeLineId() {
-    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
-    return 'l' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-  }
-
-  function blankLine(indentLevel = 0) {
-    return { id: makeLineId(), text: '', indentLevel, parentId: null, checked: null, yBounds: null };
-  }
-
-  function cloneLines(src) {
-    return (src || []).map((l) => ({
-      id: l.id || makeLineId(),
-      text: l.text || '',
-      indentLevel: Math.max(0, l.indentLevel || 0),
-      parentId: l.parentId ?? null,
-      checked: l.checked === true || l.checked === false ? l.checked : null,
-      ...markerField(l),
-      yBounds: l.yBounds ?? null,
-    }));
-  }
 
   function setDirty(v) {
     dirty = v;
@@ -167,117 +150,68 @@
     writeClipboard(linesToLogseqMarkdown(branch), `"${(lines[i].text || '').trim()}" (${n} line${n === 1 ? '' : 's'}) from B${book}/P${page}`);
   }
 
-  /* ---- edit operations ---- */
-  function indentLine(i) {
-    const max = i > 0 ? (draft[i - 1].indentLevel || 0) + 1 : 0;
-    if ((draft[i].indentLevel || 0) < max) {
-      draft[i].indentLevel = (draft[i].indentLevel || 0) + 1;
-      draft = draft;
-      setDirty(true);
-    }
+  /* ---- edit operations (the line maths is lib/viewer/transcript-draft.js) ---- */
+  /** Take a new draft (null = no change), mark dirty, then focus line `focusAt`. */
+  async function apply(next, focusAt = null) {
+    if (!next) return false;
+    draft = next;
+    setDirty(true);
+    await tick();
+    if (focusAt != null) inputEls[focusAt]?.focus();
+    return true;
   }
-  function outdentLine(i) {
-    if ((draft[i].indentLevel || 0) > 0) {
-      draft[i].indentLevel = (draft[i].indentLevel || 0) - 1;
-      draft = draft;
-      setDirty(true);
-    }
-  }
+  const indentLine = (i) => apply(indentAt(draft, i));
+  const outdentLine = (i) => apply(outdentAt(draft, i));
   /** Ticked lines as one group: a step (dir -1 / 1) or to an edge ('top' / 'bottom'). */
   async function moveTicked(how) {
-    const sel = draft.map((l, i) => (selectedIds.has(l.id) ? i : -1)).filter((i) => i >= 0);
+    const sel = tickedIndices(draft, selectedIds);
     const r = typeof how === 'number' ? moveLines(draft, sel, how) : moveLinesToEdge(draft, sel, how);
     if (!r) return;
     const focusId = activeIndex >= 0 ? draft[activeIndex]?.id : null;
-    draft = r.lines;
-    setDirty(true);
-    await tick();
+    await apply(r.lines);
     const at = focusId ? draft.findIndex((l) => l.id === focusId) : -1;
     if (at >= 0) inputEls[at]?.focus();
     inputEls[r.selected[0]]?.scrollIntoView?.({ block: 'nearest' });
   }
   // A ticked line's own move takes the whole ticked group with it.
   const movesGroup = (i) => selectedIds.size > 1 && selectedIds.has(draft[i]?.id);
-  async function moveLineUp(i) {
-    if (movesGroup(i)) return moveTicked(-1);
-    if (i <= 0) return;
-    [draft[i - 1], draft[i]] = [draft[i], draft[i - 1]];
-    draft = draft;
-    setDirty(true);
-    await tick();
-    inputEls[i - 1]?.focus();
+  function moveLine(i, dir) {
+    if (movesGroup(i)) return moveTicked(dir);
+    return apply(swapAt(draft, i, dir), i + dir);
   }
-  async function moveLineDown(i) {
-    if (movesGroup(i)) return moveTicked(1);
-    if (i >= draft.length - 1) return;
-    [draft[i + 1], draft[i]] = [draft[i], draft[i + 1]];
-    draft = draft;
-    setDirty(true);
-    await tick();
-    inputEls[i + 1]?.focus();
+  const addLineBelow = (i) => apply(insertAt(draft, i + 1, blankLine(draft[i]?.indentLevel || 0)), i + 1);
+  // Toolbar Add: a sibling after the focused line's subtree, else at the end.
+  function addBlock() {
+    const slot = siblingSlot(draft, activeIndex);
+    return apply(insertAt(draft, slot.at, blankLine(slot.indentLevel)), slot.at);
   }
-  async function addLineBelow(i) {
-    const lvl = i >= 0 ? draft[i].indentLevel || 0 : 0;
-    draft.splice(i + 1, 0, blankLine(lvl));
-    draft = draft;
-    setDirty(true);
-    await tick();
-    inputEls[i + 1]?.focus();
-  }
-  // Toolbar "Add": if a block is selected, add a sibling after it (and its
-  // whole subtree, so children aren't orphaned); otherwise append to the end.
-  async function addBlock() {
-    let insertAt, lvl;
-    if (activeIndex < 0 || activeIndex >= draft.length) {
-      insertAt = draft.length;
-      lvl = 0;
-    } else {
-      lvl = draft[activeIndex].indentLevel || 0;
-      let j = activeIndex + 1;
-      while (j < draft.length && (draft[j].indentLevel || 0) > lvl) j++;
-      insertAt = j;
-    }
-    draft.splice(insertAt, 0, blankLine(lvl));
-    draft = draft;
-    setDirty(true);
-    await tick();
-    inputEls[insertAt]?.focus();
-  }
-  async function deleteLine(i) {
+  function deleteLine(i) {
     if (selectedIds.has(draft[i]?.id)) toggleSelect(draft[i].id);
-    draft.splice(i, 1);
-    draft = draft;
-    setDirty(true);
-    await tick();
-    inputEls[Math.max(0, i - 1)]?.focus();
+    return apply(removeAt(draft, i), Math.max(0, i - 1));
   }
   function toggleSelect(id) {
     const next = new Set(selectedIds);
     next.has(id) ? next.delete(id) : next.add(id);
     selectedIds = next;
   }
-  // Ticked lines (two or more), else the focused line and the one after it.
   // The merged line keeps the first line's id and indent (mergeTranscriptLines).
-  async function merge() {
-    const indices = selectedIds.size >= 2
-      ? draft.map((l, i) => (selectedIds.has(l.id) ? i : -1)).filter((i) => i >= 0)
-      : activeIndex >= 0 && activeIndex < draft.length - 1 ? [activeIndex, activeIndex + 1] : [];
+  function merge() {
+    const indices = mergeIndices(draft, selectedIds, activeIndex);
     if (indices.length < 2) return;
-    draft = mergeTranscriptLines(draft, indices);
     selectedIds = new Set();
-    setDirty(true);
-    await tick();
-    inputEls[indices[0]]?.focus();
+    return apply(mergeTranscriptLines(draft, indices), indices[0]);
   }
-  $: canMerge = selectedIds.size >= 2 || (activeIndex >= 0 && activeIndex < draft.length - 1);
+  $: canMerge = mergeIndices(draft, selectedIds, activeIndex).length >= 2;
 
   function onKey(e, i) {
+    // Mid-IME, Enter / Backspace belong to the composition.
+    if (e.isComposing) return;
     if ((e.key === 'j' || e.key === 'J') && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       merge();
     } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.altKey) {
       e.preventDefault();
-      e.key === 'ArrowUp' ? moveLineUp(i) : moveLineDown(i);
+      moveLine(i, e.key === 'ArrowUp' ? -1 : 1);
     } else if (e.key === 'Tab') {
       e.preventDefault();
       e.shiftKey ? outdentLine(i) : indentLine(i);
@@ -310,41 +244,13 @@
     <span class="tp-title">Transcript</span>
     <div class="tp-actions">
       {#if editing}
-        <button
-          class="tp-btn"
-          on:mousedown|preventDefault
-          on:click={addBlock}
-          title="Add a sibling block after the selected line, or append to the end"
-        >＋ Add</button>
-        <button
-          class="tp-btn danger"
-          on:mousedown|preventDefault
-          on:click={() => deleteLine(activeIndex)}
-          disabled={activeIndex < 0 || draft.length <= 1}
-          title="Delete the selected block"
-        >🗑 Delete</button>
-        <button
-          class="tp-btn"
-          on:mousedown|preventDefault
-          on:click={merge}
-          disabled={!canMerge}
-          title={selectedIds.size >= 2 ? 'Join the ticked lines into one, in the first one\'s place (Ctrl+J)' : 'Join the selected line with the next one, or tick lines to join (Ctrl+J)'}
-        >Merge{selectedIds.size >= 2 ? ` (${selectedIds.size})` : ''}</button>
-        {#if selectedIds.size}
-          <span class="tp-move" role="group" aria-label="Move the ticked lines">
-            <button class="tp-btn" on:mousedown|preventDefault on:click={() => moveTicked(-1)} title="Move the ticked lines up one line (Alt+↑ on a ticked line)">↑</button>
-            <button class="tp-btn" on:mousedown|preventDefault on:click={() => moveTicked(1)} title="Move the ticked lines down one line (Alt+↓ on a ticked line)">↓</button>
-            <button class="tp-btn" on:mousedown|preventDefault on:click={() => moveTicked('top')} title="Move the ticked lines, in order, to the top">Top</button>
-            <button class="tp-btn" on:mousedown|preventDefault on:click={() => moveTicked('bottom')} title="Move the ticked lines, in order, to the bottom">Bottom</button>
-          </span>
-        {/if}
-        <span class="tp-toolbar-divider"></span>
-        <button class="tp-btn" on:click={copy} title="Copy the whole transcript as LogSeq markdown">Copy all</button>
-        <button class="tp-btn primary" on:click={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
-        <button class="tp-btn muted" on:click={cancel} disabled={saving}>Cancel</button>
+        <TranscriptEditToolbar {activeIndex} lineCount={draft.length} ticked={selectedIds.size} {canMerge} {saving}
+          onAdd={addBlock} onDelete={() => deleteLine(activeIndex)} onMerge={merge} onMove={moveTicked}
+          onCopy={copy} onSave={save} onCancel={cancel} />
       {:else}
-        <button class="tp-btn" on:click={copy} disabled={!hasContent} title="Copy the whole transcript as LogSeq markdown">Copy all</button>
-        <button class="tp-btn" on:click={startEdit} title="Edit transcript">Edit</button>
+        <button class="tp-btn" on:click={copy} disabled={!hasContent}
+          title={hasContent ? 'Copy the whole transcript as LogSeq markdown' : 'Nothing to copy: the transcript is empty'}>Copy all</button>
+        <button class="tp-btn" on:click={startEdit} title="Edit the transcript's lines">Edit</button>
       {/if}
     </div>
   </div>
@@ -365,8 +271,8 @@
           onFocus={() => (activeIndex = i)}
           onBlur={() => { if (activeIndex === i) activeIndex = -1; }}
           onToggleSelect={() => toggleSelect(line.id)}
-          onMoveUp={() => moveLineUp(i)}
-          onMoveDown={() => moveLineDown(i)}
+          onMoveUp={() => moveLine(i, -1)}
+          onMoveDown={() => moveLine(i, 1)}
           onOutdent={() => outdentLine(i)}
           onIndent={() => indentLine(i)}
         />
@@ -406,7 +312,8 @@
   /* Edit mode's buttons wrap onto a second row in a half-width spread page. */
   .tp-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 
-  .tp-btn {
+  /* Global under .tp-actions: TranscriptEditToolbar's buttons share these. */
+  .tp-actions :global(.tp-btn) {
     padding: 4px 12px;
     white-space: nowrap;
     border: 1px solid #ddd;
@@ -417,16 +324,13 @@
     color: #555;
     transition: all 0.15s;
   }
-  .tp-btn:hover:not(:disabled) { background: #f2f2f2; border-color: #ccc; }
-  .tp-btn.primary { background: #4a7cf7; border-color: #4a7cf7; color: #fff; }
-  .tp-btn.primary:hover:not(:disabled) { background: #3a6ce7; }
-  .tp-btn.muted { color: #999; }
-  .tp-btn.danger { color: #c0392b; }
-  .tp-btn.danger:hover:not(:disabled) { background: #fdeaea; border-color: #e6b0aa; }
-  .tp-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .tp-move { display: inline-flex; gap: 2px; }
-  .tp-move .tp-btn { padding: 4px 8px; }
-  .tp-toolbar-divider { width: 1px; align-self: stretch; background: #e6e6e6; margin: 2px 2px; }
+  .tp-actions :global(.tp-btn:hover:not(:disabled)) { background: #f2f2f2; border-color: #ccc; }
+  .tp-actions :global(.tp-btn.primary) { background: #4a7cf7; border-color: #4a7cf7; color: #fff; }
+  .tp-actions :global(.tp-btn.primary:hover:not(:disabled)) { background: #3a6ce7; }
+  .tp-actions :global(.tp-btn.muted) { color: #999; }
+  .tp-actions :global(.tp-btn.danger) { color: #c0392b; }
+  .tp-actions :global(.tp-btn.danger:hover:not(:disabled)) { background: #fdeaea; border-color: #e6b0aa; }
+  .tp-actions :global(.tp-btn:disabled) { opacity: 0.5; cursor: not-allowed; }
 
   .tp-body {
     flex: 1;
