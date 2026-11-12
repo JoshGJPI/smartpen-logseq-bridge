@@ -63,6 +63,9 @@
     : target.pages.length === 1
       ? `Tags for B${target.pages[0].book}/P${target.pages[0].pageId} (saved at once, nothing to Save)`
       : `Tags for the ${target.pages.length}${target.more ? '+' : ''} ${target.fromSelection ? 'pages of the selection' : 'pages shown'}`;
+  $: fullTitle = enabled && tagCount > 0
+    ? `${title}. The number is how many different tags ${target.pages.length === 1 ? 'the page has' : 'these pages have'}.`
+    : title;
 
   async function toggle() {
     if (open) { open = false; return; }
@@ -116,11 +119,11 @@
   bind:this={btnEl}
   on:click|stopPropagation={toggle}
   disabled={!enabled}
-  {title}
+  title={fullTitle}
   aria-haspopup="dialog"
   aria-expanded={open}
 >
-  <span aria-hidden="true">🏷</span> Tags{#if tagCount > 0}<span class="cpt-count">{tagCount}</span>{/if}
+  <span aria-hidden="true">🏷</span> Tags{#if tagCount > 0}<span class="cpt-count" aria-label="{tagCount} {tagCount === 1 ? 'tag' : 'different tags'} on {target.pages.length === 1 ? 'this page' : 'these pages'}">{tagCount}</span>{/if}
 </button>
 
 {#if open}
@@ -182,14 +185,17 @@
     background: transparent;
     color: var(--text-secondary);
   }
+  /* How many different tags the listed pages carry. Quiet on purpose: a
+     coloured dot read as a notification (Josh, 2026-11-12). */
   .cpt-count {
-    min-width: 1.4em;
-    padding: 0 4px;
-    border-radius: 99px;
-    background: var(--accent);
-    color: #fff;
+    min-width: 1.2em;
+    padding: 0 3px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
     font-size: 0.6875rem;
-    line-height: 1.5;
+    font-weight: 500;
+    line-height: 1.4;
     text-align: center;
   }
 

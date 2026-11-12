@@ -355,11 +355,14 @@
     </button>
   </div>
 
-  <!-- Page tags (v3.19.0): saved at once to _tags.json, not by Save;
-       suggestions from the saved transcript text (no page read). -->
-  <div class="page-tags">
-    <PageTagsInline book={page.book} pageId={pageRef} lines={page.transcriptionText || ''} compact />
-  </div>
+  <!-- Page tags (v3.19.0): only for pages on the canvas (a row under every
+       card was noise); saved at once to _tags.json, not by Save; suggestions
+       from the saved transcript text (no page read). -->
+  {#if inCanvas}
+    <div class="page-tags">
+      <PageTagsInline book={page.book} pageId={pageRef} lines={page.transcriptionText || ''} compact />
+    </div>
+  {/if}
 
   <!-- ── Collapsible transcript section ────────────────────────────────── -->
   {#if transcriptExpanded && hasTranscription}

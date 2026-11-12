@@ -47,6 +47,17 @@
     input && input.focus();
   }
 
+  // A press anywhere outside the field closes the list and leaves the field.
+  // Blur alone isn't enough: the Editor canvas preventDefaults its mousedown
+  // (so a drag doesn't select text), which keeps focus here and the list open.
+  // Capture phase, so a handler that stops propagation can't hide the press.
+  let box;
+  function onWindowPointer(e) {
+    if (!box || box.contains(e.target)) return;
+    if (open) open = false;
+    if (input && document.activeElement === input) input.blur();
+  }
+
   $: res = tagOptions(text, $tagStatsList, exclude || tags);
   $: items = [...res.options, ...(res.create ? [{ tag: res.create, create: true }] : [])];
   $: if (hi >= items.length) hi = Math.max(0, items.length - 1);
@@ -82,7 +93,9 @@
   }
 </script>
 
-<div class="tagbox" class:dark class:disabled on:click={() => !disabled && input.focus()} role="presentation">
+<svelte:window on:pointerdown|capture={onWindowPointer} />
+
+<div class="tagbox" bind:this={box} class:dark class:disabled on:click={() => !disabled && input.focus()} role="presentation">
   {#if showChips}
     {#each tags as t (t)}
       <TagChip tag={t} {disabled} onRemove={onRemove ? () => onRemove(t) : null} />

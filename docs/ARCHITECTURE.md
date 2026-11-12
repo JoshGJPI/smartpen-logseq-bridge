@@ -62,7 +62,7 @@ App.svelte (Root)
 │   │   └── TranscriptSearch (Search — full-text over saved pages on disk)
 │   │       └── SearchResultCard (per-result import / open in the Library)
 │   ├── SavedPagesTab ("Pages", Editor — folder-backed page list: import, export, edit structure;
-│   │                 each PageCard has a compact PageTagsInline row, v3.19.0)
+│   │                 a PageCard on the canvas has a compact PageTagsInline row, v3.19.0)
 │   └── DatesTab ("Days", Timeline only — the day list that jumps the feed; the range is the feed head's RangeMenu, v3.14.0)
 └── Canvas Section (destination from `$destination`, in App.svelte)
     ├── PaneToolbar (Library and Timeline only: breadcrumb + ViewMenu "View ▾")

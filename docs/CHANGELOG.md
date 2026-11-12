@@ -15,7 +15,8 @@ header", listed there as Later).
 
 - **🏷 Tags on the canvas toolbar**, beside Layout ▾ (`canvas/CanvasPageTags.svelte`). It opens a popover with one
   `PageTagsInline` row per page: the selection's pages when strokes are selected, else every page shown, at most
-  six (`lib/canvas-page-targets.js` `tagTargetPages`). The button shows how many distinct tags those pages carry.
+  six (`lib/canvas-page-targets.js` `tagTargetPages`). The button shows how many distinct tags those pages carry,
+  as a plain grey count with a tooltip: the first build's coloured dot read as a notification.
   It sits in the fixed Tools group rather than the scrolling strip: at ordinary window widths the strip already
   scrolls, and a button at its end was the first thing clipped. Rotate's rule (one page: the selection's, else the
   only page shown) moved into the same file (`singlePageTarget`) so the two can't drift.
@@ -25,7 +26,11 @@ header", listed there as Later).
   the canvas and delete the selected strokes. Escape closes an open tag list first (TagInput), then the popover,
   with preventDefault so the canvas's Escape doesn't also clear the selection.
 - **Pages tab cards** get a compact tag row under the header (`PageTagsInline` `compact`), suggesting from the
-  card's saved transcript text. `PageTagsInline` also takes a `heading` (the popover's B/P labels).
+  card's saved transcript text, **only while that page is on the canvas**: a row under every card in a notebook
+  was noise (Josh, 2026-11-12).
+- **A press outside a tag field closes its list and leaves the field** (`TagInput`, window `pointerdown` in the
+  capture phase). Blur alone missed the Editor canvas, which preventDefaults its mousedown, so focus and the list
+  stayed put. Applies to every tag field (reader strip, tiles, bulk bar). `PageTagsInline` also takes a `heading` (the popover's B/P labels).
 - The page selector's chips list a page's tags in their tooltip (read-only).
 - Same storage rules as v3.1.0: `_tags.json` only, written at once, never an unsaved edit or a PageDoc write.
 - Letter-suffixed pages are not handled specially: the canvas tracks integer pages, and suffixed pages are an old
