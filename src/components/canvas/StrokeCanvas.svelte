@@ -4,14 +4,14 @@
 <script>
   import { debug } from '$lib/debug.js';
   import { onMount, onDestroy, tick } from 'svelte';
-  import { strokes, strokeCount, pages, clearStrokes, batchMode } from '$stores';
-  import { selectedIndices, selectedStrokes, handleStrokeClick, clearSelection, selectionCount, selectFromBox } from '$stores';
+  import { strokes, strokeCount, pages, batchMode } from '$stores';
+  import { selectedIndices, selectedStrokes, clearSelection, selectionCount, selectFromBox } from '$stores';
   import { deletedIndices, pendingChanges } from '$stores';
   import { pastedStrokes, pastedSelection, pastedCount, duplicateStrokes, movePastedStrokes, clearPastedStrokes, deleteSelectedPasted, selectPastedStroke, clearPastedSelection } from '$stores';
   import { canvasZoom, setCanvasZoom, log, showFilteredStrokes, penConnected } from '$stores';
   import { filteredStrokes } from '$stores/filtered-strokes.js';
-  import { pagePositions, useCustomPositions, setPagePosition, movePageBy, clearPagePositions } from '$stores';
-  import { pageScales, setPageScale, getPageScale, resetPageScale, resetAllPageScales, hasScaledPages } from '$stores';
+  import { pagePositions, useCustomPositions, setPagePosition, clearPagePositions } from '$stores';
+  import { pageScales, setPageScale, getPageScale, resetAllPageScales, hasScaledPages } from '$stores';
   import { deselectIndices } from '$stores/selection.js';
   import { detectDecorativeIndices } from '$lib/stroke-filter.js';
   import { pageTranscriptionsArray } from '$stores';
@@ -26,16 +26,14 @@
   import { reassignVolume } from '$stores/strokes.js';
   import { knownBookIds } from '$stores/book-aliases.js';
   import { volumesForBook } from '$stores/volumes.js';
-  import { ncodeBookOf, volumeOf, BOOK_KEY_FRAGMENT } from '$lib/volumes.js';
+  import { ncodeBookOf, volumeOf } from '$lib/volumes.js';
+  import { collectVisibleTranscriptions, findPageKey } from '$lib/canvas-text-view.js';
   import { contextInk } from '$stores/context-ink.js';
   import { canvasPageOrder } from '$stores/timeline.js';
   import { pageOrientations } from '$stores/orientation.js';
   import OrientationControl from '../viewer/OrientationControl.svelte';
   import CanvasPageTags from './CanvasPageTags.svelte';
   import { selectionPageIds as pageIdsOfSelection, shownPageIds as pageIdsShown, singlePageTarget } from '$lib/canvas-page-targets.js';
-
-  // S#/O#/B<bookKey>/P# — the book portion may carry a volume suffix.
-  const BOOK_PAGE_KEY_RE = new RegExp(`S\\d+\\/O\\d+\\/B(${BOOK_KEY_FRAGMENT})\\/P(\\d+)`);
   import { dataFolderReady, graphFolderReady } from '$stores/settings.js';
   import { buildJsonExportData, buildMdExportData } from '$lib/stroke-storage.js';
   import { exportSelectionToGraph } from '$lib/storage/graph-export.js';
@@ -270,37 +268,36 @@
         }
       }
 
-      // Escape - cancel box selection, resize, or clear pasted selection
+      // Escape - close a toolbar menu, else cancel a drag / box selection /
+      // resize, or clear the pasted selection. preventDefault when it did
+      // something, so nothing else acts on the same press.
       if (e.key === 'Escape') {
+        if (showMoreMenu || showExportMenu) {
+          showMoreMenu = false;
+          showExportMenu = false;
+          e.preventDefault();
+          return;
+        }
+        let handled = false;
         if (isBoxSelecting || boxSelectPending) {
-          isBoxSelecting = false;
-          boxSelectPending = false;
-          didBoxSelect = false;
-          boxStartX = 0;
-          boxStartY = 0;
-          boxCurrentX = 0;
-          boxCurrentY = 0;
-          if (canvasElement) {
-            canvasElement.style.cursor = 'default';
-          }
+          cancelBoxSelect();
+          handled = true;
         }
         if (isResizingPage) {
-          isResizingPage = false;
-          resizePageKey = null;
-          resizeCorner = null;
-          resizeOriginalOffset = null;
-          if (canvasElement) {
-            canvasElement.style.cursor = 'default';
-          }
-          if (renderer) {
-            renderer.clearTempPageScale();
-            renderStrokes(false);  // Redraw without resetting view
-          }
+          cancelPageResize();
+          handled = true;
+        }
+        if (isDraggingPage) {
+          cancelPageDrag();
+          handled = true;
         }
         if ($pastedSelection.size > 0) {
           clearPastedSelection();
           renderStrokes(false);
+          handled = true;
         }
+        if (handled) e.preventDefault();
+        return;
       }
       
       // Ctrl/Cmd+D - duplicate selected strokes
@@ -924,25 +921,7 @@
       if (renderer && !$pointEditMode && (event.ctrlKey || event.metaKey || event.shiftKey)) {
         const visibleIndex = renderer.hitTest(boxStartX, boxStartY, visibleStrokes);
         if (visibleIndex !== -1) {
-          // Map visible index to full stroke array index
-          const fullIndex = visibleToFullIndexMap[visibleIndex];
-          
-          // Ctrl+click = add, Shift+click = remove
-          if (event.shiftKey) {
-            // Remove from selection
-            selectedIndices.update(sel => {
-              const newSel = new Set(sel);
-              newSel.delete(fullIndex);
-              return newSel;
-            });
-          } else {
-            // Add to selection (Ctrl/Cmd)
-            selectedIndices.update(sel => {
-              const newSel = new Set(sel);
-              newSel.add(fullIndex);
-              return newSel;
-            });
-          }
+          applyStrokeClick(visibleToFullIndexMap[visibleIndex], event);
           boxStartX = 0;
           boxStartY = 0;
           return;
@@ -1117,10 +1096,7 @@
   function handleMouseUp(event) {
     // Handle pasted stroke drag completion
     if (isDraggingPasted) {
-      isDraggingPasted = false;
-      pastedDragStartX = 0;
-      pastedDragStartY = 0;
-      canvasElement.style.cursor = 'default';
+      endPastedDrag();
       return;
     }
     
@@ -1145,12 +1121,7 @@
         log(`Resized ${resizePageKey} to ${Math.round(resizePreviewScale * 100)}%`, 'info');
       }
       
-      renderer.clearTempPageScale();
-      isResizingPage = false;
-      resizePageKey = null;
-      resizeCorner = null;
-      resizeOriginalOffset = null;
-      canvasElement.style.cursor = 'default';
+      endPageResize();
       renderStrokes(false);  // Redraw without resetting view
       return;
     }
@@ -1175,18 +1146,14 @@
         setPagePosition(draggedPageKey, newNcodeX, newNcodeY);
         log(`Moved ${draggedPageKey} to new position`, 'info');
       }
-      
-      isDraggingPage = false;
-      draggedPageKey = null;
-      pageOriginalNcodeX = 0;
-      pageOriginalNcodeY = 0;
-      canvasElement.style.cursor = 'default';
+
+      endPageDrag();
       return;
     }
-    
+
     if (isPanning) {
       isPanning = false;
-      canvasElement.style.cursor = 'default';
+      setCursor();
       return;
     }
     
@@ -1208,13 +1175,7 @@
           selectPoints(hits, mode);
         }
         didBoxSelect = true;
-        isBoxSelecting = false;
-        boxSelectPending = false;
-        boxStartX = 0;
-        boxStartY = 0;
-        boxCurrentX = 0;
-        boxCurrentY = 0;
-        canvasElement.style.cursor = 'default';
+        endBoxSelect();
         renderStrokes(false);
         return;
       }
@@ -1272,14 +1233,7 @@
         didBoxSelect = true;
       }
       
-      // Reset box selection state
-      isBoxSelecting = false;
-      boxSelectPending = false;
-      boxStartX = 0;
-      boxStartY = 0;
-      boxCurrentX = 0;
-      boxCurrentY = 0;
-      canvasElement.style.cursor = 'default';
+      endBoxSelect();
       return;
     }
     
@@ -1293,53 +1247,79 @@
   }
   
   // Mouse leave - cancel page resize, page drag, pasted stroke drag, pan, or box selection
-  function handleMouseLeave(event) {
-    if (isDraggingPasted) {
-      isDraggingPasted = false;
-      pastedDragStartX = 0;
-      pastedDragStartY = 0;
-      canvasElement.style.cursor = 'default';
-    }
-    
-    if (isResizingPage) {
-      isResizingPage = false;
-      resizePageKey = null;
-      resizeCorner = null;
-      resizeOriginalOffset = null;
-      canvasElement.style.cursor = 'default';
-      if (renderer) {
-        renderer.clearTempPageScale();
-        renderStrokes(false);  // Redraw without resetting view
-      }
-    }
-    
-    if (isDraggingPage) {
-      isDraggingPage = false;
-      draggedPageKey = null;
-      pageOriginalNcodeX = 0;
-      pageOriginalNcodeY = 0;
-      canvasElement.style.cursor = 'default';
-      // Re-render to remove drag preview
-      if (renderer) {
-        renderStrokes(true);
-      }
-    }
-    
+  function handleMouseLeave() {
+    if (isDraggingPasted) endPastedDrag();
+    if (isResizingPage) cancelPageResize();
+    if (isDraggingPage) cancelPageDrag();
     if (isPanning) {
       isPanning = false;
-      canvasElement.style.cursor = 'default';
+      setCursor();
     }
-    
-    if (isBoxSelecting || boxSelectPending) {
-      isBoxSelecting = false;
-      boxSelectPending = false;
-      didBoxSelect = false;
-      boxStartX = 0;
-      boxStartY = 0;
-      boxCurrentX = 0;
-      boxCurrentY = 0;
-      canvasElement.style.cursor = 'default';
-    }
+    if (isBoxSelecting || boxSelectPending) cancelBoxSelect();
+  }
+
+  /* ---------------------------------------------------------------
+   *  Gesture teardown, shared by mouseup, mouseleave and Escape
+   * --------------------------------------------------------------- */
+
+  function setCursor(cursor = 'default') {
+    if (canvasElement) canvasElement.style.cursor = cursor;
+  }
+
+  function endBoxSelect() {
+    isBoxSelecting = false;
+    boxSelectPending = false;
+    boxStartX = 0;
+    boxStartY = 0;
+    boxCurrentX = 0;
+    boxCurrentY = 0;
+    setCursor();
+  }
+
+  /** Abandon a box selection without selecting anything. */
+  function cancelBoxSelect() {
+    endBoxSelect();
+    didBoxSelect = false;
+  }
+
+  function endPastedDrag() {
+    isDraggingPasted = false;
+    pastedDragStartX = 0;
+    pastedDragStartY = 0;
+    setCursor();
+  }
+
+  function endPageResize() {
+    isResizingPage = false;
+    resizePageKey = null;
+    resizeCorner = null;
+    resizeOriginalOffset = null;
+    renderer?.clearTempPageScale();
+    setCursor();
+  }
+
+  /**
+   * Abandon a page resize. The preview moved the page as well as scaling it, and
+   * only a full-reset render re-applies the stored positions, so a plain redraw
+   * would leave the page at the preview's anchored offset.
+   */
+  function cancelPageResize() {
+    endPageResize();
+    renderStrokes(true);
+  }
+
+  function endPageDrag() {
+    isDraggingPage = false;
+    draggedPageKey = null;
+    pageOriginalNcodeX = 0;
+    pageOriginalNcodeY = 0;
+    setCursor();
+  }
+
+  /** Abandon a page drag: a full reset puts the page back where it was stored. */
+  function cancelPageDrag() {
+    endPageDrag();
+    renderStrokes(true);
   }
   
   // Duplicate selected strokes (copy + paste in one action)
@@ -1367,7 +1347,7 @@
     renderStrokes(false);
   }
   
-  // Delete selected pasted strokes (called by Delete key)
+  // Delete selected pasted strokes (Delete key and the toolbar's Delete)
   function handleDeletePasted() {
     if ($pastedSelection.size === 0) return;
     
@@ -1435,31 +1415,17 @@
     const visibleIndex = renderer.hitTest(x, y, visibleStrokes);
     
     if (visibleIndex !== -1) {
-      // Map visible index to full stroke array index
-      const fullIndex = visibleToFullIndexMap[visibleIndex];
-      
-      // Ctrl = add, Shift = remove, neither = replace
-      if (event.shiftKey) {
-        // Remove from selection
-        selectedIndices.update(sel => {
-          const newSel = new Set(sel);
-          newSel.delete(fullIndex);
-          return newSel;
-        });
-      } else if (event.ctrlKey || event.metaKey) {
-        // Add to selection
-        selectedIndices.update(sel => {
-          const newSel = new Set(sel);
-          newSel.add(fullIndex);
-          return newSel;
-        });
-      } else {
-        // Replace selection with just this stroke
-        selectedIndices.set(new Set([fullIndex]));
-      }
+      applyStrokeClick(visibleToFullIndexMap[visibleIndex], event);
     } else if (!event.ctrlKey && !event.metaKey && !event.shiftKey) {
       clearSelection();
     }
+  }
+
+  /** A click on a stroke (FULL index): Shift removes, Ctrl/Cmd adds, neither replaces. */
+  function applyStrokeClick(fullIndex, event) {
+    if (event.shiftKey) deselectIndices([fullIndex]);
+    else if (event.ctrlKey || event.metaKey) selectFromBox([fullIndex], 'add');
+    else selectFromBox([fullIndex], 'replace');
   }
   
   function handleWheel(event) {
@@ -1629,12 +1595,8 @@
         return;
       }
 
-      // If nothing is currently selected, select all first
-      if ($selectionCount === 0) {
-        selectAllVisible();
-        // Wait a tick for the selection to update
-        await new Promise(resolve => setTimeout(resolve, 0));
-      }
+      // If nothing is currently selected, select all first (store writes are synchronous)
+      if ($selectionCount === 0) selectAllVisible();
 
       // Deselect the detected indices
       deselectIndices(result.indices.map(i => visibleToFullIndexMap[i]));
@@ -1775,89 +1737,13 @@
     log(`Displaying transcription text for ${transcriptions.length} page(s)`, 'info');
   }
   
-  // Get transcriptions for visible pages (from both MyScript and saved pages)
-  // This function now matches pages more intelligently, handling section/owner mismatches
+  // Transcripts for the pages shown: an unsaved MyScript run, else the saved
+  // page's text, ordered by book key then page (lib/canvas-text-view.js).
   function getVisibleTranscriptions() {
-    const transcriptions = [];
-    
-    // Helper to match pages ignoring section/owner when needed
-    function matchesPage(pageKey, book, page) {
-      // Try exact match first
-      if (selectedPages.has(pageKey)) return true;
-      
-      // Try matching just by book/page (ignore section/owner)
-      for (const selectedKey of selectedPages) {
-        const match = selectedKey.match(BOOK_PAGE_KEY_RE);
-        // Book keys compare as strings — parseInt("388v2") is 388, which would
-        // match volume 1's page as well as volume 2's.
-        if (match && match[1] === String(book) && parseInt(match[2]) === page) {
-          return true;
-        }
-      }
-      
-      return false;
-    }
-    
-    // Add MyScript transcriptions
-    if ($pageTranscriptionsArray) {
-      $pageTranscriptionsArray.forEach(pt => {
-        if (matchesPage(pt.pageKey, pt.pageInfo.book, pt.pageInfo.page)) {
-          transcriptions.push({
-            pageKey: pt.pageKey,
-            text: pt.text,
-            // Structured lines (indent levels / TODO-DONE state) drive the
-            // LogSeq-format copy; `text` is what the canvas renders.
-            lines: Array.isArray(pt.lines) ? pt.lines : null,
-            pageId: String(pt.pageInfo.page),
-            pageInfo: pt.pageInfo,
-            strokeCount: pt.strokeCount,
-            source: 'myscript'
-          });
-        }
-      });
-    }
-    
-    // Add saved pages (only if not already in MyScript transcriptions)
-    if ($savedPages) {
-      $savedPages.forEach(lsPage => {
-        if (!lsPage.transcriptionText) return;
-        
-        // Check if we already have this page from MyScript (match by book/page)
-        const alreadyExists = transcriptions.some(t => 
-          t.pageInfo.book === lsPage.book && t.pageInfo.page === lsPage.page
-        );
-        if (alreadyExists) return;
-        
-        // Use the stored pageKey format, but check if it matches any selected page
-        const pageKey = `S${lsPage.section || 0}/O${lsPage.owner || 0}/B${lsPage.book}/P${lsPage.page}`;
-        
-        if (!matchesPage(pageKey, lsPage.book, lsPage.page)) return;
-        
-        transcriptions.push({
-          pageKey: pageKey,
-          text: lsPage.transcriptionText,
-          // Metadata-only scan records carry no lines — the copy path lazily
-          // reads the PageDoc by pageId (suffix-safe) to get the hierarchy.
-          lines: null,
-          pageId: lsPage.pageId != null ? String(lsPage.pageId) : String(lsPage.page),
-          pageInfo: {
-            section: lsPage.section || 0,
-            owner: lsPage.owner || 0,
-            book: lsPage.book,
-            page: lsPage.page
-          },
-          strokeCount: lsPage.strokeCount || 0,
-          source: 'saved'
-        });
-      });
-    }
-    
-    // Sort by book then page
-    return transcriptions.sort((a, b) => {
-      if (a.pageInfo.book !== b.pageInfo.book) {
-        return a.pageInfo.book - b.pageInfo.book;
-      }
-      return a.pageInfo.page - b.pageInfo.page;
+    return collectVisibleTranscriptions({
+      selectedPages,
+      pageTranscriptions: $pageTranscriptionsArray,
+      savedPages: $savedPages
     });
   }
   
@@ -1884,21 +1770,11 @@
         return;
       }
       
-      // Need to find the actual pageKey used in the renderer
-      // The pageData.pageKey might be from a saved page (S0/O0/...) but renderer has real pen data (S3/O1012/...)
-      const book = pageData.pageInfo.book;
-      const page = pageData.pageInfo.page;
-      
-      // Find matching pageKey in renderer's pageOffsets (fuzzy match by book/page)
-      let matchingPageKey = null;
-      for (const [rendererPageKey, offset] of renderer.pageOffsets) {
-        const match = rendererPageKey.match(BOOK_PAGE_KEY_RE);
-        if (match && match[1] === String(book) && parseInt(match[2]) === page) {
-          matchingPageKey = rendererPageKey;
-          break;
-        }
-      }
-      
+      // A saved page's key (S0/O0/...) need not be the renderer's (the pen's
+      // real section / owner), so find the renderer's page by book and page.
+      const { book, page } = pageData.pageInfo;
+      const matchingPageKey = findPageKey(renderer.pageOffsets.keys(), book, page);
+
       if (!matchingPageKey) {
         debug('  ❌ No matching page in renderer for B', book, 'P', page);
         return;
@@ -2111,7 +1987,7 @@
           on:click={handleDeselectDecorative}
           disabled={isDetecting || $strokeCount === 0}
           title={$strokeCount > 0
-            ? 'Deselect boxes, underlines, and circles'
+            ? 'Deselect boxes, underlines and circles (selects every visible stroke first when nothing is selected)'
             : 'No strokes on the canvas'}
         >
           {isDetecting ? '⏳ Detecting…' : '🎨 Decorative'}
@@ -2192,11 +2068,7 @@
           </button>
           <button
             class="tb-btn tone-danger"
-            on:click={() => {
-              const count = deleteSelectedPasted();
-              log(`Deleted ${count} selected pasted stroke${count !== 1 ? 's' : ''}`, 'info');
-              renderStrokes(false);
-            }}
+            on:click={handleDeletePasted}
             disabled={$pastedSelection.size === 0}
             title={$pastedSelection.size > 0
               ? 'Delete selected pasted strokes (Delete key)'

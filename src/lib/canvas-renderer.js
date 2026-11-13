@@ -99,7 +99,7 @@ export class CanvasRenderer {
     };
     
     // Page-based layout
-    this.pageOffsets = new Map(); // Map of "B{book}/P{page}" -> {offsetX, offsetY, bounds}
+    this.pageOffsets = new Map(); // Map of "S{section}/O{owner}/B{bookKey}/P{page}" -> {offsetX, offsetY, bounds}
     this.pageSpacing = 20; // mm between pages (horizontal and vertical)
     this.pageColumns = 5; // pages per row before wrapping
 

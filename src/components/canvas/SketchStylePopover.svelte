@@ -30,7 +30,10 @@
 
   function handleKeydown(event) {
     if (event.key === 'Escape' && isOpen) {
-      event.stopPropagation();
+      // preventDefault, not stopPropagation: the canvas's own window listener
+      // stands down on defaultPrevented (stopPropagation can't stop a listener
+      // on the same target).
+      event.preventDefault();
       close();
     }
   }
