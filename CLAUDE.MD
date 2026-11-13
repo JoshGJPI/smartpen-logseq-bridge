@@ -23,13 +23,17 @@ node scripts/fetch-neo-backgrounds.mjs <data-root> 3_27_388   # cache Neo page i
 
 ```
 electron/main.cjs, preload.cjs   all disk IO + MyScript proxy, exposed as window.storageAPI
-src/stores/        one store per concern (strokes, selection, pending-changes, viewer, timeline, volumes, tags, ...)
+electron/page-store.cjs   book keys, path guards, writeFileAtomic, createLock, PageDoc serializer, page IO (tested from Vitest)
+src/stores/        one store per concern (strokes, selection, pending-changes, viewer, timeline, volumes, tags, ...);
+                   the Editor's Save and Transcribe run in canvas-save.js / canvas-transcribe.js (ActionBar only wires them)
 src/lib/           pure logic, no UI, testable without DOM (tags, tag-suggestions, task-markers: ☐ / ☑ → TODO / DONE,
                    tasks: task state and list, retime, move-lines, canvas-page-targets: what the Editor's rotate and
-                   🏷 Tags act on, book-types; one line each in docs/ARCHITECTURE.md "Key Libraries")
+                   🏷 Tags act on, book-types, canvas-save-plan: which pages a save writes and which deletion marks it
+                   settles, canvas-text-view: the Editor's text view; one line each in docs/ARCHITECTURE.md "Key Libraries")
 src/lib/storage/   PageDoc layer: local-store (IPC facade), save-page, load-page, load-range, scan, page-changes, graph-export,
                    convert-task-boxes (one-off conversion of old transcripts)
 src/lib/viewer/    reader helpers: SVG render, page cache, thumbnails, transcript markdown/save, feed loader,
+                   transcript-draft.js (the Library Edit's line operations),
                    task-state.js (the one task write path, v3.4.0)
 src/components/    grouped by feature (canvas, dialog, header, viewer, dates, books, tags, transcription, ...)
 mcp/               stdio MCP server over the data folder (10 read-only tools, PNG via @resvg/resvg-wasm, images capped
@@ -56,7 +60,7 @@ them goes through `navigateTo()` / `openPageInLibrary()` (`stores/viewer.js`), t
 prompt is asked. Back / Forward (v3.13.0, `stores/view-history.js`) records from those stores rather than from each
 route and restores them itself (same prompt); a reader page turn calls `replaceNextView()` first. The app opens on the Timeline, and live pen ink switches to the Editor. The Library reader opens on Ink + text (v3.15.0). Tab ids (`'strokes'`,
 `'transcription'`, `'saved-pages'`, `'books'`, `'dates'`, `'contents'`) predate the labels, so don't rename them
-(`ActionBar` calls `setActiveTab('transcription')`). The open page, reading order and grid filters are session-only:
+(`stores/canvas-transcribe.js` calls `setActiveTab('transcription')`). The open page, reading order and grid filters are session-only:
 each launch opens the Library on its home. Left panel tabs, Library views, the reader, search and Tasks:
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) "Navigation and the Library".
 
@@ -138,9 +142,9 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   too (`computePendingChangesMap`) and the save dialog compares coordinates (`page-changes.js` `isPointEdited`).
 - **In-memory markers never reach disk** (`pointsEdited`, `movedFrom`): `strokeToStored()` builds from a fixed
   key list. Keep it that way.
-- **One write path.** Every PageDoc write goes through `local-store.js` `savePage()`, atomic (`.tmp` + rename +
-  fsync) in main. The renderer never touches `fs`; `requireBookKey()`/`requirePageId()` in `main.cjs` keep paths
-  inside the data root.
+- **One write path.** Every PageDoc write goes through `local-store.js` `savePage()`, atomic (random `.tmp` + fsync +
+  rename) in main (`electron/page-store.cjs` `writeFileAtomic`, one write per path at a time). The renderer never touches
+  `fs`; `requireBookKey()`/`requirePageId()` (page-store.cjs) keep paths inside the data root.
 - **Scans are metadata-only.** `savedPages` records hold summary fields, never strokes; load strokes lazily via
   `getPage()` / `viewer/page-cache.js`. Thumbnails go through `viewer/thumbs.js`, never the page cache (a screen
   of them would evict the reader's spread), and only when on screen. `onDiskStrokeIds` (canvas pages only) holds scalar-sized records, so keep
@@ -156,7 +160,8 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   from the new run (left-out ink, such as a drawing, ends up unlinked) and carries task state by text
   (`carryTaskState`). Reset is refused while only part of the page is loaded. A null in-memory link never clears a
   stored one, so a Reset that is never transcribed and saved changes nothing on disk.
-- Deletions marked but unsaved have a 15-minute undo window.
+- Deletions marked but unsaved have a 15-minute undo window. A save settles only the marks on pages it wrote
+  (`lib/canvas-save-plan.js` `settledDeletionIndices`); marks on unticked or failed pages stay marked.
 - Settings and display prefs → localStorage. Where you are in the Library (open page, reading order, grid filters,
   `libraryView`) is session-only on purpose. Stroke and transcript data → PageDoc only. Read localStorage through
   `lib/safe-storage.js` (or your own try/catch): a corrupt value read at module load must never stop the app starting.
@@ -369,8 +374,8 @@ The full list (per feature: rotation, volumes, tags, retime, tasks, print, LogSe
 - **Never open OS print dialogs or print jobs from test processes or on Josh's desktop** (it stalled his other Electron
   apps). Print to a printer is `print:toPrinter` through the Windows dialog, never silent. Verify print output by
   rendering the job's HTML with `printToPDF` from a scratch process.
-- Several components are over the ~300-line guideline (StrokeCanvas, ActionBar, TranscriptionEditorModal,
-  SaveConfirmDialog, TranscriptPane, …); don't grow them, split when touching.
+- Several components are over the ~300-line guideline (StrokeCanvas ~2,850, TranscriptionView ~750, CreatePageDialog,
+  TranscriptionEditorModal, SaveConfirmDialog, PageCard, BooksTab, PenMemoryDialog, …); don't grow them, split when touching.
 - Main-process and renderer tracing is behind `lib/debug.js` (`localStorage['smartpen-debug'] = '1'`, or the dev
   server). Never log MyScript keys or the HMAC, not even fragments.
 - Neo page backgrounds are a spike (see [docs/CHANGELOG.md](docs/CHANGELOG.md), "Neo page backgrounds"): images are
