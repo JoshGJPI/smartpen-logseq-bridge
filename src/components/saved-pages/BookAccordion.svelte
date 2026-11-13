@@ -3,7 +3,7 @@
 -->
 <script>
   import { debug } from '$lib/debug.js';
-  import { bookAliases } from '$stores';
+  import { bookAliases, log } from '$stores';
   import { formatBookName, getBookColor } from '$utils/formatting.js';
   import { importStrokesFromFolder } from '$lib/storage/load-page.js';
   import PageCard from './PageCard.svelte';
@@ -54,7 +54,7 @@
           failCount++;
         }
       } catch (error) {
-        console.error(`Failed to import page ${page.page}:`, error);
+        debug(`Failed to import page ${page.page}:`, error);
         failCount++;
       }
     }
@@ -63,6 +63,9 @@
     importProgress = { current: 0, total: 0, currentPage: 0, totalPages: 0 };
     
     debug(`Import complete: ${successCount} successful, ${failCount} failed`);
+    if (failCount > 0) {
+      log(`Import all B${bookId}: ${failCount} of ${totalPages} page(s) could not be imported`, 'warning');
+    }
   }
 </script>
 

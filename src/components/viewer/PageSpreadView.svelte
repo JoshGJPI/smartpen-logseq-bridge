@@ -30,6 +30,7 @@
   import { withTaskState } from '$lib/tasks.js';
   import { matchingLineId } from '$lib/global-search.js';
   import { getCachedPage } from '$lib/viewer/page-cache.js';
+  import { debug } from '$lib/debug.js';
   import { pageDayGroups } from '$lib/viewer/page-sittings.js';
   import { isTrustworthyTranscript, strokesByLine } from '$lib/viewer/ink-text.js';
   import PageHeader from './PageHeader.svelte';
@@ -64,6 +65,8 @@
   let doc = null;
   let loadingDoc = false;
   let loadedKey = null;
+  /** Why the open page could not be read ('' when it was, or is loading). */
+  let loadError = '';
 
   $: if (record) loadDoc(record);
 
@@ -76,14 +79,18 @@
     if (key === loadedKey) return; // already loaded/loading this exact page
     loadedKey = key;
     doc = null;
+    loadError = '';
     loadingDoc = true;
     try {
       const d = await getCachedPage(rec.book, idOf(rec));
       if (loadedKey !== key) return; // a newer record won the race
       doc = d;
+      if (!d) loadError = 'its file is missing (Rescan the data folder)';
       await tick();
     } catch (e) {
-      if (loadedKey === key) console.warn('Library: failed to load page', key, e);
+      if (loadedKey !== key) return;
+      loadError = e?.message || String(e);
+      debug('[library] failed to load page', key, e);
     } finally {
       if (loadedKey === key) loadingDoc = false;
     }
@@ -120,7 +127,7 @@
       const d = await getCachedPage(rec.book, idOf(rec));
       if (loadedKey === key && d) doc = d;
     } catch (e) {
-      console.warn('Library: failed to reload page', key, e);
+      debug('[library] failed to reload page', key, e);
     }
   }
 
@@ -214,6 +221,8 @@
             highlight={dayHighlight || lineHighlight || focusHighlight}
             onOpenDay={openTimelineDay}
           />
+        {:else if loadError}
+          <div class="pv-empty">Could not read this page: {loadError}</div>
         {/if}
       </div>
     {/if}
