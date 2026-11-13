@@ -8,7 +8,8 @@ import {
   markerField, markerOf, isClosedState, taskStateOf, withTaskState, toggledState, stateLabel, buildTaskRows, taskCounts,
   filterTaskRows, groupTaskRows, searchTaskRows, summaryWithState, taskMenuChoices, NOT_A_TASK, isTaskState, isLineState, taskKey, parseTaskFilter,
   parseTaskGroup, latestTaskRows, NO_PROJECT, NO_DATE,
-  parseShownStates, toggleShownState, isDefaultShown, rowsInStates, taskRowsForTag, DEFAULT_SHOWN_STATES
+  parseShownStates, toggleShownState, isDefaultShown, rowsInStates, taskRowsForTag, DEFAULT_SHOWN_STATES,
+  TASK_STATES, TASK_STATE_CHIPS, TASK_FILTERS
 } from '../tasks.js';
 
 describe('task state', () => {
@@ -81,6 +82,17 @@ describe('task state', () => {
     }
     const labels = ['todo', 'done', 'waiting'].flatMap((s) => taskMenuChoices(s).map((c) => c.label)).join(' ');
     expect(labels).not.toMatch(/DOING|NOW|LATER/);
+  });
+
+  it('every label the UI shows names only TODO / DONE / WAITING / CANCELLED (two Ls)', () => {
+    const labels = [
+      ...TASK_STATES.map(stateLabel),
+      ...[...TASK_STATES, null].flatMap((s) => taskMenuChoices(s).map((c) => c.label)),
+      ...TASK_STATE_CHIPS.map((c) => c.label),
+      ...TASK_FILTERS.map((f) => f.label)
+    ].join(' | ');
+    expect(labels).not.toMatch(/doing|now|later|canceled/i);
+    expect(TASK_STATE_CHIPS.map((c) => c.state)).toEqual(['todo', 'waiting', 'done', 'cancelled']);
   });
 
   it('a plain line\'s menu offers only Make task (TODO)', () => {

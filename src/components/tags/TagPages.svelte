@@ -5,7 +5,7 @@
   with each label naming its notebook. Records come from the scan and the
   tag index (stores), never from reading a page.
 
-  Sort (v3.11.0): Notebook (notebook, then page; the default) or Last edited
+  Sort (v3.11.0): Page order (notebook, then page; the default) or Recent
   (each page's latest stroke, newest first), kept per viewer (tagPageSort). It
   orders the grid only: the reader still turns through in notebook order.
 

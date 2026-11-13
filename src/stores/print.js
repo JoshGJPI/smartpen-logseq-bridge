@@ -31,6 +31,7 @@ import { groupSelectionByPage, selectionPrintPage } from '../lib/print/print-sel
 import { pageDayGroups } from '../lib/viewer/page-sittings.js';
 import { writtenLabel } from '../lib/viewer/written-on.js';
 import { rotationFor } from '../lib/page-orientation.js';
+import { plural } from '../lib/plural.js';
 import { formatBookName } from '../utils/formatting.js';
 import { bookAliases } from './book-aliases.js';
 import { pageOrientations } from './orientation.js';
@@ -126,7 +127,7 @@ export function addToPrintList(pages) {
   const added = next.length - before.length;
   const n = (pages || []).length;
   log(added
-    ? `Added ${added} ${added === 1 ? 'page' : 'pages'} to the print list (${next.length} in all)`
+    ? `Added ${added} ${plural(added, 'page')} to the print list (${next.length} in all)`
     : `${n === 1 ? 'That page is' : 'Those pages are'} already in the print list`, 'info');
   return added;
 }
@@ -144,11 +145,6 @@ export function clearPrintList() {
 export function inPrintList(list, ref) {
   const k = refKey({ book: String(ref.book), pageId: String(ref.pageId) });
   return list.some((r) => refKey(r) === k);
-}
-
-/** A page ref from a scan record. */
-export function printRefOf(record) {
-  return { book: record.book, pageId: record.pageId != null ? record.pageId : record.page };
 }
 
 function bookName(book) {

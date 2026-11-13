@@ -5,11 +5,12 @@
 -->
 <script>
   import { printList, openPrintList } from '$stores/print.js';
+  import { plural } from '$lib/plural.js';
 
   $: n = $printList.length;
 </script>
 
-<button type="button" class="pl-btn" title={n ? `Print list: ${n} ${n === 1 ? 'page' : 'pages'}` : 'Print pages from any notebook'} on:click={openPrintList}>
+<button type="button" class="pl-btn" title={n ? `Print list: ${n} ${plural(n, 'page')}` : 'Print pages from any notebook'} on:click={openPrintList}>
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path d="M6 9V2h12v7"/>
     <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>

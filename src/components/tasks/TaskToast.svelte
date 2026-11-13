@@ -9,6 +9,7 @@
   import { onDestroy } from 'svelte';
   import { taskUndo, undoTaskChange } from '$stores/tasks.js';
   import { viewerDirtyPages } from '$stores';
+  import { TASK_DRAFT_LOCK } from '$lib/tasks.js';
 
   const SHOW_MS = 6000;
   let shown = null;
@@ -37,7 +38,7 @@
   <div class="toast" role="status">
     <span>{shown.label}</span>
     <button type="button" on:click={undo} disabled={locked}
-      title={locked ? 'This page has unsaved transcript edits. Save or cancel them first.' : null}>Undo</button>
+      title={locked ? TASK_DRAFT_LOCK : null}>Undo</button>
   </div>
 {/if}
 
@@ -68,5 +69,6 @@
     font-weight: 600;
     cursor: pointer;
   }
-  button:hover { text-decoration: underline; }
+  button:hover:not(:disabled) { text-decoration: underline; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

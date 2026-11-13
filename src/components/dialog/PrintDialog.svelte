@@ -116,11 +116,12 @@
     if (!busy) closeAny();
   }
 
+  // Escape steps back out of an enlarged preview first, then closes.
   function onKey(e) {
-    if (open && e.key === 'Escape') {
-      e.preventDefault();
-      close();
-    }
+    if (!open || e.key !== 'Escape' || e.defaultPrevented) return;
+    e.preventDefault();
+    if (expanded) expanded = false;
+    else close();
   }
 
   $: subtitle = !refs.length

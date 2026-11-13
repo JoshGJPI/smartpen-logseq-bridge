@@ -114,6 +114,12 @@ export function stateLabel(state) {
   return 'TODO';
 }
 
+/**
+ * The tooltip on a task control that is locked because its page has an unsaved
+ * Library transcript draft (setTaskState() refuses the write then).
+ */
+export const TASK_DRAFT_LOCK = 'This page has unsaved transcript edits. Save or cancel them first.';
+
 /** True for the two closed states, DONE and CANCELLED (drawn struck through). */
 export function isClosedState(state) {
   return state === 'done' || state === 'cancelled';

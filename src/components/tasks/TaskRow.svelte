@@ -6,10 +6,10 @@
 -->
 <script>
   import { viewerDirtyPages, bookAliases } from '$stores';
-  import { toggleTask, changeTask } from '$stores/tasks.js';
+  import { toggleTask, changeTask, openTaskLine } from '$stores/tasks.js';
   import { formatBookName } from '$utils/formatting.js';
   import { dayStart } from '$lib/timeline.js';
-  import { isClosedState } from '$lib/tasks.js';
+  import { isClosedState, stateLabel, TASK_DRAFT_LOCK } from '$lib/tasks.js';
   import TaskBox from './TaskBox.svelte';
   import TaskMenu from './TaskMenu.svelte';
   import TagChip from '../tags/TagChip.svelte';
@@ -18,8 +18,8 @@
   export let row;
   /** Hide the project chip (the group heading shows it). */
   export let hideProject = false;
-  /** (row) => void */
-  export let onOpenPage = () => {};
+  /** (row) => void; default opens the reader on the line */
+  export let onOpenPage = openTaskLine;
 
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   function dayLabel(day, last) {
@@ -31,9 +31,7 @@
     return `${a}${tail}, ${(e || d).getFullYear()}`;
   }
 
-  $: lock = $viewerDirtyPages.has(`${row.book}:${row.pageId}`)
-    ? 'This page has unsaved transcript edits. Save or cancel them first.'
-    : '';
+  $: lock = $viewerDirtyPages.has(`${row.book}:${row.pageId}`) ? TASK_DRAFT_LOCK : '';
   $: alias = formatBookName(row.book, $bookAliases, 'alias-only');
   $: where = `${alias || `B${row.book}`} · p.${row.pageId}`;
   $: when = dayLabel(row.day, row.lastDay);
@@ -43,9 +41,7 @@
   <TaskBox state={row.state} {lock} onToggle={() => toggleTask(row.book, row.pageId, row.lineId)} />
   <span class="tx">{row.text}</span>
   <span class="meta">
-    {#if row.state === 'waiting'}<span class="mk wait">WAITING</span>{/if}
-    {#if row.state === 'done'}<span class="mk done">DONE</span>{/if}
-    {#if row.state === 'cancelled'}<span class="mk cancel">CANCELLED</span>{/if}
+    {#if row.state !== 'todo'}<span class="mk {row.state}">{stateLabel(row.state)}</span>{/if}
     {#if !hideProject}
       {#each row.projects as p (p)}<TagChip tag={p} />{/each}
     {/if}
@@ -93,7 +89,7 @@
   }
   .pg:hover { text-decoration: underline; }
   .mk { font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; padding: 0 6px; border-radius: 4px; }
-  .mk.wait { background: #f1eafe; color: #6d28d9; }
+  .mk.waiting { background: #f1eafe; color: #6d28d9; }
   .mk.done { background: #e8f5ec; color: #2f7d4f; }
-  .mk.cancel { background: #eef0f3; color: #5f6368; }
+  .mk.cancelled { background: #eef0f3; color: #5f6368; }
 </style>

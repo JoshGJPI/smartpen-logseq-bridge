@@ -13,7 +13,7 @@
 -->
 <script>
   import { onMount } from 'svelte';
-  import { savedPages, isScanning, bookAliases, openPageInLibrary, focusReaderLineId, ensureTimelineLoaded, openLibraryView } from '$stores';
+  import { savedPages, isScanning, bookAliases, ensureTimelineLoaded, openLibraryView } from '$stores';
   import { dataFolderReady } from '$stores/settings.js';
   import { taskRows, taskCountsStore, taskStatesShown, taskGroupBy, setTaskGroupBy, taskQuery, shownTaskGroups } from '$stores/tasks.js';
   import { scanLocalPages } from '$lib/storage/scan.js';
@@ -39,11 +39,6 @@
       return dayStart(g.id).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
     }
     return g.label;
-  }
-
-  function openPage(row) {
-    if (openPageInLibrary(row.book, row.pageId) === 'cancelled') return;
-    focusReaderLineId(row.book, row.pageId, row.lineId);
   }
 
   $: shownWords = $taskStatesShown.map(stateLabel).join(' / ');
@@ -91,7 +86,7 @@
         </h3>
         <div class="rows">
           {#each g.rows as row (row.key)}
-            <TaskRow {row} hideProject={g.kind === 'project'} onOpenPage={openPage} />
+            <TaskRow {row} hideProject={g.kind === 'project'} />
           {/each}
         </div>
       </section>

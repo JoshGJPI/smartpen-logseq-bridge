@@ -8,7 +8,6 @@
   from reading a page. Not shown when the tag has no tasks at all.
 -->
 <script>
-  import { openPageInLibrary, focusReaderLineId } from '$stores';
   import { taskRows, taskStatesShown } from '$stores/tasks.js';
   import { tagIndex } from '$stores/tags.js';
   import { taskRowsForTag, rowsInStates, taskCounts, compareTaskRows } from '$lib/tasks.js';
@@ -22,11 +21,6 @@
   $: counts = taskCounts(all);
   $: shown = rowsInStates(all, $taskStatesShown).sort(compareTaskRows);
   $: project = isProjectTag(tag);
-
-  function openPage(row) {
-    if (openPageInLibrary(row.book, row.pageId) === 'cancelled') return;
-    focusReaderLineId(row.book, row.pageId, row.lineId);
-  }
 </script>
 
 {#if all.length}
@@ -38,7 +32,7 @@
     {#if shown.length}
       <div class="rows">
         {#each shown as row (row.key)}
-          <TaskRow {row} hideProject={project} onOpenPage={openPage} />
+          <TaskRow {row} hideProject={project} />
         {/each}
       </div>
     {:else}
