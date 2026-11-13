@@ -10,9 +10,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onBluetoothDeviceFound: (callback) => {
     ipcRenderer.on('bluetooth-device-found', (_, devices) => callback(devices));
   },
-  onBluetoothConnectionResult: (callback) => {
-    ipcRenderer.on('bluetooth-connection-result', (_, result) => callback(result));
-  },
   selectBluetoothDevice: (deviceId) => {
     ipcRenderer.send('bluetooth-device-selected', deviceId);
   },
@@ -54,7 +51,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   removeBluetoothListeners: () => {
     ipcRenderer.removeAllListeners('bluetooth-scanning-started');
     ipcRenderer.removeAllListeners('bluetooth-device-found');
-    ipcRenderer.removeAllListeners('bluetooth-connection-result');
     ipcRenderer.removeAllListeners('bluetooth-pen-chosen');
     ipcRenderer.removeAllListeners('app-before-quit');
   },
@@ -76,7 +72,7 @@ contextBridge.exposeInMainWorld('storageAPI', {
   getPage:          (root, book, page)       => ipcRenderer.invoke('storage:getPage', root, book, page),
   savePage:         (root, book, page, doc)  => ipcRenderer.invoke('storage:savePage', root, book, page, doc),
   deletePage:       (root, book, page)       => ipcRenderer.invoke('storage:deletePage', root, book, page),
-  // Capture-date index — per page, a {day: strokeCount} histogram (see main.cjs)
+  // Capture-date index — per page, a {day: strokeCount} histogram (main.cjs buildTimeline)
   getTimeline:      (root, options)          => ipcRenderer.invoke('storage:getTimeline', root, options),
   getAliases:       (root)                   => ipcRenderer.invoke('storage:getAliases', root),
   setAlias:         (root, book, alias)      => ipcRenderer.invoke('storage:setAlias', root, book, alias),
@@ -111,8 +107,6 @@ contextBridge.exposeInMainWorld('storageAPI', {
   publishToGraph:   (graphRoot, book, pageId, assetText, indexText) => ipcRenderer.invoke('storage:publishToGraph', graphRoot, book, pageId, assetText, indexText),
 });
 
-// Print to PDF or a printer: main asks where to save, renders the document in a hidden
-// window and writes the PDF. Returns { ok, result: { path, bytes } | { canceled } }.
 // ===== Claude's transcript edits (v3.18.0) =====
 // The MCP server posts an edit to main's localhost endpoint (on only while the
 // setting is on); main hands it here and waits for replyEdit().
@@ -128,6 +122,8 @@ contextBridge.exposeInMainWorld('mcpAPI', {
   editLog: (action, book, page, payload) => ipcRenderer.invoke('mcp:editLog', action, book, page, payload),
 });
 
+// Print to PDF or a printer: main asks where to save, renders the document in a hidden
+// window and writes the PDF. Returns { ok, result: { path, bytes } | { canceled } }.
 contextBridge.exposeInMainWorld('printAPI', {
   savePdf: (html, suggestedName, open) => ipcRenderer.invoke('print:savePdf', html, suggestedName, !!open),
   // Print through the Windows print dialog. Returns { ok, result: { printed, reason } }.

@@ -1,6 +1,6 @@
 <!--
-  DataFolderSettings.svelte — v2.0 local-folder data root configuration.
-  Browse, verify availability, open in Explorer. Saves to localStorage.
+  DataFolderSettings.svelte: the data folder (Browse, Verify, Open in Explorer;
+  the path is kept in localStorage) and the "Allow Claude to edit transcripts" switch.
 -->
 <script>
   import { dataRoot, dataFolderReady, dataFolderStatusText, setDataFolderStatus, log } from '$stores';
@@ -9,6 +9,9 @@
   import { allowClaudeEdits } from '$stores/settings.js';
 
   let isChecking = false;
+  // The folder the views were last loaded from, so a path typed into the box
+  // resets them too (CLAUDE.md: a data-folder change calls resetForDataFolder).
+  let loadedRoot = $dataRoot;
 
   function basename(p) {
     if (!p) return '';
@@ -20,13 +23,23 @@
     try {
       const picked = await pickFolder();
       if (!picked) return;
-      const changed = picked !== $dataRoot;
       $dataRoot = picked;
-      await handleVerify();
-      // Everything read from the old folder (pages, thumbnails, dates) goes.
-      if (changed) await resetForDataFolder();
+      await applyFolder();
     } catch (err) {
       log(`Folder picker failed: ${err.message}`, 'error');
+    }
+  }
+
+  /** Verify the folder, and if it differs from the one loaded, drop everything read from the old one. */
+  async function applyFolder() {
+    await handleVerify();
+    if ($dataRoot === loadedRoot) return;
+    loadedRoot = $dataRoot;
+    // Everything read from the old folder (pages, thumbnails, dates) goes.
+    try {
+      await resetForDataFolder();
+    } catch (err) {
+      log(`Could not load the new data folder: ${err.message}`, 'error');
     }
   }
 
@@ -70,7 +83,7 @@
       id="dataRoot"
       bind:value={$dataRoot}
       placeholder="C:\Users\you\Documents\stroke-data"
-      on:change={handleVerify}
+      on:change={applyFolder}
     />
   </div>
 
@@ -93,7 +106,7 @@
 
   <p class="hint">
     Pages are saved to <code>&lt;folder&gt;/pages/B{`{book}`}/P{`{page}`}.json</code>.
-    Exports go to <code>&lt;folder&gt;/exports/</code>. The app never touches version control.
+    The app never touches version control.
   </p>
 
   <label class="check">
