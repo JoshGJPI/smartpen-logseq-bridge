@@ -109,7 +109,7 @@
   <p class="hint">
     Export is additive — each export adds to what that page already has in the
     graph, so you can publish sketches one at a time. Transcript text is never
-    exported. Your <code>stroke-data</code> folder stays the complete notebook;
+    exported. Your data folder stays the complete notebook;
     the graph only gets what you send it.
   </p>
 </div>

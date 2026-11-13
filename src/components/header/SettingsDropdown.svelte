@@ -29,8 +29,10 @@
   import BooksTab from '../books/BooksTab.svelte';
   import { dataRoot, dataFolderReady, graphFolderReady } from '$stores/settings.js';
   import { rescanLibrary } from '$lib/storage/rescan.js';
+  import { modalOpen } from '$lib/left-panel.js';
 
   let isOpen = false;
+  let gearBtn;
   let convertBoxesOpen = false;
   let duplicatesOpen = false;
 
@@ -77,16 +79,27 @@
       closeDropdown();
     }
   }
+
+  // Escape closes the panel (also from its own fields) and hands focus back to
+  // the gear. A modal over it, or a key already handled, keeps it open.
+  function handleKeydown(event) {
+    if (!isOpen || event.key !== 'Escape' || event.defaultPrevented || event.isComposing || modalOpen()) return;
+    event.preventDefault();
+    closeDropdown();
+    gearBtn?.focus();
+  }
 </script>
 
-<svelte:window on:click={handleClickOutside} />
+<svelte:window on:click={handleClickOutside} on:keydown={handleKeydown} />
 
 <div class="settings-dropdown">
   <!-- Icon only: the header is one slim row. The dot appears only when the data
        folder is not ready, the one setting without which nothing can be read or
        saved; its details are under Data folder below. -->
   <button
+    bind:this={gearBtn}
     class="settings-btn"
+    aria-expanded={isOpen}
     on:click|stopPropagation={toggleDropdown}
     title={$dataFolderReady ? 'Settings' : 'Settings — the data folder is not ready'}
     aria-label="Settings"
@@ -148,7 +161,7 @@
         </button>
       </SettingsSection>
 
-      <!-- Publish to LogSeq graph (mirror saved pages as plugin assets) -->
+      <!-- Export to LogSeq: the graph folder that chosen strokes are published into, additively -->
       <SettingsSection title="Publish to LogSeq" storageKey="smartpen-settings-open-graph"
         status={$graphFolderReady ? 'graph folder set' : 'off'}>
         <GraphFolderSettings />

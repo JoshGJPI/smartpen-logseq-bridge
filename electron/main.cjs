@@ -3,15 +3,20 @@ const { app, BrowserWindow, Menu, ipcMain, dialog, shell } = require('electron')
 const path = require('path');
 const crypto = require('crypto');
 const https = require('https');
-const fs = require('fs');
 const fsp = require('fs').promises;
 const tagsSidecar = require('./tags-sidecar.cjs');
 const bookTypesSidecar = require('./book-types-sidecar.cjs');
 const retimedSidecar = require('./retimed-sidecar.cjs');
 const penMatch = require('./pen-match.cjs');
+const pageStore = require('./page-store.cjs');
 const { buildTaskSummary } = require('./task-summary.cjs');
 const mcpEndpoint = require('./mcp-endpoint.cjs');
 const mcpEditLog = require('./mcp-edit-log.cjs');
+
+const {
+  parseBookKey, requireBookKey, requirePageId, pagesDir, writeFileAtomic, createLock,
+  walkPageFiles, readPageDoc, writePageDoc, deletePageDoc,
+} = pageStore;
 
 // Must be set before 'ready' so Windows links the running process to the
 // installed shortcut and shows the correct taskbar icon (rather than grouping
@@ -219,17 +224,10 @@ function createWindow() {
   });
 
   // Handle Bluetooth pairing requests (required on Windows/Linux)
-  mainWindow.webContents.session.setBluetoothPairingHandler((details, callback) => {
-    // For smartpens, auto-confirm pairing (they typically don't require PIN)
-    if (details.pairingKind === 'confirm') {
-      callback({ confirmed: true });
-    } else if (details.pairingKind === 'confirmPin') {
-      // For PIN confirmation, auto-confirm (smartpens don't use PINs)
-      callback({ confirmed: true });
-    } else {
-      // For other pairing kinds, auto-confirm
-      callback({ confirmed: true });
-    }
+  // Every pairing kind ('confirm', 'confirmPin', ...) is auto-confirmed:
+  // smartpens don't use PINs.
+  mainWindow.webContents.session.setBluetoothPairingHandler((_details, callback) => {
+    callback({ confirmed: true });
   });
 
   createMenu();
@@ -295,131 +293,19 @@ ipcMain.handle('myscript-api-call', async (_event, { appKey, hmacKey, body }) =>
   }
 });
 
-// ===== Local Storage (v2.0 — replaces LogSeq HTTP API as the data layer) =====
-// One JSON file per pen page at <dataRoot>/pages/B{book}/P{page}.json
-// See docs/LOCAL-STORAGE-PIVOT-SPEC.md for the full design.
+// ===== Local Storage (v2.0: one JSON file per pen page) =====
+// <dataRoot>/pages/B{bookKey}/P{pageId}.json. Book keys, path guards, the
+// atomic write, the per-file locks, the serializer, page read / write / delete
+// and the page-file walk live in electron/page-store.cjs (tested from Vitest);
+// the metadata scan and the capture-date index below.
+// See docs/LOCAL-STORAGE-PIVOT-SPEC.md for the design.
 
-// ----- Book keys (volumes) -----
-// A book key is the NCode book id plus an optional volume suffix: "388", "388v2".
-// Volume 1 is spelled bare, so every pre-volume path is unchanged.
-//
-// Mirrors src/lib/volumes.js. main.cjs is CommonJS and can't import the ESM
-// module — the same reason buildTranscriptionText below mirrors scan.js. Keep
-// the two in step; volumes.js is the authority.
-const BOOK_KEY_RE = /^(\d+)(?:v(\d+))?$/;
-
-function parseBookKey(bookKey) {
-  if (bookKey == null || bookKey === '') return null;
-  const raw = String(bookKey);
-  const m = raw.match(BOOK_KEY_RE);
-  if (!m) return null;
-  const ncodeBook = Number(m[1]);
-  const volume = m[2] === undefined ? 1 : Number(m[2]);
-  if (!Number.isInteger(ncodeBook) || !Number.isInteger(volume) || volume < 1) return null;
-  // Canonical-form check — one spelling per physical notebook.
-  const canonical = volume === 1 ? String(ncodeBook) : `${ncodeBook}v${volume}`;
-  return canonical === raw ? { ncodeBook, volume } : null;
-}
-
-function compareBookKeys(a, b) {
-  const pa = parseBookKey(a);
-  const pb = parseBookKey(b);
-  if (!pa && !pb) return String(a).localeCompare(String(b));
-  if (!pa) return 1;
-  if (!pb) return -1;
-  return (pa.ncodeBook - pb.ncodeBook) || (pa.volume - pb.volume);
-}
-
-/**
- * Validate a book key before it reaches a filesystem path.
- *
- * `book` used to arrive here via parseInt and was inherently path-safe. As a
- * string it is not, so this guard is what keeps page reads and writes inside the
- * data root. Same role requireGraphPageId plays on the graph side.
- */
-function requireBookKey(book) {
-  if (!parseBookKey(book)) throw new Error(`Invalid book key: ${book}`);
-  return String(book);
-}
-
-/** Page ids are digits plus an optional single letter: "42", "151b". */
-function requirePageId(page) {
-  const pid = String(page);
-  if (!/^\d+[a-zA-Z]?$/.test(pid)) throw new Error(`Invalid page id: ${page}`);
-  return pid;
-}
-
-function pagesDir(root) {
-  return path.join(root, 'pages');
-}
-
-function bookDir(root, book) {
-  return path.join(pagesDir(root), `B${requireBookKey(book)}`);
-}
-
-function pagePath(root, book, page) {
-  return path.join(bookDir(root, book), `P${requirePageId(page)}.json`);
-}
-
-function aliasesPath(root) {
-  return path.join(pagesDir(root), '_aliases.json');
-}
-
-function volumesPath(root) {
-  return path.join(pagesDir(root), '_volumes.json');
-}
-
-function orientationPath(root) {
-  return path.join(pagesDir(root), '_orientation.json');
-}
-
-function tagsPath(root) {
-  return path.join(pagesDir(root), '_tags.json');
-}
-
-function bookTypesPath(root) {
-  return path.join(pagesDir(root), '_book-types.json');
-}
-
-function retimedPath(root) {
-  return path.join(pagesDir(root), '_retimed.json');
-}
-
-// ----- "Publish to graph" target paths (JPI Tools plugin asset storage) -----
-// The plugin (v1.9.66+) discovers pages from smartpen-index.json under its
-// mandatory storages/<plugin-id>/ asset sub-folder. See the bridge module
-// src/lib/storage/graph-index.js and the plugin's migrate-smartpen-assets.mjs.
-const JPI_PLUGIN_ID = 'logseq-plugin-jpi-tools';
-
-function graphAssetsDir(graphRoot) {
-  return path.join(graphRoot, 'assets', 'storages', JPI_PLUGIN_ID);
-}
-
-function graphAssetPath(graphRoot, book, pageId) {
-  return path.join(graphAssetsDir(graphRoot), `smartpen-B${book}-P${pageId}.json`);
-}
-
-function graphIndexPath(graphRoot) {
-  return path.join(graphAssetsDir(graphRoot), 'smartpen-index.json');
-}
-
-async function ensureDir(dir) {
-  await fsp.mkdir(dir, { recursive: true });
-}
-
-/** Atomic write: write to a .tmp sibling, fsync, then rename. */
-async function writeFileAtomic(filePath, contents) {
-  await ensureDir(path.dirname(filePath));
-  const tmp = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-  const fh = await fsp.open(tmp, 'w');
-  try {
-    await fh.writeFile(contents, 'utf8');
-    await fh.sync();
-  } finally {
-    await fh.close();
-  }
-  await fsp.rename(tmp, filePath);
-}
+function aliasesPath(root) { return pageStore.sidecarPath(root, '_aliases.json'); }
+function volumesPath(root) { return pageStore.sidecarPath(root, '_volumes.json'); }
+function orientationPath(root) { return pageStore.sidecarPath(root, '_orientation.json'); }
+function tagsPath(root) { return pageStore.sidecarPath(root, '_tags.json'); }
+function bookTypesPath(root) { return pageStore.sidecarPath(root, '_book-types.json'); }
+function retimedPath(root) { return pageStore.sidecarPath(root, '_retimed.json'); }
 
 /**
  * Build the 2-space-indented transcription text from transcript lines.
@@ -491,68 +377,6 @@ function extractPageMeta(raw) {
   };
 }
 
-/**
- * Walk pages/B*\/P*.json and return one entry per page FILE, without reading any
- * of them.
- *
- * Shared by listAllPages (which then reads each file for metadata) and
- * buildTimeline (which stats first and re-reads only what changed), so the two
- * can never disagree about which files are pages.
- *
- * @returns {Promise<Array<{book:string, page:number, pageId:string, suffix:string, path:string}>>}
- */
-async function walkPageFiles(root) {
-  const dir = pagesDir(root);
-  let bookDirs;
-  try {
-    bookDirs = await fsp.readdir(dir, { withFileTypes: true });
-  } catch (err) {
-    if (err.code === 'ENOENT') return [];
-    throw err;
-  }
-
-  const files = [];
-  for (const entry of bookDirs) {
-    if (!entry.isDirectory()) continue;
-    // Book KEY, not a number: "388" or "388v2" (see parseBookKey). A bare
-    // `^B(\d+)$` here would make every volume directory invisible to the scan.
-    const m = entry.name.match(/^B(\d+(?:v\d+)?)$/);
-    if (!m || !parseBookKey(m[1])) continue;
-    const book = m[1];
-    const bookPath = path.join(dir, entry.name);
-
-    let pageFiles;
-    try {
-      pageFiles = await fsp.readdir(bookPath, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-
-    for (const pf of pageFiles) {
-      if (!pf.isFile()) continue;
-      // Accept "P42.json" and letter-suffixed forms like "P151b.json"
-      const pm = pf.name.match(/^P(\d+)([a-zA-Z]?)\.json$/);
-      if (!pm) continue;
-      const page = parseInt(pm[1], 10);
-      const suffix = pm[2] || '';
-      files.push({
-        book,
-        page,
-        pageId: `${page}${suffix}`,  // includes suffix if any (primary identifier)
-        suffix,
-        path: path.join(bookPath, pf.name)
-      });
-    }
-  }
-
-  // compareBookKeys, not `a.book - b.book` — book is a key string now, and
-  // subtraction on it yields NaN (which leaves the sort order arbitrary).
-  files.sort((a, b) =>
-    compareBookKeys(a.book, b.book) || (a.page - b.page) || a.suffix.localeCompare(b.suffix)
-  );
-  return files;
-}
-
 /** Walk pages/B*\/P*.json and return lightweight PageMeta entries. */
 async function listAllPages(root) {
   const files = await walkPageFiles(root);
@@ -599,12 +423,16 @@ async function listAllPages(root) {
 // So the answer is cached: one entry per page holding a {day: strokeCount}
 // histogram, refreshed per file by mtime+size. A cold build over that corpus
 // takes ~1.6s; afterwards a refresh is one stat per page and reads nothing.
+//
+// buildTranscriptionText, countStrokeLines, extractPageMeta, dayKeyLocal and
+// extractCaptureDays stay in this file, self-contained: the MCP's parity tests
+// lift them from this source (mcp/__fixtures__/app-side.js).
 
 // 2 (v3.18.0): entries carry `duplicateStrokes`; a version-1 cache is re-read once.
 const TIMELINE_VERSION = 2;
 
 function timelinePath(root) {
-  return path.join(pagesDir(root), '_timeline.json');
+  return pageStore.sidecarPath(root, '_timeline.json');
 }
 
 /**
@@ -637,7 +465,7 @@ function extractCaptureDays(raw) {
   // read here because this pass already visits every start time.
   let duplicateStrokes = 0;
   const seenTimes = new Set();
-  const re = /"startTime":(\d+)/g;
+  const re = /"startTime":\s*(\d+)/g;  // \s*: a fully pretty-printed file has a space
   let m;
   while ((m = re.exec(raw)) !== null) {
     const t = Number(m[1]);
@@ -736,49 +564,22 @@ async function buildTimeline(root, { force = false } = {}) {
   return index;
 }
 
-async function readPageDoc(root, book, page) {
-  const fp = pagePath(root, book, page);
-  try {
-    const raw = await fsp.readFile(fp, 'utf8');
-    return JSON.parse(raw);
-  } catch (err) {
-    if (err.code === 'ENOENT') return null;
-    throw err;
-  }
+// ----- "Publish to graph" target paths (JPI Tools plugin asset storage) -----
+// The plugin (v1.9.66+) discovers pages from smartpen-index.json under its
+// mandatory storages/<plugin-id>/ asset sub-folder. See the bridge module
+// src/lib/storage/graph-index.js and the plugin's migrate-smartpen-assets.mjs.
+const JPI_PLUGIN_ID = 'logseq-plugin-jpi-tools';
+
+function graphAssetsDir(graphRoot) {
+  return path.join(graphRoot, 'assets', 'storages', JPI_PLUGIN_ID);
 }
 
-async function writePageDoc(root, book, page, doc) {
-  const fp = pagePath(root, book, page);
-  const json = serializePageDoc(doc);
-  await writeFileAtomic(fp, json);
-  return fp;
+function graphAssetPath(graphRoot, book, pageId) {
+  return path.join(graphAssetsDir(graphRoot), `smartpen-B${book}-P${pageId}.json`);
 }
 
-/**
- * Hybrid serializer: pretty-prints the doc shell but inlines each stroke
- * onto one line. Cuts file size ~60% versus full pretty-print while keeping
- * structure human-readable and per-stroke diffs intact.
- */
-function serializePageDoc(doc) {
-  const { strokes, ...shell } = doc || {};
-  const shellPretty = JSON.stringify(shell, null, 2);
-  const closingBrace = shellPretty.lastIndexOf('}');
-  const head = shellPretty.slice(0, closingBrace).trimEnd();
-  const headWithComma = head.endsWith(',') ? head : head + ',';
-  const strokeLines = (strokes || []).map(s => '    ' + JSON.stringify(s));
-  const strokesBlock = strokeLines.length === 0
-    ? '  "strokes": []'
-    : '  "strokes": [\n' + strokeLines.join(',\n') + '\n  ]';
-  return headWithComma + '\n' + strokesBlock + '\n}\n';
-}
-
-async function deletePageDoc(root, book, page) {
-  const fp = pagePath(root, book, page);
-  try {
-    await fsp.unlink(fp);
-  } catch (err) {
-    if (err.code !== 'ENOENT') throw err;
-  }
+function graphIndexPath(graphRoot) {
+  return path.join(graphAssetsDir(graphRoot), 'smartpen-index.json');
 }
 
 async function readAliases(root) {
@@ -867,12 +668,7 @@ const ROTATIONS = [0, 90, 180, 270];
 // Rotation clicks arrive faster than a read-modify-write of the sidecar takes,
 // and two overlapping ones each read the file before the other wrote it, so
 // the first was lost. Every update goes through this one chain instead.
-let orientationChain = Promise.resolve();
-function withOrientationLock(fn) {
-  const run = orientationChain.then(fn, fn);
-  orientationChain = run.catch(() => {});
-  return run;
-}
+const withOrientationLock = createLock();
 
 /**
  * Page tags — `<dataRoot>/pages/_tags.json` (v3.1.0). Display metadata, like
@@ -903,12 +699,7 @@ async function readTags(root) {
   return res;
 }
 
-let tagsChain = Promise.resolve();
-function withTagsLock(fn) {
-  const run = tagsChain.then(fn, fn);
-  tagsChain = run.catch(() => {});
-  return run;
-}
+const withTagsLock = createLock();
 
 /** Wraps an IPC handler so thrown errors become `{ok:false, error}` responses. */
 function ipcSafe(fn) {
@@ -970,18 +761,21 @@ ipcMain.handle('storage:deletePage',  ipcSafe(async (root, book, page)  => { awa
 // reads only what changed) so a save made moments ago is already reflected.
 ipcMain.handle('storage:getTimeline', ipcSafe(async (root, options)       => buildTimeline(root, options || {})));
 ipcMain.handle('storage:getAliases',  ipcSafe(async (root)              => readAliases(root)));
-ipcMain.handle('storage:setAlias',    ipcSafe(async (root, book, alias) => {
+// Read-modify-write, so one lock like the other sidecars: two quick renames
+// must not each start from the file before the other's write.
+const withAliasesLock = createLock();
+ipcMain.handle('storage:setAlias',    ipcSafe(async (root, book, alias) => withAliasesLock(async () => {
   const aliases = await readAliases(root);
   aliases[String(book)] = alias;
   await writeAliases(root, aliases);
   return aliases;
-}));
-ipcMain.handle('storage:removeAlias', ipcSafe(async (root, book) => {
+})));
+ipcMain.handle('storage:removeAlias', ipcSafe(async (root, book) => withAliasesLock(async () => {
   const aliases = await readAliases(root);
   delete aliases[String(book)];
   await writeAliases(root, aliases);
   return aliases;
-}));
+})));
 
 // Notebook types (v3.15.0): `{ "<bookKey>": "Work" }` in pages/_book-types.json.
 // Same read rules as _tags.json (electron/book-types-sidecar.cjs); one lock.
@@ -996,12 +790,7 @@ async function readBookTypes(root) {
   if (res.state === 'corrupt') console.warn('[storage] _book-types.json is unreadable; showing no notebook types');
   return res;
 }
-let bookTypesChain = Promise.resolve();
-function withBookTypesLock(fn) {
-  const run = bookTypesChain.then(fn, fn);
-  bookTypesChain = run.catch(() => {});
-  return run;
-}
+const withBookTypesLock = createLock();
 ipcMain.handle('storage:getBookTypes', ipcSafe(async (root) => (await readBookTypes(root)).file.books));
 ipcMain.handle('storage:setBookType', ipcSafe(async (root, book, type) => withBookTypesLock(async () => {
   const { file, state } = await readBookTypes(root);
@@ -1013,19 +802,22 @@ ipcMain.handle('storage:setBookType', ipcSafe(async (root, book, type) => withBo
   return next.books;
 })));
 
+const withVolumesLock = createLock();
 ipcMain.handle('storage:getVolumes', ipcSafe(async (root) => readVolumes(root)));
 ipcMain.handle('storage:setActiveVolume', ipcSafe(async (root, ncodeBook, volume) => {
   const n = Number(ncodeBook);
   const v = Number(volume);
   if (!Number.isInteger(n) || n < 0) throw new Error(`Invalid book: ${ncodeBook}`);
   if (!Number.isInteger(v) || v < 1) throw new Error(`Invalid volume: ${volume}`);
-  const registry = await readVolumes(root);
-  // Volume 1 is the default, so record it by absence — keeps the file empty for
-  // every book that never needed a volume.
-  if (v === 1) delete registry.active[String(n)];
-  else registry.active[String(n)] = v;
-  await writeVolumes(root, registry);
-  return registry;
+  return withVolumesLock(async () => {
+    const registry = await readVolumes(root);
+    // Volume 1 is the default, so record it by absence: keeps the file empty for
+    // every book that never needed a volume.
+    if (v === 1) delete registry.active[String(n)];
+    else registry.active[String(n)] = v;
+    await writeVolumes(root, registry);
+    return registry;
+  });
 }));
 
 ipcMain.handle('storage:getOrientation', ipcSafe(async (root) => readOrientation(root)));
@@ -1087,12 +879,7 @@ async function readRetimed(root) {
   return res;
 }
 
-let retimedChain = Promise.resolve();
-function withRetimedLock(fn) {
-  const run = retimedChain.then(fn, fn);
-  retimedChain = run.catch(() => {});
-  return run;
-}
+const withRetimedLock = createLock();
 
 ipcMain.handle('storage:getRetimed', ipcSafe(async (root) => {
   const { file, state } = await readRetimed(root);
@@ -1316,15 +1103,6 @@ ipcMain.handle('storage:readGraphIndex', ipcSafe(async (graphRoot) => {
   }
 }));
 
-// pageId is the bridge filename identifier: digits + an optional letter suffix
-// (e.g. "42", "151b"). Validating it keeps every graph read/write inside the
-// asset dir — it is interpolated straight into a filename.
-function requireGraphPageId(pageId) {
-  const pid = String(pageId);
-  if (!/^\d+[a-zA-Z]?$/.test(pid)) throw new Error(`Invalid pageId: ${pageId}`);
-  return pid;
-}
-
 // The graph asset name and smartpen-index.json both carry a NUMERIC book, so a
 // volume key has nowhere to go there yet. Refuse it explicitly rather than
 // letting `Number("388v2")` become NaN — the JPI Tools plugin needs a matching
@@ -1337,10 +1115,12 @@ function requireGraphBook(book) {
       `plugin only understands one volume per book. Book ${parsed.ncodeBook} volume 1 exports normally.`
     );
   }
-  const bookNum = Number(book);
-  if (!Number.isFinite(bookNum)) throw new Error(`Invalid book: ${book}`);
-  return bookNum;
+  if (!parsed) throw new Error(`Invalid book: ${book}`);
+  return parsed.ncodeBook;
 }
+
+// pageId goes through requirePageId (digits + an optional letter, "42", "151b")
+// like a page path: it is interpolated straight into the asset's filename.
 
 // Read a page's published asset (string), or null if it hasn't been published.
 // Needed by the additive export: the graph asset is an independently curated
@@ -1349,7 +1129,7 @@ function requireGraphBook(book) {
 ipcMain.handle('storage:readGraphAsset', ipcSafe(async (graphRoot, book, pageId) => {
   await requireGraphRoot(graphRoot);
   const bookNum = requireGraphBook(book);
-  const pid = requireGraphPageId(pageId);
+  const pid = requirePageId(pageId);
   try {
     return await fsp.readFile(graphAssetPath(graphRoot, bookNum, pid), 'utf8');
   } catch (err) {
@@ -1363,7 +1143,7 @@ ipcMain.handle('storage:publishToGraph', ipcSafe(async (graphRoot, book, pageId,
   await requireGraphRoot(graphRoot);
 
   const bookNum = requireGraphBook(book);
-  const pid = requireGraphPageId(pageId);
+  const pid = requirePageId(pageId);
 
   if (typeof assetText !== 'string' || typeof indexText !== 'string') {
     throw new Error('publishToGraph: assetText and indexText must be strings');
@@ -1449,7 +1229,6 @@ function createMenu() {
         {
           label: 'About smartpen-bridge',
           click: () => {
-            const { dialog } = require('electron');
             dialog.showMessageBox(mainWindow, {
               type: 'info',
               title: 'About',
