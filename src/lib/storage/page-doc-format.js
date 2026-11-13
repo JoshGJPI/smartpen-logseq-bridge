@@ -43,13 +43,11 @@ export function serializePageDoc(doc) {
 
   // Insert "strokes" key with compact one-stroke-per-line representation.
   // The shell ends with "}" — we strip it, add the strokes key, then re-close.
-  // Handle the case where shell already had no other keys (edge case): we
-  // always have `version` at minimum, so shell is a non-empty object.
-
   const closingBrace = shellPretty.lastIndexOf('}');
   const head = shellPretty.slice(0, closingBrace).trimEnd();
   // head currently ends with the last shell entry, no trailing comma. Add one.
-  const headWithComma = head.endsWith(',') ? head : head + ',';
+  // An empty shell leaves just "{", which takes no comma.
+  const headWithComma = (head === '{' || head.endsWith(',')) ? head : head + ',';
 
   const strokeLines = (strokes || []).map(s => '    ' + JSON.stringify(s));
   const strokesBlock = strokeLines.length === 0
