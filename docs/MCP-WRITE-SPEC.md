@@ -147,6 +147,19 @@ first, in the app: edits applied before a re-transcription are replaced by it.
   3017/180 and 181 corrections from the v3.17.0 session, check the open reader page and the Library grid update
   without Rescan, undo.
 
+## As built (v3.18.0 and the audit that followed)
+
+Where the code differs from the text above; the text stands otherwise.
+
+- **Numbers:** lines are addressed by `#n` as printed by `get_transcript` (numbered since the audit) as well as by `check_transcript`.
+- **Task labels:** `expect` accepts the task's own state label in front (`TODO`, `DONE`, `WAITING`, `CANCELLED`, as `get_transcript` prints it); `set_text` drops that label rather than keeping it as text. Any other leading state word is still refused.
+- **Listing:** the marked listing has no `-` mark. Deleted lines are listed apart under "Deleted:" with their old numbers (`was #n`).
+- **Guard 6** compares every untouched line field by field (`untouchedChanged()`) before the save and again on the page read back after it; it does not rely on `validatePageDoc()` for that.
+- **Not built:** the optional "Claude edits" list in Settings (Undo per entry). Undo is `undo_transcript_edit` only.
+- **After the save:** a failure to read the page back or finish the undo log is reported as a warning in the reply, never an error (an error would read as "nothing landed" and invite a retry); the edit then may not be undoable.
+- **Edit-log file names are lowercased** (`<bookkey>-<pageid>.jsonl`, so `388v2-12b` and `388V2-12B` are one file).
+- **Bad book or page** arguments return a tool error (`isError`), not a thrown exception.
+
 ## Open questions for Josh
 
 - Opt-in in both places (env + app setting), or the app setting only?

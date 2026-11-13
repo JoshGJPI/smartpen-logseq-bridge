@@ -6,6 +6,45 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Unreleased — audit and cleanup (2026-11-13)
+
+A code audit, area by area. No new features and no version number yet.
+
+**Fixes**
+
+- A save settled every deletion mark, even on unticked or failed pages, so those deletions never reached disk. Only
+  marks on pages that were written are settled now (`settledDeletionIndices()`).
+- After a save, point-edit mode exits and `filteredStrokes` clears. `isSaving` no longer sticks when nothing was
+  written. Clear drops pending transcriptions and resets, and exits point edit.
+- Ctrl+Shift+Z redoes in the Edit Transcription dialog.
+- The save dialog's Escape cancels; it shows compute errors and ignores stale runs.
+- Volume keys sort by `compareBookKeys()` in Review, the Editor text view and the stroke list (they sorted as NaN).
+- Cancelling a page resize restores the page. Escape closes the Layout and Export menus and cancels a page drag.
+  The SketchStylePopover's Escape no longer also clears the selection.
+- Atomic writes: temp names are random, a failed temp is removed, and writes to one path are serialised (overlapping
+  renames raised EPERM on Windows). Alias and active-volume writes take a lock like the sidecars. The serializer
+  wrote invalid JSON for an empty shell.
+- A typed data folder now resets the views. Settings closes on Escape. CreatePageDialog's Escape handler no longer
+  runs (or calls `preventDefault()`) while closed. Export SVG closes on Escape.
+- The Reader says "Could not read this page" instead of showing blank ink.
+- Claude edits: a log failure after the save is a warning, not an error. `expect` accepts a task's own label and
+  `set_text` drops it. `get_transcript` numbers lines `#n`. The write tools return tool errors for a bad book or page.
+  Edit-log file names are lowercased.
+
+**Cleanup**
+
+- Line counts: ActionBar 1100 → 405 (Save in `stores/canvas-save.js`, Transcribe in `stores/canvas-transcribe.js`,
+  popups in CaptureProgress), TranscriptionEditorModal 1186 → 617, SaveConfirmDialog 838 → 575, TranscriptPane
+  448 → 353, TimelineFeed 450 → 402, `main.cjs` 1604 → 1383 (the page store is `electron/page-store.cjs`).
+- Shared gesture teardown in StrokeCanvas. `console.*` → `debug()`. Dead code removed (the single-result
+  transcription store functions, `printRefOf`, TranscriptionPreview's edit mode). A11y labels added; the build has
+  no a11y warnings.
+
+**Docs**
+
+- The v1 / LogSeq-era docs and the built-feature mockups moved to `docs/Archive/`. The inventories in
+  ARCHITECTURE and TESTING were checked against `src/` (89 test files, 1,869 tests).
+
 ## v3.19.0 — Tag pages from the Editor (November 2026)
 
 The Editor could tag a page only from a Transcripts card (after a MyScript run this session) or the Edit

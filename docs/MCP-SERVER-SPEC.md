@@ -41,7 +41,7 @@ config with that env var.
 |---|---|
 | `list_notebooks` | Book keys (`388`, `388v2`), alias names, page counts, date range, active volume |
 | `list_pages` | Pages of one notebook: page id, stroke count, capture day(s), tags, transcribed y/n. Optional tag / date-range filter |
-| `get_transcript` | Transcript lines (text, indent, DONE/TODO state) for one page; plain text or markdown. Notes whether the page predates the line-matching fix |
+| `get_transcript` | Transcript lines (numbered `#n`, text, indent, task state) for one page; plain text or markdown. Notes whether the page predates the line-matching fix |
 | `render_page` | PNG as an MCP image, in the stored orientation. Options: `width` (default 1000px, capped), `fit`. (Built without `format: "svg"`, a `rotation` override or `background`, v3.6.2) |
 | `search` | Same semantics as the app's global search: words, dates, notebook names, tags. Returns page keys, snippets, dates |
 | `list_tags` | Tags with page counts (and open tasks); optionally the pages under one tag |
