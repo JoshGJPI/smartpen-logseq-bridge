@@ -12,6 +12,12 @@ A code audit, area by area. No new features and no version number yet.
 
 **Fixes**
 
+- After a save, the unsaved dot stays lit while any page the save dialog listed with changes was left unticked
+  (`leftUnsaved`); before, only owed deletions kept it.
+- Clear asks first when the canvas has unsaved changes. In the Edit Transcription dialog, a backdrop click or Escape
+  asks before discarding edits (Cancel still closes at once).
+- A corrupt `_aliases.json` or `_volumes.json` reads as empty instead of failing notebook names and volume routing;
+  the next write first copies it aside as `<file>.corrupt-<ms>` (`readSidecarJson()` in `electron/page-store.cjs`).
 - A save settled every deletion mark, even on unticked or failed pages, so those deletions never reached disk. Only
   marks on pages that were written are settled now (`settledDeletionIndices()`).
 - After a save, point-edit mode exits and `filteredStrokes` clears. `isSaving` no longer sticks when nothing was

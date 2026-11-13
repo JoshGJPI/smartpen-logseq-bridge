@@ -14,7 +14,7 @@ const mcpEndpoint = require('./mcp-endpoint.cjs');
 const mcpEditLog = require('./mcp-edit-log.cjs');
 
 const {
-  parseBookKey, requireBookKey, requirePageId, pagesDir, writeFileAtomic, createLock,
+  parseBookKey, requireBookKey, requirePageId, pagesDir, writeFileAtomic, createLock, readSidecarJson,
   walkPageFiles, readPageDoc, writePageDoc, deletePageDoc,
 } = pageStore;
 
@@ -582,15 +582,9 @@ function graphIndexPath(graphRoot) {
   return path.join(graphAssetsDir(graphRoot), 'smartpen-index.json');
 }
 
-async function readAliases(root) {
-  try {
-    const raw = await fsp.readFile(aliasesPath(root), 'utf8');
-    const parsed = JSON.parse(raw);
-    return (parsed && typeof parsed === 'object') ? parsed : {};
-  } catch (err) {
-    if (err.code === 'ENOENT') return {};
-    throw err;
-  }
+async function readAliases(root, opts) {
+  const { parsed } = await readSidecarJson(aliasesPath(root), opts);
+  return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
 }
 
 async function writeAliases(root, aliases) {
@@ -606,19 +600,13 @@ async function writeAliases(root, aliases) {
  *
  * Absent file ⇒ every book is volume 1 ⇒ behaviour identical to pre-volume.
  */
-async function readVolumes(root) {
-  try {
-    const raw = await fsp.readFile(volumesPath(root), 'utf8');
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return { version: 1, active: {} };
-    return {
-      version: parsed.version || 1,
-      active: (parsed.active && typeof parsed.active === 'object') ? parsed.active : {}
-    };
-  } catch (err) {
-    if (err.code === 'ENOENT') return { version: 1, active: {} };
-    throw err;
-  }
+async function readVolumes(root, opts) {
+  const { parsed } = await readSidecarJson(volumesPath(root), opts);
+  if (!parsed || typeof parsed !== 'object') return { version: 1, active: {} };
+  return {
+    version: parsed.version || 1,
+    active: (parsed.active && typeof parsed.active === 'object') ? parsed.active : {}
+  };
 }
 
 async function writeVolumes(root, registry) {
@@ -765,13 +753,13 @@ ipcMain.handle('storage:getAliases',  ipcSafe(async (root)              => readA
 // must not each start from the file before the other's write.
 const withAliasesLock = createLock();
 ipcMain.handle('storage:setAlias',    ipcSafe(async (root, book, alias) => withAliasesLock(async () => {
-  const aliases = await readAliases(root);
+  const aliases = await readAliases(root, { forWrite: true });
   aliases[String(book)] = alias;
   await writeAliases(root, aliases);
   return aliases;
 })));
 ipcMain.handle('storage:removeAlias', ipcSafe(async (root, book) => withAliasesLock(async () => {
-  const aliases = await readAliases(root);
+  const aliases = await readAliases(root, { forWrite: true });
   delete aliases[String(book)];
   await writeAliases(root, aliases);
   return aliases;
@@ -810,7 +798,7 @@ ipcMain.handle('storage:setActiveVolume', ipcSafe(async (root, ncodeBook, volume
   if (!Number.isInteger(n) || n < 0) throw new Error(`Invalid book: ${ncodeBook}`);
   if (!Number.isInteger(v) || v < 1) throw new Error(`Invalid volume: ${volume}`);
   return withVolumesLock(async () => {
-    const registry = await readVolumes(root);
+    const registry = await readVolumes(root, { forWrite: true });
     // Volume 1 is the default, so record it by absence: keeps the file empty for
     // every book that never needed a volume.
     if (v === 1) delete registry.active[String(n)];

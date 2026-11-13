@@ -177,3 +177,35 @@ describe('on disk (temp folder)', () => {
 
 });
 
+
+describe('readSidecarJson', () => {
+  let dir;
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-test-')); });
+  afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+
+  it('reads a missing file as null, not corrupt', async () => {
+    expect(await store.readSidecarJson(path.join(dir, '_aliases.json'))).toEqual({ parsed: null, corrupt: false });
+  });
+
+  it('parses a good file', async () => {
+    const file = path.join(dir, '_aliases.json');
+    fs.writeFileSync(file, '{"388":"Work"}');
+    expect(await store.readSidecarJson(file)).toEqual({ parsed: { 388: 'Work' }, corrupt: false });
+  });
+
+  it('reads a corrupt file as empty and leaves it alone on a plain read', async () => {
+    const file = path.join(dir, '_aliases.json');
+    fs.writeFileSync(file, '{"388": "Wo');
+    expect(await store.readSidecarJson(file)).toEqual({ parsed: null, corrupt: true });
+    expect(fs.readdirSync(dir)).toEqual(['_aliases.json']);
+  });
+
+  it('copies a corrupt file aside before a write replaces it', async () => {
+    const file = path.join(dir, '_aliases.json');
+    fs.writeFileSync(file, '{"388": "Wo');
+    expect(await store.readSidecarJson(file, { forWrite: true })).toEqual({ parsed: null, corrupt: true });
+    const copies = fs.readdirSync(dir).filter((f) => f.startsWith('_aliases.json.corrupt-'));
+    expect(copies).toHaveLength(1);
+    expect(fs.readFileSync(path.join(dir, copies[0]), 'utf8')).toBe('{"388": "Wo');
+  });
+});

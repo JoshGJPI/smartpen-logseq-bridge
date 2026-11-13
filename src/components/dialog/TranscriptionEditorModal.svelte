@@ -245,6 +245,13 @@
     dispatch('close');
   }
 
+  // A stray backdrop click or Escape asks first once there are edits to lose;
+  // Cancel is an explicit choice and closes at once.
+  function requestClose() {
+    if (historyIndex > 0 && !confirm('Discard your edits to this transcription?')) return;
+    handleClose();
+  }
+
   // Handle keyboard shortcuts
   function handleKeydown(event) {
     if (!visible || event.defaultPrevented) return;
@@ -283,7 +290,7 @@
       else indentLines();
     } else if (event.key === 'Escape') {
       event.preventDefault();
-      handleClose();
+      requestClose();
     }
   }
 
@@ -304,7 +311,7 @@
 
 {#if visible}
 <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-<div class="modal-backdrop" on:click={handleClose}>
+<div class="modal-backdrop" on:click={requestClose}>
   <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
   <div class="modal-container" role="dialog" aria-modal="true" aria-label="Edit transcription" on:click|stopPropagation>
     <div class="modal-header">

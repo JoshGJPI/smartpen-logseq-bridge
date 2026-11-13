@@ -288,6 +288,34 @@ async function walkPageFiles(root) {
   return files;
 }
 
+/**
+ * Read a small JSON sidecar. Missing → `parsed: null`. Unparseable → also null,
+ * with `corrupt: true`: like _tags.json, a corrupt file reads as empty rather
+ * than breaking every feature that reads it. With `forWrite`, a corrupt file is
+ * first copied aside (`<file>.corrupt-<ms>`) so the write that replaces it
+ * doesn't destroy what could still be recovered by hand.
+ */
+async function readSidecarJson(file, { forWrite = false } = {}) {
+  let raw;
+  try {
+    raw = await fsp.readFile(file, 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return { parsed: null, corrupt: false };
+    throw err;
+  }
+  try {
+    return { parsed: JSON.parse(raw), corrupt: false };
+  } catch (err) {
+    console.warn(`[storage] ${path.basename(file)} is unreadable (${err.message}); reading it as empty`);
+    if (forWrite) {
+      const copy = `${file}.corrupt-${Date.now()}`;
+      await fsp.copyFile(file, copy);
+      console.warn(`[storage] kept the unreadable file as ${path.basename(copy)} before replacing it`);
+    }
+    return { parsed: null, corrupt: true };
+  }
+}
+
 module.exports = {
   parseBookKey,
   compareBookKeys,
@@ -299,6 +327,7 @@ module.exports = {
   sidecarPath,
   writeFileAtomic,
   createLock,
+  readSidecarJson,
   serializePageDoc,
   readPageDoc,
   writePageDoc,

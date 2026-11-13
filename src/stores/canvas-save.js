@@ -43,7 +43,7 @@ import { plural } from '$lib/plural.js';
  *
  * @param {string[]} selectedPageKeys  `${book}-${page}` keys from the dialog
  */
-export async function saveCanvasPages(selectedPageKeys) {
+export async function saveCanvasPages(selectedPageKeys, { leftUnsaved = [] } = {}) {
   if (!selectedPageKeys || selectedPageKeys.length === 0) {
     log('No pages selected for save', 'warning');
     return;
@@ -195,9 +195,10 @@ export async function saveCanvasPages(selectedPageKeys) {
     // Reconcile the unsaved-changes indicator. This MUST run after
     // dropSettledDeletions(): removeStrokesByIndices() calls
     // markUnsavedChanges(), which would re-latch the dot right after
-    // recordSuccessfulSave() cleared it. Only when nothing failed and no
-    // deletion is still owed to a page that wasn't saved.
-    if (errorCount === 0 && savedPagesCount > 0 && get(deletedIndices).size === 0) {
+    // recordSuccessfulSave() cleared it. Only when nothing failed, no
+    // deletion is still owed to a page that wasn't saved, and no page the
+    // dialog listed with changes was left unticked.
+    if (errorCount === 0 && savedPagesCount > 0 && get(deletedIndices).size === 0 && leftUnsaved.length === 0) {
       clearUnsavedChanges();
     }
   } finally {

@@ -83,6 +83,7 @@
         ? ` (${$strokeCount - untranscribedCount}/${$strokeCount} already transcribed)` : '');
 
   function handleClearCanvas() {
+    if ($unsavedChanges && !confirm('The canvas has unsaved changes. Clear it anyway and lose them?')) return;
     clearStrokes();
     // Every store that holds positions into the strokes array, now empty: a
     // stale index would select (or delete) whatever lands there next.
@@ -136,7 +137,7 @@
     showSaveConfirmDialog = false;
     isSaving = true;
     try {
-      await saveCanvasPages(event?.detail?.selectedPages || []);
+      await saveCanvasPages(event?.detail?.selectedPages || [], { leftUnsaved: event?.detail?.leftUnsaved || [] });
     } catch (error) {
       log(`Save failed: ${error.message}`, 'error');
     } finally {

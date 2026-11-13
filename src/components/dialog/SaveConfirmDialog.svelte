@@ -103,7 +103,9 @@
   }
 
   function handleConfirm() {
-    dispatch('confirm', { selectedPages: Array.from(selectedPages) });
+    // Unticked pages that still have changes keep the canvas dirty after the save.
+    const leftUnsaved = changesList.filter(item => !selectedPages.has(item.pageKey)).map(item => item.pageKey);
+    dispatch('confirm', { selectedPages: Array.from(selectedPages), leftUnsaved });
   }
 
   function handleCancel() {
