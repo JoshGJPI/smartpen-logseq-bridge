@@ -46,11 +46,12 @@ App.svelte (Root)
 │   │   `lib/capture-bar.js`; also draws the offline-transfer progress popup)
 │   ├── PenChip (pen state + battery; Connect; while connected, the dot + name open the pen menu:
 │   │   Fetch notes (offline import) · Manage pen memory… (PenMemoryDialog) · Disconnect)
-│   └── SettingsDropdown (gear, warning dot when the data folder is not ready; MyScript, Data Folder,
-│       │                 Notebooks (folds, state remembered), Graph Folder, Troubleshooting)
+│   └── SettingsDropdown (gear, warning dot when the data folder is not ready; folding SettingsSections, v3.14.0:
+│       │                 Pen, Notebooks, Data folder, Publish to LogSeq, Handwriting recognition, Maintenance)
 │       ├── BooksTab (Settings → Notebooks: per-notebook aliases + volume routing)
-│       ├── ConvertTaskBoxesDialog (Data Folder → Convert task boxes…: preview, then write; v3.3.0)
-│       └── ActivityLogDialog (Troubleshooting → 🩺, filter by level + copy)
+│       ├── ConvertTaskBoxesDialog (Maintenance → Convert task boxes…: preview, then write; v3.3.0)
+│       ├── DuplicateStrokesDialog (Maintenance → Clean up duplicate strokes…: preview, then write; v3.18.0)
+│       └── ActivityLogDialog (Maintenance → 🩺, filter by level + copy)
 ├── LeftPanel (contextual tabs — see "Left panel tabs" below; folds to a 48 px rail, `stores/left-panel.js`)
 │   ├── LibraryContents ("Contents", Library — notebooks and pages from the scan, ● = transcribed)
 │   ├── StrokeList ("Strokes", Editor — browse by book/page)
@@ -363,7 +364,7 @@ All state is managed through Svelte stores located in `src/stores/`. Main-proces
 
 **Advanced:**
 - `filtered-strokes.js` - Decorative element detection
-- `pending-changes.js` - Tracks local changes before save (additions, edits, modifications, deletions per page)
+- `pending-changes.js` - Tracks local changes before save (additions, edits, modifications, moves, retimes, deletions per page)
   - `deletedIndices` — set of stroke indices marked for deletion
   - `pendingChanges` — derived store computing additions/**edits**/**modifications**/deletions per page (pure core `computePendingChangesMap()`, tested). `edits` are strokes already on disk whose *geometry* shrank (points deleted); `modifications` are strokes already on disk whose *sketch flag* was toggled. Both move no stroke count. **Every stroke lands in exactly one bucket:** new-and-anything is an addition (the save writes the whole stroke), and edited-and-reflagged is an edit (the stronger claim; one save carries both)
   - `getDeletedStrokeIdsForPage()` — converts indices to stroke IDs for the save call

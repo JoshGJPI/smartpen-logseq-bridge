@@ -9,7 +9,9 @@ a 1,500 px long edge and 2,000 visual tokens) instead of bytes, `@resvg/resvg-wa
 the server runs from the development checkout. Gone: `get_strokes`, `format: "svg"`, the `composite` / `by_day` sheets,
 the `rotation` override, `context: false`, `maxBytes` and the custom PNG encoder. The plan below is kept as written,
 marked where it no longer holds. Decided 2026-10-21 (Josh): an MCP server over the data folder, not
-an HTTP port inside the app and not a Claude Code skill.
+an HTTP port inside the app and not a Claude Code skill. **Since v3.18.0** the server can also register two write
+tools (`edit_transcript`, `undo_transcript_edit`, only with `SMARTPEN_MCP_WRITES=1`) that ask the running app to edit a
+transcript and never write a file; "read-only" below holds without that flag. Design: [MCP-WRITE-SPEC.md](MCP-WRITE-SPEC.md).
 
 ## Goal
 

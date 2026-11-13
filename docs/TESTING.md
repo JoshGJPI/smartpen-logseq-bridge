@@ -305,7 +305,7 @@ When making changes, also verify manually:
   entries on the clipboard oldest-first
 - **Task boxes** (v3.3.0): transcribe a page with a drawn box and a ticked box → the Library transcript shows a TODO
   and a DONE box with no ☐ / ☑ in the text, and Copy all gives `- TODO …` / `- DONE …`. Re-transcribe it: no
-  duplicate lines, a ticked state stays. On a COPY of an older data folder, Settings → Data Folder → Convert task
+  duplicate lines, a ticked state stays. On a COPY of an older data folder, Settings → Maintenance → Convert task
   boxes… lists every line (page, TODO / DONE, old → new) and writes nothing on Cancel; Convert writes them, the
   reader and search show the new text without Rescan, Ink + text hover behaves as before, and opening the action
   again finds nothing. With a Library transcript edit open, Convert is disabled. (Checked 2026-10-22 on a copy of the
