@@ -20,7 +20,35 @@ vi.mock('../storage/local-store.js', () => ({
 }));
 
 import { getPage } from '../storage/local-store.js';
-import { computePageChangesFolder } from '../storage/page-changes.js';
+import { computePageChangesFolder, hasPageChanges, sumSelectedChanges } from '../storage/page-changes.js';
+
+describe('hasPageChanges / sumSelectedChanges', () => {
+  const item = (pageKey, extra = {}) => ({
+    pageKey, strokeAdditions: 0, strokeEdits: 0, strokeModifications: 0, strokeDeletions: 0,
+    strokeMoves: 0, strokeRetimes: 0, hasNewTranscription: false, transcriptionChanged: false, ...extra
+  });
+
+  it('a preview with no counts and no transcript has nothing to save', () => {
+    expect(hasPageChanges(item('a'))).toBe(false);
+    expect(hasPageChanges(null)).toBe(false);
+    expect(hasPageChanges(item('a', { strokeRetimes: 1 }))).toBe(true);
+    expect(hasPageChanges(item('a', { transcriptionChanged: true }))).toBe(true);
+  });
+
+  it('sums only the ticked pages', () => {
+    const items = [
+      item('a', { strokeAdditions: 2, strokeDeletions: 1, hasNewTranscription: true }),
+      item('b', { strokeAdditions: 5, strokeMoves: 3, transcriptionChanged: true }),
+      item('c', { strokeEdits: 4 })
+    ];
+    expect(sumSelectedChanges(items, new Set(['a', 'b']))).toEqual({
+      pages: 2, strokeAdditions: 7, strokeEdits: 0, strokeModifications: 0, strokeDeletions: 1,
+      strokeMoves: 3, strokeRetimes: 0, newTranscriptions: 1, changedTranscriptions: 1
+    });
+    expect(sumSelectedChanges(items, new Set()).pages).toBe(0);
+    expect(sumSelectedChanges(null, null).pages).toBe(0);
+  });
+});
 
 /** Canvas-format stroke (what the dialog passes in). */
 function canvasStroke(startTime, extra = {}) {

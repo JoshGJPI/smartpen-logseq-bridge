@@ -6,6 +6,7 @@ import { writable, derived } from 'svelte/store';
 import { setFilteredStrokes } from './filtered-strokes.js';
 import { batchOriginY } from '$lib/myscript-api.js';
 import { isPageReset } from './transcript-reset.js';
+import { compareBookKeys } from '$lib/volumes.js';
 
 // Last transcription result (legacy - combined view)
 export const lastTranscription = writable(null);
@@ -33,13 +34,10 @@ export const pageTranscriptionsArray = derived(
     $pt.forEach((transcription, pageKey) => {
       arr.push({ pageKey, ...transcription });
     });
-    // Sort by book then page
-    arr.sort((a, b) => {
-      if (a.pageInfo.book !== b.pageInfo.book) {
-        return a.pageInfo.book - b.pageInfo.book;
-      }
-      return a.pageInfo.page - b.pageInfo.page;
-    });
+    // Book key order (NCode book, then volume), then page. `a - b` on book
+    // keys is NaN for a volume key ("388v2"), which left the order undefined.
+    arr.sort((a, b) =>
+      compareBookKeys(a.pageInfo.book, b.pageInfo.book) || (a.pageInfo.page - b.pageInfo.page));
     return arr;
   }
 );

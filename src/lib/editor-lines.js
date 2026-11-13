@@ -193,3 +193,43 @@ export function buildEditedTranscript(editedLines, base, disk, newId) {
   }
   return { lines: keepDiskTaskState(built, base, disk), lineIdRemap };
 }
+
+/**
+ * The dialog's status for a line: 'new' (no saved counterpart), 'modified'
+ * (saved, and changed in the dialog) or 'synced' (saved, unchanged).
+ *
+ * A line with no saved counterpart stays new however much it is edited:
+ * "modified" only means something relative to a copy already on disk.
+ *
+ * @param {{syncStatus?: string, blockUuid?: string|null, userModified?: boolean}} line
+ * @returns {'new'|'modified'|'synced'}
+ */
+export function editorLineStatus(line) {
+  if (line.syncStatus === 'new' || !line.blockUuid) return 'new';
+  if (line.syncStatus === 'modified' || line.userModified) return 'modified';
+  return 'synced';
+}
+
+/**
+ * Adjacent pairs that look like one sentence broken across two lines: same
+ * indent, the first doesn't end a sentence, the second starts lowercase, and
+ * they sit close together on the page. Lines without yBounds are never paired.
+ *
+ * @param {Array<{text?: string, indentLevel?: number, yBounds?: {minY: number, maxY: number}|null}>} lines
+ * @returns {Array<{indices: [number, number], confidence: number}>}
+ */
+export function detectMergeSuggestions(lines) {
+  const suggestions = [];
+  for (let i = 0; i < (lines || []).length - 1; i++) {
+    const current = lines[i];
+    const next = lines[i + 1];
+    if (!current?.yBounds || !next?.yBounds) continue;
+    const sameLine =
+      (current.indentLevel || 0) === (next.indentLevel || 0) &&
+      !/[.!?]$/.test(current.text || '') &&
+      /^[a-z]/.test(next.text || '') &&
+      Math.abs(current.yBounds.maxY - next.yBounds.minY) < 20;
+    if (sameLine) suggestions.push({ indices: [i, i + 1], confidence: 0.8 });
+  }
+  return suggestions;
+}

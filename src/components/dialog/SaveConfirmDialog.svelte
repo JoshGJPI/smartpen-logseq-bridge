@@ -1,216 +1,119 @@
 <!--
-  SaveConfirmDialog.svelte - Git-style commit confirmation dialog
-  Shows pending changes before saving to the data folder
+  SaveConfirmDialog.svelte - What the Editor's Save will change, page by page,
+  computed against the files on disk (lib/storage/page-changes.js); the ticked
+  pages go to the save (stores/canvas-save.js, via ActionBar). Rows are
+  SaveChangeRow.svelte.
 -->
 <script>
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { createEventDispatcher } from 'svelte';
   import {
     getActiveStrokesForPage, getDeletedStrokeIdsForPage, getMovedAwayStrokeIdsForPage,
     getRetimedAwayStrokeIdsForPage
   } from '$stores/pending-changes.js';
   import { getBookAlias } from '$stores/book-aliases.js';
-  import { computePageChangesFolder as computePageChanges } from '$lib/storage/page-changes.js';
-  import { compareBookKeys, volumeBadge, ncodeBookOf } from '$lib/volumes.js';
+  import {
+    computePageChangesFolder as computePageChanges, hasPageChanges, sumSelectedChanges
+  } from '$lib/storage/page-changes.js';
+  import { compareBookKeys } from '$lib/volumes.js';
+  import { plural } from '$lib/plural.js';
   import { strokes, pageTranscriptions } from '$stores';
-  
-  export let visible = false;
-  
-  const dispatch = createEventDispatcher();
-  
-  // State
-  let isLoading = true;
-  let changesList = [];
-  let selectedPages = new Set(); // Track which pages are selected for save
-  let totalStrokeAdditions = 0;
-  let totalStrokeEdits = 0;
-  let totalStrokeModifications = 0;
-  let totalStrokeDeletions = 0;
-  let totalStrokeMoves = 0;
-  let totalStrokeRetimes = 0;
-  let totalNewTranscriptions = 0;
-  let totalChangedTranscriptions = 0;
-  let totalPages = 0;
+  import SaveChangeRow from './SaveChangeRow.svelte';
 
-  // Compute derived values from selected pages only
-  $: selectedStrokeAdditions = changesList
-    .filter(item => selectedPages.has(item.pageKey))
-    .reduce((sum, item) => sum + item.strokeAdditions, 0);
-  $: selectedStrokeEdits = changesList
-    .filter(item => selectedPages.has(item.pageKey))
-    .reduce((sum, item) => sum + item.strokeEdits, 0);
-  $: selectedStrokeModifications = changesList
-    .filter(item => selectedPages.has(item.pageKey))
-    .reduce((sum, item) => sum + item.strokeModifications, 0);
-  $: selectedStrokeDeletions = changesList
-    .filter(item => selectedPages.has(item.pageKey))
-    .reduce((sum, item) => sum + item.strokeDeletions, 0);
-  $: selectedStrokeMoves = changesList
-    .filter(item => selectedPages.has(item.pageKey))
-    .reduce((sum, item) => sum + (item.strokeMoves || 0), 0);
-  $: selectedStrokeRetimes = changesList
-    .filter(item => selectedPages.has(item.pageKey))
-    .reduce((sum, item) => sum + (item.strokeRetimes || 0), 0);
-  // A move source that isn't saved leaves the stroke in BOTH volumes, so the
-  // dialog refuses to let one be deselected rather than warning about it.
-  $: unsavedMoveSources = changesList
-    .filter(item => item.isMoveSource && !selectedPages.has(item.pageKey));
-  $: selectedNewTranscriptions = changesList
-    .filter(item => selectedPages.has(item.pageKey) && item.hasNewTranscription)
-    .length;
-  $: selectedChangedTranscriptions = changesList
-    .filter(item => selectedPages.has(item.pageKey) && item.transcriptionChanged)
-    .length;
-  $: selectedPagesCount = selectedPages.size;
+  export let visible = false;
+
+  const dispatch = createEventDispatcher();
+
+  let isLoading = true;
+  let loadError = null;
+  let changesList = [];
+  let selectedPages = new Set(); // pageKeys ticked for save
+  let run = 0;                   // the latest computeChanges(); older results are dropped
+
+  $: totals = sumSelectedChanges(changesList, selectedPages);
   $: hasSelection = selectedPages.size > 0;
   $: allSelected = selectedPages.size === changesList.length && changesList.length > 0;
-  
+  $: moveSourceCount = changesList.filter(item => item.isMoveSource).length;
+
   // Compute actual changes when dialog opens
   $: if (visible) {
     computeChanges();
   }
-  
+
   async function computeChanges() {
+    const thisRun = ++run;
     isLoading = true;
+    loadError = null;
     changesList = [];
-    totalStrokeAdditions = 0;
-    totalStrokeEdits = 0;
-    totalStrokeModifications = 0;
-    totalStrokeDeletions = 0;
-    totalNewTranscriptions = 0;
-    totalChangedTranscriptions = 0;
-    
-    // Get all pages with strokes
+
+    // Every page with strokes on the canvas, plus the pages a reassigned stroke
+    // LEFT: those may have no canvas strokes any more, and a page that isn't
+    // listed can't be selected, so it would silently keep its copy of every
+    // stroke that moved, leaving them in two volumes at once.
     const pageMap = new Map();
-    $strokes.forEach(stroke => {
-      const pageInfo = stroke.pageInfo;
-      if (!pageInfo || pageInfo.book === undefined || pageInfo.page === undefined) return;
-      
-      const key = `${pageInfo.book}-${pageInfo.page}`;
-      if (!pageMap.has(key)) {
-        pageMap.set(key, {
-          book: pageInfo.book,
-          page: pageInfo.page
-        });
-      }
-    });
-
-    // Pages a reassigned stroke LEFT. They may have no canvas strokes at all any
-    // more, so the loop above wouldn't list them — and a page that isn't listed
-    // can't be selected, so it would silently keep its copy of every stroke that
-    // moved, leaving them in two volumes at once.
-    $strokes.forEach(stroke => {
-      const from = stroke?.movedFrom;
-      if (!from || from.book === undefined || from.page === undefined) return;
-      const key = `${from.book}-${from.page}`;
-      if (!pageMap.has(key)) {
-        pageMap.set(key, { book: from.book, page: from.page, isMoveSource: true });
-      } else {
-        pageMap.get(key).isMoveSource = true;
-      }
-    });
-
-
-    // Compute changes for each page
-    const promises = [];
-    for (const [key, pageData] of pageMap) {
-      const activeStrokes = getActiveStrokesForPage(pageData.book, pageData.page);
-      
-      // Find transcription for this page
-      let transcription = null;
-      for (const [pageKey, trans] of $pageTranscriptions) {
-        if (trans.pageInfo.book === pageData.book && trans.pageInfo.page === pageData.page) {
-          transcription = trans;
-          break;
-        }
-      }
-      
-      // Get explicit deletion IDs for accurate deletion count
-      const deletedIds = getDeletedStrokeIdsForPage(pageData.book, pageData.page);
-      const movedAwayIds = getMovedAwayStrokeIdsForPage(pageData.book, pageData.page);
-      const retimedAwayIds = getRetimedAwayStrokeIdsForPage(pageData.book, pageData.page);
-
-      const promise = computePageChanges(
-        pageData.book,
-        pageData.page,
-        activeStrokes,
-        transcription,
-        deletedIds,
-        movedAwayIds,
-        retimedAwayIds
-      ).then(changes => ({
-        pageKey: key,
-        book: pageData.book,
-        page: pageData.page,
-        bookAlias: getBookAlias(pageData.book),
-        isMoveSource: !!pageData.isMoveSource,
-        strokeAdditions: changes.strokeAdditions,
-        strokeEdits: changes.strokeEdits,
-        strokeModifications: changes.strokeModifications,
-        strokeDeletions: changes.strokeDeletions,
-        strokeMoves: changes.strokeMoves,
-        strokeRetimes: changes.strokeRetimes,
-        strokeTotal: changes.strokeTotal,
-        hasNewTranscription: changes.hasNewTranscription,
-        transcriptionChanged: changes.transcriptionChanged
-      }));
-      
-      promises.push(promise);
+    for (const stroke of $strokes) {
+      const pi = stroke.pageInfo;
+      if (!pi || pi.book === undefined || pi.page === undefined) continue;
+      const key = `${pi.book}-${pi.page}`;
+      if (!pageMap.has(key)) pageMap.set(key, { book: pi.book, page: pi.page });
     }
-    
+    for (const stroke of $strokes) {
+      const from = stroke?.movedFrom;
+      if (!from || from.book === undefined || from.page === undefined) continue;
+      const key = `${from.book}-${from.page}`;
+      if (!pageMap.has(key)) pageMap.set(key, { book: from.book, page: from.page });
+      pageMap.get(key).isMoveSource = true;
+    }
+
+    const transcriptions = [...$pageTranscriptions.values()];
+    const promises = [...pageMap].map(([key, { book, page, isMoveSource }]) => {
+      const transcription = transcriptions.find(t => t.pageInfo.book === book && t.pageInfo.page === page) || null;
+      return computePageChanges(
+        book, page,
+        getActiveStrokesForPage(book, page),
+        transcription,
+        getDeletedStrokeIdsForPage(book, page),
+        getMovedAwayStrokeIdsForPage(book, page),
+        getRetimedAwayStrokeIdsForPage(book, page)
+      ).then(changes => ({
+        ...changes,
+        pageKey: key,
+        book,
+        page,
+        bookAlias: getBookAlias(book),
+        isMoveSource: !!isMoveSource
+      }));
+    });
+
     try {
       const results = await Promise.all(promises);
-      
-      // Filter to only pages with changes
+      if (thisRun !== run) return;
+      // Book key order (NCode book, then volume), then page. `a.book - b.book`
+      // is NaN for a volume key.
       changesList = results
-        .filter(item =>
-          item.strokeAdditions > 0 ||
-          item.strokeEdits > 0 ||
-          item.strokeModifications > 0 ||
-          item.strokeDeletions > 0 ||
-          item.strokeMoves > 0 ||
-          item.strokeRetimes > 0 ||
-          item.hasNewTranscription ||
-          item.transcriptionChanged
-        )
-        .sort((a, b) => {
-          // Book key order (NCode book, then volume), then page. `a.book - b.book`
-          // is NaN for a volume key.
-          return compareBookKeys(a.book, b.book) || (a.page - b.page);
-        });
-
-      totalStrokeAdditions = changesList.reduce((sum, item) => sum + item.strokeAdditions, 0);
-      totalStrokeEdits = changesList.reduce((sum, item) => sum + item.strokeEdits, 0);
-      totalStrokeModifications = changesList.reduce((sum, item) => sum + item.strokeModifications, 0);
-      totalStrokeDeletions = changesList.reduce((sum, item) => sum + item.strokeDeletions, 0);
-      totalStrokeMoves = changesList.reduce((sum, item) => sum + item.strokeMoves, 0);
-      totalStrokeRetimes = changesList.reduce((sum, item) => sum + item.strokeRetimes, 0);
-      totalNewTranscriptions = changesList.filter(item => item.hasNewTranscription).length;
-      totalChangedTranscriptions = changesList.filter(item => item.transcriptionChanged).length;
-      totalPages = changesList.length;
-      
-      // Select all pages by default
+        .filter(hasPageChanges)
+        .sort((a, b) => compareBookKeys(a.book, b.book) || (a.page - b.page));
       selectedPages = new Set(changesList.map(item => item.pageKey));
     } catch (error) {
+      if (thisRun !== run) return;
       console.error('Failed to compute changes:', error);
+      loadError = error?.message || String(error);
     } finally {
-      isLoading = false;
+      if (thisRun === run) isLoading = false;
     }
   }
-  
+
   function handleConfirm() {
-    // Pass selected pages to the save handler
     dispatch('confirm', { selectedPages: Array.from(selectedPages) });
   }
-  
+
   function handleCancel() {
     dispatch('cancel');
   }
-  
-  function formatPageName(item) {
-    const badge = volumeBadge(item.book);
-    const fallback = badge ? `Book ${ncodeBookOf(item.book)} ${badge}` : `Book ${item.book}`;
-    const alias = item.bookAlias || fallback;
-    return `${alias} / Page ${item.page}`;
+
+  function handleKeydown(event) {
+    if (!visible || event.defaultPrevented || event.key !== 'Escape') return;
+    event.preventDefault();
+    handleCancel();
   }
 
   /**
@@ -219,16 +122,11 @@
    * user has any reason to want — so the checkbox is disabled rather than the
    * outcome being explained after the fact.
    */
-  function togglePageSelection(pageKey) {
-    const item = changesList.find(i => i.pageKey === pageKey);
-    if (item?.isMoveSource && selectedPages.has(pageKey)) return;
-
+  function togglePageSelection(item) {
+    if (item.isMoveSource && selectedPages.has(item.pageKey)) return;
     selectedPages = new Set(selectedPages);
-    if (selectedPages.has(pageKey)) {
-      selectedPages.delete(pageKey);
-    } else {
-      selectedPages.add(pageKey);
-    }
+    if (selectedPages.has(item.pageKey)) selectedPages.delete(item.pageKey);
+    else selectedPages.add(item.pageKey);
   }
 
   function selectAll() {
@@ -237,181 +135,129 @@
 
   function deselectAll() {
     // Move sources stay in — see togglePageSelection.
-    selectedPages = new Set(
-      changesList.filter(item => item.isMoveSource).map(item => item.pageKey)
-    );
+    selectedPages = new Set(changesList.filter(item => item.isMoveSource).map(item => item.pageKey));
   }
 </script>
 
+<svelte:window on:keydown={handleKeydown} />
+
 {#if visible}
-  <!-- Backdrop -->
+  <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
   <div class="dialog-backdrop" on:click={handleCancel}></div>
-  
-  <!-- Dialog -->
+
   <div class="dialog" role="dialog" aria-modal="true" aria-label="Confirm save">
     <div class="dialog-header">
       <h2>💾 Confirm Save</h2>
-      <button class="close-btn" on:click={handleCancel} title="Cancel">✕</button>
+      <button class="close-btn" on:click={handleCancel} title="Cancel (Esc)" aria-label="Cancel">✕</button>
     </div>
-    
+
     <div class="dialog-body">
     {#if isLoading}
       <div class="loading">
-      <div class="spinner"></div>
-    <p>Computing changes...</p>
-    </div>
+        <div class="spinner"></div>
+        <p>Computing changes…</p>
+      </div>
+    {:else if loadError}
+      <div class="no-changes">
+        <p>⚠️ Could not work out what would change: {loadError}</p>
+      </div>
     {:else if changesList.length === 0}
-    <div class="no-changes">
-    <p>⚠️ No changes to save</p>
-    </div>
+      <div class="no-changes">
+        <p>Nothing to save: the loaded pages match the data folder.</p>
+      </div>
     {:else}
-    <!-- Selection Controls -->
-    <div class="selection-controls">
-      <button class="select-btn" on:click={selectAll} disabled={allSelected}>
-        ✓ Select All
-      </button>
-      <button class="select-btn" on:click={deselectAll} disabled={!hasSelection}>
-        ✗ Deselect All
-      </button>
-      <span class="selection-info">
-        {selectedPagesCount} of {totalPages} selected
-      </span>
-    </div>
-    
-    <!-- Summary -->
-    <div class="summary">
-      <div class="summary-item">
-        <span class="summary-label">Pages:</span>
-        <span class="summary-value">{selectedPagesCount}</span>
+      <div class="selection-controls">
+        <button class="select-btn" on:click={selectAll} disabled={allSelected}>
+          ✓ Select all
+        </button>
+        <button class="select-btn" on:click={deselectAll} disabled={selectedPages.size <= moveSourceCount}>
+          ✗ Deselect all
+        </button>
+        <span class="selection-info">
+          {selectedPages.size} of {changesList.length} selected
+        </span>
       </div>
-      <div class="summary-item additions" class:zero={selectedStrokeAdditions === 0}>
-        <span class="summary-label">Adding:</span>
-        <span class="summary-value">+{selectedStrokeAdditions} strokes</span>
-      </div>
-      <div class="summary-item edits" class:zero={selectedStrokeEdits === 0}>
-        <span class="summary-label">Editing:</span>
-        <span class="summary-value">✎{selectedStrokeEdits} strokes</span>
-      </div>
-      <div class="summary-item modifications" class:zero={selectedStrokeModifications === 0}>
-        <span class="summary-label">Restyling:</span>
-        <span class="summary-value">~{selectedStrokeModifications} strokes</span>
-      </div>
-      <div class="summary-item retimes" class:zero={selectedStrokeRetimes === 0}>
-        <span class="summary-label">Retiming:</span>
-        <span class="summary-value">🕒{selectedStrokeRetimes} strokes</span>
-      </div>
-      <div class="summary-item moves" class:zero={selectedStrokeMoves === 0}>
-        <span class="summary-label">Moving:</span>
-        <span class="summary-value">→{selectedStrokeMoves} strokes</span>
-      </div>
-      <div class="summary-item deletions" class:zero={selectedStrokeDeletions === 0}>
-        <span class="summary-label">Deleting:</span>
-        <span class="summary-value">-{selectedStrokeDeletions} strokes</span>
-      </div>
-      <div class="summary-item transcription-new" class:zero={selectedNewTranscriptions === 0}>
-        <span class="summary-label">New Text:</span>
-        <span class="summary-value">{selectedNewTranscriptions} page(s)</span>
-      </div>
-      <div class="summary-item transcription-changed" class:zero={selectedChangedTranscriptions === 0}>
-        <span class="summary-label">Updated Text:</span>
-        <span class="summary-value">{selectedChangedTranscriptions} page(s)</span>
-      </div>
-    </div>
-    
-    <!-- Changes List -->
-    <div class="changes-list">
-      {#each changesList as item}
-        <div class="change-item" class:selected={selectedPages.has(item.pageKey)}>
-          <label class="checkbox-label">
-            <input
-              type="checkbox"
-              checked={selectedPages.has(item.pageKey)}
-              disabled={item.isMoveSource}
-              title={item.isMoveSource
-                ? 'Required: this page still holds the strokes you moved to another volume'
-                : ''}
-              on:change={() => togglePageSelection(item.pageKey)}
-            />
-            <div class="page-name">
-              📄 {formatPageName(item)}
-              {#if item.isMoveSource}
-                <span class="required-tag" title="Must be saved so the moved strokes don't remain here too">required</span>
-              {/if}
-            </div>
-          </label>
-          <div class="change-stats">
-            {#if item.strokeAdditions > 0}
-              <span class="stat additions">+{item.strokeAdditions} strokes</span>
-            {/if}
-            {#if item.strokeEdits > 0}
-              <span class="stat edits" title="Points deleted from strokes already saved — their stored point data will be rewritten">
-                ✎ {item.strokeEdits} edited
-              </span>
-            {/if}
-            {#if item.strokeModifications > 0}
-              <span class="stat modifications" title="Sketch flag changed on strokes already saved">
-                ✏️ {item.strokeModifications} restyled
-              </span>
-            {/if}
-            {#if item.strokeRetimes > 0}
-              <span class="stat retimes" title="Times changed on strokes already saved — rewritten at their new times, the copies at the old times removed">
-                🕒 {item.strokeRetimes} retimed
-              </span>
-            {/if}
-            {#if item.strokeMoves > 0}
-              <span class="stat moves" title="Reassigned to another volume — kept there, removed from this page">
-                → {item.strokeMoves} moved
-              </span>
-            {/if}
-            {#if item.strokeDeletions > 0}
-              <span class="stat deletions">-{item.strokeDeletions} strokes</span>
-            {/if}
-            {#if item.hasNewTranscription}
-              <span class="stat transcription-new">✨ New transcription</span>
-            {/if}
-            {#if item.transcriptionChanged}
-              <span class="stat transcription-changed">📝 Updated transcription</span>
-            {/if}
-          </div>
+
+      <div class="summary">
+        <div class="summary-item">
+          <span class="summary-label">Pages:</span>
+          <span class="summary-value">{totals.pages}</span>
         </div>
-      {/each}
-    </div>
-    
-      {#if selectedStrokeEdits > 0}
+        <div class="summary-item additions" class:zero={totals.strokeAdditions === 0}>
+          <span class="summary-label">Adding:</span>
+          <span class="summary-value">+{totals.strokeAdditions} {plural(totals.strokeAdditions, 'stroke')}</span>
+        </div>
+        <div class="summary-item edits" class:zero={totals.strokeEdits === 0}>
+          <span class="summary-label">Editing:</span>
+          <span class="summary-value">✎{totals.strokeEdits} {plural(totals.strokeEdits, 'stroke')}</span>
+        </div>
+        <div class="summary-item modifications" class:zero={totals.strokeModifications === 0}>
+          <span class="summary-label">Restyling:</span>
+          <span class="summary-value">~{totals.strokeModifications} {plural(totals.strokeModifications, 'stroke')}</span>
+        </div>
+        <div class="summary-item retimes" class:zero={totals.strokeRetimes === 0}>
+          <span class="summary-label">Retiming:</span>
+          <span class="summary-value">🕒{totals.strokeRetimes} {plural(totals.strokeRetimes, 'stroke')}</span>
+        </div>
+        <div class="summary-item moves" class:zero={totals.strokeMoves === 0}>
+          <span class="summary-label">Moving:</span>
+          <span class="summary-value">→{totals.strokeMoves} {plural(totals.strokeMoves, 'stroke')}</span>
+        </div>
+        <div class="summary-item deletions" class:zero={totals.strokeDeletions === 0}>
+          <span class="summary-label">Deleting:</span>
+          <span class="summary-value">-{totals.strokeDeletions} {plural(totals.strokeDeletions, 'stroke')}</span>
+        </div>
+        <div class="summary-item transcription-new" class:zero={totals.newTranscriptions === 0}>
+          <span class="summary-label">New text:</span>
+          <span class="summary-value">{totals.newTranscriptions} {plural(totals.newTranscriptions, 'page')}</span>
+        </div>
+        <div class="summary-item transcription-changed" class:zero={totals.changedTranscriptions === 0}>
+          <span class="summary-label">Updated text:</span>
+          <span class="summary-value">{totals.changedTranscriptions} {plural(totals.changedTranscriptions, 'page')}</span>
+        </div>
+      </div>
+
+      <div class="changes-list">
+        {#each changesList as item (item.pageKey)}
+          <SaveChangeRow {item} selected={selectedPages.has(item.pageKey)} on:toggle={() => togglePageSelection(item)} />
+        {/each}
+      </div>
+
+      {#if totals.strokeEdits > 0}
         <div class="warning">
-          ✎ {selectedStrokeEdits} stroke{selectedStrokeEdits !== 1 ? 's' : ''} had points deleted.
-          Saving <strong>rewrites their stored point data</strong> — the removed points are gone for
+          ✎ {totals.strokeEdits} {plural(totals.strokeEdits, 'stroke')} had points deleted or snapped.
+          Saving <strong>rewrites their stored point data</strong> — the old points are gone for
           good. Every other save only adds or removes whole strokes; this is the one case where
           captured geometry is overwritten. Stroke IDs, transcript links and sketch pressure are
           preserved.
         </div>
       {/if}
 
-      {#if selectedStrokeMoves > 0}
+      {#if totals.strokeMoves > 0}
         <div class="warning">
-          → {selectedStrokeMoves} stroke{selectedStrokeMoves !== 1 ? 's' : ''} moved to another volume.
-          The source page{unsavedMoveSources.length === 1 ? '' : 's'} <strong>must be saved too</strong>
+          → {totals.strokeMoves} {plural(totals.strokeMoves, 'stroke')} moved to another volume.
+          The source {plural(moveSourceCount, 'page')} <strong>must be saved too</strong>
           (marked <em>required</em> above) or the strokes stay in both volumes. If a page ends up with no
           strokes left, its transcript follows them and the emptied file is removed.
         </div>
       {/if}
 
-      {#if selectedStrokeDeletions > 0}
+      {#if totals.strokeDeletions > 0}
         <div class="warning">
           ⚠️ Deleted strokes will be permanently removed from the saved page after this save.
         </div>
       {/if}
     {/if}
-  </div>
-  
-  <div class="dialog-footer">
-    <button class="btn btn-cancel" on:click={handleCancel}>
-      Cancel
-    </button>
-    <button class="btn btn-confirm" on:click={handleConfirm} disabled={isLoading || !hasSelection}>
-      {isLoading ? 'Loading...' : hasSelection ? `Confirm & Save (${selectedPagesCount})` : 'Select pages to save'}
-    </button>
-  </div>
+    </div>
+
+    <div class="dialog-footer">
+      <button class="btn btn-cancel" on:click={handleCancel}>
+        Cancel
+      </button>
+      <button class="btn btn-confirm" on:click={handleConfirm} disabled={isLoading || !hasSelection}>
+        {isLoading ? 'Loading…' : hasSelection ? `Confirm & Save (${selectedPages.size})` : 'Select pages to save'}
+      </button>
+    </div>
   </div>
 {/if}
 
@@ -614,115 +460,6 @@
     overflow-y: auto;
   }
   
-  .change-item {
-    display: flex;
-    flex-direction: column;
-    padding: 12px 16px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    transition: all 0.2s;
-  }
-  
-  .change-item.selected {
-    border-color: var(--accent);
-    background: rgba(33, 150, 243, 0.05);
-  }
-  
-  .change-item:hover {
-    background: var(--bg-tertiary);
-  }
-  
-  .change-item.selected:hover {
-    background: rgba(33, 150, 243, 0.08);
-  }
-  
-  .checkbox-label {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    width: 100%;
-    cursor: pointer;
-  }
-  
-  .checkbox-label input[type="checkbox"] {
-    width: 18px;
-    height: 18px;
-    margin-right: 12px;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-  
-  .page-name {
-    font-size: 0.9rem;
-    font-weight: 500;
-    color: var(--text-primary);
-    flex: 1;
-  }
-  
-  .change-stats {
-    display: flex;
-    gap: 12px;
-    font-size: 0.85rem;
-    font-weight: 600;
-  }
-  
-  .stat {
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-family: 'Courier New', monospace;
-  }
-  
-  .stat.additions {
-    color: var(--success);
-    background: rgba(34, 197, 94, 0.1);
-  }
-  
-  .stat.edits {
-    color: #f59e0b;
-    background: rgba(245, 158, 11, 0.12);
-  }
-
-  .stat.modifications {
-    color: #06b6d4;
-    background: rgba(6, 182, 212, 0.1);
-  }
-
-  .stat.retimes {
-    color: #2dd4bf;
-    background: rgba(45, 212, 191, 0.12);
-  }
-
-  .stat.moves {
-    color: #8b5cf6;
-    background: rgba(139, 92, 246, 0.1);
-  }
-
-  .stat.deletions {
-    color: var(--error);
-    background: rgba(239, 68, 68, 0.1);
-  }
-
-  .required-tag {
-    margin-left: 6px;
-    padding: 1px 6px;
-    border-radius: 3px;
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: #8b5cf6;
-    background: rgba(139, 92, 246, 0.12);
-  }
-  
-  .stat.transcription-new {
-    color: #8b5cf6;
-    background: rgba(139, 92, 246, 0.1);
-  }
-  
-  .stat.transcription-changed {
-    color: #f59e0b;
-    background: rgba(245, 158, 11, 0.1);
-  }
   
   .warning {
     margin-top: 20px;

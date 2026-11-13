@@ -1,7 +1,6 @@
 /**
- * Compute the per-page change preview shown by SaveConfirmDialog.
- *
- * v2.0 folder-backed replacement for logseq-api.js computePageChanges().
+ * Compute the per-page change preview shown by SaveConfirmDialog, against the
+ * PageDoc on disk.
  *
  * Returns: { strokeAdditions, strokeEdits, strokeModifications, strokeDeletions,
  *            strokeMoves, strokeRetimes, strokeTotal, hasNewTranscription, transcriptionChanged }
@@ -86,7 +85,7 @@ export async function computePageChangesFolder(
             strokeAdditions++;
           }
         } else if (isPointEdited(s, stored)) {
-          // Already on disk, but the user deleted points from it. The save
+          // Already on disk, but the user deleted or snapped points. The save
           // rewrites the stored stroke's geometry — the one case where captured
           // data is overwritten — so it gets its own category and its own
           // warning, not the flag bucket.
@@ -153,4 +152,35 @@ export async function computePageChangesFolder(
       transcriptionChanged: false
     };
   }
+}
+
+/** Does a page's change preview (computePageChangesFolder) have anything to save? */
+export function hasPageChanges(c) {
+  return !!c && (c.strokeAdditions > 0 || c.strokeEdits > 0 || c.strokeModifications > 0 ||
+    c.strokeDeletions > 0 || c.strokeMoves > 0 || c.strokeRetimes > 0 ||
+    c.hasNewTranscription || c.transcriptionChanged);
+}
+
+/**
+ * The save dialog's summary over the ticked pages: stroke counts summed, and
+ * how many pages get a new or an updated transcript.
+ *
+ * @param {Array<{pageKey: string}>} items  page previews (computePageChangesFolder plus pageKey)
+ * @param {Set<string>} selected  ticked pageKeys
+ */
+export function sumSelectedChanges(items, selected) {
+  const totals = {
+    pages: 0, strokeAdditions: 0, strokeEdits: 0, strokeModifications: 0, strokeDeletions: 0,
+    strokeMoves: 0, strokeRetimes: 0, newTranscriptions: 0, changedTranscriptions: 0
+  };
+  for (const item of items || []) {
+    if (!selected?.has(item.pageKey)) continue;
+    totals.pages++;
+    for (const k of ['strokeAdditions', 'strokeEdits', 'strokeModifications', 'strokeDeletions', 'strokeMoves', 'strokeRetimes']) {
+      totals[k] += item[k] || 0;
+    }
+    if (item.hasNewTranscription) totals.newTranscriptions++;
+    if (item.transcriptionChanged) totals.changedTranscriptions++;
+  }
+  return totals;
 }

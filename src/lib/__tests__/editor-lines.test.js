@@ -5,7 +5,10 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { mergeEditorLines, splitEditorLine, keepDiskTaskState, taskFieldsOf, buildEditedTranscript, mergeTranscriptLines } from '../editor-lines.js';
+import {
+  mergeEditorLines, splitEditorLine, keepDiskTaskState, taskFieldsOf, buildEditedTranscript, mergeTranscriptLines,
+  editorLineStatus, detectMergeSuggestions
+} from '../editor-lines.js';
 
 const el = (i, text, extra = {}) => ({
   id: `line-${i}`, originalIndex: i, text, canonical: text.toLowerCase(),
@@ -142,5 +145,41 @@ describe('mergeTranscriptLines (Library Edit merge)', () => {
     expect(mergeTranscriptLines(lines, [1])).toBe(lines);
     expect(mergeTranscriptLines(lines, [1, 1, 7])).toBe(lines);
     expect(mergeTranscriptLines([], [])).toEqual([]);
+  });
+});
+
+describe('editorLineStatus', () => {
+  it('is new without a saved counterpart, however edited', () => {
+    expect(editorLineStatus({ syncStatus: 'new', blockUuid: 'L1' })).toBe('new');
+    expect(editorLineStatus({ blockUuid: null, userModified: true, syncStatus: 'modified' })).toBe('new');
+  });
+
+  it('is modified for a saved line changed in the dialog', () => {
+    expect(editorLineStatus({ blockUuid: 'L1', syncStatus: 'modified' })).toBe('modified');
+    expect(editorLineStatus({ blockUuid: 'L1', syncStatus: 'synced', userModified: true })).toBe('modified');
+  });
+
+  it('is synced for a saved line left alone', () => {
+    expect(editorLineStatus({ blockUuid: 'L1', syncStatus: 'synced' })).toBe('synced');
+  });
+});
+
+describe('detectMergeSuggestions', () => {
+  it('pairs a line that runs on into a lowercase next line', () => {
+    const lines = [el(0, 'Check the beam'), el(1, 'at grid B'), el(2, 'Done.')];
+    expect(detectMergeSuggestions(lines)).toEqual([{ indices: [0, 1], confidence: 0.8 }]);
+  });
+
+  it('does not pair across a sentence end, an indent change or a capital', () => {
+    expect(detectMergeSuggestions([el(0, 'End.'), el(1, 'next')])).toEqual([]);
+    expect(detectMergeSuggestions([el(0, 'One'), el(1, 'two', { indentLevel: 1 })])).toEqual([]);
+    expect(detectMergeSuggestions([el(0, 'One'), el(1, 'Two')])).toEqual([]);
+  });
+
+  it('skips lines without yBounds or text instead of throwing', () => {
+    expect(detectMergeSuggestions([el(0, 'One', { yBounds: null }), el(1, 'two')])).toEqual([]);
+    expect(detectMergeSuggestions([el(0, 'One'), { yBounds: { minY: 6, maxY: 9 } }])).toEqual([]);
+    expect(detectMergeSuggestions([])).toEqual([]);
+    expect(detectMergeSuggestions(null)).toEqual([]);
   });
 });
