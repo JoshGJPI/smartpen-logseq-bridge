@@ -329,6 +329,8 @@ describe('tools', () => {
   it('get_transcript shows TODO state and flags untrustworthy line links', () => {
     const r = tools().get_transcript({ book: '388v2', page: '151b' });
     expect(r.content[0].text).toContain('- TODO Beam check');
+    // numbered #n, the stored line number edit_transcript takes
+    expect(r.content[0].text).toMatch(/^#1 {3}( {2})*- /m);
     expect(r.content[0].text).toMatch(/unreliable/);
     expect(tools().get_transcript({ book: '388v2', page: '999' }).isError).toBe(true);
     expect(tools().get_transcript({ book: '../x', page: '1' }).isError).toBe(true);

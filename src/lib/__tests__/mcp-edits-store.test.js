@@ -150,6 +150,45 @@ describe('runEdit', () => {
     expect((await runUndo(req())).error).toMatch(/edited since/);
   });
 
+  it('an undo log that cannot be written refuses the edit before any save', async () => {
+    const { revision } = await runEdit(req());
+    const real = window.mcpAPI.editLog;
+    window.mcpAPI.editLog = vi.fn(async () => ({ ok: false, error: 'disk full' }));
+    const r = await runEdit(req({ dry_run: false, revision }));
+    window.mcpAPI.editLog = real;
+    expect(r.error).toMatch(/undo log.*nothing was saved.*disk full/);
+    expect(savePage).not.toHaveBeenCalled();
+  });
+
+  it('a failed finish after the save still reports the save, with undo unavailable', async () => {
+    const { revision } = await runEdit(req());
+    const real = window.mcpAPI.editLog;
+    window.mcpAPI.editLog = vi.fn(async (action, ...rest) => (action === 'finish'
+      ? { ok: false, error: 'locked' } : real(action, ...rest)));
+    const r = await runEdit(req({ dry_run: false, revision }));
+    window.mcpAPI.editLog = real;
+    expect(r.ok).toBe(true);
+    expect(r.revision).toBe(stored().metadata.lastUpdated);
+    expect(r.text).not.toMatch(/undo with undo_transcript_edit/);
+    expect(r.text).toMatch(/WARNING: undo_transcript_edit is not available for this edit \(locked\)/);
+    expect(refreshAfterSave).toHaveBeenCalled();
+  });
+
+  it('a failed pop after an undo still reports the restore', async () => {
+    const { revision } = await runEdit(req());
+    await runEdit(req({ dry_run: false, revision }));
+    const real = window.mcpAPI.editLog;
+    window.mcpAPI.editLog = vi.fn(async (action, ...rest) => (action === 'pop'
+      ? { ok: false, error: 'locked' } : real(action, ...rest)));
+    const u = await runUndo(req());
+    window.mcpAPI.editLog = real;
+    expect(u.ok).toBe(true);
+    expect(u.text).toMatch(/WARNING: the undo log entry could not be removed/);
+    expect(stored().transcript).toEqual(makeDoc().transcript);
+    // the entry left behind is stale: a second undo is refused, not applied twice
+    expect((await runUndo(req())).error).toMatch(/edited since/);
+  });
+
   it('a refused plan saves nothing and logs nothing', async () => {
     const r = await runEdit(req({ edits: [{ op: 'set_text', line: 2, expect: 'stale', text: 'x' }] }));
     expect(r.error).toMatch(/#2 reads/);

@@ -112,9 +112,13 @@ export async function runEdit(req) {
   // scrub will clear (strokes on a deleted line).
   const deletedIds = new Set(plan.deleted.map((d) => d.line.id));
   const scrubbed = (doc.strokes || []).filter((s) => s.lineId && deletedIds.has(s.lineId)).map((s) => [s.id, s.lineId]);
-  await editLog('append', book, page, {
-    time: new Date().toISOString(), edits: req.edits, revisionBefore: revision, transcript: doc.transcript, scrubbed,
-  });
+  try {
+    await editLog('append', book, page, {
+      time: new Date().toISOString(), edits: req.edits, revisionBefore: revision, transcript: doc.transcript, scrubbed,
+    });
+  } catch (e) {
+    return refuse(`Could not write the undo log, so nothing was saved: ${e.message}`);
+  }
 
   try {
     const result = await saveTranscriptLines(book, page, plan.lines, { base: lines });
@@ -124,22 +128,38 @@ export async function runEdit(req) {
     return refuse(`Save failed: ${e.message}`);
   }
 
-  const after = await getPage(book, page);
+  // The page is saved: from here on a failure is a warning, never an error,
+  // or Claude would read "nothing landed" and try again.
+  const warnings = [];
+  let after = null;
+  try {
+    after = await getPage(book, page);
+  } catch (e) {
+    warnings.push(`the page could not be read back (${e.message}); check it with get_transcript`);
+  }
   const revisionAfter = (after && after.metadata && after.metadata.lastUpdated) || '';
-  await editLog('finish', book, page, { revisionAfter });
-  const drift = untouchedChanged(lines, (after && after.transcript && after.transcript.lines) || [], plan.touched);
+  let undoable = false;
+  try {
+    if (!revisionAfter) throw new Error('no revision read back');
+    await editLog('finish', book, page, { revisionAfter });
+    undoable = true;
+  } catch (e) {
+    warnings.push(`undo_transcript_edit is not available for this edit (${e.message})`);
+  }
+  const drift = after ? untouchedChanged(lines, (after.transcript && after.transcript.lines) || [], plan.touched) : [];
+  if (drift.length) {
+    warnings.push(`${drift.length} line(s) no edit named came out different on disk; check the page and undo if it is wrong`);
+  }
 
   await refreshAfterSave([{ book, pageId: page }])
     .catch((e) => log(`Could not refresh the Library after Claude's edit: ${e.message}`, 'warning'));
   announce(`Claude edited ${label(book, page)}: ${summary}`);
 
-  const warn = drift.length
-    ? `\nWARNING: ${drift.length} line(s) no edit named came out different on disk; check the page and undo if it is wrong.`
-    : '';
-  if (drift.length) log(`Claude's edit to ${label(book, page)}: ${drift.length} other line(s) changed on save`, 'warning');
+  for (const w of warnings) log(`Claude's edit to ${label(book, page)}: ${w}`, 'warning');
+  const warn = warnings.map((w) => `\nWARNING: ${w}.`).join('');
   return {
     ok: true, dry_run: false, revision: revisionAfter, summary,
-    text: `Saved ${label(book, page)} (${summary}); undo with undo_transcript_edit.${inkNote}${warn}\n${listing}`,
+    text: `Saved ${label(book, page)} (${summary})${undoable ? '; undo with undo_transcript_edit' : ''}.${inkNote}${warn}\n${listing}`,
   };
 }
 
@@ -171,7 +191,15 @@ export async function runUndo(req) {
     metadata: { ...(doc.metadata || {}), lastUpdated: new Date().toISOString() },
   });
   if (result && result.success === false) return refuse(`Save failed: ${result.error || 'unknown error'}`);
-  await editLog('pop', book, page);
+  // Restored: a log failure now is a warning, not an error. An entry left
+  // behind can't be applied twice, since the page's revision has moved on.
+  let warn = '';
+  try {
+    await editLog('pop', book, page);
+  } catch (e) {
+    warn = `\nWARNING: the undo log entry could not be removed (${e.message}).`;
+    log(`Undo of Claude's edit to ${label(book, page)}: ${e.message}`, 'warning');
+  }
 
   await refreshAfterSave([{ book, pageId: page }])
     .catch((e) => log(`Could not refresh the Library after the undo: ${e.message}`, 'warning'));
@@ -179,7 +207,7 @@ export async function runUndo(req) {
   const lines = (entry.transcript && entry.transcript.lines) || [];
   return {
     ok: true,
-    text: `Restored ${label(book, page)} to before Claude's edit of ${entry.time}.\n`
+    text: `Restored ${label(book, page)} to before Claude's edit of ${entry.time}.${warn}\n`
       + formatEditListing({ lines, marks: new Map(), deleted: [] }),
   };
 }

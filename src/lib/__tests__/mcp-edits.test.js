@@ -45,6 +45,21 @@ describe('planEdits: set_text', () => {
     const task = run([{ op: 'set_text', line: 5, expect: 'call Brad', text: 'DONE call Brad' }]);
     expect(task.lines[4]).toMatchObject({ text: 'DONE call Brad', checked: false });
   });
+  it('a task\'s own label in front (as get_transcript prints it) is allowed in expect and dropped from text', () => {
+    const r = run([{ op: 'set_text', line: 5, expect: 'TODO call Brad', text: 'TODO call Brad Russell' }]);
+    expect(r.ok).toBe(true);
+    expect(r.lines[4]).toMatchObject({ text: 'call Brad Russell', checked: false });
+    const waiting = page();
+    waiting[4] = { ...waiting[4], marker: 'WAITING' };
+    const w = run([{ op: 'set_text', line: 5, expect: 'WAITING call Brad', text: 'WAITING call Brad today' }], waiting);
+    expect(w.ok).toBe(true);
+    expect(w.lines[4]).toMatchObject({ text: 'call Brad today', checked: false, marker: 'WAITING' });
+    // another state's label is not the line's own: expect mismatches, text keeps it
+    expect(run([{ op: 'set_text', line: 5, expect: 'DONE call Brad', text: 'x' }]).error).toMatch(/#5 reads/);
+    // a plain line has no label to drop
+    expect(run([{ op: 'set_text', line: 2, expect: 'TODO Brad Russell, AlA, P.E., S.E.', text: 'x' }]).error).toMatch(/#2 reads/);
+    expect(run([{ op: 'delete', line: 5, expect: 'TODO call Brad', task_ok: true }]).ok).toBe(true);
+  });
   it('refuses when expect does not match, or is missing', () => {
     expect(run([{ op: 'set_text', line: 2, expect: 'Brad Russell', text: 'x' }]).error).toMatch(/#2 reads "Brad Russell, AlA/);
     expect(run([{ op: 'set_text', line: 2, text: 'x' }]).error).toMatch(/expect .* is required/);
