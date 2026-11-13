@@ -400,6 +400,6 @@ corrects that page.
 
 ## 13. Reference
 
-- v1 architecture: [docs/QUICK-ARCHITECTURE-REFERENCE.md](QUICK-ARCHITECTURE-REFERENCE.md) (canvas/pen still apply; storage details are v1)
-- v1 storage spec: [docs/TRANSCRIPT-STORAGE-SPEC.md](TRANSCRIPT-STORAGE-SPEC.md) (historical)
+- v1 architecture: [docs/QUICK-ARCHITECTURE-REFERENCE.md](Archive/2026-11-v1-logseq-era-docs/QUICK-ARCHITECTURE-REFERENCE.md) (canvas/pen still apply; storage details are v1)
+- v1 storage spec: [docs/TRANSCRIPT-STORAGE-SPEC.md](Archive/2026-11-v1-logseq-era-docs/TRANSCRIPT-STORAGE-SPEC.md) (historical)
 - CLAUDE.md — updated for v2.0 and maintained since (start there for AI-assisted work)

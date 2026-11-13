@@ -1,6 +1,6 @@
 # SmartPen-LogSeq Bridge - Archive Index
 
-**Last Updated**: August 5, 2026
+**Last Updated**: November 13, 2026
 
 This document provides an index of archived implementation documentation organized by feature area and date.
 
@@ -10,43 +10,58 @@ This document provides an index of archived implementation documentation organiz
 
 ### Root Directory
 - `README.md` - Main project documentation
-- `CLAUDE.MD` - AI assistant development guide — **authoritative for everything since the
-  v2.0 pivot** (architecture, stores, and the "Recent Changes" narrative; this index does
-  not duplicate that history, see the note below)
+- `CLAUDE.md` - Rules for every session: code map, data formats, invariants. Authoritative since the v2.0 pivot
 
 ### Docs Directory
-- `LOCAL-STORAGE-PIVOT-SPEC.md` - **Start here for storage.** v2.0 local-folder
-  architecture; §12 records the amendments since (sketch-stroke pressure data, point editing)
-- `QUICK-ARCHITECTURE-REFERENCE.md` - Canvas/pen quick lookups. Storage sections are
-  v1/LogSeq-era and stale (self-flagged in the doc); capture/rendering sections still apply
-- `app-specification.md` - Original technical specification (LogSeq-era; superseded by the
-  pivot spec for storage details)
-- `bridge-uuid-system.md` - Custom UUID system documentation
+- `ARCHITECTURE.md` - Component tree, stores, libraries (the map)
+- `CHANGELOG.md` - Why each feature is built the way it is, v1 to now (the history; this index does not duplicate it)
+- `TESTING.md` - Test-file inventory and the manual checklist
+- `KNOWN-LIMITATIONS.md` - Per-feature limitations and open ideas
+- `LOCAL-STORAGE-PIVOT-SPEC.md` - **Start here for storage.** v2.0 local-folder architecture; §12 records the amendments since
+- Built specs, kept as design records: `VOLUMES-SPEC.md` (v2.6), `READING-UX-SPEC.md` (v3.0.0, with
+  `READING-UX-MOCKUPS.html`), `PAGE-TAGS-SPEC.md` (v3.1.0, with `TAGS-UI-MOCKUPS.html`), `MCP-SERVER-SPEC.md`
+  (v3.6.x), `MCP-WRITE-SPEC.md` (v3.18.0)
+- `TAGS-TASKS-UX-REVIEW.html` - The tags and tasks UX review; most items built (v3.7.0 onward, G15 in v3.19.0), kept
+  while it still lists "Later" items
+- `temporal-data-specification.md` - Partly built (date-range loading, v2.6–v2.8); the rest is still proposal
+- `EDITOR-IMPORT-SPEC.md` - The handwriting editor's import formats (the JSON / Markdown exports follow them)
 - `NEOSMARTPEN-SDK-USAGE.md`, `Smartpen Web SDK README.md` - Pen SDK reference
-- `TRANSCRIPT-STORAGE-SPEC.md` - ⚠️ Historical — v1 transcript architecture (LogSeq blocks
-  with properties). Current model is `transcript.lines[]` in the PageDoc; see
-  `LOCAL-STORAGE-PIVOT-SPEC.md` §5
-- `bullet-journal-spec.md` - Proposed, not implemented — hand-drawn bullet/symbol detection
-- `logseq-markup-converter-spec.md` - Proposed, not implemented — handwritten-symbol → LogSeq
-  markup conversion (distinct from the shipped `transcript-markdown.js` line-hierarchy copy)
-- `temporal-data-specification.md` - Proposed, not implemented — timing-based analysis UI.
-  Describes storage as "through LogSeq"; that's pre-pivot wording, though stroke timestamps
-  are in fact still preserved in the current point-tuple format
 
-### Implementation Logs
-- `docs/implementation-logs/README.md` - Meta-doc describing the active/archive workflow
-- `docs/implementation-logs/testing-checklist.md` - ⚠️ Stale — a v1 blockUuid/LogSeq
-  manual-test procedure from Jan 2026. [../TESTING.md](../TESTING.md)
-  (automated test table + manual scenarios) is the current reference; this file is a
-  candidate for archiving rather than "Active Development"
-
-### Proposals
-- `docs/proposals/` is currently empty. Its one occupant, `live-transcript-blocks-*`, was
-  archived to `docs/Archive/2025-01-live-transcript-blocks-proposal/` — see that entry below
+`docs/implementation-logs/` and `docs/proposals/` no longer exist: the last implementation log was archived in
+November 2026 (below), and the one proposal earlier (`2025-01-live-transcript-blocks-proposal/`).
 
 ---
 
 ## Archive Organization
+
+### Documentation audit (2026-11)
+
+#### **2026-11-v1-logseq-era-docs** ⚠️ SUPERSEDED
+Top-level docs that described the v1 LogSeq-storage app (or proposals made for it), moved out of `docs/` at v3.19.0:
+
+**Files**:
+- `app-specification.md` - Original technical specification (v0.2.0, December 2024)
+- `bridge-uuid-system.md` - LogSeq block-UUID collision scheme (removed by the v2.0 pivot)
+- `TRANSCRIPT-STORAGE-SPEC.md` - v1 transcript architecture (LogSeq blocks with properties); the current model is
+  `transcript.lines[]` in the PageDoc (`LOCAL-STORAGE-PIVOT-SPEC.md` §5)
+- `QUICK-ARCHITECTURE-REFERENCE.md` - v1-era canvas / pen / MyScript notes; file paths are out of date, though the
+  decorative-filter and offline-import notes that older CHANGELOG entries point to are still a fair read
+- `bullet-journal-spec.md` - Proposed, never built: hand-drawn bullet / symbol detection. Task boxes (☐ / ☑) are
+  instead read from MyScript text since v3.3.0 (`lib/task-markers.js`)
+- `logseq-markup-converter-spec.md` - Proposed, never built: handwritten symbols → LogSeq markup (distinct from the
+  shipped `transcript-markdown.js` copy)
+- `implementation-logs/` - its README and a v1 blockUuid manual-test checklist (Jan 2026); `docs/TESTING.md` is
+  the current reference
+
+#### **2026-11-built-feature-mockups** ✅ BUILT
+Feasibility notes, mockups and reviews whose features shipped; the CHANGELOG entries link here:
+
+**Files**:
+- `TASKS-MOCKUPS.html` - Tasks feasibility and mockups (built v3.4.0–v3.5.0)
+- `RETIME-MOCKUPS.html` - Stroke retime feasibility and mockups (built v3.6.0)
+- `UX-REVIEW-V3.13.html` - UX review after v3.13, items U1–U14 (all built in v3.14.0)
+
+---
 
 ### Recent Implementations (2026-08)
 
@@ -425,13 +440,10 @@ Look for suffixes: `-spec`, `-implementation`, `-complete`, `-fix`, `-summary`
 
 ## Notes for Developers
 
-1. **Current State**: See root `CLAUDE.MD` — authoritative for everything since the v2.0
-   pivot (architecture, stores, and the "Recent Changes" history)
-2. **Architecture**: See `docs/LOCAL-STORAGE-PIVOT-SPEC.md` (storage, current) and
-   `docs/QUICK-ARCHITECTURE-REFERENCE.md` (canvas/pen, still applies)
+1. **Current State**: See root `CLAUDE.md` (rules) and `docs/CHANGELOG.md` (history)
+2. **Architecture**: See `docs/ARCHITECTURE.md` (the map) and `docs/LOCAL-STORAGE-PIVOT-SPEC.md` (storage)
 3. **Testing**: See [../TESTING.md](../TESTING.md) (automated test table + manual
-   scenarios, kept current alongside each feature). `docs/implementation-logs/testing-checklist.md`
-   is a stale v1 procedure, not this
+   scenarios, kept current alongside each feature)
 4. **Future Plans**: No live roadmap document at present. `FUTURE_ENHANCEMENTS_ROADMAP.md`
    was archived as superseded — see `docs/Archive/2026-01-superseded-planning-docs/`
 

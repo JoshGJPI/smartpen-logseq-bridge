@@ -3,8 +3,8 @@
 > **Historical (v1 era, April 2026).** Written when strokes were stored in LogSeq. The "3.1" below is the
 > version of that era's save architecture, not the app version (the app is v3.0.0). Many file paths here no
 > longer exist (`logseq-api.js`, `transcript-updater.js`, `components/logseq-db/`). The append-only and
-> explicit-deletion principles still hold; for current rules read [CLAUDE.md](../CLAUDE.md) and
-> [ARCHITECTURE.md](ARCHITECTURE.md).
+> explicit-deletion principles still hold; for current rules read [CLAUDE.md](../../../CLAUDE.md) and
+> [ARCHITECTURE.md](../../ARCHITECTURE.md).
 
 **Save architecture version (v1 era):** 3.1 (Append-Only with Explicit Deletions)
 **Last Updated:** 2026-04-10
@@ -335,7 +335,7 @@ Framework: **Vitest 4.1.1** with happy-dom environment.
 
 ⚠️ **This table is v1-era and incomplete** — it lists files deleted in the v2.0 pivot
 (`logseq-api.test.js`, `transcript-updater.test.js`) and omits everything added since
-(storage, Book View, sketch strokes, point editing). See [TESTING.md](TESTING.md) → *Automated unit
+(storage, Book View, sketch strokes, point editing). See [TESTING.md](../../TESTING.md) → *Automated unit
 tests* for the current list.
 
 ---
@@ -355,11 +355,11 @@ When making changes to stroke/transcription logic, test:
 
 ## Documentation Links
 
-- [CLAUDE.md](../CLAUDE.md) - Full development guide
+- [CLAUDE.md](../../../CLAUDE.md) - Full development guide
 - [app-specification.md](app-specification.md) - Complete technical spec
 - [TRANSCRIPT-STORAGE-SPEC.md](TRANSCRIPT-STORAGE-SPEC.md) - Storage architecture
-- [DATA-LOSS-FIXES-SUMMARY.md](Archive/2026-02-data-loss-fixes/DATA-LOSS-FIXES-SUMMARY.md) - Fix details
-- Issue history: [CHANGELOG.md](CHANGELOG.md)
+- [DATA-LOSS-FIXES-SUMMARY.md](../2026-02-data-loss-fixes/DATA-LOSS-FIXES-SUMMARY.md) - Fix details
+- Issue history: [CHANGELOG.md](../../CHANGELOG.md)
 
 ---
 
