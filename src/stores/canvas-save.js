@@ -192,10 +192,9 @@ export async function saveCanvasPages(selectedPageKeys, { leftUnsaved = [] } = {
       refreshAfterSave([...writtenPages, ...completedMoves.map((m) => ({ book: m.fromBook, page: m.fromPage }))]);
     }
 
-    // Reconcile the unsaved-changes indicator. This MUST run after
-    // dropSettledDeletions(): removeStrokesByIndices() calls
-    // markUnsavedChanges(), which would re-latch the dot right after
-    // recordSuccessfulSave() cleared it. Only when nothing failed, no
+    // Reconcile the unsaved-changes indicator, the one place a save clears it.
+    // This MUST run after dropSettledDeletions(): removeStrokesByIndices()
+    // calls markUnsavedChanges(). Only when nothing failed, no
     // deletion is still owed to a page that wasn't saved, and no page the
     // dialog listed with changes was left unticked.
     if (errorCount === 0 && savedPagesCount > 0 && get(deletedIndices).size === 0 && leftUnsaved.length === 0) {

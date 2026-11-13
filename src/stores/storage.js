@@ -74,8 +74,9 @@ export function recordSuccessfulSave(pageKey, result) {
     lastUpdate: Date.now()
   }));
 
-  // Successful save clears the unsaved-changes flag.
-  unsavedChanges.set(false);
+  // Not the unsaved-changes flag: one page saved says nothing about the rest of
+  // the canvas. The caller clears it once the whole save is known to be complete
+  // (stores/canvas-save.js).
 }
 
 /**

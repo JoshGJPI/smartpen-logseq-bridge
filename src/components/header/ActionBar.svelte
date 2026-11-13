@@ -83,7 +83,7 @@
         ? ` (${$strokeCount - untranscribedCount}/${$strokeCount} already transcribed)` : '');
 
   function handleClearCanvas() {
-    if ($unsavedChanges && !confirm('The canvas has unsaved changes. Clear it anyway and lose them?')) return;
+    if (($unsavedChanges || $hasPendingChanges) && !confirm('The canvas has unsaved changes. Clear it anyway and lose them?')) return;
     clearStrokes();
     // Every store that holds positions into the strokes array, now empty: a
     // stale index would select (or delete) whatever lands there next.
