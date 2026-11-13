@@ -55,7 +55,7 @@
 
 <aside class="left-panel panel" class:collapsed={$leftPanelCollapsed}>
   {#if $leftPanelCollapsed}
-    <div class="rail" role="tablist" aria-label="Data explorer (collapsed)" aria-orientation="vertical">
+    <div class="rail" role="tablist" aria-label="Panel tabs (collapsed)" aria-orientation="vertical">
       <button
         class="rail-btn rail-chevron"
         on:click={toggleLeftPanel}
@@ -71,7 +71,7 @@
           class:active={$panelTab === tab.id}
           role="tab"
           aria-selected={$panelTab === tab.id}
-          aria-label={tab.label}
+          aria-label={tab.id === 'transcription' && $pageTranscriptionCount > 0 ? `${tab.label} (${$pageTranscriptionCount} to review)` : tab.label}
           title={tab.label}
           on:click={() => revealLeftPanel(tab.id)}
         >
@@ -84,7 +84,7 @@
       {/each}
     </div>
   {:else}
-    <div class="panel-tabs" role="tablist">
+    <div class="panel-tabs" role="tablist" aria-label="Panel tabs">
       {#each tabs as tab (tab.id)}
         <button
           class="panel-tab"

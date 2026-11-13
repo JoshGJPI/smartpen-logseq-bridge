@@ -1,5 +1,5 @@
 <!--
-  SavedPagesHeader.svelte - Header for the Saved Pages tab (v2.0 folder-backed)
+  SavedPagesHeader.svelte - Header for the Editor's Pages tab (pages in the data folder)
 -->
 <script>
   import { createEventDispatcher } from 'svelte';
