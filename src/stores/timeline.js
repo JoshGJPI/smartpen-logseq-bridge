@@ -15,6 +15,7 @@ import {
 import { defaultTimelineDay } from '$lib/timeline-range.js';
 import { dataRoot, dataFolderReady } from './settings.js';
 import { log } from './ui.js';
+import { debug } from '$lib/debug.js';
 import { bookTypes, bookTypeFilter } from './book-types.js';
 import { booksOutsideType, matchesTypeFilter } from '$lib/book-types.js';
 
@@ -202,7 +203,7 @@ export async function loadTimeline(options = {}) {
     }
     return true;
   } catch (err) {
-    console.error('Timeline index failed:', err);
+    debug('[timeline] index failed:', err);
     timelineError.set(err.message);
     if (!options.silent) log(`Could not read capture dates: ${err.message}`, 'error');
     return false;

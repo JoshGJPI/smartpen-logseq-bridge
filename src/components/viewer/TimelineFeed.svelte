@@ -18,8 +18,9 @@
   private extension. The Dates tab's grid and tallies then keep describing
   exactly what the feed shows, and "Load range into Editor" loads what you
   scrolled through. The range itself is set in the head (TimelineHead: Range ▾
-  and the activity strip) or the Dates panel; all write the same store. It runs only on a user scroll or wheel — opening the feed
-  never widens a range you picked.
+  and the activity strip) or the Dates panel; all write the same store.
+  Growing runs only on a user scroll or wheel (or Show earlier days) — opening
+  the feed never widens a range you picked. The foot of the feed is FeedEnd.
 
   Everything here reads the book-filtered index, so an excluded notebook is
   gone from the outline, the cards, the sittings and the loads alike.
@@ -28,6 +29,7 @@
   import { onMount, onDestroy, tick } from 'svelte';
   import FeedDay from './FeedDay.svelte';
   import TimelineHead from './TimelineHead.svelte';
+  import FeedEnd from './FeedEnd.svelte';
   import { feedSkeleton, nextFeedRange, extendFeedRange, PAGE_MIN_WIDTH } from '$lib/timeline-feed.js';
   import { dayStart } from '$lib/timeline.js';
   import { createFeedPageLoader } from '$lib/viewer/feed-pages.js';
@@ -69,9 +71,6 @@
       return `${a.toLocaleDateString(undefined, opts)} – ${b.toLocaleDateString(undefined, opts)}`;
     }
   }
-  const longDay = (day) => dayStart(day)?.toLocaleDateString(undefined, {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
-  }) || day;
   const fmt = (n) => (n || 0).toLocaleString();
   $: rangeLabel = spanLabel(range.from, range.to, { day: 'numeric', month: 'long', year: 'numeric' });
   $: summary = $timelineSummary;
@@ -167,13 +166,19 @@
     feedDayInView.set(best ? best.day : null);
   }
 
+  // Scrolling goes through methods, never `scrollEl.scrollTop = …`: Svelte 4
+  // counts that as an assignment to scrollEl and re-runs the `$:` below.
   function jumpTo(day) {
     if (!scrollEl) return;
     for (const [el, d] of elements) {
       if (d !== day) continue;
-      scrollEl.scrollTop += el.getBoundingClientRect().top - scrollEl.getBoundingClientRect().top;
+      scrollEl.scrollBy(0, el.getBoundingClientRect().top - scrollEl.getBoundingClientRect().top);
       return;
     }
+  }
+
+  function toTop() {
+    scrollEl?.scrollTo(0, 0);
   }
 
   // Start from the top only when the feed genuinely changes: a new near end
@@ -185,7 +190,7 @@
   $: feedKey = `${nearEnd}|${order}|${filterKey}`;
   $: if (feedKey !== lastKey) {
     lastKey = feedKey;
-    if (scrollEl) scrollEl.scrollTop = 0;
+    toTop();
     tick().then(updateSpy);
   }
 
@@ -322,35 +327,8 @@
 
         {#if range.from}
           <footer class="tf-end" bind:this={endEl}>
-            {#if !skeleton.length}
-              <div class="tf-end-title">No ink in {rangeLabel}{filtering ? ' for the selected books' : ''}</div>
-            {/if}
-            {#if more}
-              <div class="tf-sub">{order === 'oldest' ? 'Later' : 'Earlier'} days load as you scroll</div>
-              <div class="tf-end-actions">
-                <button type="button" class="tf-btn load" on:click={() => extendWhileNear(true)}>
-                  {order === 'oldest' ? 'Show later days' : 'Show earlier days'}
-                </button>
-                {#if skeleton.length}
-                  <button type="button" class="tf-btn" on:click={() => { scrollEl.scrollTop = 0; }}>Back to top</button>
-                {/if}
-              </div>
-            {:else}
-              <div class="tf-end-title">
-                {#if !farDay}
-                  Nothing written{filtering ? ' in the selected books' : ''} yet
-                {:else if order === 'oldest'}
-                  You're up to date — the last ink{filtering ? ' in these books' : ''} is from {longDay(farDay)}
-                {:else}
-                  That's everything — the first ink{filtering ? ' in these books' : ''} is from {longDay(farDay)}
-                {/if}
-              </div>
-              {#if skeleton.length}
-                <div class="tf-end-actions">
-                  <button type="button" class="tf-btn" on:click={() => { scrollEl.scrollTop = 0; }}>Back to top</button>
-                </div>
-              {/if}
-            {/if}
+            <FeedEnd empty={!skeleton.length} hasMore={!!more} {order} {filtering} {rangeLabel} {farDay}
+              onMore={() => extendWhileNear(true)} onTop={toTop} />
           </footer>
         {/if}
       {/if}
@@ -369,30 +347,6 @@
     border-radius: 12px;
     overflow: hidden;
   }
-
-  .tf-sub { font-size: 12px; color: #62626e; font-variant-numeric: tabular-nums; }
-
-  .tf-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    height: 30px;
-    padding: 0 11px;
-    border: 1px solid #dcdce2;
-    border-radius: 6px;
-    background: #fff;
-    color: #45454f;
-    font-size: 12.5px;
-    font-weight: 500;
-    cursor: pointer;
-    white-space: nowrap;
-    transition: all 0.15s;
-  }
-  .tf-btn:hover:not(:disabled) { background: #f2f2f4; border-color: #c8c8d0; }
-  .tf-btn.load { color: #2f5fd8; border-color: #c7d6fb; font-weight: 600; }
-  .tf-btn.load:hover:not(:disabled) { background: #eef3ff; border-color: #4a7cf7; }
-  .tf-btn:disabled { opacity: 0.55; cursor: default; }
 
   .tf-scroll {
     flex: 1;
@@ -445,6 +399,4 @@
        the footer as the scroll anchor, or it would chase it downward. */
     overflow-anchor: none;
   }
-  .tf-end-title { font-size: 14px; font-weight: 650; color: #2b2b33; }
-  .tf-end-actions { display: flex; gap: 8px; }
 </style>

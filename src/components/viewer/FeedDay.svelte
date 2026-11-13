@@ -18,6 +18,7 @@
   import { addToPrintList } from '$stores/print.js';
   import { daySessions, indexPageStrokes, estimateDayHeight, formatDuration } from '$lib/timeline-feed.js';
   import { dayStart } from '$lib/timeline.js';
+  import { debug } from '$lib/debug.js';
   import { bookAliases } from '$stores';
   import { formatBookName } from '$utils/formatting.js';
 
@@ -86,7 +87,7 @@
       status = 'ready';
     } catch (err) {
       if (my !== token) return;
-      console.warn('[timeline] could not read pages for', item.day, err);
+      debug('[timeline] could not read pages for', item.day, err);
       error = err.message || String(err);
       status = 'error';
     }

@@ -1,9 +1,10 @@
 /**
- * Viewer Store — state for the Book View pane (v2.1)
+ * Viewer Store — state for the right pane's three destinations
  *
- * The right-hand canvas pane can show either the live capture canvas
- * (`StrokeCanvas`) or the read/edit-oriented Book View (`BookViewer`).
- * This store owns the pane mode, the per-page "unsaved transcript edit"
+ * The right pane shows the Library (`BookViewer`), the Timeline
+ * (`TimelineFeed`) or the Editor (`StrokeCanvas`); every route between them
+ * goes through `navigateTo()` / `openPageInLibrary()` here, the one place the
+ * unsaved-transcript prompt is asked. This store owns the pane mode, the per-page "unsaved transcript edit"
  * dirty set (kept separate from the canvas's global `unsavedChanges` flag so
  * a transcript save never masks unsaved stroke changes), the
  * recently-viewed pages list (persisted to localStorage), and the Library's

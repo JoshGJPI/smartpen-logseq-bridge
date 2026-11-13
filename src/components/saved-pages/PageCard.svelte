@@ -118,49 +118,6 @@
     }
   }
 
-  function handleTranscriptionChange(event) {
-    const newText = event.detail;
-    editedTranscription = newText;
-
-    const pageKey = `S0/O0/B${page.book}/P${page.page}`;
-
-    let existingTranscription = null;
-    for (const [key, trans] of $pageTranscriptions) {
-      if (trans.pageInfo.book === page.book && trans.pageInfo.page === page.page) {
-        existingTranscription = trans;
-        break;
-      }
-    }
-
-    const lines = newText.split('\n').map((line, index) => {
-      const leadingSpaces = line.match(/^\s*/)[0].length;
-      const indentLevel = Math.floor(leadingSpaces / 2);
-      return {
-        text: line.trimStart(),
-        lineNumber: index,
-        indentLevel,
-        parent: null,
-        children: []
-      };
-    });
-
-    pageTranscriptions.update(pt => {
-      const newMap = new Map(pt);
-      if (existingTranscription) {
-        newMap.set(pageKey, { ...existingTranscription, text: newText, lines });
-      } else {
-        newMap.set(pageKey, {
-          text: newText,
-          lines,
-          pageInfo: { section: 0, owner: 0, book: page.book, page: page.page },
-          strokeCount: page.strokeCount || 0,
-          timestamp: Date.now()
-        });
-      }
-      return newMap;
-    });
-  }
-
   async function handleOpenEditor() {
     loadingLines = true;
     try {
@@ -187,7 +144,7 @@
       }));
       showEditorModal = true;
     } catch (error) {
-      console.error('Failed to load transcript lines:', error);
+      log(`Could not load the transcript of B${page.book}/P${pageRef}: ${error.message}`, 'error');
       alert(`Failed to load transcription: ${error.message}`);
     } finally {
       loadingLines = false;
@@ -213,10 +170,11 @@
       }
     }
 
-    const strokeMsg = count > 0
-      ? `${count} stroke(s) unlinked; the next Transcribe + Save replaces the saved transcript`
-      : 'no strokes loaded in session (import strokes first to clear block associations)';
-    log(`Reset transcript for B${page.book}/P${page.page} — ${strokeMsg}`, 'info');
+    if (count === 0) {
+      log(`B${page.book}/P${page.page} has no ink on the canvas: import its strokes before resetting its transcript`, 'warning');
+      return;
+    }
+    log(`Reset transcript for B${page.book}/P${page.page}: ${count} stroke(s) unlinked; the next Transcribe + Save replaces the saved transcript`, 'info');
   }
 
   async function handleSaveEditor(event) {
@@ -283,7 +241,7 @@
       showEditorModal = false;
       log(`Updated transcript for B${page.book}/P${pageRef}: ${newLines.length} line(s)`, 'success');
     } catch (error) {
-      console.error('Failed to save transcription:', error);
+      log(`Could not save the transcript of B${page.book}/P${pageRef}: ${error.message}`, 'error');
       alert(`Failed to save: ${error.message}`);
     }
   }
@@ -381,16 +339,13 @@
           <button
             class="action-btn action-btn--warning"
             on:click={handleResetTranscript}
-            title="Reset transcript — removes block associations from strokes so this page can be re-transcribed"
+            title="Unlink this page's loaded strokes from their lines so it can be re-transcribed; the next Transcribe + Save replaces the saved transcript"
           >
             ↺ Reset
           </button>
         </div>
       </div>
-      <TranscriptionPreview
-        text={editedTranscription}
-        on:change={handleTranscriptionChange}
-      />
+      <TranscriptionPreview text={editedTranscription} />
     </div>
   {/if}
 
