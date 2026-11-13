@@ -523,15 +523,6 @@
     cursor: not-allowed;
   }
   
-  .send-btn {
-    background: var(--success);
-    color: var(--bg-primary);
-  }
-
-  .send-btn:hover:not(:disabled) {
-    background: #22c55e;
-  }
-  
   .btn-edit {
     width: 100%;
     background: var(--accent);
