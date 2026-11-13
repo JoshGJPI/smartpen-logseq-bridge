@@ -52,14 +52,24 @@
     closeSvgExportDialog();
   }
 
+  function handleKeyDown(event) {
+    if (isOpen && event.key === 'Escape' && !event.defaultPrevented) {
+      event.preventDefault();
+      handleCancel();
+    }
+  }
+
   function formatPageName(group) {
     const bookName = formatBookName(group.book, $bookAliases, 'full');
     return `${bookName} / Page ${group.page}`;
   }
 </script>
 
+<svelte:window on:keydown={handleKeyDown} />
+
 {#if isOpen}
   <!-- Backdrop -->
+  <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
   <div class="dialog-backdrop" on:click={handleCancel}></div>
 
   <!-- Dialog -->

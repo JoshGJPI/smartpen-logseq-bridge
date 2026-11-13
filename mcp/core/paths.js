@@ -1,7 +1,7 @@
 /**
  * Data-root handling and the path guard (read-only server).
  *
- * The guard mirrors requireBookKey()/requirePageId() in electron/main.cjs: a
+ * The guard mirrors requireBookKey()/requirePageId() in electron/page-store.cjs: a
  * book key and a page id are validated by shape BEFORE they touch a path, and
  * the resolved path is checked to still sit inside <root>/pages.
  */

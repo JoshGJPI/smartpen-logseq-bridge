@@ -27,6 +27,7 @@
   tracked per page in the viewer store (separate from the canvas unsaved flag).
 -->
 <script>
+  import { TASK_DRAFT_LOCK } from '$lib/tasks.js';
   import { tick, onDestroy } from 'svelte';
   import { log, markViewerDirtyPage, clearViewerDirtyPage, viewerDirtyPages, transcriptEditorHold } from '$stores';
   import { linesToLogseqMarkdown, subtreeLines } from '$lib/viewer/transcript-markdown.js';
@@ -62,7 +63,7 @@
   export let tasks = false;
 
   // A draft on this page would write the old state back over a tick.
-  $: taskLock = $viewerDirtyPages.has(pageKey) ? 'This page has unsaved transcript edits. Save or cancel them first.' : '';
+  $: taskLock = $viewerDirtyPages.has(pageKey) ? TASK_DRAFT_LOCK : '';
 
   let editing = false;
   let saving = false;

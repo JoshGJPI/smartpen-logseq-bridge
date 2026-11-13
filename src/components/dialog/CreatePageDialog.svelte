@@ -241,7 +241,7 @@
   }
   
   function handleKeyDown(event) {
-    if (event.key === 'Escape' && !isSaving) {
+    if (event.key === 'Escape' && isOpen && !isSaving && !event.defaultPrevented) {
       event.preventDefault();
       close();
     }
@@ -251,7 +251,9 @@
 <svelte:window on:keydown={handleKeyDown} />
 
 {#if isOpen}
+  <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
   <div class="dialog-overlay" on:click={close}>
+    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions a11y-no-noninteractive-element-interactions -->
     <div class="dialog" role="dialog" aria-modal="true" aria-label="Create page" on:click|stopPropagation>
       <div class="dialog-header">
         <h3>Create New Page</h3>

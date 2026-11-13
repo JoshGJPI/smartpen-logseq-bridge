@@ -8,9 +8,6 @@ import { batchOriginY } from '$lib/myscript-api.js';
 import { isPageReset } from './transcript-reset.js';
 import { compareBookKeys } from '$lib/volumes.js';
 
-// Last transcription result (legacy - combined view)
-export const lastTranscription = writable(null);
-
 // Per-page transcription results: Map<pageKey, transcriptionResult>
 export const pageTranscriptions = writable(new Map());
 
@@ -19,12 +16,6 @@ export const selectedPagesForImport = writable(new Set());
 
 // Is transcription in progress?
 export const isTranscribing = writable(false);
-
-// Derived: Has transcription data
-export const hasTranscription = derived(
-  lastTranscription,
-  $t => $t !== null
-);
 
 // Derived: List of page transcriptions as array for easier iteration
 export const pageTranscriptionsArray = derived(
@@ -53,21 +44,6 @@ export const hasPageTranscriptions = derived(
   pageTranscriptions,
   $pt => $pt.size > 0
 );
-
-/**
- * Set transcription result (legacy - for backward compatibility)
- * @param {Object} result - Transcription result from MyScript
- * @param {Array} filteredStrokes - Optional array of filtered decorative strokes
- */
-export function setTranscription(result, filteredStrokes = null) {
-  lastTranscription.set(result);
-  isTranscribing.set(false);
-  
-  // Store filtered strokes if provided
-  if (filteredStrokes) {
-    setFilteredStrokes(filteredStrokes);
-  }
-}
 
 /**
  * Set transcription for a specific page
@@ -149,10 +125,9 @@ export function deselectAllPages() {
 }
 
 /**
- * Clear transcription (both legacy and per-page)
+ * Clear every page's transcription and the import selection
  */
 export function clearTranscription() {
-  lastTranscription.set(null);
   pageTranscriptions.set(new Map());
   selectedPagesForImport.set(new Set());
 }

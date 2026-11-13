@@ -52,7 +52,7 @@
   
   // Handle Escape key to close modal
   function handleKeyDown(event) {
-    if (event.key === 'Escape' && isOpen) {
+    if (event.key === 'Escape' && isOpen && !event.defaultPrevented) {
       event.preventDefault();
       handleCancel();
     }
@@ -80,13 +80,15 @@
 </script>
 
 {#if isOpen}
-  <!-- Modal overlay -->
+  <!-- Modal overlay (Escape closes it: handleKeyDown) -->
+  <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
   <div 
     class="modal-overlay" 
     on:click={handleCancel}
     role="presentation"
   >
     <!-- Modal content -->
+    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions a11y-no-noninteractive-element-interactions -->
     <div 
       class="modal-content" 
       on:click|stopPropagation

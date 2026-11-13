@@ -24,7 +24,8 @@ function logDir(userDataDir) {
 
 function logFile(userDataDir, key) {
   if (!KEY_RE.test(String(key))) throw new Error(`Invalid edit-log key: ${key}`);
-  return path.join(logDir(userDataDir), `${key}.jsonl`);
+  // Lowercase: Windows file names ignore case, so 151b and 151B are one file anyway.
+  return path.join(logDir(userDataDir), `${String(key).toLowerCase()}.jsonl`);
 }
 
 /** Entries, oldest first. A corrupt line is skipped, not fatal. */

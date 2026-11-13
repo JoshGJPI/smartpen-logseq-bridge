@@ -55,7 +55,7 @@
 
   {#if isOpen}
     <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <!-- svelte-ignore a11y-no-static-element-interactions a11y-no-noninteractive-element-interactions -->
     <div class="popover" on:click|stopPropagation role="dialog" aria-label="Sketch style">
       <div class="popover-head">
         <span class="popover-title">Sketch Style</span>

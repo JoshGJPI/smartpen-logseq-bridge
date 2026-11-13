@@ -82,6 +82,7 @@
     on:keydown={handleKeyDown}
     role="presentation"
   >
+    <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
     <div
       class="modal-content"
       on:click|stopPropagation

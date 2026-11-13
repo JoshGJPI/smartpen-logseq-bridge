@@ -185,15 +185,12 @@ export {
 
 // Transcription
 export {
-  lastTranscription,
   pageTranscriptions,
   selectedPagesForImport,
   isTranscribing,
-  hasTranscription,
   pageTranscriptionsArray,
   pageTranscriptionCount,
   hasPageTranscriptions,
-  setTranscription,
   setPageTranscription,
   togglePageSelection,
   selectAllPages,
