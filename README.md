@@ -9,7 +9,7 @@ in a folder you choose: `<data folder>/pages/B###/P##.json`.
 > empty canvas. Three destinations, **Library**, **Timeline** and **Editor**, replace
 > the old Book View / Books / Timeline modes; the Library opens on your notebooks;
 > a header search (Ctrl K) finds pages by text, date or notebook. Your data folder
-> opens unchanged: PageDoc files stay at version `"2.0"` (current release: v3.9.0). The repository is still
+> opens unchanged: PageDoc files stay at version `"2.0"` (current release: v3.19.0). The repository is still
 > called `smartpen-logseq-bridge` for history's sake; v1 stored notes in LogSeq, v2
 > moved them to the local folder.
 
@@ -113,7 +113,7 @@ an NCode book id, says which volume new writing goes to. A volume is its own
 notebook everywhere (folder `B388v2`).
 
 ### Export to LogSeq (optional)
-Settings → **Publish to LogSeq Graph** → choose your graph folder (the JPI Tools
+Settings → **Publish to LogSeq** → choose your graph folder (the JPI Tools
 plugin, v1.9.66+, renders the sketches). **Export to LogSeq** in the Editor
 publishes only the strokes you select, adds to what the page already has, and never
 includes the transcript. LogSeq does not need to be running.
@@ -169,6 +169,7 @@ Documentation:
 | [docs/VOLUMES-SPEC.md](docs/VOLUMES-SPEC.md) | Notebook volumes |
 | [docs/PAGE-TAGS-SPEC.md](docs/PAGE-TAGS-SPEC.md) | Page tags (v3.1.0) |
 | [docs/MCP-SERVER-SPEC.md](docs/MCP-SERVER-SPEC.md) | The read-only MCP server's plan and decisions |
+| [docs/MCP-WRITE-SPEC.md](docs/MCP-WRITE-SPEC.md) | Claude's transcript edits through the running app (v3.18.0) |
 | [docs/Archive/ARCHIVE-INDEX.md](docs/Archive/ARCHIVE-INDEX.md) | Superseded v1-era docs, and which of them still hold |
 | [docs/NEOSMARTPEN-SDK-USAGE.md](docs/NEOSMARTPEN-SDK-USAGE.md) | Pen SDK usage |
 | [docs/EDITOR-IMPORT-SPEC.md](docs/EDITOR-IMPORT-SPEC.md) | The handwriting editor's import formats, which the JSON / Markdown exports follow |
@@ -176,8 +177,11 @@ Documentation:
 ## Reading the notebooks from Claude (optional)
 
 `mcp/` is a read-only MCP server over the data folder: list notebooks and pages, fetch
-transcripts, search, list tasks and render ink as PNG, with the app closed. Setup and
-the nine tools are in [mcp/README.md](mcp/README.md).
+transcripts, search, list tasks, check a transcript against its ink and render ink as PNG,
+with the app closed. Setup and the ten tools are in [mcp/README.md](mcp/README.md).
+Optionally (v3.18.0) Claude can also correct a page's transcript through the running app:
+off unless both the MCP (`SMARTPEN_MCP_WRITES=1`) and Settings → Data folder → "Allow
+Claude to edit transcripts" turn it on ([docs/MCP-WRITE-SPEC.md](docs/MCP-WRITE-SPEC.md)).
 
 ## Troubleshooting
 
@@ -192,15 +196,15 @@ chip (Manage Pen Memory) and delete books you have already imported.
 written while a Library transcript edit is unsaved is still captured; switch to the
 Editor to see it.
 
-**"Folder: not set" or "Folder: missing".** Settings → Data Folder → Browse, or
+**"Folder: not set" or "Folder: missing".** Settings → Data folder → Browse, or
 Verify after moving the folder. Choosing a different folder reloads the Library,
 search and Timeline from it.
 
 **A page or notebook is missing from the Library.** Click **Rescan** on the Library
 home. Saves made in the app refresh it automatically.
 
-**MyScript fails.** Check both keys in Settings → MyScript Configuration (Test
-Keys), that the application is active and has Text recognition, and the monthly
+**MyScript fails.** Check both keys in Settings → Handwriting recognition (Test
+keys), that the application is active and has Text recognition, and the monthly
 quota. Transcribe fewer strokes at a time if a page returns nothing.
 
 **The canvas is slow.** Above about 2,000 strokes per page, use the page selector to
@@ -208,7 +212,14 @@ show fewer pages.
 
 ## Version history
 
-- **3.13.0** (Current) - Back / Forward between views (header ‹ ›, Alt+← / Alt+→, mouse side buttons)
+- **3.19.0** (Current) - Tag pages from the Editor (toolbar 🏷 Tags, Pages tab cards)
+- **3.18.0** - Claude edits transcripts through the running app (opt-in); duplicate stroke ids:
+  save guard and a cleanup dialog
+- **3.17.0** - Re-transcribe a saved page; move transcript lines as a group
+- **3.16.0** - MCP `check_transcript` and the check-transcription skill
+- **3.15.0** - Notebook types and a type filter; the reader opens on Ink + text
+- **3.14.0** - UX review: one header, a left panel that follows the Library, quieter grids
+- **3.13.0** - Back / Forward between views (header ‹ ›, Alt+← / Alt+→, mouse side buttons)
 - **3.12.0** - Task state chips toggle; a tag's page lists its tasks
 - **3.9.0** - Print preview (the real PDF) and line width in millimetres;
   Snap for stray points; a rewritten Deselect Decorative; pen import opens the Editor.

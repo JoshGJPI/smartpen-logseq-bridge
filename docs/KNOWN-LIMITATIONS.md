@@ -9,7 +9,7 @@ Reasons and history for each feature are in [CHANGELOG.md](CHANGELOG.md).
   strokes, SVG export and Export to graph stay unturned.
 - **Offline import with volumes is unverified on hardware** (live capture, volume definition and reassignment were
   verified 2026-08-07). Check: multi-book batch imports completely, strokes land in the active volume, reassignment
-  works on imported strokes. See [docs/VOLUMES-SPEC.md](docs/VOLUMES-SPEC.md) §11.
+  works on imported strokes. See [docs/VOLUMES-SPEC.md](VOLUMES-SPEC.md) §11.
 - Writing in physical volume 1 while volume 2 is active cannot be detected; reassignment is the remedy.
 - LogSeq export: volume 2+ is refused (`requireGraphBook`); a stroke already exported keeps its pre-edit geometry
   (`mergeGraphStrokes()` lets the published copy win); the JPI Tools plugin's SVG generator needs matching
@@ -47,13 +47,21 @@ Reasons and history for each feature are in [CHANGELOG.md](CHANGELOG.md).
   The Editor's Export ▾ → Print selection… prints only the selected strokes from memory (`lib/print/print-selection.js`,
   its own `selectionPrint` store), each on its page's full paper, Strokes only (a transcript can't be matched to a
   selection); a floating pasted copy has no page and is skipped.
+- **Re-transcribe (v3.17.0).** Reset is refused while only part of a page is on the canvas; ink left out of the new
+  run (a drawing) ends up unlinked.
+- **Claude's transcript edits (v3.18.0).** Work only while the app is open with "Allow Claude to edit transcripts" on
+  and the MCP has `SMARTPEN_MCP_WRITES=1`; refused while any transcript editor is open on the page. Text, indent, order
+  and lines only, never ink or task state. A 504 after 30 s may still have landed (re-read before retrying). Undo keeps
+  the last 20 edits per page and only while the page is still at the revision the edit wrote.
+- **Duplicate stroke ids (v3.18.0).** Pages saved before the guard can still share ids; they are counted from the
+  capture-date index and cleaned only from Settings → Maintenance (preview first), never silently.
 - Main-process and renderer tracing is behind `lib/debug.js` (`localStorage['smartpen-debug'] = '1'`, or the dev
   server). Never log MyScript keys or the HMAC, not even fragments.
 - Timeline: no transcripts on cards (stored `lineId`s are unreliable); `SESSION_GAP_MS` is a constant.
 - The Dates tab day list shows one tile per page, filed under its first day in range.
 - The Editor's Review copy (v3.10.0) copies the transcription run waiting there, not the page's saved
   transcript: after a partial re-transcribe it holds only the new lines (Edit Structure makes it the whole page).
-- **Neo page backgrounds are a spike** (books 388 and 3017 fetched; see [docs/CHANGELOG.md](docs/CHANGELOG.md), "Neo page backgrounds"):
+- **Neo page backgrounds are a spike** (books 388 and 3017 fetched; see [docs/CHANGELOG.md](CHANGELOG.md), "Neo page backgrounds"):
   no thumbnails, opacity control or export support; fetched by script only; images are Neo's, so keep
   `pages/_backgrounds/` and any real-handwriting screenshots out of commits.
 - **Planner (to look into later, Josh 2026-09-30).** Considering the 2027 Neo Smart Planner (the 2026 Pro is book

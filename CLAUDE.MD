@@ -24,18 +24,14 @@ node scripts/fetch-neo-backgrounds.mjs <data-root> 3_27_388   # cache Neo page i
 ```
 electron/main.cjs, preload.cjs   all disk IO + MyScript proxy, exposed as window.storageAPI
 src/stores/        one store per concern (strokes, selection, pending-changes, viewer, timeline, volumes, tags, ...)
-src/lib/           pure logic, no UI, testable without DOM (tags.js, tag-suggestions.js: page tags, v3.1.0;
-                   task-markers.js: ☐ / ☑ → TODO / DONE, v3.3.0; tasks.js: task state, WAITING, task list, v3.4.0,
-                   CANCELLED, v3.5.0; state toggle chips and a tag's tasks, v3.12.0; retime.js: shift selected strokes in time, v3.6.0;
-                   move-lines.js: move ticked transcript lines as a group, v3.17.0;
-                   canvas-page-targets.js: which pages the Editor's rotate and 🏷 Tags act on, v3.19.0;
-                   book-types.js: notebook types and the type filter, v3.15.0)
+src/lib/           pure logic, no UI, testable without DOM (tags, tag-suggestions, task-markers: ☐ / ☑ → TODO / DONE,
+                   tasks: task state and list, retime, move-lines, canvas-page-targets: what the Editor's rotate and
+                   🏷 Tags act on, book-types; one line each in docs/ARCHITECTURE.md "Key Libraries")
 src/lib/storage/   PageDoc layer: local-store (IPC facade), save-page, load-page, load-range, scan, page-changes, graph-export,
                    convert-task-boxes (one-off conversion of old transcripts)
 src/lib/viewer/    reader helpers: SVG render, page cache, thumbnails, transcript markdown/save, feed loader,
                    task-state.js (the one task write path, v3.4.0)
 src/components/    grouped by feature (canvas, dialog, header, viewer, dates, books, tags, transcription, ...)
-electron/tags-sidecar.cjs   pure parse / patch of pages/_tags.json for main (tested from Vitest)
 mcp/               stdio MCP server over the data folder (10 read-only tools, PNG via @resvg/resvg-wasm, images capped
                    by pixels), imports src/lib unchanged; registered from this checkout's mcp/server.js (mcp/README.md).
                    With SMARTPEN_MCP_WRITES=1 also edit_transcript / undo_transcript_edit, which ask the running app
@@ -43,9 +39,8 @@ mcp/               stdio MCP server over the data folder (10 read-only tools, PN
 electron/mcp-endpoint.cjs   main's localhost endpoint for those edits (token, body limit, request ids, 30 s timeout,
                    <userData>/mcp-endpoint.json); mcp-edit-log.cjs their undo log in <userData>/mcp-edits/ (tested from Vitest)
 src/lib/mcp-edits.js, stores/mcp-edits.js   the op engine (pure) and the renderer side: guards, Library Edit save, refresh
+electron/*-sidecar.cjs   pure parse / patch of pages/_tags.json, _retimed.json, _book-types.json for main (tested from Vitest)
 electron/task-summary.cjs   the scan's per-page task summary; mirrors lib/tasks.js buildTaskSummary (tested together)
-electron/retimed-sidecar.cjs  pure parse / record of pages/_retimed.json for main (tested from Vitest)
-electron/book-types-sidecar.cjs  pure parse / set of pages/_book-types.json for main (tested from Vitest)
 src/lib/print/     Print to PDF (v3.8.0): print-layout.js (sheets, 2-up columns, Auto, ink scale), print-html.js (the
                    self-contained document), print-list.js (cross-notebook print order), print-selection.js (the Editor's
                    Print selection…: selected canvas strokes by page, in memory); stores/print.js holds the session
@@ -253,11 +248,11 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
 ### Canvas stores
 
 - `selectedIndices`, `deletedIndices` and point-edit keys (`"strokeIdx:pointIdx"`) are **positions into the
-  `strokes` array**. Anything that removes strokes from the middle must shift them (see `stores/canvas.js`,
-  `adjustDeletionsAfterRemoval()`). An unshifted deletion mark deletes a *different* stroke from disk at next save.
+  `strokes` array**. Anything that removes strokes from the middle must shift them (as `stores/canvas.js` does through
+  `pending-changes.js` `adjustDeletionsAfterRemoval()`). An unshifted deletion mark deletes a *different* stroke from disk at next save.
 - `contextInk` is drawn but not owned: it stays out of `strokes`, so it can never be selected, saved, exported or
   transcribed. It counts toward page bounds, never toward capture date.
-- `pendingChanges` has five buckets (additions, edits, modifications, moves, deletions); a stroke lands in
+- `pendingChanges` has six buckets (additions, edits, modifications, moves, retimes, deletions); a stroke lands in
   exactly one. `SaveConfirmDialog` does **not** read it: it runs `page-changes.js` `computePageChangesFolder()`
   against the file on disk. That is a second implementation of the same question, so change both together.
 - Unloading a page from the canvas is not an edit and must not call `markUnsavedChanges()`.
@@ -286,7 +281,7 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   `parseTaskMarker()` (`lib/task-markers.js`), so a leading `☐` / `[ ]` / `TODO` becomes `checked: false` and
   `☑` / `☒` / `[x]` / `DONE` becomes `checked: true`, with the marker stripped from `text`. A bare `✓`, `WAITING`, `CANCELLED`
   and lowercase `todo` stay text. The duplicate check compares marker-stripped text on both sides. Pages
-  transcribed earlier are converted once from Settings → Data Folder → Convert task boxes… (preview first;
+  transcribed earlier are converted once from Settings → Maintenance → Convert task boxes… (preview first;
   `lib/storage/convert-task-boxes.js`), which bumps `metadata.lastUpdated` but never `lastTranscribed`, and never
   overrides a `checked` already set (a glyph that disagrees is left in the text as a conflict).
 - MyScript only sees strokes that are loaded, so transcribing a partially loaded page covers those strokes only.
@@ -396,11 +391,10 @@ The full list (per feature: rotation, volumes, tags, retime, tasks, print, LogSe
 | [docs/READING-UX-SPEC.md](docs/READING-UX-SPEC.md) | **v3.0.0** reading-first UI/UX, packages A–E (built), with [mockups](docs/READING-UX-MOCKUPS.html) |
 | [docs/PAGE-TAGS-SPEC.md](docs/PAGE-TAGS-SPEC.md) | **v3.1.0** page tags (built), with [mockups](docs/TAGS-UI-MOCKUPS.html) |
 | [docs/MCP-SERVER-SPEC.md](docs/MCP-SERVER-SPEC.md), [mcp/README.md](mcp/README.md) | The read-only MCP server: decisions (spec); tools, caps and setup (README) |
-| [docs/MCP-WRITE-SPEC.md](docs/MCP-WRITE-SPEC.md) | **Proposed:** transcript edits from Claude through the running app (option C) |
-| [docs/QUICK-ARCHITECTURE-REFERENCE.md](docs/QUICK-ARCHITECTURE-REFERENCE.md) | Historical (v1 era): canvas / pen / MyScript notes; file paths in it are out of date |
+| [docs/MCP-WRITE-SPEC.md](docs/MCP-WRITE-SPEC.md) | **v3.18.0** transcript edits from Claude through the running app (built) |
 | [docs/NEOSMARTPEN-SDK-USAGE.md](docs/NEOSMARTPEN-SDK-USAGE.md) | Pen SDK usage |
 | [docs/EDITOR-IMPORT-SPEC.md](docs/EDITOR-IMPORT-SPEC.md) | The handwriting editor's import formats, which the JSON / Markdown exports follow |
-| [docs/Archive/ARCHIVE-INDEX.md](docs/Archive/ARCHIVE-INDEX.md) | Superseded planning and implementation docs |
+| [docs/Archive/ARCHIVE-INDEX.md](docs/Archive/ARCHIVE-INDEX.md) | Superseded v1 / LogSeq-era specs, reviews and implementation logs |
 | [scripts/migrate-from-logseq.cjs](scripts/migrate-from-logseq.cjs) | One-shot v1 LogSeq → v2 PageDoc importer |
 
 External: [NeoSmartpen Web SDK](https://github.com/NeoSmartpen/WEB-SDK2.0) · [MyScript API](https://developer.myscript.com/) · [Svelte 4](https://svelte.dev/docs/svelte/overview).

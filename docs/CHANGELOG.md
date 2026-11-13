@@ -209,7 +209,7 @@ the book filter drop down", and for a notebook's pages to open in Ink + text.
 ## v3.14.0 — UX review after v3.13: one header, a left panel that follows the Library, quieter grids (November 2026)
 
 Josh asked for another UI/UX review once Back / Forward, task chips and tag-page tasks had landed, and approved every
-item (U1–U14 in [UX-REVIEW-V3.13.html](UX-REVIEW-V3.13.html), with mockups). Each was checked in the built app on a
+item (U1–U14 in [UX-REVIEW-V3.13.html](Archive/2026-11-built-feature-mockups/UX-REVIEW-V3.13.html), with mockups). Each was checked in the built app on a
 copy of the data folder at a 1586×937 window.
 
 - **One header in every view (U1).** In the Editor the header gained Save, Delete, Undo, Clear and Transcribe, 14
@@ -647,7 +647,7 @@ to a PageDoc.
 **🕒 Set time…** opens a dialog with the selection's earliest and latest times, a local date + time (seconds) field,
 ±day / hour / minute nudges, the resulting shift and each page's capture days before → after. Applying is an unsaved
 Editor change (amber dot) like a sketch flag or a volume move; nothing is written until Save. Feasibility review and
-mockups: [RETIME-MOCKUPS.html](RETIME-MOCKUPS.html).
+mockups: [RETIME-MOCKUPS.html](Archive/2026-11-built-feature-mockups/RETIME-MOCKUPS.html).
 
 **The id is the time, so a retime is a delete plus an add.** Stored ids are `s{startTime}` and saves are append-only,
 so a retimed stroke saved naively lands under its new id and the old copy stays: every stroke twice, silently. The
