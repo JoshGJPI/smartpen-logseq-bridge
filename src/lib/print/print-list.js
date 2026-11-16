@@ -1,24 +1,39 @@
 /**
  * print-list — the pages a print job covers, in print order (pure).
  *
- * A page ref is `{ book, pageId }` (book key string, page id string). The list
- * may hold pages from any notebook; it is the user's order, never re-sorted
- * unless they ask (`sortByBook`).
+ * A page ref is `{ book, pageId }` (book key string, page id string), read from
+ * disk when it prints. The list may also hold the Editor's selected strokes on a
+ * page (`{ book, pageId, selection: true, key, strokes }`, from
+ * print-selection.js `selectionItems()`), printed from memory, so unsaved ink
+ * prints too; one page and a selection on it are separate items. The list may
+ * hold pages from any notebook; it is the user's order, never re-sorted unless
+ * they ask (`sortByBook`).
  *
  * Tested in `src/lib/__tests__/print-list.test.js`.
  */
 
 import { compareBookKeys } from '../volumes.js';
 
-/** `"388v2/151b"`, the page's identity in a list. */
-export const refKey = (r) => `${r.book}/${r.pageId}`;
+/** True for a selected-strokes item (printed from memory), false for a page ref. */
+export const isSelectionItem = (r) => !!(r && r.selection);
 
-/** A clean ref, or null. */
+/**
+ * `"388v2/151b"`, the page's identity in a list; a selection item's is
+ * `"sel:<key>"`, its key naming the strokes, so the same selection is added once.
+ */
+export const refKey = (r) => (isSelectionItem(r) ? `sel:${r.key}` : `${r.book}/${r.pageId}`);
+
+/** A clean ref (or selection item), or null. */
 export function toRef(r) {
   if (!r || r.book == null || r.pageId == null) return null;
   const book = String(r.book);
   const pageId = String(r.pageId);
-  return book && pageId ? { book, pageId } : null;
+  if (!book || !pageId) return null;
+  if (isSelectionItem(r)) {
+    if (!r.key || !Array.isArray(r.strokes) || !r.strokes.length) return null;
+    return { book, pageId, selection: true, key: String(r.key), strokes: r.strokes };
+  }
+  return { book, pageId };
 }
 
 /**

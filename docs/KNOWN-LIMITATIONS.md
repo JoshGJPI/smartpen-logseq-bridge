@@ -42,11 +42,12 @@ Reasons and history for each feature are in [CHANGELOG.md](CHANGELOG.md).
   columns (see CHANGELOG, "Print to PDF"). The print list (header **Print**, or the dialog's notebook panel) is session-only and gathers pages
   from any notebook; one sheet layout per job, so a mixed Letter + A5 list prints 1 per sheet. 2 per sheet is side by side only; no sheet numbers.
   Preview (v3.9.0): the real PDF, rebuilt on every change from pages read once per dialog, so a redraw takes longer as
-  the list grows (not measured past a handful of pages); Print selection…'s preview is unchecked in the app. Line width is millimetres on the sheet (`lineWidthMm`), not a multiplier, so shrunk pages print
+  the list grows (not measured past a handful of pages); a list with selected strokes is unchecked in the app. Line width is millimetres on the sheet (`lineWidthMm`), not a multiplier, so shrunk pages print
   as heavy as full-size ones.
-  The Editor's Export ▾ → Print selection… prints only the selected strokes from memory (`lib/print/print-selection.js`,
-  its own `selectionPrint` store), each on its page's full paper, Strokes only (a transcript can't be matched to a
-  selection); a floating pasted copy has no page and is skipped.
+  The Editor's selected strokes go into the print list (header Print, or the dialog's Selected strokes section) and print
+  from memory (`lib/print/print-selection.js`), each on its page's full paper, as ink only (a transcript can't be matched
+  to a selection); a floating pasted copy has no page and is skipped. An item is a copy taken when added: later canvas
+  edits don't reach it, and the list is session-only like the rest.
 - **Re-transcribe (v3.17.0).** Reset is refused while only part of a page is on the canvas; ink left out of the new
   run (a drawing) ends up unlinked.
 - **Claude's transcript edits (v3.18.0).** Work only while the app is open with "Allow Claude to edit transcripts" on

@@ -12,10 +12,10 @@
   save; Print opens the Windows print dialog preset to the sheet (printer, copies,
   two-sided are chosen there). The choices are remembered (stores/print.js).
 
-  Selection mode (v3.8.0, openSelectionPrint from the Editor's Export menu): the
-  canvas's selected strokes, read from `selectionPrint` instead of `printDialog`,
-  so the print list is never touched. No picker or page list, only a read-only
-  per-page summary (PrintSelectionPages), and content is locked to Strokes.
+  Selected strokes: while the Editor has strokes selected, the left panel's
+  first section offers them, one item per pen page, beside the notebooks' pages
+  (the header's Print has already added them). They print from memory, so
+  unsaved ink prints too, always as ink (Strokes) whatever the content choice.
 
   Preview (v3.9.0, PrintPreview): the job's own PDF in a third column, redrawn
   as pages and options change; Enlarge gives it the whole dialog body.
@@ -23,18 +23,18 @@
 <script>
   import { get } from 'svelte/store';
   import { savedPages, log } from '$stores';
+  import { selectedStrokes } from '$stores/selection.js';
+  import { destination } from '$stores/viewer.js';
+  import { selectionItems } from '$lib/print/print-selection.js';
   import {
     printDialog, printOptions, closePrintDialog, previewSheet, printPagesToPdf, printPagesToPrinter,
-    printDocTitle, setDialogPages, addToPrintList, clearPrintList,
-    selectionPrint, closeSelectionPrint, previewSelectionSheet, printSelectionToPdf, printSelectionToPrinter
+    printDocTitle, setDialogPages, addToPrintList, clearPrintList
   } from '$stores/print.js';
-  import { addRefs, removeRefs } from '$lib/print/print-list.js';
-  import { selectionStrokeCount } from '$lib/print/print-selection.js';
+  import { addRefs, removeRefs, isSelectionItem } from '$lib/print/print-list.js';
   import { plural } from '$lib/plural.js';
   import PrintPageList from './PrintPageList.svelte';
   import PrintPagePicker from './PrintPagePicker.svelte';
   import PrintOptions from './PrintOptions.svelte';
-  import PrintSelectionPages from './PrintSelectionPages.svelte';
   import PrintPreview from './PrintPreview.svelte';
 
   /** null | 'pdf' | 'printer' */
@@ -44,22 +44,24 @@
   let sheetFor = '';
   let expanded = false;
 
-  $: selection = $selectionPrint.open;
-  $: open = selection || $printDialog.open;
-  // Selection pages carry their strokes; everything else here only reads book / pageId.
-  $: refs = selection ? $selectionPrint.pages : $printDialog.pages;
-  $: fromList = !selection && $printDialog.fromList;
-  $: opts = selection ? { ...$printOptions, content: 'strokes' } : $printOptions;
-  $: if (open) updateSheet(refs, opts, selection);
+  $: open = $printDialog.open;
+  // Page refs, and selected-strokes items that carry their strokes (print-list.js).
+  $: refs = $printDialog.pages;
+  $: fromList = $printDialog.fromList;
+  $: opts = $printOptions;
+  $: if (open) updateSheet(refs, opts);
   $: if (!open) expanded = false;
-  $: untranscribed = open && !selection ? countUntranscribed(refs, $savedPages) : 0;
-  $: strokeCount = selection ? selectionStrokeCount(refs) : 0;
+  $: pageRefs = refs.filter((r) => !isSelectionItem(r));
+  $: untranscribed = open ? countUntranscribed(pageRefs, $savedPages) : 0;
+  // The Editor's selection, offered in the left panel (copied while the dialog is up).
+  $: canvasItems = open && $destination === 'editor' && $selectedStrokes.length
+    ? selectionItems($selectedStrokes).items : [];
 
-  async function updateSheet(r, o, sel) {
-    const key = JSON.stringify([sel, r.map((x) => `${x.book}/${x.pageId}`), o.paper, o.layout, o.labels]);
+  async function updateSheet(r, o) {
+    const key = JSON.stringify([r.map((x) => (isSelectionItem(x) ? x.key : `${x.book}/${x.pageId}`)), o.paper, o.layout, o.labels]);
     sheetFor = key;
     try {
-      const s = await (sel ? previewSelectionSheet(r, o) : previewSheet(r, o));
+      const s = await previewSheet(r, o);
       if (sheetFor === key) sheet = s;
     } catch {
       if (sheetFor === key) sheet = null;
@@ -75,31 +77,22 @@
     progress = total > 1 ? `Reading page ${Math.min(done + 1, total)} of ${total}…` : 'Preparing…';
   };
 
-  function closeAny() {
-    if (selection) closeSelectionPrint();
-    else closePrintDialog();
-  }
-
   async function run(kind) {
     busy = kind;
     progress = 'Preparing…';
-    const n = selection
-      ? `${strokeCount} selected ${plural(strokeCount, 'stroke')}`
-      : `${refs.length} ${plural(refs.length, 'page')}`;
-    const toPdf = selection ? printSelectionToPdf : printPagesToPdf;
-    const toPrinter = selection ? printSelectionToPrinter : printPagesToPrinter;
+    const n = `${refs.length} ${plural(refs.length, 'page')}`;
     try {
       if (kind === 'pdf') {
-        const res = await toPdf(refs, get(printOptions), onProgress);
+        const res = await printPagesToPdf(refs, get(printOptions), onProgress);
         if (res && res.canceled) return;
         log(`Saved PDF of ${n}: ${res.path}`, 'success');
-        closeAny();
+        closePrintDialog();
       } else {
         progress = 'Waiting for the print dialog…';
-        const res = await toPrinter(refs, get(printOptions), onProgress);
+        const res = await printPagesToPrinter(refs, get(printOptions), onProgress);
         if (res.printed) {
           log(`Sent ${n} to the printer`, 'success');
-          closeAny();
+          closePrintDialog();
         } else if (res.reason !== 'cancelled') {
           log(`Printing failed: ${res.reason}`, 'error');
         }
@@ -113,7 +106,7 @@
   }
 
   function close() {
-    if (!busy) closeAny();
+    if (!busy) closePrintDialog();
   }
 
   // Escape steps back out of an enlarged preview first, then closes.
@@ -126,33 +119,28 @@
 
   $: subtitle = !refs.length
     ? 'No pages yet'
-    : selection
-      ? `${strokeCount} ${plural(strokeCount, 'stroke')} on ${refs.length} ${plural(refs.length, 'page')} · ${printDocTitle(refs)}`
-      : `${printDocTitle(refs)} · ${refs.length} ${plural(refs.length, 'page')}`;
+    : `${printDocTitle(refs)} · ${refs.length} ${plural(refs.length, 'page')}`;
 </script>
 
 <svelte:window on:keydown={onKey} />
 
 {#if open}
   <div class="dialog-backdrop" on:click={close} role="presentation"></div>
-  <div class="dialog" class:compact={selection} role="dialog" aria-modal="true" aria-labelledby="print-title">
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="print-title">
     <div class="dialog-header">
-      <h2 id="print-title">{selection ? 'Print selection' : fromList ? 'Print list' : 'Print'}</h2>
+      <h2 id="print-title">{fromList ? 'Print list' : 'Print'}</h2>
       <span class="sub">{subtitle}</span>
       <button class="close-btn" on:click={close} aria-label="Close">✕</button>
     </div>
 
-    <div class="dialog-body" class:single={selection} class:expanded>
-      {#if !selection && !expanded}
-        <PrintPagePicker pages={refs} disabled={!!busy}
+    <div class="dialog-body" class:expanded>
+      {#if !expanded}
+        <PrintPagePicker pages={refs} selectionItems={canvasItems} disabled={!!busy}
           onAdd={(r) => setDialogPages(addRefs(get(printDialog).pages, r))}
           onRemove={(r) => setDialogPages(removeRefs(get(printDialog).pages, r))} />
       {/if}
 
       <div class="main" hidden={expanded}>
-        {#if selection}
-          <PrintSelectionPages pages={refs} skipped={$selectionPrint.skipped} />
-        {:else}
           <PrintPageList pages={refs} disabled={!!busy} onChange={setDialogPages}>
             {#if fromList}
               <button type="button" disabled={!!busy || !refs.length} on:click={clearPrintList}>Clear list</button>
@@ -164,12 +152,12 @@
           {#if !refs.length}
             <p class="hint-empty">Pick pages from the notebooks on the left.</p>
           {/if}
-        {/if}
 
-        <PrintOptions {opts} {sheet} {selection} {untranscribed} pageCount={refs.length} />
+        <PrintOptions {opts} {sheet} {untranscribed} pageCount={pageRefs.length}
+          selectionCount={refs.length - pageRefs.length} />
       </div>
 
-      <PrintPreview items={refs} {opts} {selection} {expanded} onToggleExpand={() => (expanded = !expanded)} />
+      <PrintPreview items={refs} {opts} {expanded} onToggleExpand={() => (expanded = !expanded)} />
     </div>
 
     <div class="dialog-footer">
@@ -191,7 +179,6 @@
     width: min(1400px, calc(100vw - 48px)); height: min(820px, 90vh);
     display: flex; flex-direction: column; z-index: 1001;
   }
-  .dialog.compact { width: min(1100px, calc(100vw - 48px)); }
   .dialog-header, .dialog-footer { display: flex; align-items: center; gap: 10px; padding: 14px 20px; }
   .dialog-header { border-bottom: 1px solid var(--border); }
   .dialog-footer { justify-content: flex-end; border-top: 1px solid var(--border); }
@@ -199,7 +186,6 @@
   .sub { flex: 1; min-width: 0; color: var(--text-secondary); font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .close-btn { background: transparent; border: none; color: var(--text-secondary); cursor: pointer; font-size: 1rem; }
   .dialog-body { flex: 1; min-height: 0; padding: 16px 20px; display: grid; grid-template-columns: 250px minmax(0, 1fr) minmax(300px, 1fr); gap: 16px; }
-  .dialog-body.single { grid-template-columns: minmax(0, 1fr) minmax(300px, 1.2fr); }
   .dialog-body.expanded { grid-template-columns: minmax(0, 1fr); }
   .main[hidden] { display: none; }
   .main { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }

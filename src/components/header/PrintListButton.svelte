@@ -2,15 +2,26 @@
   PrintListButton.svelte — the header's Print entry (v3.8.0). Opens the Print
   dialog on the print list, where pages from any notebook are picked (left
   panel), reordered and printed together; the badge counts the list's pages.
+  In the Editor with strokes selected it adds those strokes to the list first
+  (one item per page, printed from memory; already there = added once).
 -->
 <script>
-  import { printList, openPrintList } from '$stores/print.js';
+  import { get } from 'svelte/store';
+  import { printList, openPrintList, addSelectionToPrintList } from '$stores/print.js';
+  import { selectedStrokes } from '$stores/selection.js';
+  import { destination } from '$stores/viewer.js';
   import { plural } from '$lib/plural.js';
+
+  function open() {
+    const sel = get(selectedStrokes);
+    if (get(destination) === 'editor' && sel.length) addSelectionToPrintList(sel);
+    openPrintList();
+  }
 
   $: n = $printList.length;
 </script>
 
-<button type="button" class="pl-btn" title={n ? `Print list: ${n} ${plural(n, 'page')}` : 'Print pages from any notebook'} on:click={openPrintList}>
+<button type="button" class="pl-btn" title={n ? `Print list: ${n} ${plural(n, 'page')}` : 'Print pages from any notebook'} on:click={open}>
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path d="M6 9V2h12v7"/>
     <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>

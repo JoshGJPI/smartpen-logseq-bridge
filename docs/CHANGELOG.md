@@ -10,6 +10,16 @@ CLAUDE.md (Invariants); the store and library map is in
 
 A code audit, area by area. No new features and no version number yet.
 
+**Selected strokes in the print list.** The Editor's selected strokes join the print list beside whole pages, one
+item per pen page ("JPI Dotted — P42 · 12 selected strokes"), printed from memory, so freshly imported ink prints
+without being saved first. The header's Print adds the selection when opened from the Editor with strokes selected
+(the same selection is added once: an item's key names its strokes, `selectionItems()`); the Print dialog's left
+panel lists it first as **Selected strokes** (`P42 · 12` chips, Add all), toggled like the notebooks' pages, and the
+list reorders and removes them like pages. A selection item prints as ink on its page's full paper whatever the
+Strokes / Transcript / Both choice (`inkOnly` in print-html.js; a hint says so). This replaces the separate
+Print selection mode (its own `selectionPrint` store, `PrintSelectionPages`, the Export ▾ → Print selection… item):
+one dialog, one job path (`buildJob` loads each item from disk or memory).
+
 **Fixes**
 
 - After a save, the unsaved dot stays lit while any page the save dialog listed with changes was left unticked

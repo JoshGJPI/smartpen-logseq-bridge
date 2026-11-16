@@ -2,7 +2,7 @@
  * lib/print/print-list.js (v3.8.0): the print list across notebooks.
  */
 import { describe, it, expect } from 'vitest';
-import { refKey, toRef, addRefs, removeRefs, moveRef, sortByBook } from '$lib/print/print-list.js';
+import { refKey, toRef, addRefs, removeRefs, moveRef, sortByBook, isSelectionItem } from '$lib/print/print-list.js';
 
 const r = (book, pageId) => ({ book, pageId });
 
@@ -12,6 +12,24 @@ describe('toRef / refKey', () => {
     expect(toRef({ book: '388' })).toBeNull();
     expect(toRef(null)).toBeNull();
     expect(refKey(r('388v2', '151b'))).toBe('388v2/151b');
+  });
+
+  it('keeps a selected-strokes item whole, keyed apart from its page', () => {
+    const strokes = [{ id: 's1', points: [[0, 0], [1, 1]] }];
+    const item = toRef({ book: 388, pageId: 12, selection: true, key: '388/12#1.abc', strokes, extra: 1 });
+    expect(item).toEqual({ book: '388', pageId: '12', selection: true, key: '388/12#1.abc', strokes });
+    expect(isSelectionItem(item)).toBe(true);
+    expect(isSelectionItem(r('388', '12'))).toBe(false);
+    expect(refKey(item)).toBe('sel:388/12#1.abc');
+    expect(toRef({ book: '388', pageId: '12', selection: true, key: 'k', strokes: [] })).toBeNull();
+    expect(toRef({ book: '388', pageId: '12', selection: true, strokes })).toBeNull();
+  });
+
+  it('removes a selection item without touching its page', () => {
+    const item = { book: '388', pageId: '12', selection: true, key: 'k', strokes: [{ id: 's1' }] };
+    const list = [r('388', '12'), item];
+    expect(removeRefs(list, [item])).toEqual([r('388', '12')]);
+    expect(removeRefs(list, [r('388', '12')])).toEqual([item]);
   });
 });
 

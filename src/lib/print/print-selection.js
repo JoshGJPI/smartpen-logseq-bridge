@@ -1,8 +1,10 @@
 /**
- * print-selection — Print selection… in the Editor (pure: no DOM, no stores).
+ * print-selection — the Editor's selected strokes as print-list items (pure: no
+ * DOM, no stores).
  *
  * Prints only the canvas's selected strokes, one print page per pen page, from
- * memory rather than disk, so unsaved ink prints too. Each page keeps its full
+ * memory rather than disk, so unsaved ink prints too. The groups go into the
+ * print list beside whole pages (`selectionItems()`, print-list.js). Each page keeps its full
  * paper (the Neo frame, grown for stray ink by printFrame), so the selection
  * sits where it was written on the sheet instead of being cropped and enlarged;
  * a notebook with no paper falls back to the selection's own ink box.
@@ -66,8 +68,38 @@ export function groupSelectionByPage(strokes) {
   return { pages, skipped };
 }
 
+/** A short, stable hash of a page's selected stroke ids (FNV-1a, base 36). */
+function idsHash(strokes) {
+  let h = 0x811c9dc5;
+  const s = strokes.map((st) => st.id).sort().join(',');
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+
 /**
- * One selection page as print-html.js wants it.
+ * The selection as print-list items, one per pen page:
+ * `{ book, pageId, selection: true, key, strokes }`. The key names the page and
+ * its strokes, so adding the same selection twice adds it once.
+ * @returns {{items: Array, skipped: number}}
+ */
+export function selectionItems(canvasStrokes) {
+  const { pages, skipped } = groupSelectionByPage(canvasStrokes);
+  const items = pages.map((g) => ({
+    book: g.book,
+    pageId: g.pageId,
+    selection: true,
+    key: `${g.book}/${g.pageId}#${g.strokes.length}.${idsHash(g.strokes)}`,
+    strokes: g.strokes
+  }));
+  return { items, skipped };
+}
+
+/**
+ * One selection page as print-html.js wants it. `inkOnly`: whatever the
+ * Strokes / Transcript / Both choice, it prints its ink and no transcript.
  * @param {{book: string, pageId: string, strokes: Array}} group  from groupSelectionByPage
  * @param {{paperFrame?: Object|null, rotation?: number, title: string,
  *          background?: {frame: Object, dataUrl: string}|null}} ctx
@@ -81,11 +113,7 @@ export function selectionPrintPage(group, { paperFrame = null, rotation = 0, tit
     rotation,
     strokes,
     lines: null,
+    inkOnly: true,
     background
   };
-}
-
-/** "N strokes on M pages" for the dialog header. */
-export function selectionStrokeCount(pages) {
-  return (pages || []).reduce((n, p) => n + (p.strokes ? p.strokes.length : 0), 0);
 }

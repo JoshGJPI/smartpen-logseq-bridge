@@ -3,16 +3,15 @@
   prints (Strokes | Transcript | Both), paper, layout, ink size, line width (mm on the sheet),
   ruling, labels. The sheet itself shows in the dialog's preview. Every choice writes straight to `printOptions` (remembered).
 
-  `selection` (Print selection…, v3.8.0): content is locked to Strokes, since a
-  saved transcript can't be matched to selected ink; the remembered choice is
-  left as it is for the next page print.
+  Selected strokes in the list always print as ink (a saved transcript can't be
+  matched to selected ink); with Transcript or Both a hint says so.
 -->
 <script>
   import { setPrintOptions } from '$stores/print.js';
   import { PAPER_SIZES, PAPER_IDS, LAYOUTS, LINE_WIDTH_MM, layoutLabel } from '$lib/print/print-layout.js';
   import { plural } from '$lib/plural.js';
 
-  /** normalizePrintOptions() shape, already content-locked for a selection */
+  /** normalizePrintOptions() shape */
   export let opts;
   /** the resolved sheet (for the Auto label), or null while it is worked out */
   export let sheet = null;
@@ -20,7 +19,8 @@
   export let pageCount = 0;
   /** pages with no transcript (for the warning beside Transcript / Both) */
   export let untranscribed = 0;
-  export let selection = false;
+  /** selected-strokes items in the list (they print ink only) */
+  export let selectionCount = 0;
 
   const CONTENT_CHOICES = [['strokes', 'Strokes'], ['transcript', 'Transcript'], ['both', 'Both']];
 </script>
@@ -28,17 +28,16 @@
 <div class="form">
   <div class="row">
     <span class="lbl" id="print-content">Print</span>
-    {#if selection}
-      <span class="fixed">The selected strokes, on their pages (no transcript)</span>
-    {:else}
-      <div class="seg" role="group" aria-labelledby="print-content">
-        {#each CONTENT_CHOICES as [id, text] (id)}
-          <button type="button" class:on={opts.content === id} aria-pressed={opts.content === id}
-            on:click={() => setPrintOptions({ content: id })}>{text}</button>
-        {/each}
-      </div>
-    {/if}
+    <div class="seg" role="group" aria-labelledby="print-content">
+      {#each CONTENT_CHOICES as [id, text] (id)}
+        <button type="button" class:on={opts.content === id} aria-pressed={opts.content === id}
+          on:click={() => setPrintOptions({ content: id })}>{text}</button>
+      {/each}
+    </div>
   </div>
+  {#if opts.content !== 'strokes' && selectionCount}
+    <p class="hint">Selected strokes print as ink only.</p>
+  {/if}
   {#if opts.content !== 'strokes' && untranscribed}
     <p class="hint">{untranscribed} of {pageCount} {plural(pageCount, 'page')} {untranscribed === 1 ? 'has' : 'have'} no transcript{opts.content === 'both' ? ' and print ink only' : ''}.</p>
   {/if}
@@ -94,7 +93,6 @@
   .form { display: flex; flex-direction: column; gap: 10px; }
   .row { display: flex; align-items: center; gap: 12px; }
   .lbl { width: 84px; flex-shrink: 0; color: var(--text-secondary); font-size: 0.85rem; }
-  .fixed { color: var(--text-primary); font-size: 0.85rem; }
   select {
     flex: 1; min-width: 0; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px;
     background: var(--bg-secondary); color: var(--text-primary); font-size: 0.85rem;

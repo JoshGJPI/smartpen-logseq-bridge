@@ -1,14 +1,15 @@
 /**
- * lib/print/print-selection.js (v3.8.0): Print selection… in the Editor —
- * grouping selected canvas strokes by page, the stored-format conversion, and
- * the frame each page prints in.
+ * lib/print/print-selection.js (v3.8.0): the Editor's selected strokes in print —
+ * grouping selected canvas strokes by page, the stored-format conversion, the
+ * print-list items they become, and the frame each page prints in.
  */
 import { describe, it, expect } from 'vitest';
 import {
-  selectionPageRef, groupSelectionByPage, selectionPrintPage, selectionStrokeCount
+  selectionPageRef, groupSelectionByPage, selectionPrintPage, selectionItems
 } from '$lib/print/print-selection.js';
 import { inkSvg, buildPrintHtml } from '$lib/print/print-html.js';
 import { sheetFor, normalizePrintOptions } from '$lib/print/print-layout.js';
+import { addRefs, refKey } from '$lib/print/print-list.js';
 
 const T0 = new Date(2026, 9, 14, 9, 0).getTime();
 const PAPER = { x0: 0, y0: 0, x1: 60, y1: 90 };
@@ -142,16 +143,54 @@ describe('selectionPrintPage', () => {
 
   it('builds a strokes-only document even if asked for a transcript', () => {
     const page = selectionPrintPage(group, { paperFrame: PAPER, title: 'JPI A5 — P5' });
+    expect(page.inkOnly).toBe(true);
     const opts = normalizePrintOptions({ content: 'both' });
     const html = buildPrintHtml([page], { ...opts, sheet: sheetFor({ layout: '1-portrait' }) });
     expect(html).toContain('JPI A5 — P5');
     expect(html).not.toContain('<section');
   });
+
+  it('prints its ink beside a transcript-only page in a mixed list', () => {
+    const page = selectionPrintPage(group, { paperFrame: PAPER, title: 'Sel P5' });
+    const saved = { title: 'Saved P6', frame: PAPER, strokes: [], lines: [{ text: 'hello', indentLevel: 0 }] };
+    const opts = normalizePrintOptions({ content: 'transcript' });
+    const html = buildPrintHtml([saved, page], { ...opts, sheet: sheetFor({ layout: '1-portrait' }) });
+    expect(html).toContain('hello');
+    expect(html).toMatch(/<figure class="ink">[\s\S]*Sel P5[\s\S]*<svg/);
+    expect(html).not.toMatch(/<figure class="ink">[^]*Saved P6/);
+  });
 });
 
-describe('selectionStrokeCount', () => {
-  it('adds up the strokes on every page', () => {
-    expect(selectionStrokeCount([{ strokes: [1, 2] }, { strokes: [3] }])).toBe(3);
-    expect(selectionStrokeCount([])).toBe(0);
+describe('selectionItems', () => {
+  const sel = [
+    makeStroke('3017', 5, [[1, 1, 100], [2, 2, 100]], { startTime: T0 }),
+    makeStroke('3017', 6, [[1, 1, 100], [2, 2, 100]], { startTime: T0 + 1000 }),
+    makeStroke('3017', 5, [[3, 3, 100], [4, 4, 100]], { startTime: T0 + 2000 }),
+    makeStroke(null, 7, [[1, 1, 100]])
+  ];
+
+  it('is one print-list item per page, carrying its strokes', () => {
+    const { items, skipped } = selectionItems(sel);
+    expect(skipped).toBe(1);
+    expect(items.map((i) => [i.book, i.pageId, i.selection, i.strokes.length])).toEqual([
+      ['3017', '5', true, 2], ['3017', '6', true, 1]
+    ]);
+  });
+
+  it('keys the same strokes the same way (in any order), and different strokes differently', () => {
+    const a = selectionItems(sel).items[0];
+    const b = selectionItems([sel[2], sel[0]]).items[0];
+    const c = selectionItems([sel[0]]).items[0];
+    expect(b.key).toBe(a.key);
+    expect(c.key).not.toBe(a.key);
+    expect(refKey(a)).not.toBe('3017/5'); // never mistaken for the whole page
+  });
+
+  it('is added to the print list once, beside the whole page', () => {
+    const items = selectionItems(sel).items;
+    let list = addRefs([{ book: '3017', pageId: '5' }], items);
+    list = addRefs(list, selectionItems(sel).items);
+    expect(list.length).toBe(3);
+    expect(list[1].strokes.length).toBe(2);
   });
 });

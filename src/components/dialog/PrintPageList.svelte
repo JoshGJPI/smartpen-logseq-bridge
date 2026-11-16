@@ -1,14 +1,15 @@
 <!--
   PrintPageList.svelte — the Print dialog's pages, in print order (v3.8.0).
   Drag a row (or use ↑ ↓) to reorder, × to drop a page, Sort by notebook to put
-  them back in notebook-then-page order. Pages may come from any notebook. The
+  them back in notebook-then-page order. Pages may come from any notebook; a
+  selected-strokes item reads "P42 · 12 selected strokes". The
   dialog decides where an edit goes (setDialogPages: its own copy, or the print
   list when it is editing that).
 -->
 <script>
   import { bookAliases } from '$stores';
   import { formatBookName } from '$utils/formatting.js';
-  import { moveRef, sortByBook, refKey } from '$lib/print/print-list.js';
+  import { moveRef, sortByBook, refKey, isSelectionItem } from '$lib/print/print-list.js';
 
   /** [{ book, pageId }] */
   export let pages = [];
@@ -19,7 +20,8 @@
   let dragFrom = null;
   let dropAt = null;
 
-  const name = (r) => `${formatBookName(r.book, $bookAliases, 'alias-only') || `B${r.book}`} — P${r.pageId}`;
+  const name = (r) => `${formatBookName(r.book, $bookAliases, 'alias-only') || `B${r.book}`} — P${r.pageId}` +
+    (isSelectionItem(r) ? ` · ${r.strokes.length} selected stroke${r.strokes.length === 1 ? '' : 's'}` : '');
   $: books = new Set(pages.map((p) => p.book)).size;
 
   function move(from, to) {

@@ -4,6 +4,10 @@
   the end of the print list, click it again to take it out; "Add all" adds a
   notebook's pages in page order. Built from the scan records (no page reads), so
   it opens instantly; a dot marks a transcribed page.
+
+  Selected strokes: while the Editor has strokes selected, a first section lists
+  them by page ("P42 · 12"), toggled the same way; they print from memory, so
+  unsaved ink prints too.
 -->
 <script>
   import { savedPages, bookAliases } from '$stores';
@@ -11,8 +15,10 @@
   import { compareBookKeys } from '$lib/volumes.js';
   import { refKey } from '$lib/print/print-list.js';
 
-  /** The dialog's pages, [{ book, pageId }]. */
+  /** The dialog's pages, [{ book, pageId }] and selected-strokes items. */
   export let pages = [];
+  /** The Editor's selection as print-list items (print-selection.js selectionItems), or []. */
+  export let selectionItems = [];
   /** (refs) => void */
   export let onAdd = () => {};
   /** (refs) => void */
@@ -24,6 +30,8 @@
 
   $: books = groupBooks($savedPages || [], $bookAliases);
   $: picked = new Set(pages.map(refKey));
+  $: selPicked = selectionItems.filter((s) => picked.has(refKey(s))).length;
+  const selName = (s) => `${formatBookName(s.book, $bookAliases, 'alias-only') || `B${s.book}`} — P${s.pageId}`;
   // Open the notebooks the job already draws from, once.
   $: if (!openedFor && books.length) {
     openedFor = true;
@@ -63,6 +71,27 @@
 <div class="pp" aria-label="Notebooks">
   <div class="pp-head">Notebooks <small>click a page to add it</small></div>
   <div class="pp-scroll">
+    {#if selectionItems.length}
+      <section class="pp-book pp-sel">
+        <div class="pp-row">
+          <span class="pp-toggle static">
+            <span class="pp-name">Selected strokes</span>
+            <span class="pp-count">{selPicked ? `${selPicked}/` : ''}{selectionItems.length}</span>
+          </span>
+          <button type="button" class="pp-all" disabled={disabled || selPicked === selectionItems.length}
+            title="Add the strokes selected in the Editor, one sheet per page" on:click={() => onAdd(selectionItems)}>Add all</button>
+        </div>
+        <div class="pp-pages">
+          {#each selectionItems as s (refKey(s))}
+            <button type="button" class="chip wide" class:on={picked.has(refKey(s))} aria-pressed={picked.has(refKey(s))} {disabled}
+              title="{selName(s)}: {s.strokes.length} selected stroke{s.strokes.length === 1 ? '' : 's'}, printed from the Editor (unsaved ink too){picked.has(refKey(s)) ? '. In the list: click to take it out' : ''}"
+              on:click={() => togglePage(s)}>
+              P{s.pageId} · {s.strokes.length}
+            </button>
+          {/each}
+        </div>
+      </section>
+    {/if}
     {#each books as b (b.book)}
       {@const n = b.pages.filter((p) => picked.has(refKey(p))).length}
       <section class="pp-book">
@@ -104,7 +133,10 @@
     flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 7px 10px;
     border: none; background: none; color: var(--text-primary); font-size: 0.84rem; font-weight: 600; cursor: pointer; text-align: left;
   }
-  .pp-toggle:hover { background: var(--bg-secondary); }
+  .pp-toggle:hover:not(.static) { background: var(--bg-secondary); }
+  .pp-toggle.static { cursor: default; }
+  .pp-sel .pp-pages { padding-left: 10px; }
+  .chip.wide { grid-column: span 2; }
   .caret { color: var(--text-secondary); font-size: 0.7rem; transition: transform 0.12s; }
   .caret.on { transform: rotate(90deg); }
   .pp-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

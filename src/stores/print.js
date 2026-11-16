@@ -10,10 +10,11 @@
  * hands it to main, which asks where to save and renders it with printToPDF.
  * Read-only: nothing here writes a PageDoc or a sidecar.
  *
- * Print selection… (v3.8.0) is the Editor's way in: the canvas's selected
- * strokes, copied when the dialog opens (lib/print/print-selection.js), printed
- * on their pages' full paper from memory instead of disk. It has its own store
- * (`selectionPrint`), so it never disturbs `printDialog` or the print list.
+ * Selected strokes: the Editor's selection joins the print list as one item per
+ * pen page (lib/print/print-selection.js `selectionItems()`), copied when added,
+ * printed on its page's full paper from memory instead of disk, so unsaved ink
+ * prints too. The header's Print adds it when opened from the Editor with
+ * strokes selected; the dialog's left panel adds or removes it beside the pages.
  *
  * Preview (v3.9.0): the dialog shows the PDF itself (`renderPreviewPdf`, main's
  * print:previewPdf, drawn with pdf.js). Pages read for it are kept while the
@@ -26,8 +27,8 @@ import { getPage, getBackgroundImage } from '../lib/storage/local-store.js';
 import { readJson, write } from '../lib/safe-storage.js';
 import { normalizePrintOptions, resolveSheet } from '../lib/print/print-layout.js';
 import { buildPrintHtml, printFrame } from '../lib/print/print-html.js';
-import { addRefs, removeRefs, refKey } from '../lib/print/print-list.js';
-import { groupSelectionByPage, selectionPrintPage } from '../lib/print/print-selection.js';
+import { addRefs, removeRefs, refKey, isSelectionItem } from '../lib/print/print-list.js';
+import { selectionItems, selectionPrintPage } from '../lib/print/print-selection.js';
 import { pageDayGroups } from '../lib/viewer/page-sittings.js';
 import { writtenLabel } from '../lib/viewer/written-on.js';
 import { rotationFor } from '../lib/page-orientation.js';
@@ -95,30 +96,6 @@ export function setDialogPages(pages) {
   if (get(printDialog).fromList) printList.set(pages);
 }
 
-/**
- * `{ open, pages: [{ book, pageId, strokes }], skipped }`: Print selection…'s
- * pages, stored-format strokes copied from the canvas when it opened (later
- * canvas edits don't reach an open dialog). `skipped`: selected strokes with no
- * page (a floating pasted copy).
- */
-export const selectionPrint = writable({ open: false, pages: [], skipped: 0 });
-
-/** Print selection…: open the dialog on the selected canvas strokes. */
-export function openSelectionPrint(canvasStrokes) {
-  const { pages, skipped } = groupSelectionByPage(canvasStrokes);
-  if (!pages.length) {
-    log('Nothing to print: the selected strokes are not on a page', 'warning');
-    return;
-  }
-  loaded.clear();
-  selectionPrint.set({ open: true, pages, skipped });
-}
-
-export function closeSelectionPrint() {
-  loaded.clear();
-  selectionPrint.set({ open: false, pages: [], skipped: 0 });
-}
-
 /** Append pages to the print list (duplicates skipped). @returns {number} how many were new */
 export function addToPrintList(pages) {
   const before = get(printList);
@@ -130,6 +107,20 @@ export function addToPrintList(pages) {
     ? `Added ${added} ${plural(added, 'page')} to the print list (${next.length} in all)`
     : `${n === 1 ? 'That page is' : 'Those pages are'} already in the print list`, 'info');
   return added;
+}
+
+/**
+ * Add the Editor's selected strokes to the print list (one item per page; a
+ * selection already there is skipped). Quiet: the dialog shows the list.
+ * @returns {number} how many items were new
+ */
+export function addSelectionToPrintList(canvasStrokes) {
+  const { items, skipped } = selectionItems(canvasStrokes);
+  if (skipped) log(`${skipped} selected ${plural(skipped, 'stroke')} on no page (a pasted copy) won't print`, 'info');
+  const before = get(printList);
+  const next = addRefs(before, items);
+  printList.set(next);
+  return next.length - before.length;
 }
 
 export function removeFromPrintList(pages) {
@@ -215,7 +206,7 @@ async function loadPrintPage(ref, opts) {
 }
 
 /**
- * One Print selection… page: its full paper (or the selection's ink box without
+ * One selected-strokes page: its full paper (or the selection's ink box without
  * one), turned like the canvas page (the integer page's rotation).
  */
 async function loadSelectionPage(group, opts) {
@@ -230,19 +221,15 @@ async function loadSelectionPage(group, opts) {
 
 /**
  * The sheet a job would print on, from the pages' paper alone (no stroke
- * reads), for the dialog's "Auto · 2 per sheet" hint.
+ * reads; a selection's strokes are in memory), for the dialog's "Auto · 2 per
+ * sheet" hint.
  */
 export async function previewSheet(refs, opts) {
   const pages = await Promise.all(refs.map(async (r) => {
+    if (isSelectionItem(r)) return loadSelectionPage(r, { ...opts, background: false });
     const paper = await resolvePagePaper(r.book, r.pageId);
     return { frame: paper ? paper.frame : null, rotation: rotationFor(get(pageOrientations), r.book, r.pageId) };
   }));
-  return resolveSheet(pages.filter((p) => p.frame), opts);
-}
-
-/** previewSheet for Print selection… (its pages are in memory, so this is cheap). */
-export async function previewSelectionSheet(groups, opts) {
-  const pages = await Promise.all(groups.map((g) => loadSelectionPage(g, { ...opts, background: false })));
   return resolveSheet(pages.filter((p) => p.frame), opts);
 }
 
@@ -254,13 +241,18 @@ function printAPI() {
 }
 
 /**
- * `load(item, opts)` through `loaded`. Only the background depends on the
- * options, so it is part of the key; a page that couldn't be read isn't kept.
+ * One print page through `loaded`: a page ref read from disk, a selection item
+ * from memory. Only the background depends on the options, so it is part of the
+ * key (a selection prints its ink, so its ruling, under any content choice); a
+ * page that couldn't be read isn't kept.
  */
-async function loadOnce(load, item, opts) {
-  const bg = !!opts.background && opts.content !== 'transcript';
-  const key = `${load === loadPrintPage ? 'page' : 'sel'}:${refKey(item)}:${bg}`;
-  if (!loaded.has(key)) loaded.set(key, load(item, opts));
+async function loadOnce(item, opts) {
+  const sel = isSelectionItem(item);
+  const bg = !!opts.background && (sel || opts.content !== 'transcript');
+  const key = `${refKey(item)}:${bg}`;
+  if (!loaded.has(key)) {
+    loaded.set(key, sel ? loadSelectionPage(item, { ...opts, content: 'strokes' }) : loadPrintPage(item, opts));
+  }
   try {
     const page = await loaded.get(key);
     if (page.readFailed) loaded.delete(key);
@@ -273,13 +265,13 @@ async function loadOnce(load, item, opts) {
 
 /**
  * Load the pages and build the print document: `{ html, sheet, docTitle, opts }`.
- * `load(item, opts)` makes one print page; `docTitle` names the PDF.
+ * `docTitle` names the PDF.
  */
-async function buildJob(items, load, opts, docTitle, onProgress) {
+async function buildJob(items, opts, docTitle, onProgress) {
   const pages = [];
   for (let i = 0; i < items.length; i++) {
     onProgress(i, items.length);
-    pages.push(await loadOnce(load, items[i], opts));
+    pages.push(await loadOnce(items[i], opts));
   }
   onProgress(items.length, items.length);
 
@@ -297,7 +289,7 @@ async function buildJob(items, load, opts, docTitle, onProgress) {
  */
 export async function printPagesToPdf(refs, options, onProgress = () => {}) {
   const api = printAPI();
-  const job = await buildJob(refs, loadPrintPage, normalizePrintOptions(options), printDocTitle(refs), onProgress);
+  const job = await buildJob(refs, normalizePrintOptions(options), printDocTitle(refs), onProgress);
   return savePdf(api, job);
 }
 
@@ -314,7 +306,7 @@ async function savePdf(api, { html, docTitle, opts }) {
  */
 export async function printPagesToPrinter(refs, options, onProgress = () => {}) {
   const api = printAPI();
-  const job = await buildJob(refs, loadPrintPage, normalizePrintOptions(options), printDocTitle(refs), onProgress);
+  const job = await buildJob(refs, normalizePrintOptions(options), printDocTitle(refs), onProgress);
   return toPrinter(api, job);
 }
 
@@ -324,38 +316,15 @@ async function toPrinter(api, { html, sheet }) {
   return res.result;
 }
 
-/** A Print selection… job: strokes only, whatever the remembered content choice. */
-function selectionJob(groups, options, onProgress) {
-  const opts = { ...normalizePrintOptions(options), content: 'strokes' };
-  return buildJob(groups, loadSelectionPage, opts, `${printDocTitle(groups)} selection`, onProgress);
-}
-
-/**
- * Print selection… to a PDF the user saves.
- * @param {Array<{book:string, pageId:string, strokes:Array}>} groups  `selectionPrint` pages
- */
-export async function printSelectionToPdf(groups, options, onProgress = () => {}) {
-  const api = printAPI();
-  return savePdf(api, await selectionJob(groups, options, onProgress));
-}
-
-/** Print selection… through the Windows print dialog (as printPagesToPrinter). */
-export async function printSelectionToPrinter(groups, options, onProgress = () => {}) {
-  const api = printAPI();
-  return toPrinter(api, await selectionJob(groups, options, onProgress));
-}
-
 /**
  * The job's PDF as bytes, for the dialog's preview: the same document Save PDF
- * and Print would send. `selection`: `items` are Print selection… pages.
+ * and Print would send.
  * @returns {Promise<{pdf: Uint8Array, sheet: Object}>}
  */
-export async function renderPreviewPdf(items, options, selection = false, onProgress = () => {}) {
+export async function renderPreviewPdf(items, options, onProgress = () => {}) {
   const api = printAPI();
   if (!api.previewPdf) throw new Error('Preview needs the desktop app to be restarted.');
-  const job = selection
-    ? await selectionJob(items, options, onProgress)
-    : await buildJob(items, loadPrintPage, normalizePrintOptions(options), printDocTitle(items), onProgress);
+  const job = await buildJob(items, normalizePrintOptions(options), printDocTitle(items), onProgress);
   const res = await api.previewPdf(job.html);
   if (!res || res.ok === false) throw new Error((res && res.error) || 'Preview failed');
   return { pdf: res.result, sheet: job.sheet };

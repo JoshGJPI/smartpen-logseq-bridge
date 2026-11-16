@@ -47,8 +47,8 @@ electron/*-sidecar.cjs   pure parse / patch of pages/_tags.json, _retimed.json, 
 electron/task-summary.cjs   the scan's per-page task summary; mirrors lib/tasks.js buildTaskSummary (tested together)
 src/lib/print/     Print to PDF (v3.8.0): print-layout.js (sheets, 2-up columns, Auto, ink scale), print-html.js (the
                    self-contained document), print-list.js (cross-notebook print order), print-selection.js (the Editor's
-                   Print selection…: selected canvas strokes by page, in memory); stores/print.js holds the session
-                   print list and runs a job, main's print:savePdf renders it with printToPDF; the dialog's preview
+                   selected strokes by page, print-list items printed from memory); stores/print.js holds the session
+                   print list (pages and selections) and runs a job, main's print:savePdf renders it with printToPDF; the dialog's preview
                    (v3.9.0) is that same PDF (print:previewPdf) drawn with pdf.js (components/dialog/pdf-sheets.js)
 ```
 

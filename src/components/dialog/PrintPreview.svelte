@@ -16,11 +16,10 @@
   import { isTypingTarget } from '$lib/left-panel.js';
   import { openPdf, drawSheet } from './pdf-sheets.js';
 
-  /** [{ book, pageId }], or Print selection…'s pages */
+  /** print-list items: page refs and selected-strokes items */
   export let items = [];
   /** normalizePrintOptions() shape */
   export let opts;
-  export let selection = false;
   export let expanded = false;
   /** () => void */
   export let onToggleExpand = () => {};
@@ -44,12 +43,12 @@
   let queued = null;
   let drawSeq = 0;
 
-  $: request(items, opts, selection);
+  $: request(items, opts);
   $: if (doc && canvas && boxW > 0 && boxH > 0) draw(doc, index, boxW, boxH);
 
-  function request(list, o, sel) {
+  function request(list, o) {
     // openWhenDone only matters to Save PDF; it doesn't change the document.
-    const key = JSON.stringify([sel, list.map(refKey), { ...o, openWhenDone: null }]);
+    const key = JSON.stringify([list.map(refKey), { ...o, openWhenDone: null }]);
     if (key === wantKey) return;
     wantKey = key;
     clearTimeout(timer);
@@ -60,7 +59,7 @@
       return;
     }
     status = 'rendering';
-    timer = setTimeout(() => run({ list, o, sel, key }), DEBOUNCE_MS);
+    timer = setTimeout(() => run({ list, o, key }), DEBOUNCE_MS);
   }
 
   async function run(job) {
@@ -70,7 +69,7 @@
     }
     running = true;
     try {
-      const res = await renderPreviewPdf(job.list, job.o, job.sel);
+      const res = await renderPreviewPdf(job.list, job.o);
       if (job.key !== wantKey) return;
       const next = await openPdf(res.pdf);
       if (job.key !== wantKey) {

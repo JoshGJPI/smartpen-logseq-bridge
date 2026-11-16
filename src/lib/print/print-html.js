@@ -190,18 +190,21 @@ export function buildPrintHtml(pages, opts) {
 
   let items = '';
   for (const page of pages || []) {
-    if (withInk) {
+    // A selected-strokes page prints its ink whatever the content choice.
+    const ink = withInk || !!page.inkOnly;
+    const text = withText && !page.inkOnly;
+    if (ink) {
       const scale = inkScale(page, sheet, opts.inkScale);
       const svg = inkSvg(page, scale, opts);
       items += '<figure class="ink">' +
         (opts.labels ? `<figcaption class="lb">${label(page)}</figcaption>` : '') +
         `<div class="ink-box">${svg || '<span class="none">No strokes</span>'}</div></figure>`;
     }
-    if (withText) {
+    if (text) {
       const body = transcriptHtml(page.lines);
       if (body) {
-        items += `<section class="page-tx">${withInk ? '' : `<h2 class="lb">${label(page)}</h2>`}${body}</section>`;
-      } else if (!withInk) {
+        items += `<section class="page-tx">${ink ? '' : `<h2 class="lb">${label(page)}</h2>`}${body}</section>`;
+      } else if (!ink) {
         items += `<section class="page-tx"><h2 class="lb">${label(page)}</h2><p class="none">Not transcribed</p></section>`;
       }
     }
