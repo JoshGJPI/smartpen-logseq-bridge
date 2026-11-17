@@ -120,7 +120,8 @@ App.svelte (Root)
         │             grows the range as you scroll off its end)
         ├── TimelineHead (‹ RangeMenu › · summary · BookFilterMenu · Load range into Editor)
         │   ├── RangeMenu ("Range ▾": From / To, Latest day · 1 · 7 · 30 days)
-        │   └── ActivityStrip (every day with ink; the range as a draggable window)
+        │   └── ActivityStrip (the ink as a zoomable strip; the range as a draggable window)
+        │       └── StripScroll (its 6 px scroll bar, shown only while zoomed in)
         ├── FeedDay ×N (one per day with ink; loads its pages when near; ⋯ = Load day)
         │   └── FeedCard ×N (one sitting — any number of pages; ⋯ = Load sitting)
         │       └── FeedPart ×N (one page's share: Open page + ⋯ (Whole page ⇄ strip))
@@ -158,7 +159,8 @@ in the Timeline (`SittingHover` + `SittingInk`, `page-sittings.js`), guarded by
 
 The Timeline's head says the range and its summary once: **Range ▾**
 (`lib/timeline-range.js` presets), the activity strip (drag the window to move,
-an edge to resize, across the strip to pick; set on release), the book filter and
+an edge to resize, across the strip to pick; set on release; the wheel zooms around the hovered month and the
+thin scroll bar under it pans; the zoom is session-only and follows the range only when the range leaves it), the book filter and
 a quiet **Load range into Editor**. Cards show **Open page** and ⋯ (Whole page,
 Load sitting into Editor); a day's ⋯ holds Load day into Editor.
 
@@ -398,7 +400,7 @@ All state is managed through Svelte stores located in `src/stores/`. Main-proces
 - `left-panel.js` - pure helpers for the collapsible left panel: `parseCollapsed()` / `serializeCollapsed()`, `isTypingTarget()` (input, textarea, select, contenteditable), `isPanelToggleKey()` (bare `[`, no Ctrl/Alt/Meta, not typing, not IME); since package C the contextual tab sets `CONTEXT_TABS`, `tabsFor()`, `resolvePanelTab()`; `modalOpen()` (an `aria-modal` dialog is up: every window-level shortcut, `[`, Ctrl K, ←/→ and the Editor canvas keys, stands down)
 - `navigation.js` - destinations (package C, pure): `DESTINATIONS`, `destinationOf(viewerMode, bookViewMode)`, `modesFor(dest)`, `planNavigation({from, to, viewerDirty})` → `'same' | 'go' | 'confirm'`, `DISCARD_PROMPT`
 - `pane-toolbar.js` - `viewOptionsFor({destination, hasSelection, contentMode, backgroundsAvailable})` (which View ▾ options apply; `CONTENT_MODES` = strokes, transcript, inktext), `pageCrumbParts()` (the breadcrumb's names and "1–2 of 48", via `pagePosition`); `pageCrumb()` (one string) is used only by tests
-- `timeline-range.js` - Range ▾ presets (`RANGE_PRESETS`, `rangePreset()`, shared with the Dates tab) and activity-strip geometry: `dayOffset()` (calendar days, DST-safe), `stripLayout()` (every day from first to last ink, bucketed to fit), `dayAtFraction()`, `windowFraction()`, `moveWindow()` (keeps length, stays inside the ink's span), `resizeWindow()` (ends never cross)
+- `timeline-range.js` - Range ▾ presets (`RANGE_PRESETS`, `rangePreset()`, shared with the Dates tab) and activity-strip geometry: `dayOffset()` (calendar days, DST-safe); the strip's view `{ first, start, span }` (`stripExtent()`, `clampView()` (14 days to all the ink), `rebaseView()` (book filter moved the first day), `fitView()`, `keepInView()`, `zoomView()` (anchor stays put), `panView()`, `monthOf()`); `stripLayout()` (calendar columns over the view: days, Monday weeks or months by `columnUnit()`), `stripTicks()` / `tickStep()` / `stripLabels()`; `dayAtFraction()`, `windowFraction()` (both relative to the view), `moveWindow()` (keeps length, stays inside the ink's span), `resizeWindow()` (ends never cross)
 - `library-contents.js` - `buildContents(pagesByBook, bookIds, nameOf)`: the Library contents list from scan records only (pages, `transcribed`, `strokeCount`)
 - `library-home.js` - the Library home (package E, pure): `pageDates(index)` (first / last day, day count, last time per page; untimed pages absent), `notebookCards(pagesByBook, bookIds, dates, nameOf)` (pages, transcribed %, strokes, first / last written, volume, `fan` = 3 most recently written pages topped up from the book's end), `sortNotebooks(cards, order)`, `SORT_ORDERS`, `parseSortOrder()`, `recentRecords()`, `pageTiles()`, `shortDay()`, `writtenRange()`, `relativeDay()`, `pageKeyOf()`
 - `search-query.js` - `matchTags(text, tags)` (v3.1.0: a project-number-shaped query matches that tag exactly, normalized; words by substring); `parseSearchQuery(text, {now})` → `{text, tokens, days}` (Oct 14, October 14th, 14 Oct 2025, 2026-10-14, 10/14, 10/14/26 month first, today, yesterday; no year = latest on or before today; invalid dates and a month alone stay words) and `matchNotebooks(text, notebooks)` (every word in the name, or an exact book key)

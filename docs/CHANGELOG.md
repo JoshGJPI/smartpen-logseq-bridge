@@ -20,6 +20,19 @@ Strokes / Transcript / Both choice (`inkOnly` in print-html.js; a hint says so).
 Print selection mode (its own `selectionPrint` store, `PrintSelectionPages`, the Export ▾ → Print selection… item):
 one dialog, one job path (`buildJob` loads each item from disk or memory).
 
+**Zoomable activity strip.** The Timeline's strip used to fit all the ink into its width, bucketing days to keep
+columns 4 px wide, so it got coarser every year: at five years a column was about 9 days, one day half a pixel, a
+one-day range drew as a 16-day window, and the buckets counted from the first day with ink, so the book filter
+regrouped them. Now the strip is a view over the ink: the mouse wheel zooms between 14 days and all of it, anchored on
+the middle of the month under the pointer (shaded while hovered) so that month stays put, or on the pointer when
+zoomed closer than a month; a thin native scroll bar under it pans (6 px, hidden when nothing is off screen; the
+track lost 4 px to pay for it, so the strip is 2 px taller than before). Columns follow the calendar (days while a
+day gets 3 px, then Monday weeks, then months) and the labels step from days to weeks, months, quarters and years.
+The view opens fitted to the range (about six times its length, at least 90 days), follows the range only when ‹ ›,
+Today, Range ▾ or the feed moves it out of sight (slid just far enough, widened for a longer range), and is
+session-only like the Library's place; dragging the window near an end scrolls it. Rejected after a mockup: an
+overview line above the strip and All / Year / Quarter buttons (a second row of controls on top of the feed).
+
 **Fixes**
 
 - After a save, the unsaved dot stays lit while any page the save dialog listed with changes was left unticked

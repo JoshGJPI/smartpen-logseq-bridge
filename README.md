@@ -73,8 +73,8 @@ The left panel follows the destination and folds to a rail with the chevron or `
 ### Timeline: read by date
 The writing in a date range as one scrolling feed, a card per sitting (writing with
 no pause longer than 20 minutes). **Range ▾** picks the span (Latest day, 1, 7 or 30
-days, or From / To); the activity strip under it shows every day with ink and lets
-you drag the range. **All books ▾** filters notebooks. **Open page** opens a card's
+days, or From / To); the activity strip under it shows the days with ink and lets
+you drag the range; the mouse wheel zooms it around the month under the pointer and the thin scroll bar under it pans. **All books ▾** filters notebooks. **Open page** opens a card's
 page in the Library; ⋯ loads a sitting, a day or the whole range into the Editor.
 
 ### Editor: capture and edit
