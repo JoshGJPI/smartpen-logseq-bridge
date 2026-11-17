@@ -6,7 +6,8 @@
   import { onMount, onDestroy, tick } from 'svelte';
   import { strokes, strokeCount, pages, batchMode } from '$stores';
   import { selectedIndices, selectedStrokes, clearSelection, selectionCount, selectFromBox } from '$stores';
-  import { deletedIndices, pendingChanges } from '$stores';
+  import { deletedIndices, pendingChanges, deleteSelectedStrokes } from '$stores';
+  import { plural } from '$lib/plural.js';
   import { pastedStrokes, pastedSelection, pastedCount, duplicateStrokes, movePastedStrokes, clearPastedStrokes, deleteSelectedPasted, selectPastedStroke, clearPastedSelection } from '$stores';
   import { canvasZoom, setCanvasZoom, log, showFilteredStrokes, penConnected } from '$stores';
   import { filteredStrokes } from '$stores/filtered-strokes.js';
@@ -305,10 +306,13 @@
         handleDuplicate();
       }
       
-      // Delete - delete selected pasted strokes
-      if (e.key === 'Delete' && $pastedSelection.size > 0) {
+      // Delete - delete the selected pasted strokes and mark the selected strokes
+      // for deletion (the Delete button's action, undoable until saved).
+      if (e.key === 'Delete' && ($pastedSelection.size > 0 || $selectionCount > 0)) {
         e.preventDefault();
-        handleDeletePasted();
+        if ($pastedSelection.size > 0) handleDeletePasted();
+        const n = deleteSelectedStrokes();
+        if (n) log(`Marked ${n} ${plural(n, 'stroke')} for deletion`, 'info');
       }
       
       // Ctrl/Cmd+A - select all visible strokes (using full indices)

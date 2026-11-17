@@ -436,6 +436,7 @@ export {
   pendingChanges,
   hasPendingChanges,
   markStrokesDeleted,
+  deleteSelectedStrokes,
   undoLastDeletion,
   clearDeletedIndices,
   getActiveStrokesForPage,

@@ -5,6 +5,7 @@
 import { writable, derived, get } from 'svelte/store';
 import { strokes } from './strokes.js';
 import { storageStatus, markUnsavedChanges } from './storage.js';
+import { selectedIndices, clearSelection } from './selection.js';
 import { generateStrokeId } from '../lib/stroke-storage.js';
 import { BOOK_KEY_FRAGMENT, toBookKey } from '../lib/volumes.js';
 import { strokeDiskId } from '../lib/retime.js';
@@ -47,6 +48,19 @@ export function markStrokesDeleted(indices) {
     
     return newHistory;
   });
+}
+
+/**
+ * Mark the selected strokes for deletion and clear the selection. The Editor's
+ * Delete button and the Delete key both call this, so they do the same thing.
+ * @returns {number} How many strokes were marked (0 when nothing was selected)
+ */
+export function deleteSelectedStrokes() {
+  const indices = Array.from(get(selectedIndices));
+  if (indices.length === 0) return 0;
+  markStrokesDeleted(indices);
+  clearSelection();
+  return indices.length;
 }
 
 /**

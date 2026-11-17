@@ -21,7 +21,6 @@
     hasSelection,
     selectionCount,
     selectedStrokes,
-    selectedIndices,
     clearSelection,
     strokes,
     hasMyScriptCredentials,
@@ -29,7 +28,7 @@
     clearTranscription,
     hasPageTranscriptions,
     canUndo,
-    markStrokesDeleted,
+    deleteSelectedStrokes,
     undoLastDeletion,
     clearDeletedIndices,
     hasPendingChanges,
@@ -106,11 +105,8 @@
   }
 
   function handleDeleteSelected() {
-    const indices = Array.from($selectedIndices);
-    if (indices.length === 0) return;
-    markStrokesDeleted(indices);
-    clearSelection();
-    log(`Marked ${indices.length} ${plural(indices.length, 'stroke')} for deletion`, 'info');
+    const n = deleteSelectedStrokes();
+    if (n) log(`Marked ${n} ${plural(n, 'stroke')} for deletion`, 'info');
   }
 
   function handleUndo() {
@@ -179,7 +175,7 @@
     on:click={handleDeleteSelected}
     disabled={!$hasSelection}
     title={$hasSelection
-      ? `Delete ${$selectionCount} selected ${plural($selectionCount, 'stroke')} (can be undone until you save)`
+      ? `Delete ${$selectionCount} selected ${plural($selectionCount, 'stroke')} (Delete key; can be undone until you save)`
       : 'Select strokes to delete them'}
     aria-label="Delete selected strokes"
   >

@@ -448,3 +448,28 @@ describe('adjustDeletionsAfterRemoval', () => {
     expect(get(canUndo)).toBe(false);
   });
 });
+
+describe('deleteSelectedStrokes (Delete button and Delete key)', () => {
+  it('marks the selection for deletion, clears it, and is undoable', async () => {
+    const { get } = await import('svelte/store');
+    const { selectedIndices } = await import('$stores/selection.js');
+    const { deleteSelectedStrokes, deletedIndices, undoLastDeletion, clearDeletedIndices } = await import('$stores/pending-changes.js');
+    clearDeletedIndices();
+    selectedIndices.set(new Set([2, 5]));
+    expect(deleteSelectedStrokes()).toBe(2);
+    expect([...get(deletedIndices)].sort()).toEqual([2, 5]);
+    expect(get(selectedIndices).size).toBe(0);
+    expect(undoLastDeletion()).toBe(true);
+    expect(get(deletedIndices).size).toBe(0);
+  });
+
+  it('does nothing with no selection', async () => {
+    const { get } = await import('svelte/store');
+    const { selectedIndices } = await import('$stores/selection.js');
+    const { deleteSelectedStrokes, deletedIndices, clearDeletedIndices } = await import('$stores/pending-changes.js');
+    clearDeletedIndices();
+    selectedIndices.set(new Set());
+    expect(deleteSelectedStrokes()).toBe(0);
+    expect(get(deletedIndices).size).toBe(0);
+  });
+});
