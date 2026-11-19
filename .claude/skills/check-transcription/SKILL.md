@@ -92,7 +92,9 @@ On a page transcribed before Aug 2026 the replies say the stroke-to-line links a
 the page header's Relink… in the Library, or Settings → Maintenance → Relink old transcripts for many pages. It sends
 the page to MyScript once, links each stored line to its ink, and keeps the text and task states (unlike
 re-transcribing, which replaces the transcript). Relink before checking the links; text corrections can be applied
-before or after, since Relink never changes text unless Josh takes one of its word fixes.
+before or after, since Relink never changes text unless Josh takes one of its word fixes. Relink holds back underlines
+and boxes (Not text by default). For a page MyScript still misreads (a table, crowded columns), suggest the Editor's
+**Relink selection…** (select one part of the page, ⋯ or right-click), one pass per part.
 
 `MOVED` lines (and an `OUT OF ORDER` line in the summary) are stored somewhere other than where they are on the page,
 usually ink transcribed later and appended at the end (3017/180's 11/6 meeting). Report them as one entry: which lines

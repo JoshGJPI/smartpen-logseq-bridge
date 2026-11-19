@@ -67,7 +67,12 @@ Reasons and history for each feature are in [CHANGELOG.md](CHANGELOG.md).
   Make sketch for leftover ink waits for Phase E. A letter-suffixed page (P151b) is refused while its page number is
   loaded in the Editor (the canvas can't tell P151b from P151); Library Edit and the Pages tab's canvas sync have the
   same blind spot for suffixed pages. The spec counted 100 unreliable pages; the data folder has 99 now
-  (84 in JPI Dotted).
+  (84 in JPI Dotted). Decorative ink is held back by Deselect Decorative's detector as it stands: what it misses (a
+  table's rules that aren't underlines or boxes) is still sent, and what it takes is held back as a whole (untick
+  "Mark them Not text" to leave it unlinked; send a stroke anyway with Relink selection). Relink selection works on one
+  page at a time, refuses a page with unsaved changes, holds nothing back and caches nothing (each pass is one
+  request). On a page already linked, a line a pass doesn't link keeps its `yBounds` only while some kept ink still
+  links to it.
 - **Re-transcribe (v3.17.0).** Reset is refused while only part of a page is on the canvas; ink left out of the new
   run (a drawing) ends up unlinked.
 - **Claude's transcript edits (v3.18.0).** Work only while the app is open with "Allow Claude to edit transcripts" on

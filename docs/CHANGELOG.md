@@ -85,6 +85,33 @@ task state by text only. Relink keeps the transcript and takes only geometry fro
   links no line is refused (Save disabled in the dialog, `saveRelink` and the save refuse too): it made the page read
   as trustworthy with all its ink unlinked and dropped it from the list for good. A text line left unlinked is
   written with `yBounds: null` instead of keeping its pre-fix bounds.
+- **Decorative ink held back** (Josh's run on B3017/P125, 2026-11-19: underlines and a two-column table's rules made
+  MyScript misread whole lines, giving garbage readings, "no ink" rows and ink left over). Before sending, the reader's
+  Relink…, Relink again and the bulk run run Deselect Decorative's detector (`lib/stroke-filter.js`, unchanged: never
+  a task box, strike-throughs left) on the strokes **as sent**, the turned copies, so an underline is horizontal
+  (`lib/relink.js` `holdBackDecorative`). Those strokes are not sent and are recorded in the run as `heldBack`
+  (cached with it, with their counts). The review shows "N underlines / boxes / circles not sent" with **Mark them Not
+  text**, ticked by default (the bulk run uses the default). Ticked, the save writes them `textless: true`,
+  `lineId: null`; unticked, `lineId: null`. Either way a held-back stroke never keeps its old link: those links are
+  the pre-fix ones and the page reads as trustworthy after. A cache entry without `heldBack` predates the filter and
+  is sent again. Not added: holding back is all or nothing per run; to send one of them, use Relink selection.
+- **Relink selection…** (Josh's choice for hard pages): the Editor's selection ⋯ (and the right-click menu, which is
+  the same menu, `SelectionTranscriptMenu`) sends only the selected strokes of **one** page through the same dialog
+  (`stores/relink.js` `openRelinkSelection`). A selection over several pages is refused with the reason in the log
+  (simpler than running page by page, and one review per page is what the dialog shows). Also refused: a page with
+  unsaved canvas changes ("save first": Relink writes from the disk), and every Relink guard but "already linked"
+  (a deliberate pass, like Relink again). A partly loaded page is fine: only the selection is sent and the save treats
+  every other stroke on disk alike, loaded or not. Selected Not text and kind-line strokes are still never sent;
+  nothing is held back (the selection is Josh's choice; Deselect Decorative is one click away) and nothing is cached.
+  Every run needs the dialog's Send click.
+- **Several passes** (a table relinked a column at a time): only the strokes sent get new links. Ink not sent is
+  unlinked when the page was not trustworthy before the save (its links are pre-fix) and keeps its links when it was;
+  a stored line this pass doesn't link gets `yBounds: null` on the first, and on the second keeps its `yBounds` while
+  some kept ink still links to it (otherwise null, so a line left with no ink never shows a stale position). The save
+  decides from the page on disk (`isTrustworthyTranscript(onDisk)`, passed to `planRelink` as `trusted`). On a
+  linked page the dialog calls such rows "not in this selection" instead of "no ink". The "no stored line linked"
+  refusal applies to each pass. The reader's Relink sends all ink but textless, kind-line and held-back strokes, so
+  for it nothing changes.
 
 ## v3.20.0 — Delete lines in Edit Transcription; "Not text" ink (November 2026)
 

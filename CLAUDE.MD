@@ -247,7 +247,14 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   unlinked. A text line left unlinked is written with `yBounds: null` (its pre-fix ones were never re-measured and
   would look like a position on a trustworthy page; null was already a valid stored value).
 - **Never sent, never relinked**: textless strokes and strokes linked to a line with any `kind` (`relinkSendStrokes`;
-  `planRelink` touches only the run's `sent` ids and skips a kind line's strokes). Kind lines are never aligned
+  `planRelink` skips a kind line's strokes).
+- **Decorative ink is held back** (`holdBackDecorative`, Deselect Decorative's detector on the turned copies; never a
+  task box): recorded as the run's `heldBack`, and the save always unlinks it (Not text too, unless the review
+  unticks it). A held-back stroke never keeps an old link. A cache entry without `heldBack` is invalid.
+- **Relink selection** (the Editor's selection ⋯) sends one page's selected strokes, uncached; refused over several
+  pages or with unsaved changes on the page. Ink not sent is unlinked when the page was untrustworthy before the save
+  and keeps its links when it was trustworthy (`planRelink` `trusted`, decided by the save from the disk), so a
+  table can be relinked a column at a time. Kind lines are never aligned
   (`textLines`), so Phase E's sketch lines need no change here.
 - **Moved lines keep their place.** A line stored out of place pairs with its reading elsewhere (`movedPairs`) as a
   confirm row marked `moved`; linking it writes only `yBounds` and ink. A page with one is never saved by the bulk run
