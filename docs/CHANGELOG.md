@@ -51,6 +51,14 @@ task state by text only. Relink keeps the transcript and takes only geometry fro
   `settings/MaintenanceDialogs`). New components stay under 300 (RelinkDialog, RelinkRows, RelinkOldDialog).
 - Not run against real pages or in the running app yet (MyScript requests wait for Josh's OK); unit tests mock
   MyScript.
+- **Review fixes** (coordinator QA): the canvas copy is synced through Phase A's `syncCanvasAfterPageWrite`, which
+  now takes `links` (the line each sent stroke was written with) and refreshes the on-disk index, so leftover ink
+  saved as Not text no longer leaves the Editor's page looking unsaved (the separate `syncCanvasLinks` is gone). A
+  letter-suffixed page is refused while its page number is on the canvas: the Editor keys strokes by the integer
+  page, so P151b's canvas copy can't be told from P151's and would have written its old links back. A relink that
+  links no line is refused (Save disabled in the dialog, `saveRelink` and the save refuse too): it made the page read
+  as trustworthy with all its ink unlinked and dropped it from the list for good. A text line left unlinked is
+  written with `yBounds: null` instead of keeping its pre-fix bounds.
 
 ## v3.20.0 — Delete lines in Edit Transcription; "Not text" ink (November 2026)
 

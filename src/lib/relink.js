@@ -195,6 +195,15 @@ export function classifyRelink(lines, msLines) {
   return { rows, counts };
 }
 
+/** Why a relink that links no stored line is refused (it would mark the page trustworthy with all its ink unlinked). */
+export const NO_LINKS = 'No stored line would be linked to ink, so there is nothing to save; the page would read as linked with all its ink unlinked';
+
+/** How many stored lines a save of these decisions links (Save is offered only above 0). */
+export function linkedCount(model, decisions = defaultDecisions(model)) {
+  return ((model && model.rows) || []).filter((r) => r.type === 'matched'
+    || (r.type === 'confirm' && decisions.link[r.lineId] !== false)).length;
+}
+
 /** Saved at once in a bulk run: every stored line matched, nothing to confirm, no ink left over. */
 export function relinkNeedsNoReview(model) {
   const c = model && model.counts;
@@ -256,10 +265,13 @@ export function buildRelinkSpec(run, model, decisions = defaultDecisions(model))
 /**
  * Why Relink can't run on this page now, or null. The first four are Claude's
  * edit refusals (lib/mcp-edits.js `editRefusal`, same flags, same order), worded
- * for Josh; then the page itself: nothing to do on a trustworthy page, nothing
+ * for Josh; then Relink's own: a letter-suffixed page whose page number is on the
+ * canvas (its canvas copy can't be told apart, so it couldn't take the new
+ * links); then the page itself: nothing to do on a trustworthy page, nothing
  * to align on a page with no text lines.
  *
- * @param {{ label: string, draft: boolean, editorOpen: boolean, reset: boolean, pendingTranscription: boolean }} s
+ * @param {{ label: string, draft: boolean, editorOpen: boolean, reset: boolean, pendingTranscription: boolean,
+ *           suffixOnCanvas?: boolean }} s  suffixOnCanvas: a letter-suffixed page whose page number is on the canvas
  * @param {Object|null} doc  the page as on disk
  * @returns {string|null}
  */
@@ -268,6 +280,9 @@ export function relinkRefusal(s, doc) {
   if (s.editorOpen) return `${s.label} is open in a transcript editor; close it first`;
   if (s.reset) return `${s.label} is reset for re-transcription in the Editor; transcribe and save it (or undo the reset) first`;
   if (s.pendingTranscription) return `${s.label} has an unsaved transcription in the Editor; save or discard it first`;
+  if (s.suffixOnCanvas) {
+    return `${s.label} is a letter-suffixed page and its page number is loaded in the Editor, which can't tell the two apart; unload it from the Editor first`;
+  }
   if (!doc) return `${s.label} was not found`;
   if (!textLines(doc.transcript && doc.transcript.lines).length) return `${s.label} has no transcript lines to relink`;
   if (isTrustworthyTranscript(doc)) return `${s.label} is already linked to its ink; nothing to relink`;

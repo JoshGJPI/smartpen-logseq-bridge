@@ -5,7 +5,8 @@
  *
  * What it changes, exactly:
  *   - a linked line's `yBounds` (MyScript's, from the relink run) and, when the
- *     review took a word fix, its `text`;
+ *     review took a word fix, its `text`; a text line left unlinked (no ink,
+ *     Don't link) gets `yBounds: null` (its old ones were never re-measured);
  *   - each SENT stroke's `lineId`: the stored line whose MyScript line covers it
  *     most (`strokesIntersectingLine` with the run's batch origin, the fixed
  *     matching code), else null. Every MyScript line competes for strokes, so
@@ -98,10 +99,13 @@ export function planRelink(existingLines, relink, storedStrokes = [], originNcod
     }
   }
 
-  // Lines: the linked ones take MyScript's yBounds (and a taken fix); the rest stay as they are.
+  // Lines: the linked ones take MyScript's yBounds (and a taken fix). A text line
+  // left unlinked loses its yBounds: they came from the pre-fix batch, and on a page
+  // that now reads as trustworthy they would look like a measured position (the
+  // merge's duplicate check compares them). Kind lines stay as they are.
   const texts = (relink && relink.texts) || {};
   let lines = existing.map((l) => {
-    if (!linkOf.has(l.id)) return l;
+    if (!linkOf.has(l.id)) return l.kind || l.yBounds == null ? l : { ...l, yBounds: null };
     const yb = ms[linkOf.get(l.id)].yBounds;
     const next = { ...l, yBounds: { minY: yb.minY, maxY: yb.maxY } };
     const t = texts[l.id];
@@ -118,6 +122,8 @@ export function planRelink(existingLines, relink, storedStrokes = [], originNcod
     linesAdded: lines.filter((l) => !before.has(l.id)).length,
     linked: linkOf.size,
     lineIdAssignments,
+    // For the canvas copy (stores/textless.js syncCanvasAfterPageWrite `links`).
+    links: Object.fromEntries(lineIdAssignments),
     lineIdRemap: new Map(),
     deletedInkIds: new Set(),
     textlessIds

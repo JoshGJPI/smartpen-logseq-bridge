@@ -46,11 +46,12 @@ describe('planTranscript(…, { relink })', () => {
     expect(none.lineIdAssignments.size).toBe(0);
   });
 
-  it('a no-ink line keeps its fields and yBounds; strokes in no pair end unlinked', () => {
+  it('a no-ink line keeps its fields but loses its pre-fix yBounds; strokes in no pair end unlinked', () => {
     const doc = makeOldPage();
     const { out } = plan(doc, makeRun(doc, { drop: [10] }));
     const l10 = out.lines.find((l) => l.id === 'L10');
-    expect(l10).toEqual(doc.transcript.lines[10]);
+    expect(l10).toEqual({ ...doc.transcript.lines[10], yBounds: null });
+    expect(keyFields(l10)).toEqual(keyFields(doc.transcript.lines[10]));
     for (const s of doc.strokes.slice(30, 33)) expect(out.lineIdAssignments.get(s.id)).toBeNull();
   });
 
@@ -60,7 +61,7 @@ describe('planTranscript(…, { relink })', () => {
     const { out, model } = plan(doc, run, (d) => { d.link.L07 = false; });
     expect(model.rows.find((r) => r.lineId === 'L07').type).toBe('confirm');
     for (const s of doc.strokes.slice(21, 24)) expect(out.lineIdAssignments.get(s.id)).toBeNull();
-    expect(out.lines[7]).toEqual(doc.transcript.lines[7]);
+    expect(out.lines[7]).toEqual({ ...doc.transcript.lines[7], yBounds: null });
   });
 
   it('a taken word fix changes only that line\'s text, never its task state', () => {
@@ -86,6 +87,20 @@ describe('planTranscript(…, { relink })', () => {
     expect(out.lineIdAssignments.has(doc.strokes[0].id)).toBe(false);
     expect(out.lineIdAssignments.has(doc.strokes[1].id)).toBe(false);
     expect(out.lines.find((l) => l.id === 'sk')).toEqual(doc.transcript.lines.find((l) => l.id === 'sk'));
+  });
+
+  it('reports the written links for the canvas copy, and links nothing when every line is unlinked', () => {
+    const doc = makeOldPage();
+    const { out } = plan(doc, makeRun(doc));
+    expect(out.links[doc.strokes[0].id]).toBe('L00');
+    const none = planRelink(doc.transcript.lines, { myscriptLines: [], links: [], sent: doc.strokes.map((s) => s.id) }, doc.strokes, ORIGIN);
+    expect(none.linked).toBe(0);
+    expect(none.lines.every((l) => l.yBounds === null)).toBe(true);
+  });
+
+  it('a kind line keeps its yBounds / bounds untouched', () => {
+    const lines = [{ id: 'sk', kind: 'sketch', text: 'Sketch', yBounds: { minY: 1, maxY: 2 } }];
+    expect(planRelink(lines, { myscriptLines: [], links: [], sent: [] }, [], ORIGIN).lines[0]).toBe(lines[0]);
   });
 
   it('a link to a kind line is refused', () => {

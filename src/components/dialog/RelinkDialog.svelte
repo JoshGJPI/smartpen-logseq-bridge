@@ -16,7 +16,7 @@
   import { onDestroy } from 'svelte';
   import { relinkTarget, closeRelink, getRelinkRun, saveRelink } from '$stores/relink.js';
   import { transcriptEditorHold } from '$stores/viewer.js';
-  import { classifyRelink, defaultDecisions, buildRelinkSpec } from '$lib/relink.js';
+  import { classifyRelink, defaultDecisions, buildRelinkSpec, linkedCount, NO_LINKS } from '$lib/relink.js';
   import RelinkRows from './RelinkRows.svelte';
 
   /** 'loading' | 'ask' | 'sending' | 'review' | 'saving' | 'error' */
@@ -105,6 +105,8 @@
 
   $: c = model ? model.counts : null;
   $: changes = decisions && model ? summarize(model, decisions) : '';
+  // Save links nothing to ink → refused (it would mark the page linked with all ink unlinked).
+  $: nLinked = decisions && model ? linkedCount(model, decisions) : 0;
 
   function summarize(m, d) {
     const fixes = Object.values(d.fixes).reduce((n, list) => n + list.length, 0);
@@ -155,9 +157,9 @@
 
     <div class="foot">
       {#if phase === 'review' || phase === 'saving'}
-        <span class="sum">{changes ? `Also: ${changes}.` : 'Only links change.'}</span>
+        <span class="sum" class:warn={!nLinked}>{!nLinked ? NO_LINKS + '.' : changes ? `Also: ${changes}.` : 'Only links change.'}</span>
         <button class="btn sec" on:click={close} disabled={phase === 'saving'}>Cancel</button>
-        <button class="btn pri" on:click={save} disabled={phase === 'saving'}>{phase === 'saving' ? 'Saving…' : 'Save links'}</button>
+        <button class="btn pri" on:click={save} disabled={phase === 'saving' || !nLinked}>{phase === 'saving' ? 'Saving…' : 'Save links'}</button>
       {:else if phase === 'ask' || phase === 'sending'}
         <button class="btn sec" on:click={close} disabled={phase === 'sending'}>Cancel</button>
         <button class="btn pri" on:click={() => load(true)} disabled={phase === 'sending'}>{phase === 'sending' ? 'Sending…' : 'Send to MyScript'}</button>

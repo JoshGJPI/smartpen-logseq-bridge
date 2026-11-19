@@ -69,7 +69,9 @@
  *       take the run's yBounds, every stroke that was sent takes the line whose
  *       MyScript line covers it (or none), taken word fixes and lines added
  *       from leftover ink land in the same write, and `lastTranscribed` is
- *       bumped. Refused when the page changed since the run (`stale`).
+ *       bumped; a text line left unlinked gets `yBounds: null`. Refused when
+ *       the page changed since the run (`stale`) or when no line would be
+ *       linked (`noLinks`: the page would read as trustworthy, all ink unlinked).
  *
  *   planTranscript() is the one place that decides the written transcript,
  *   and the save dialog (page-changes.js) asks it too, so "will this save
@@ -780,9 +782,16 @@ export async function savePageToFolder(input) {
 
     // ----- Relink (v3.21.0): new links for the sent ink, the stored lines kept -----
     let relinked = 0;
+    let relinkLinks = null;
     if (relink) {
       const frameStrokes = strokesInTranscriptionFrame(merged.filter(s => !s.textless), relink.rotation);
       const plan = planTranscript(transcript.lines || [], null, frameStrokes, relink.originNcodeY, { relink });
+      // Linking no line would only bump lastTranscribed: the page would read as
+      // trustworthy with all its ink unlinked, and drop off Relink's list.
+      if (!plan.linked) {
+        return { success: false, noLinks: true, error: 'no stored line would be linked to ink', added: 0, edited: 0, deleted: 0, total: 0, lineCount: 0 };
+      }
+      relinkLinks = plan.links;
       linesAdded = plan.linesAdded;
       transcriptChanged = plan.changed;
       textlessIds = plan.textlessIds;
@@ -844,7 +853,7 @@ export async function savePageToFolder(input) {
       // (stores/canvas-save.js): flagged textless, or only unlinked.
       textlessIds: [...textlessIds],
       unlinkedIds: [...unlinkedIds],
-      ...(relink ? { relinked, strokes: merged } : {}),
+      ...(relink ? { relinked, strokes: merged, links: relinkLinks } : {}),
       path: result.path
     };
   } catch (err) {

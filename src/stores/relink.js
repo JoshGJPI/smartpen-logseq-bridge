@@ -19,6 +19,7 @@
  */
 import { writable, get } from 'svelte/store';
 import { strokes } from './strokes.js';
+import { syncCanvasAfterPageWrite } from './textless.js';
 import { pageOrientations } from './orientation.js';
 import { hasMyScriptCredentials, getMyScriptCredentials } from './settings.js';
 import { pageGuardState } from './page-guards.js';
@@ -31,7 +32,7 @@ import { transcribeStrokes, batchOriginY } from '$lib/myscript-api.js';
 import { rotationFor, rotateCanvasStrokes } from '$lib/page-orientation.js';
 import {
   relinkRefusal, relinkSendStrokes, cachedRunValid, runForCache, classifyRelink,
-  relinkNeedsNoReview, buildRelinkSpec
+  relinkNeedsNoReview, buildRelinkSpec, NO_LINKS
 } from '$lib/relink.js';
 
 /** The page the Relink dialog is open on: `{ book, pageId }` or null. */
@@ -59,10 +60,24 @@ function cacheCall(action, book, pageId, entry) {
   });
 }
 
+/**
+ * The guard flags for Relink: Claude's edit guards (page-guards.js) plus
+ * `suffixOnCanvas`. The Editor keys canvas strokes by the integer NCode page, so
+ * a letter-suffixed page (P151b) can't be told from P151 there and its canvas
+ * copy couldn't take the new links; Relink waits until that page is off the canvas.
+ */
+function relinkGuardState(book, pageId) {
+  const s = pageGuardState(book, pageId);
+  const m = /^(\d+)[a-zA-Z]$/.exec(String(pageId));
+  const suffixOnCanvas = !!m && get(strokes).some((st) => st && st.pageInfo
+    && String(st.pageInfo.book) === String(book) && String(st.pageInfo.page) === m[1]);
+  return { ...s, suffixOnCanvas };
+}
+
 /** Why Relink is refused on this page now (the page read from disk), or null. */
 export async function relinkRefusalFor(book, pageId, doc) {
   const d = doc === undefined ? await getPage(String(book), String(pageId)) : doc;
-  return relinkRefusal(pageGuardState(book, pageId), d);
+  return relinkRefusal(relinkGuardState(book, pageId), d);
 }
 
 /**
@@ -72,7 +87,7 @@ export async function relinkRefusalFor(book, pageId, doc) {
  */
 export async function getRelinkRun(book, pageId, { send = false } = {}) {
   const doc = await getPage(String(book), String(pageId));
-  const why = relinkRefusal(pageGuardState(book, pageId), doc);
+  const why = relinkRefusal(relinkGuardState(book, pageId), doc);
   if (why) return { ok: false, error: why };
   const revision = (doc.metadata && doc.metadata.lastUpdated) || '';
 
@@ -108,44 +123,25 @@ export async function getRelinkRun(book, pageId, { send = false } = {}) {
 }
 
 /**
- * A copy of the page on the canvas takes the links just written, so an Editor
- * save of that copy doesn't put the old links back. Not an edit (the disk has it).
- */
-function syncCanvasLinks(book, pageId, written) {
-  if (!Array.isArray(written)) return 0;
-  const byId = new Map(written.map((s) => [s.id, s]));
-  let changed = 0;
-  const next = get(strokes).map((s) => {
-    const pi = s.pageInfo;
-    if (!pi || String(pi.book) !== String(book) || String(pi.page) !== String(pageId)) return s;
-    const w = byId.get(`s${s.startTime}`);
-    if (!w) return s;
-    const link = w.lineId || null;
-    const flag = w.textless === true;
-    if ((s.blockUuid || null) === link && (s.textless === true) === flag) return s;
-    changed++;
-    const out = { ...s, blockUuid: link };
-    if (flag) out.textless = true;
-    return out;
-  });
-  if (changed) strokes.set(next);
-  return changed;
-}
-
-/**
  * Write a relink.
  * @returns {Promise<{ ok: boolean, error?: string, stale?: boolean, result?: Object }>}
  */
 export async function saveRelink(book, pageId, spec) {
-  const why = relinkRefusal(pageGuardState(book, pageId), await getPage(String(book), String(pageId)));
+  const why = relinkRefusal(relinkGuardState(book, pageId), await getPage(String(book), String(pageId)));
   if (why) return { ok: false, error: why };
+  // A relink that links no line would only bump lastTranscribed and make the page
+  // read as trustworthy with all its ink unlinked.
+  if (!spec || !Array.isArray(spec.links) || !spec.links.length) return { ok: false, error: NO_LINKS };
   const result = await savePageToFolder({ book: String(book), page: String(pageId), activeStrokes: [], relink: spec });
   if (!result || !result.success) {
     if (result && result.stale) await cacheCall('drop', book, pageId).catch(() => {});
     return { ok: false, stale: !!(result && result.stale), error: (result && result.error) || 'save failed' };
   }
   await cacheCall('drop', book, pageId).catch(() => {});
-  syncCanvasLinks(book, pageId, result.strokes);
+  // A copy of the page on the canvas takes the written links and flags, and the
+  // on-disk index follows, so an Editor save neither puts the old links back nor
+  // sees the new flags as unsaved changes.
+  syncCanvasAfterPageWrite(book, pageId, { strokes: result.strokes, textlessIds: result.textlessIds, links: result.links });
   relinkQueue.update((q) => q.filter((p) => !(p.book === String(book) && p.pageId === String(pageId))));
   await refreshAfterSave([{ book: String(book), pageId: String(pageId) }]);
   log(`Relinked ${label(book, pageId)}: ${result.relinked} line${result.relinked === 1 ? '' : 's'} linked to ink`

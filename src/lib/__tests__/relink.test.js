@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   relinkSendStrokes, textLines, classifyRelink, wordFixes, applyWordFixes, defaultDecisions, buildRelinkSpec,
-  relinkNeedsNoReview, relinkRefusal, cachedRunValid, runForCache, relinkCandidates, groupCandidates,
+  relinkNeedsNoReview, relinkRefusal, cachedRunValid, linkedCount, NO_LINKS, runForCache, relinkCandidates, groupCandidates,
   MATCH_AT, CONFIRM_AT, LEFTOVER_ADD, LEFTOVER_TEXTLESS, LEFTOVER_LEAVE
 } from '../relink.js';
 import { editRefusal } from '../mcp-edits.js';
@@ -170,6 +170,17 @@ describe('decisions → the save spec', () => {
     expect(spec.textless).toEqual([left2.ms]);
   });
 
+  it('linkedCount counts matched rows and confirm rows still on Link (Save needs at least one)', () => {
+    const d = defaultDecisions(model);
+    const all = linkedCount(model, d);
+    expect(all).toBe(model.counts.matched + model.counts.confirm);
+    for (const r of model.rows) if (r.type === 'confirm') d.link[r.lineId] = false;
+    expect(linkedCount(model, d)).toBe(model.counts.matched);
+    const allNoInk = classifyRelink([{ id: 'a', text: 'alpha beta' }], [{ text: 'zzzz qqqq', yBounds: yb(0) }]);
+    expect(linkedCount(allNoInk)).toBe(0);
+    expect(NO_LINKS).toMatch(/nothing to save/);
+  });
+
   it('needs no review only when every line matched and nothing is left over', () => {
     expect(relinkNeedsNoReview(model)).toBe(false);
     expect(relinkNeedsNoReview(classifyRelink(doc.transcript.lines, makeRun(doc).lines))).toBe(true);
@@ -193,6 +204,10 @@ describe('relinkRefusal (B.6)', () => {
       expect(editRefusal({ ...editBase, [flag]: true }), flag).toBeTruthy();
     }
     expect(editRefusal(editBase)).toBeNull();
+  });
+
+  it('refuses a letter-suffixed page whose page number is on the canvas (Relink only, not an edit guard)', () => {
+    expect(relinkRefusal({ ...clear, label: 'B3017/P151b', suffixOnCanvas: true }, makeOldPage())).toMatch(/letter-suffixed.*unload it/);
   });
 
   it('refuses a missing page, one with no text lines, a trustworthy one and one with no ink to send', () => {

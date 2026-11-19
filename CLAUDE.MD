@@ -242,6 +242,10 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   the review took and lines from "Add as new line". Never line ids, other text, order, indent, `parentId`, `checked`,
   `marker` or kind lines, so no task state is carried. No stroke is deleted; leftover ink is unlinked or, by choice,
   flagged Not text in the same write. One write path: `savePageToFolder({ relink })`, then `refreshAfterSave()`.
+- **A relink must link at least one line** (`noLinks` in the save, `NO_LINKS` in `saveRelink`, Save disabled in the
+  dialog): bumping `lastTranscribed` with nothing linked would make the page read as trustworthy with all its ink
+  unlinked. A text line left unlinked is written with `yBounds: null` (its pre-fix ones were never re-measured and
+  would look like a position on a trustworthy page; null was already a valid stored value).
 - **Never sent, never relinked**: textless strokes and strokes linked to a line with any `kind` (`relinkSendStrokes`;
   `planRelink` touches only the run's `sent` ids and skips a kind line's strokes). Kind lines are never aligned
   (`textLines`), so Phase E's sketch lines need no change here.
@@ -252,8 +256,11 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
 - **The cache lives in `<userData>/relink-cache/<bookKey>/<pageId>.json`, never in the data folder**, keyed by the
   page's `metadata.lastUpdated` (`cachedRunValid`); dropped after a save. No MyScript request without a click (the
   dialog's Send, or the bulk Run).
-- A page also loaded in the Editor takes the written links on its canvas copy (`syncCanvasLinks` in
-  `stores/relink.js`), or the Editor's next save would put the old links back.
+- A page also loaded in the Editor takes the written links and flags on its canvas copy, and the on-disk index
+  follows, through Phase A's `syncCanvasAfterPageWrite(book, page, { strokes, textlessIds, links })`
+  (`stores/textless.js`); otherwise the Editor's next save would put the old links back, or a Not text flag would read
+  as unsaved. The canvas keys strokes by the integer NCode page, so a **letter-suffixed page is refused while its page
+  number is on the canvas** (`suffixOnCanvas`).
 
 ### Tasks (v3.4.0)
 

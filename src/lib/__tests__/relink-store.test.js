@@ -39,7 +39,8 @@ import { resetPages } from '$stores/transcript-reset.js';
 import { pageOrientations } from '$stores/orientation.js';
 import { strokes } from '$stores/strokes.js';
 import { isTrustworthyTranscript } from '$lib/viewer/ink-text.js';
-import { classifyRelink, buildRelinkSpec, defaultDecisions } from '$lib/relink.js';
+import { classifyRelink, buildRelinkSpec, defaultDecisions, NO_LINKS } from '$lib/relink.js';
+import { noteOnDiskStrokeIds, hasPendingChanges, onDiskStrokeIds } from '$stores/pending-changes.js';
 import { makeOldPage, makeRun, rowY } from './fixtures/relink-page.js';
 
 let cacheStore;
@@ -68,6 +69,7 @@ beforeEach(() => {
   resetPages.set(new Map());
   pageOrientations.set({});
   strokes.set([]);
+  onDiskStrokeIds.set(new Map());
   relinkQueue.set([]);
 });
 
@@ -169,6 +171,18 @@ describe('guards (B.6): the same set as Claude\'s edits, nothing sent or written
     await expectRefused(/reset for re-transcription/);
   });
 
+  it('a letter-suffixed page while its page number is on the canvas', async () => {
+    disk.set('3017/123b', makeOldPage());
+    strokes.set([{ pageInfo: { book: '3017', page: 123 }, startTime: 1, endTime: 2, dotArray: [] }]);
+    const r = await getRelinkRun('3017', '123b', { send: true });
+    expect(r.error).toMatch(/letter-suffixed/);
+    expect(transcribeStrokes).not.toHaveBeenCalled();
+    // Unsuffixed P123 with the same canvas is fine, and P123b off the canvas is fine.
+    expect((await getRelinkRun('3017', '123', { send: true })).ok).toBe(true);
+    strokes.set([]);
+    expect((await getRelinkRun('3017', '123b', { send: true })).ok).toBe(true);
+  });
+
   it('a page with no text lines (the trustworthy refusal: relink.test.js)', async () => {
     const doc = makeOldPage();
     doc.transcript.lines = [];
@@ -191,6 +205,36 @@ describe('saveRelink', () => {
     expect(cacheStore.has('3017/123')).toBe(false);
     expect(refreshAfterSave).toHaveBeenCalledWith([{ book: '3017', pageId: '123' }]);
     get(strokes).forEach((s, k) => expect(s.blockUuid).toBe(doc.transcript.lines[Math.floor(k / 3)].id));
+  });
+
+  it('a page on the canvas with leftover ink saved as Not text is not left looking unsaved', async () => {
+    const doc = makeOldPage();
+    const y = rowY(27) + 6;
+    doc.strokes.push({ id: 's1765400000000', startTime: 1765400000000, endTime: 1765400000400, lineId: 'L03', points: [[20, y], [30, y + 2]] });
+    disk.set('3017/123', doc);
+    // As the Editor loads it: same points, links as stored, on-disk index primed.
+    strokes.set(doc.strokes.map((s) => ({ pageInfo: { book: '3017', page: 123 }, startTime: s.startTime, endTime: s.endTime,
+      blockUuid: s.lineId, dotArray: s.points.map(([x, y]) => ({ x, y, f: 400 })) })));
+    noteOnDiskStrokeIds('3017', 123, doc.strokes);
+    expect(get(hasPendingChanges)).toBe(false);
+    vi.mocked(transcribeStrokes).mockImplementation(async () => reply(makeOldPage(), { extra: [{ text: 'scribble', y }] }));
+    const got = await getRelinkRun('3017', '123', { send: true });
+    const model = classifyRelink(got.doc.transcript.lines, got.run.lines);
+    const d = defaultDecisions(model);
+    d.leftover[model.rows.find((r) => r.type === 'leftover').ms] = 'textless';
+    expect((await saveRelink('3017', '123', buildRelinkSpec(got.run, model, d))).ok).toBe(true);
+    const last = get(strokes).at(-1);
+    expect(last).toMatchObject({ textless: true, blockUuid: null });
+    expect(get(hasPendingChanges)).toBe(false);
+  });
+
+  it('refuses a relink that links no line, writing nothing', async () => {
+    const got = await getRelinkRun('3017', '123', { send: true });
+    const model = classifyRelink(got.doc.transcript.lines, got.run.lines);
+    const r = await saveRelink('3017', '123', { ...buildRelinkSpec(got.run, model), links: [] });
+    expect(r).toMatchObject({ ok: false, error: NO_LINKS });
+    expect(savePage).not.toHaveBeenCalled();
+    expect(refreshAfterSave).not.toHaveBeenCalled();
   });
 
   it('a page written between the run and the save is refused as stale and its cache dropped', async () => {

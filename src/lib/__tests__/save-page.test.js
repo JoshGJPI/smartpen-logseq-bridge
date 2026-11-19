@@ -1286,6 +1286,38 @@ describe('savePageToFolder — Relink (v3.21.0, spec B.3 / B.7)', () => {
     expect(out.transcript.lines).toHaveLength(28);
   });
 
+  it('refuses a relink that links no line (every row no ink, or every confirm set to Don\'t link), writing nothing', async () => {
+    const doc = fixture.makeOldPage();
+    vi.mocked(getPage).mockResolvedValue(JSON.parse(JSON.stringify(doc)));
+    const run = fixture.makeRun(doc, { overrides: { 7: 'coordinate w/ architekt' } });
+    const spec = relinkOf(doc, run, (d, m) => {
+      for (const r of m.rows) if (r.type === 'confirm') d.link[r.lineId] = false;
+    });
+    spec.links = [];
+    const r = await savePageToFolder({ book: '3017', page: '123', relink: spec });
+    expect(r).toMatchObject({ success: false, noLinks: true });
+    expect(savePage).not.toHaveBeenCalled();
+  });
+
+  it('a no-ink line saved with yBounds null is safe on the now trustworthy page: a later transcription merges past it', async () => {
+    const doc = fixture.makeOldPage();
+    vi.mocked(getPage).mockResolvedValue(JSON.parse(JSON.stringify(doc)));
+    await savePageToFolder({ book: '3017', page: '123', relink: relinkOf(doc, fixture.makeRun(doc, { drop: [10] })) });
+    const out = written();
+    expect(out.transcript.lines[10].yBounds).toBeNull();
+    expect(isTrustworthyTranscript(out)).toBe(true);
+    // Transcribing a new line with the same text: not taken for a duplicate of the
+    // unmeasured line (its yBounds no longer look like a position), and nothing throws.
+    vi.mocked(getPage).mockResolvedValue(JSON.parse(JSON.stringify(out)));
+    const y = fixture.rowY(27) + 6;
+    const r = await savePageToFolder({
+      book: '3017', page: '123', activeStrokes: [],
+      pageTranscription: { lines: [{ text: out.transcript.lines[10].text, yBounds: { minY: fixture.mm(y), maxY: fixture.mm(y + 2) } }], originNcodeY: 10 }
+    });
+    expect(r.success).toBe(true);
+    expect(written().transcript.lines).toHaveLength(29);
+  });
+
   it('refuses a page written since its MyScript run (stale), writing nothing', async () => {
     const doc = fixture.makeOldPage();
     const spec = relinkOf(doc, fixture.makeRun(doc));

@@ -93,13 +93,17 @@ export function countTextless(all, indices) {
  * next Transcribe sends them). Not an edit: the disk already has it, so this
  * never marks the session dirty.
  *
+ * `links` (v3.21.0, Relink) carries the line each stroke was written with
+ * (stroke id → line id, null = unlinked); a textless id wins over its link.
+ *
  * @param {string|number} book
  * @param {number|string} page
- * @param {{ textlessIds?: string[], unlinkedIds?: string[] }} result
+ * @param {{ textlessIds?: string[], unlinkedIds?: string[], links?: Object<string, string|null> }} result
  * @returns {number} how many canvas strokes changed
  */
-export function applySavedDeletedInk(book, page, { textlessIds = [], unlinkedIds = [] } = {}) {
-  if (!textlessIds.length && !unlinkedIds.length) return 0;
+export function applySavedDeletedInk(book, page, { textlessIds = [], unlinkedIds = [], links = null } = {}) {
+  const linkMap = links ? new Map(links instanceof Map ? links : Object.entries(links)) : null;
+  if (!textlessIds.length && !unlinkedIds.length && !(linkMap && linkMap.size)) return 0;
   const flag = new Set(textlessIds);
   const unlink = new Set(unlinkedIds);
   let changed = 0;
@@ -112,6 +116,12 @@ export function applySavedDeletedInk(book, page, { textlessIds = [], unlinkedIds
       if (s.textless === true && !s.blockUuid) return s;
       changed++;
       return { ...s, textless: true, blockUuid: null };
+    }
+    if (linkMap && linkMap.has(id)) {
+      const link = linkMap.get(id) || null;
+      if ((s.blockUuid || null) === link) return s;
+      changed++;
+      return { ...s, blockUuid: link };
     }
     if (unlink.has(id) && s.blockUuid) {
       changed++;
@@ -129,11 +139,14 @@ export function applySavedDeletedInk(book, page, { textlessIds = [], unlinkedIds
  * written: the deleted lines' ink flagged or unlinked there too (so Transcribe
  * sends "Transcribe again" ink, and skips Not text), and the on-disk state
  * index refreshed, so a flag the disk now has doesn't read as a canvas change.
- * Does nothing for a page that isn't on the canvas.
+ * Does nothing for a page that isn't on the canvas. Relink (v3.21.0) passes
+ * `links`, the line each sent stroke was written with. `page` is matched as the
+ * canvas keys it (the integer NCode page), so a letter-suffixed page can't be
+ * told from its integer page here: Relink refuses one while it is on the canvas.
  *
  * @param {string|number} book
  * @param {string|number} page
- * @param {{ strokes?: Array, textlessIds?: string[], unlinkedIds?: string[] }} written
+ * @param {{ strokes?: Array, textlessIds?: string[], unlinkedIds?: string[], links?: Object }} written
  * @returns {number} how many canvas strokes changed
  */
 export function syncCanvasAfterPageWrite(book, page, written = {}) {

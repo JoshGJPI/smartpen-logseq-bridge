@@ -132,6 +132,24 @@ describe('QA fixes: Include before a save, and writes outside the Editor', () =>
     expect(get(storageMod.unsavedChanges)).toBe(false);
   });
 
+  it('Relink (v3.21.0) passes the written links: the canvas takes them, a textless id wins, no unsaved change', () => {
+    const written = [
+      { id: 's1000', lineId: 'L9', points: [] }, { id: 's2000', lineId: null, textless: true, points: [] },
+      { id: 's3000', lineId: null, textless: true, points: [] }
+    ];
+    const n = textless.syncCanvasAfterPageWrite('3017', '42', {
+      strokes: written, textlessIds: ['s2000'], links: { s1000: 'L9', s2000: null }
+    });
+    expect(n).toBe(2);
+    expect(get(strokesMod.strokes).map((s) => [s.blockUuid ?? null, s.textless ?? null])).toEqual([
+      ['L9', null], [null, true]
+    ]);
+    expect(get(pending.onDiskStrokeIds).get('B3017/P42').get('s2000').textless).toBe(true);
+    expect(get(storageMod.unsavedChanges)).toBe(false);
+    // A Map works too, and an unchanged link is no change.
+    expect(textless.applySavedDeletedInk('3017', 42, { links: new Map([['s1000', 'L9']]) })).toBe(0);
+  });
+
   it('a page not on the canvas: nothing to do', () => {
     expect(textless.syncCanvasAfterPageWrite('3017', '99', { textlessIds: ['s1000'] })).toBe(0);
     expect(get(strokesMod.strokes)[0].blockUuid).toBe('L1');

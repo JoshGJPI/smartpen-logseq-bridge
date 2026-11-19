@@ -62,7 +62,9 @@ Reasons and history for each feature are in [CHANGELOG.md](CHANGELOG.md).
   so leave that ink unlinked and move the line instead. Confirm rows start on Link. Word fixes are offered for one word
   read as another only (not for added or missing words). The review queue is session-only; the MyScript runs behind it
   are cached in `<userData>/relink-cache/` (never pruned, one small file per page) and a second Run costs nothing.
-  Make sketch for leftover ink waits for Phase E. The spec counted 100 unreliable pages; the data folder has 99 now
+  Make sketch for leftover ink waits for Phase E. A letter-suffixed page (P151b) is refused while its page number is
+  loaded in the Editor (the canvas can't tell P151b from P151); Library Edit and the Pages tab's canvas sync have the
+  same blind spot for suffixed pages. The spec counted 100 unreliable pages; the data folder has 99 now
   (84 in JPI Dotted).
 - **Re-transcribe (v3.17.0).** Reset is refused while only part of a page is on the canvas; ink left out of the new
   run (a drawing) ends up unlinked.
