@@ -346,6 +346,15 @@ pages serialize exactly as they did before. `version` stays `"2.0"` — both add
 are backward- and forward-compatible, and bumping it would make `validatePageDoc()`
 reject every file already on disk.
 
+### `textless` (v3.20.0, "Not text")
+
+Strokes may carry `"textless": true`, omitted when false like `sketch`: ink left out
+of transcripts on purpose (the ink of a transcript line deleted with "Not text", or
+strokes left out from the Editor's selection). A textless stroke has `lineId: null`,
+is never sent to MyScript and never matched to a line. Older builds ignore the key.
+See CLAUDE.md "Deleted lines and Not text" and
+[TRANSCRIPT-STRUCTURE-SPEC.md](TRANSCRIPT-STRUCTURE-SPEC.md) A.3.
+
 ### Geometry is immutable — with one exception (v2.5, point editing)
 
 The append-only rule (start from the PageDoc on disk; append new strokes; remove

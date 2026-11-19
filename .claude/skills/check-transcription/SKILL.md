@@ -96,18 +96,27 @@ Transcription.
 page as `partly`) means most of the ink was never sent to MyScript (3017/186: 6 lines saved, 84% of the ink in none).
 Ask Josh to transcribe the rest before checking the text; the diff would only list those lines as missing.
 
+Ink left out as **Not text** (v3.20.0: `textless`, "N left out as Not text" in the replies) was left out on purpose:
+it is never counted as ink in no line or as `not transcribed`, so don't report it.
+
 ### 6. Look at the links
 `render_page {book, page, color_by_line: true}`. Look for:
 - `NO INK LINKED` lines, and their ink drawn in a neighbour's colour (MyScript gave it to the wrong line);
 - one written row in two colours;
-- dark text (ink in no batch: not transcribed at all, e.g. written on another day);
+- dark text (ink in no batch: not transcribed at all, e.g. written on another day); the key says how many dark
+  strokes are Not text (left out on purpose);
 - sketch ink coloured as a text line (harmless for text, clutters Ink + text).
 
 ### 7. Report, per page
 1. **Corrections**, by stored line number (`#n` from the diff), with the exact replacement text, ready to type into
    Edit Transcription. Missing lines: the text, its level and the line it goes under.
 2. **For Josh to decide**: `[?]` readings, ambiguous characters, spelling he may want corrected.
-3. **Ink**: untranscribed blocks (transcribe them on their own), lines out of order, and broken links. To
+3. **Ink**: untranscribed blocks (transcribe them on their own), lines out of order, and broken links. A stored
+   line that is a scribble, an underline or a box read as words: Josh deletes it in Edit Transcription or Library
+   Edit (Delete, or Ctrl+Shift+K in the dialog) with **Not text**, so its ink is never sent again; ink in no line
+   that isn't text (a drawing, a stray mark): Editor, select it → ⋯ (or right-click) → **Leave out of transcripts**.
+   Your own `delete` op only unlinks the ink, which the next Transcribe sends again, so suggest these instead for
+   junk lines. To
    re-transcribe a page: Editor, load the whole page (by page, not by date), Transcripts tab → "Re-transcribe a saved
    page" → ↺ Re-transcribe (unlinks its strokes so they are sent again), select the text strokes with any drawing
    deselected, Transcribe, Save. The new run replaces the saved transcript (task states carry over where the text

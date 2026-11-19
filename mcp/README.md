@@ -120,6 +120,9 @@ including how Claude writes its blind reading, is the project skill
   No transcript text is returned, so it can be read before a blind reading. On a transcribed page whose links can be
   trusted, rows with no stroke in any line are marked `not transcribed`, and a `PARTLY TRANSCRIBED?` line warns when
   under 75% of the page's strokes are in a line (3017/186: 84% in none). `list_pages` shows such a page as `partly`.
+  Ink left out of transcripts on purpose (`textless: true`, "Not text", v3.20.0: a deleted scribble's ink, or strokes
+  Josh left out in the Editor) is not ink in no line: the reply says "N strokes (M left out as Not text)", its rows are
+  never `not transcribed`, and it is left out of the 75% and of `partly`.
 - **`check_transcript` with `reference`:** the reference (markdown bullets, one tab or one space-unit per level,
   `TODO` / `DONE` / `WAITING` / `CANCELLED` in front of tasks) is aligned with the stored lines in order (dynamic
   programming over line similarity, so a missing or extra line doesn't shift the rest). Each stored line is reported
@@ -131,10 +134,13 @@ including how Claude writes its blind reading, is the project skill
   `LINKS BROKEN?` marks a line holding more than 4× the median line's strokes (and at least 150): ink from other rows
   is linked to it, usually because a drawing was in the MyScript batch (3017/182: 479 strokes on one line, none on
   the five after it). On the 33 JPI Dotted pages with trustworthy links it fires on 4.
+  The summary's "N stroke(s) linked to no line" doesn't count textless ink and names it: "(not counting M left out as
+  Not text)".
 
 - **`color_by_line`:** each stroke in the colour of the transcript line it is linked to (`lineId`), from an 8-colour
   cycle in transcript order, so neighbouring lines always differ. The reply lists every line: number, colour, stroke
-  count (or `NO INK LINKED`), task state and text, plus how many strokes are linked to no line (drawn dark). resvg has
+  count (or `NO INK LINKED`), task state and text, plus how many strokes are linked to no line (drawn dark; how many of
+  them are left out as Not text on purpose, v3.20.0). resvg has
   no fonts here, so the image carries no labels; the colour names in the key are the link. Only where
   `isTrustworthyTranscript()` says the links are good (transcribed by the fixed matcher); otherwise the ink is plain and
   the reply says why. Ink of one line drawn in another line's colour, or a line with no ink, is a mislink.
@@ -166,6 +172,9 @@ its views, so an open reader page shows the change at once. To turn it on, add `
 - **Refused** (dry runs too): the app's data folder isn't this server's; the page is open in a transcript editor in
   the app (Library Edit or the Pages tab dialog, changed or not) or has an unsaved Library draft; an unsaved Editor
   transcription or a re-transcribe reset on the page.
+- **A deleted line's ink is only unlinked**, never flagged Not text (`textless`, v3.20.0): that is ink, so Josh's
+  choice in the app. A deleted scribble's ink is sent again on the next Transcribe unless he deletes the line in the
+  app with Not text, or leaves the strokes out in the Editor.
 - **Never** ink or task state: no tick / WAITING / CANCELLED (a line can't start with `WAITING`, `CANCELLED`, `DOING`,
   `NOW`, `LATER`); a typed `TODO` / `DONE` / box in front of a plain line makes it a task, as Library Edit does.
 - **Undo:** `undo_transcript_edit {book, page}` restores the page's transcript (and the ink links a delete removed)

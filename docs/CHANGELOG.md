@@ -6,6 +6,58 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.20.0 — Delete lines in Edit Transcription; "Not text" ink (November 2026)
+
+Phase A of [TRANSCRIPT-STRUCTURE-SPEC.md](TRANSCRIPT-STRUCTURE-SPEC.md). The Edit Transcription dialog had merge,
+split, indent and move but no delete: a scribble, an underline or a box read as words could only be merged into a
+neighbour, or emptied (which deleted it on save, though nobody would guess). Either way the line's strokes lost their
+link, so the next Transcribe sent the same ink again and the deleted line came back.
+
+- **Delete in the dialog**: a toolbar button, `Ctrl+Shift+K`, and Backspace on an empty line. It acts on the ticked
+  lines, else the focused one (`lib/delete-lines.js`). A line with children asks **Delete line** (its children move up
+  one level) or **Delete block** (they go too); ticked lines are each deleted alone. Deleting a task asks first and
+  names it ("Delete the task 'schedule coord. meeting w/ Tom'?"), the same rule as Claude's `task_ok`: its state goes
+  with it. Undo / Redo cover it: the history now holds the deleted lines beside the lines
+  (`editor-lines.js` `startHistory` / `pushHistory` / `stepHistory`), so an undone delete is no longer reported to the
+  save.
+- **The ink**: while any deleted line had ink, the footer asks *Ink of deleted lines:* (•) **Not text, never transcribe
+  it** ( ) Transcribe it again next time. Not text is the default (decision 1: most deleted lines are a scribble or a
+  box). The choice applies to every deleted line in that save. A saved line has ink; so does a line of a run not saved
+  yet (its strokes were sent): the save matches its strokes the way it matches a new line's, and a stroke it shares
+  with a kept line goes to the one it overlaps most, a tie to the kept line.
+- **Library Edit** gets the same three: Delete block, the task confirm and the ink choice (counted over saved lines the
+  draft deleted, not merged). Its single-line delete stays (the toolbar and Backspace act on the focused line).
+- **`textless: true`**, a new optional stroke field, omitted when false like `sketch`. A textless stroke has
+  `lineId: null`, is never sent by Transcribe (`groupStrokesForTranscription`, and the toolbar's untranscribed count)
+  and is never matched to a line by a save (left out of the save's matching strokes, Reset's replace included).
+  `strokeToStored()` adds it to its fixed key list. `planTranscript()` returns `textlessIds` (and `deletedInkIds`);
+  the save applies them beside `lineIdAssignments` in the same write, and returns them so the canvas copies follow
+  (`stores/textless.js` `applySavedDeletedInk`, not an unsaved edit). Library Edit and the Pages tab's Edit structure
+  settle the ink through `lib/deleted-ink.js` `relinkAfterEdit()`. No stroke is ever deleted.
+- **Leave out of transcripts / Include in transcripts** for the Editor's selection, from a new ⋯ in the toolbar's
+  selection group and from a right-click on the canvas (`canvas/SelectionTranscriptMenu.svelte`). The spec named
+  "the context menu and the selection toolbar's ⋯"; neither existed, so both were added. A toggle on a stored stroke
+  is a **modification** in both `pendingChanges` and `computePageChangesFolder()`.
+- **Three-way on the canvas.** A loaded stroke carries `textless: true` only when stored so; Leave out sets `true`,
+  Include sets `false`, and only an explicit `true` / `false` is saved or counted as a change. Rejected: syncing it
+  two-way like `sketch`. Library Edit can flag ink while the same page is loaded in the Editor, and that stale copy's
+  next save would have silently cleared the flag.
+- **Emptying the transcript in the dialog** (every line deleted) now saves as an empty transcript
+  (`hasTranscriptToPlan`); before, a confirmed result with no lines was skipped as "no transcription".
+- **MCP**: `check_transcript` stops counting textless ink as ink in no line: the diff says "N stroke(s) linked to no
+  line (not counting M left out as Not text)", the rows reply names the count, rows of textless ink are not
+  "not transcribed", and the PARTLY TRANSCRIBED warning and `list_pages`' `partly` leave it out of the total.
+  `color_by_line` says how many of the dark strokes are Not text. Claude's own deletes (`edit_transcript`) still only
+  unlink: Claude never sets ink flags.
+- Library Ink + text draws textless ink like other unlinked ink (no change needed: it has no `lineId`).
+- **Splits while touching**: TranscriptionEditorModal 624 → 493 lines (TranscriptEditorHeader, TranscriptEditorFooter,
+  shared DeleteLinesPrompt and DeletedInkChoice), TranscriptPane 353 → 319 (TranscriptEditList), StrokeCanvas
+  2,882 → 2,810 (SketchActions), TranscriptionView 755 → 720 (its line merge helpers moved to `lib/editor-lines.js`).
+
+Not in this release (later phases): Relink (B) skips textless strokes when it is built. Emptying a line's text still
+deletes it on save without the ink choice (its strokes are only unlinked), as before. The Editor does not draw
+textless strokes differently.
+
 ## Unreleased — audit and cleanup (2026-11-13)
 
 A code audit, area by area. No new features and no version number yet.

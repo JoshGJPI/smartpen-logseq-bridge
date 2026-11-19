@@ -29,7 +29,9 @@ src/stores/        one store per concern (strokes, selection, pending-changes, v
 src/lib/           pure logic, no UI, testable without DOM (tags, tag-suggestions, task-markers: ☐ / ☑ → TODO / DONE,
                    tasks: task state and list, retime, move-lines, canvas-page-targets: what the Editor's rotate and
                    🏷 Tags act on, book-types, canvas-save-plan: which pages a save writes and which deletion marks it
-                   settles, canvas-text-view: the Editor's text view; one line each in docs/ARCHITECTURE.md "Key Libraries")
+                   settles, canvas-text-view: the Editor's text view, delete-lines: Delete line / block and what it
+                   asks, deleted-ink: the deleted lines' ink and the `textless` flag; one line each in
+                   docs/ARCHITECTURE.md "Key Libraries")
 src/lib/storage/   PageDoc layer: local-store (IPC facade), save-page, load-page, load-range, scan, page-changes, graph-export,
                    convert-task-boxes (one-off conversion of old transcripts)
 src/lib/viewer/    reader helpers: SVG render, page cache, thumbnails, transcript markdown/save, feed loader,
@@ -91,11 +93,14 @@ each launch opens the Library on its home. Left panel tabs, Library views, the r
   },
   "strokes": [
     { "id": "s1765313505107", "startTime": 0, "endTime": 0, "lineId": "…|null",
-      "sketch": true /* omitted when false */, "points": [[6.56, 37.25, 1765313505107, 412]] }
+      "sketch": true /* omitted when false */, "textless": true /* omitted when false, v3.20.0 */,
+      "points": [[6.56, 37.25, 1765313505107, 412]] }
   ]
 }
 ```
 
+- **`textless: true`** (v3.20.0, "Not text") marks ink left out of transcripts on purpose: never sent to MyScript,
+  never matched to a line, always `lineId: null`. Written only when true, like `sketch`; older builds ignore it.
 - **Point tuples are variable length:** `[x, y]`, `[x, y, ts]` or `[x, y, ts|null, force]`. Force is written for
   *every* stroke, not only sketches, because flagging happens long after capture. Older, shorter tuples
   read back fine and render at a constant `flatWidth`.
@@ -142,7 +147,7 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   sketch flag, and may never leave fewer than 2 points. A snap keeps the count, so the dirty diff reads the marker
   too (`computePendingChangesMap`) and the save dialog compares coordinates (`page-changes.js` `isPointEdited`).
 - **In-memory markers never reach disk** (`pointsEdited`, `movedFrom`): `strokeToStored()` builds from a fixed
-  key list. Keep it that way.
+  key list. Keep it that way. `textless` is on that list on purpose: it is a stored field.
 - **One write path.** Every PageDoc write goes through `local-store.js` `savePage()`, atomic (random `.tmp` + fsync +
   rename) in main (`electron/page-store.cjs` `writeFileAtomic`, one write per path at a time). The renderer never touches
   `fs`; `requireBookKey()`/`requirePageId()` (page-store.cjs) keep paths inside the data root.
@@ -199,6 +204,25 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   `finalizePageMoves().emptied` → `carryTagsForMoves()` (whole-page moves only, never onto a page that has tags).
 - **Suggestions are never stored**, only dismissals; they are computed from stored transcript text
   (`record.transcriptionText`, so no page read) and never applied without a click.
+
+### Deleted lines and Not text (v3.20.0, docs/TRANSCRIPT-STRUCTURE-SPEC.md Phase A)
+
+- **No stroke is ever deleted by deleting a line.** Its ink is unlinked and, with the ink choice's default
+  **Not text**, flagged `textless`; with *Transcribe it again* only unlinked. The Edit Transcription dialog reports
+  its deletes on its result (`deletedLineIds`, `deletedLines` for lines of an unsaved run, `deletedInk`);
+  `planTranscript()` returns `textlessIds` and the save applies them beside `lineIdAssignments` in the same write.
+  Library Edit and the Pages tab's Edit structure go through `lib/deleted-ink.js` `relinkAfterEdit()`. Only lines the
+  user deleted count: a Reset's replaced lines and merged-away lines never become Not text.
+- **A textless stroke is in no line.** The save drops a link on any textless stroke (a stale canvas link
+  included), leaves textless strokes out of new-line matching (Reset's replace too), and Transcribe never sends them
+  (`groupStrokesForTranscription`, `getUntranscribedStrokes`).
+- **Three-way on the canvas.** A loaded stroke has `textless: true` only when stored so; Leave out / Include
+  (`stores/textless.js` `setStrokesTextless`) set `true` / `false`. Only an explicit `true` / `false` is synced by the
+  save and counted as a **modification**, in both `pendingChanges` and `computePageChangesFolder()` (change both). A
+  stroke without the key has no say, so a page loaded before Library Edit flagged its ink can't clear the flag.
+- After a save, `applySavedDeletedInk()` brings the canvas copies in line with the disk (not an unsaved edit).
+- **Claude's edits never set it.** `saveTranscriptLines()` flags only when passed `deletedInk: 'textless'` (Library
+  Edit's choice); `edit_transcript` passes nothing, so its deletes only unlink.
 
 ### Tasks (v3.4.0)
 
@@ -259,7 +283,8 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
 - `contextInk` is drawn but not owned: it stays out of `strokes`, so it can never be selected, saved, exported or
   transcribed. It counts toward page bounds, never toward capture date.
 - `pendingChanges` has six buckets (additions, edits, modifications, moves, retimes, deletions); a stroke lands in
-  exactly one. `SaveConfirmDialog` does **not** read it: it runs `page-changes.js` `computePageChangesFolder()`
+  exactly one. Modifications are the flag toggles: `sketch`, and `textless` when set true / false on the canvas.
+  `SaveConfirmDialog` does **not** read it: it runs `page-changes.js` `computePageChangesFolder()`
   against the file on disk. That is a second implementation of the same question, so change both together.
 - Unloading a page from the canvas is not an edit and must not call `markUnsavedChanges()`.
 - Anything that adds unsaved state must call `markUnsavedChanges()` (amber dot, `beforeunload` prompt).
@@ -375,8 +400,8 @@ The full list (per feature: rotation, volumes, tags, retime, tasks, print, LogSe
 - **Never open OS print dialogs or print jobs from test processes or on Josh's desktop** (it stalled his other Electron
   apps). Print to a printer is `print:toPrinter` through the Windows dialog, never silent. Verify print output by
   rendering the job's HTML with `printToPDF` from a scratch process.
-- Several components are over the ~300-line guideline (StrokeCanvas ~2,850, TranscriptionView ~750, CreatePageDialog,
-  TranscriptionEditorModal, SaveConfirmDialog, PageCard, BooksTab, PenMemoryDialog, …); don't grow them, split when touching.
+- Several components are over the ~300-line guideline (StrokeCanvas ~2,810, TranscriptionView ~720, TranscriptionEditorModal ~490, CreatePageDialog,
+  SaveConfirmDialog, PageCard, BooksTab, PenMemoryDialog, …); don't grow them, split when touching.
 - Main-process and renderer tracing is behind `lib/debug.js` (`localStorage['smartpen-debug'] = '1'`, or the dev
   server). Never log MyScript keys or the HMAC, not even fragments.
 - Neo page backgrounds are a spike (see [docs/CHANGELOG.md](docs/CHANGELOG.md), "Neo page backgrounds"): images are
