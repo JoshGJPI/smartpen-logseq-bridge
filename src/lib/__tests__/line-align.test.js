@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { alignLines, similarity, norm, editDistance, sameLetters, alignText } from '../line-align.js';
+import { alignLines, movedPairs, MOVED_MIN, similarity, norm, editDistance, sameLetters, alignText } from '../line-align.js';
 
 describe('alignLines', () => {
   it('pairs similar lines and leaves missing ones unpaired', () => {
@@ -57,5 +57,25 @@ describe('similarity and helpers', () => {
   it('editDistance works on strings and arrays', () => {
     expect(editDistance('kitten', 'sitting')).toBe(3);
     expect(editDistance(['a', 'b'], ['a', 'c'])).toBe(1);
+  });
+});
+
+describe('movedPairs (moved here from the MCP, v3.21.0)', () => {
+  const stored = [{ text: 'first line' }, { text: 'third one' }, { text: 'meeting with Tom' }];
+  const ref = [{ text: 'first line' }, { text: 'meeting with Tom' }, { text: 'third one' }];
+
+  it("pairs a line stored out of place with its reading elsewhere, in the stored line's place", () => {
+    const out = movedPairs(alignLines(stored, ref), stored, ref);
+    expect(out).toContainEqual([2, 1, true]);
+    expect(out.some(([a, b]) => a === null && b === 1)).toBe(false);
+  });
+
+  it('takes a threshold and a filter on the reference side', () => {
+    const pairs = [[0, null], [null, 0]];
+    const s = [{ text: 'order steel beams' }], r = [{ text: 'order steal bean today' }];
+    expect(similarity(s[0].text, r[0].text)).toBeLessThan(MOVED_MIN);
+    expect(movedPairs(pairs, s, r)).toEqual(pairs);
+    expect(movedPairs(pairs, s, r, 0.6)).toEqual([[0, 0, true]]);
+    expect(movedPairs(pairs, s, r, 0.6, () => false)).toEqual(pairs);
   });
 });

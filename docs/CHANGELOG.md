@@ -45,8 +45,13 @@ task state by text only. Relink keeps the transcript and takes only geometry fro
   while reviewing.
 - **MCP**: `get_transcript` and `color_by_line` name Relink where they said links are unreliable; the
   check-transcription skill suggests it for old pages before checking links.
-- Rejected: aligning out-of-order lines (the MCP's `movedPairs`) in Relink; the spec says in order, and a moved line
-  shows as no ink plus ink left over (see KNOWN-LIMITATIONS). Confirm rows start on Link (an open question for Josh).
+- **Moved lines** (Josh, 2026-11-19): after the in-order pass, a no-ink line pairs with leftover ink elsewhere on the
+  page whose text matches (`movedPairs`, moved from the MCP into `line-align.js` with a threshold and a filter;
+  Relink pairs at `CONFIRM_AT` and only readings with bounds). Such a pair is a **confirm row marked "moved"**,
+  starting on Link. Linking it changes only its `yBounds` and ink, never its order, indent, `parentId` or text, so
+  3017/180's meeting (written mid-page, stored at the end) keeps its place in the transcript and gets its ink. A page
+  with moved lines always waits for review. Confirm rows start on Link and word fixes stay substitutions only
+  (Josh's answers).
 - **Split while touching**: SettingsDropdown 395 → 303 lines (`settings/MaintenanceSettings`, dialogs in
   `settings/MaintenanceDialogs`). New components stay under 300 (RelinkDialog, RelinkRows, RelinkOldDialog).
 - Not run against real pages or in the running app yet (MyScript requests wait for Josh's OK); unit tests mock

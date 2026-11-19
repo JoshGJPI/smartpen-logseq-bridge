@@ -41,7 +41,7 @@ import { strokes } from '$stores/strokes.js';
 import { isTrustworthyTranscript } from '$lib/viewer/ink-text.js';
 import { classifyRelink, buildRelinkSpec, defaultDecisions, NO_LINKS } from '$lib/relink.js';
 import { noteOnDiskStrokeIds, hasPendingChanges, onDiskStrokeIds } from '$stores/pending-changes.js';
-import { makeOldPage, makeRun, rowY } from './fixtures/relink-page.js';
+import { makeOldPage, makeRun, makeMovedPage, rowY } from './fixtures/relink-page.js';
 
 let cacheStore;
 const reply = (doc, opts) => ({ text: '', lines: makeRun(doc, opts).lines, words: [] });
@@ -286,6 +286,15 @@ describe('runBulkRelink (B.5)', () => {
     expect(again.requests).toBe(0);
     expect(transcribeStrokes).not.toHaveBeenCalled();
     expect(get(relinkQueue)).toHaveLength(2);
+  });
+
+  it('a page with moved lines is queued for review, never saved at once', async () => {
+    disk.set('3017/180', makeMovedPage());
+    vi.mocked(transcribeStrokes).mockImplementationOnce(async () => reply(makeMovedPage()));
+    const out = await runBulkRelink([{ book: '3017', pageId: '180' }]);
+    expect(out).toMatchObject({ saved: 0, queued: 1 });
+    expect(savePage).not.toHaveBeenCalled();
+    expect(get(relinkQueue)[0]).toMatchObject({ pageId: '180', counts: expect.objectContaining({ moved: 3 }) });
   });
 
   it('stops between pages', async () => {

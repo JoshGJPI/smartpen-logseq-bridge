@@ -10,6 +10,9 @@
  * (`parseTaskMarker`), so MyScript's `☑ order steel` matches a DONE line whose
  * text is `order steel`, and case, punctuation and spacing are ignored.
  *
+ * `movedPairs()` (also moved from the MCP) then pairs lines the in-order pass
+ * left on both sides that are the same line stored out of place.
+ *
  * Pure. Tested in `src/lib/__tests__/line-align.test.js` (and through the MCP's
  * transcript-check tests).
  */
@@ -80,4 +83,44 @@ export function alignLines(stored, ref) {
     else { pairs.push([null, j - 1]); j--; }
   }
   return pairs.reverse();
+}
+
+/** A stored-only and a reference-only line this alike are one line in another place, not two missing lines. */
+export const MOVED_MIN = 0.75;
+
+/**
+ * Pair the lines the in-order alignment left on both sides that are the same line out of order (3017/180: a
+ * meeting written at the top of the page but transcribed later, so stored at the end). Best matches first; each
+ * pair takes the stored line's place in the result and is marked moved. Unpaired lines stay as they were.
+ * @param {Array<[number|null, number|null]>} pairs alignLines' result
+ * @param {number} [min] similarity a pair needs (MOVED_MIN; Relink passes its CONFIRM_AT)
+ * @param {(b: number) => boolean} [usable] which reference lines may pair (Relink: those with yBounds)
+ * @returns {Array<[number|null, number|null, boolean?]>}
+ */
+export function movedPairs(pairs, stored, ref, min = MOVED_MIN, usable = () => true) {
+  const sOnly = pairs.filter(([a, b]) => b === null).map(([a]) => a);
+  const rOnly = pairs.filter(([a]) => a === null).map(([, b]) => b).filter((b) => usable(b));
+  const cands = [];
+  for (const a of sOnly) {
+    for (const b of rOnly) {
+      const s = similarity(stored[a].text, ref[b].text);
+      if (s >= min) cands.push({ a, b, s });
+    }
+  }
+  cands.sort((x, y) => y.s - x.s || Math.abs(x.a - x.b) - Math.abs(y.a - y.b));
+  const refFor = new Map();
+  const taken = new Set();
+  for (const c of cands) {
+    if (refFor.has(c.a) || taken.has(c.b)) continue;
+    refFor.set(c.a, c.b);
+    taken.add(c.b);
+  }
+  if (!refFor.size) return pairs;
+  const out = [];
+  for (const [a, b] of pairs) {
+    if (a === null && taken.has(b)) continue;
+    if (b === null && refFor.has(a)) out.push([a, refFor.get(a), true]);
+    else out.push([a, b]);
+  }
+  return out;
 }

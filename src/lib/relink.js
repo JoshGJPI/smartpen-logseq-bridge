@@ -20,7 +20,7 @@
  *
  * Tested in `src/lib/__tests__/relink.test.js`.
  */
-import { alignLines, similarity, norm, sameLetters } from './line-align.js';
+import { alignLines, movedPairs, similarity, norm, sameLetters } from './line-align.js';
 import { stripTaskMarker } from './task-markers.js';
 import { taskStateOf, stateLabel } from './tasks.js';
 import { isTrustworthyTranscript } from './viewer/ink-text.js';
@@ -148,24 +148,26 @@ export function applyWordFixes(text, fixes) {
  * @property {string} reading          MyScript's text ('' when none)
  * @property {number|null} sim         similarity of the pair
  * @property {Array} fixes             word fixes (matched / confirm rows)
+ * @property {boolean} [moved]         a confirm row whose reading is elsewhere on the page (stored out of place)
  */
 
 /**
  * Align MyScript's lines with the stored text lines and classify each:
  * matched (≥ MATCH_AT), confirm (CONFIRM_AT..MATCH_AT), no ink (below, or no
- * partner); a MyScript line with no accepted partner is ink left over. Rows
- * come in alignment order (stored order, leftover ink where it falls).
+ * partner); a MyScript line with no accepted partner is ink left over. A no-ink
+ * line whose reading sits elsewhere on the page (≥ CONFIRM_AT) becomes a confirm
+ * row marked `moved`. Rows come in stored order, leftover ink where it falls.
  *
  * @param {Array} lines         transcript.lines (kind lines are left out)
  * @param {Array<{text:string, yBounds?:object}>} msLines  MyScript's lines
- * @returns {{ rows: RelinkRow[], counts: { matched:number, confirm:number, noink:number, leftover:number, tasks:number, kindLines:number } }}
+ * @returns {{ rows: RelinkRow[], counts: { matched:number, confirm:number, moved:number, noink:number, leftover:number, tasks:number, kindLines:number } }}
  */
 export function classifyRelink(lines, msLines) {
   const stored = textLines(lines);
   const ms = (msLines || []).map((l) => ({ text: String((l && l.text) || ''), yBounds: l && l.yBounds }));
-  const counts = { matched: 0, confirm: 0, noink: 0, leftover: 0, tasks: 0, kindLines: (lines || []).filter(isKindLine).length };
+  const counts = { matched: 0, confirm: 0, moved: 0, noink: 0, leftover: 0, tasks: 0, kindLines: (lines || []).filter(isKindLine).length };
   const rows = [];
-  const storedRow = (l, type, j, sim) => {
+  const storedRow = (l, type, j, sim, moved = false) => {
     const st = taskStateOf(l);
     const n = (lines || []).indexOf(l) + 1;
     if (st) counts.tasks++;
@@ -173,24 +175,33 @@ export function classifyRelink(lines, msLines) {
     rows.push({
       type, n, lineId: l.id, text: l.text || '', indentLevel: l.indentLevel || 0, task: st ? stateLabel(st) : null,
       ms: j, reading: j === null ? '' : ms[j].text, sim,
-      fixes: type === 'noink' ? [] : wordFixes(l.text || '', ms[j].text)
+      fixes: type === 'noink' ? [] : wordFixes(l.text || '', ms[j].text),
+      ...(moved ? { moved: true } : {})
     });
   };
   const leftover = (j) => {
     counts.leftover++;
     rows.push({ type: 'leftover', n: null, lineId: null, text: '', indentLevel: 0, task: null, ms: j, reading: ms[j].text, sim: null, fixes: [] });
   };
+  // In order first; a pair too unlike (or a reading without bounds) is split into
+  // no ink + leftover. Then lines stored out of place (3017/180: a meeting written
+  // mid-page, stored at the end) pair with their reading elsewhere on the page
+  // (movedPairs, at CONFIRM_AT): confirm rows marked moved. Linking one changes only
+  // its yBounds and ink, never its place in the transcript.
+  const simOf = (a, b) => (usableYBounds(ms[b].yBounds) ? similarity(stored[a].text, ms[b].text) : 0);
+  const inOrder = [];
   for (const [a, b] of alignLines(stored, ms)) {
+    if (a !== null && b !== null && simOf(a, b) < CONFIRM_AT) inOrder.push([a, null], [null, b]);
+    else inOrder.push([a, b]);
+  }
+  for (const [a, b, moved] of movedPairs(inOrder, stored, ms, CONFIRM_AT, (k) => usableYBounds(ms[k].yBounds))) {
     if (a === null) { leftover(b); continue; }
     if (b === null) { storedRow(stored[a], 'noink', null, null); continue; }
-    // A MyScript line without usable bounds can't link ink.
-    const sim = usableYBounds(ms[b].yBounds) ? similarity(stored[a].text, ms[b].text) : 0;
-    if (sim >= MATCH_AT) storedRow(stored[a], 'matched', b, sim);
-    else if (sim >= CONFIRM_AT) storedRow(stored[a], 'confirm', b, sim);
-    else {
-      storedRow(stored[a], 'noink', null, null);
-      leftover(b);
-    }
+    const sim = simOf(a, b);
+    if (moved) {
+      counts.moved++;
+      storedRow(stored[a], 'confirm', b, sim, true);
+    } else storedRow(stored[a], sim >= MATCH_AT ? 'matched' : 'confirm', b, sim);
   }
   return { rows, counts };
 }
@@ -204,10 +215,10 @@ export function linkedCount(model, decisions = defaultDecisions(model)) {
     || (r.type === 'confirm' && decisions.link[r.lineId] !== false)).length;
 }
 
-/** Saved at once in a bulk run: every stored line matched, nothing to confirm, no ink left over. */
+/** Saved at once in a bulk run: every stored line matched in order, nothing to confirm (moved lines included), no ink left over. */
 export function relinkNeedsNoReview(model) {
   const c = model && model.counts;
-  return !!c && c.matched > 0 && c.confirm === 0 && c.noink === 0 && c.leftover === 0;
+  return !!c && c.matched > 0 && c.confirm === 0 && !c.moved && c.noink === 0 && c.leftover === 0;
 }
 
 /**

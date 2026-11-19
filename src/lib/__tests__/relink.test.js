@@ -10,7 +10,7 @@ import {
   MATCH_AT, CONFIRM_AT, LEFTOVER_ADD, LEFTOVER_TEXTLESS, LEFTOVER_LEAVE
 } from '../relink.js';
 import { editRefusal } from '../mcp-edits.js';
-import { makeOldPage, makeRun, mm, rowY } from './fixtures/relink-page.js';
+import { makeOldPage, makeRun, makeMovedPage, mm, rowY } from './fixtures/relink-page.js';
 
 const yb = (i) => ({ minY: mm(rowY(i)), maxY: mm(rowY(i) + 2) });
 
@@ -87,6 +87,31 @@ describe('classifyRelink', () => {
     expect(counts).toMatchObject({ matched: 27, noink: 1, leftover: 1 });
     expect(rows.find((r) => r.lineId === 'L10').type).toBe('noink');
     expect(rows[rows.length - 1]).toMatchObject({ type: 'leftover', reading: 'margin note about piles', lineId: null });
+  });
+
+  it('a meeting stored at the end but written mid-page (3017/180) comes back as confirm rows marked moved', () => {
+    const doc = makeMovedPage();
+    const { rows, counts } = classifyRelink(doc.transcript.lines, makeRun(doc).lines);
+    expect(counts).toMatchObject({ matched: 25, confirm: 3, moved: 3, noink: 0, leftover: 0 });
+    const moved = rows.filter((r) => r.moved);
+    expect(moved.map((r) => [r.lineId, r.type, r.n])).toEqual([['L10', 'confirm', 26], ['L11', 'confirm', 27], ['L12', 'confirm', 28]]);
+    expect(moved[0].sim).toBe(1);
+    // Rows stay in stored order: the moved lines are last, as stored.
+    expect(rows.slice(-3)).toEqual(moved);
+    expect(defaultDecisions({ rows, counts }).link.L10).toBe(true);
+    expect(relinkNeedsNoReview({ rows, counts })).toBe(false);
+  });
+
+  it('a moved pair below CONFIRM_AT stays no ink plus leftover; a reading without bounds never pairs as moved', () => {
+    const doc = makeMovedPage();
+    const run = makeRun(doc, { overrides: { 11: 'qqqq zzzz xxxx' } });
+    const { rows } = classifyRelink(doc.transcript.lines, run.lines);
+    expect(rows.find((r) => r.lineId === 'L11').type).toBe('noink');
+    expect(rows.some((r) => r.type === 'leftover' && r.reading === 'qqqq zzzz xxxx')).toBe(true);
+    const flat = makeRun(doc);
+    const at = flat.lines.findIndex((l) => l.text === 'drainage behind wall');
+    flat.lines[at] = { ...flat.lines[at], yBounds: { minY: 0, maxY: 0 } };
+    expect(classifyRelink(doc.transcript.lines, flat.lines).rows.find((r) => r.lineId === 'L12').type).toBe('noink');
   });
 
   it('a reading without usable yBounds cannot link', () => {

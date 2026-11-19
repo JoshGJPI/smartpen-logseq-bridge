@@ -144,7 +144,7 @@
       {:else if model}
         <p class="counts">
           <span class="ok">{c.matched} matched</span> ·
-          <span class:attn={c.confirm}>{c.confirm} to confirm</span> ·
+          <span class:attn={c.confirm}>{c.confirm} to confirm{c.moved ? ` (${c.moved} moved)` : ''}</span> ·
           <span>{c.noink} no ink (kept)</span> ·
           <span class:attn={c.leftover}>{c.leftover} ink left over</span> ·
           <span>{c.tasks} task{c.tasks === 1 ? '' : 's'} unchanged</span>

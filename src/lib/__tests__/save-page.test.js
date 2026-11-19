@@ -1252,6 +1252,16 @@ describe('savePageToFolder — Relink (v3.21.0, spec B.3 / B.7)', () => {
     expect(out.pageInfo).toMatchObject({ book: 3017, page: 123, section: 3, owner: 1012 });
   });
 
+  it('the 3017/180-like page: moved lines linked in place, the page trustworthy after', async () => {
+    const doc = fixture.makeMovedPage();
+    vi.mocked(getPage).mockResolvedValue(JSON.parse(JSON.stringify(doc)));
+    const r = await savePageToFolder({ book: '3017', page: '180', relink: relinkOf(doc, fixture.makeRun(doc)) });
+    expect(r.relinked).toBe(28);
+    const out = written();
+    expect(out.transcript.lines.map(fields)).toEqual(doc.transcript.lines.map(fields));
+    expect(isTrustworthyTranscript(out)).toBe(true);
+  });
+
   it('leaves textless and kind-line strokes alone and keeps the kind line', async () => {
     const doc = fixture.makeOldPage();
     doc.strokes[0].textless = true;

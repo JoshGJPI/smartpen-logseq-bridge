@@ -17,10 +17,10 @@
  */
 import { dayKey } from '../../src/lib/timeline.js';
 import { taskStateOf, stateLabel } from '../../src/lib/tasks.js';
-// alignLines and its text measures live in src/lib/line-align.js (v3.21.0), shared with the app's Relink.
-import { alignLines, similarity, editDistance, words, sameLetters } from '../../src/lib/line-align.js';
+// alignLines, movedPairs and the text measures live in src/lib/line-align.js (v3.21.0), shared with the app's Relink.
+import { alignLines, movedPairs, editDistance, words, sameLetters } from '../../src/lib/line-align.js';
 
-export { alignLines };
+export { alignLines, movedPairs };
 
 /** 1 Ncode unit in mm (the pen SDK's figure, as in myscript-api.js and stroke-filter.js; not imported so the MCP stays clear of the MyScript client). */
 const NCODE_TO_MM = 2.371;
@@ -184,44 +184,6 @@ export function diffTranscript(doc, referenceMd) {
     rows, tally, unlinked, textless, totalStrokes: ((doc && doc.strokes) || []).length,
     storedLines: stored.length, refLines: ref.length, swollen: swollenLines(stored)
   };
-}
-
-/** A stored-only and a reference-only line this alike are one line in another place, not two missing lines. */
-const MOVED_MIN = 0.75;
-
-/**
- * Pair the lines the in-order alignment left on both sides that are the same line out of order (3017/180: a
- * meeting written at the top of the page but transcribed later, so stored at the end). Best matches first; each
- * pair takes the stored line's place in the result and is marked moved. Unpaired lines stay as they were.
- * @param {Array<[number|null, number|null]>} pairs alignLines' result
- * @returns {Array<[number|null, number|null, boolean?]>}
- */
-export function movedPairs(pairs, stored, ref) {
-  const sOnly = pairs.filter(([a, b]) => b === null).map(([a]) => a);
-  const rOnly = pairs.filter(([a]) => a === null).map(([, b]) => b);
-  const cands = [];
-  for (const a of sOnly) {
-    for (const b of rOnly) {
-      const s = similarity(stored[a].text, ref[b].text);
-      if (s >= MOVED_MIN) cands.push({ a, b, s });
-    }
-  }
-  cands.sort((x, y) => y.s - x.s || Math.abs(x.a - x.b) - Math.abs(y.a - y.b));
-  const refFor = new Map();
-  const taken = new Set();
-  for (const c of cands) {
-    if (refFor.has(c.a) || taken.has(c.b)) continue;
-    refFor.set(c.a, c.b);
-    taken.add(c.b);
-  }
-  if (!refFor.size) return pairs;
-  const out = [];
-  for (const [a, b] of pairs) {
-    if (a === null && taken.has(b)) continue;
-    if (b === null && refFor.has(a)) out.push([a, refFor.get(a), true]);
-    else out.push([a, b]);
-  }
-  return out;
 }
 
 /** Below this share of the page's strokes linked to a line, a transcribed page is called partly transcribed. */

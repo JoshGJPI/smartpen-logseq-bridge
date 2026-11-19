@@ -4,7 +4,8 @@
 
     matched   ✓ and the similarity; MyScript's differing words in amber, each
               with Use (decision 2: nothing changes unless clicked)
-    confirm   Link / Don't link (word fixes as for matched, while linked)
+    confirm   Link / Don't link (word fixes as for matched, while linked); "moved" when the
+              reading is elsewhere on the page (stored out of place; linking keeps its place)
     no ink    the stored line is kept, with no ink
     leftover  ink MyScript read that no stored line matches: Leave unlinked
               (default), Add as new line, Not text. Make sketch joins in Phase E.
@@ -104,6 +105,7 @@
           {#if r.type === 'matched'}
             <span class="ok" title="Similarity {pct(r.sim)}">✓ {pct(r.sim)}</span>
           {:else if r.type === 'confirm'}
+            {#if r.moved}<span class="moved" title="Written elsewhere on the page than where it is stored; linking keeps its place in the transcript">moved</span>{/if}
             <span class="seg" role="group" aria-label="Link this line">
               <button class:on={linked(r)} {disabled} on:click={() => setLink(r, true)} title="Similarity {pct(r.sim)}">Link</button>
               <button class:on={!linked(r)} {disabled} on:click={() => setLink(r, false)}>Don't link</button>
@@ -136,6 +138,7 @@
   tr.leftover { background: rgba(251, 191, 36, 0.04); }
   .none, .dim { color: var(--text-secondary); font-style: italic; }
   .ok { color: var(--success); }
+  .moved { font-size: 0.68rem; margin-right: 4px; padding: 0 4px; border-radius: 4px; border: 1px solid var(--border); color: var(--text-secondary); }
   .task {
     font-size: 0.68rem; font-weight: 600; padding: 0 4px; margin-right: 6px; border-radius: 4px;
     background: var(--bg-secondary); color: var(--warning);

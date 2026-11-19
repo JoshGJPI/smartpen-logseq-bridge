@@ -249,6 +249,9 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
 - **Never sent, never relinked**: textless strokes and strokes linked to a line with any `kind` (`relinkSendStrokes`;
   `planRelink` touches only the run's `sent` ids and skips a kind line's strokes). Kind lines are never aligned
   (`textLines`), so Phase E's sketch lines need no change here.
+- **Moved lines keep their place.** A line stored out of place pairs with its reading elsewhere (`movedPairs`) as a
+  confirm row marked `moved`; linking it writes only `yBounds` and ink. A page with one is never saved by the bulk run
+  without review.
 - **Guards** (`relinkRefusal`): the same four flags as `editRefusal`, read by one function, `stores/page-guards.js`
   `pageGuardState()` (change both refusals together), plus a trustworthy page, no text lines, no ink to send. The
   dialog takes a `transcriptEditorHold()` while reviewing. The save re-checks the revision: a page written since its

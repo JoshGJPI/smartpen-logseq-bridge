@@ -204,8 +204,8 @@ its views, so an open reader page shows the change at once. To turn it on, add `
 `core/bounds.js` (paper / robust ink view box), `core/render.js` (SVG, PNG via `@resvg/resvg-wasm`, pixel caps),
 `core/search.js` (wires the app's `parseSearchQuery` / `runSearch`), `core/tasks.js` (the Tasks view's
 rows, filters and groups), `core/check-colors.js` (`color_by_line` / `show_decorative`), `core/transcript-check.js`
-(`check_transcript`'s ink rows and diff; its line alignment is the app's `src/lib/line-align.js` since v3.21.0, shared
-with Relink), `core/tools.js` (transport-free
+(`check_transcript`'s ink rows and diff; its line alignment and `movedPairs` are the app's `src/lib/line-align.js`
+since v3.21.0, shared with Relink), `core/tools.js` (transport-free
 handlers), `core/app-client.js` + `core/write-tools.js` (the opt-in edits through the app), `server.js`. Reuses `src/lib` unchanged: volumes, timeline, page-sittings, page-orientation, page-svg path
 helpers, tags, tasks, convert-task-boxes (detection only), global-search, search-query, neo-backgrounds, ink-text, line-align,
 `utils/formatting` (book names).

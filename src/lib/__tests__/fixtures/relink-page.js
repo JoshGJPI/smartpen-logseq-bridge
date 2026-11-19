@@ -91,3 +91,20 @@ export function makeRun(doc, { overrides = {}, extra = [], drop = [] } = {}) {
     lines
   };
 }
+
+/**
+ * A page built like 3017/180: a meeting block (lines 10–12 of makeOldPage, a
+ * header and its two children) written mid-page but transcribed later, so
+ * stored at the END of the transcript. Its ink stays where it was written, so
+ * MyScript (makeRun) reads the meeting back in the middle of the page.
+ */
+export function makeMovedPage() {
+  const doc = makeOldPage();
+  const lines = doc.transcript.lines;
+  const block = lines.splice(10, 3);
+  block[0] = { ...block[0], indentLevel: 0, parentId: null };
+  block[1] = { ...block[1], indentLevel: 1, parentId: block[0].id };
+  block[2] = { ...block[2], indentLevel: 1, parentId: block[0].id };
+  lines.push(...block);
+  return doc;
+}

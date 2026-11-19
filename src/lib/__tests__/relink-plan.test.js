@@ -12,7 +12,7 @@ vi.mock('$stores/pending-changes.js', () => ({ noteOnDiskStrokeIds: vi.fn() }));
 import { planTranscript } from '../storage/save-page.js';
 import { planRelink } from '../relink-plan.js';
 import { classifyRelink, buildRelinkSpec, defaultDecisions, LEFTOVER_ADD, LEFTOVER_TEXTLESS } from '../relink.js';
-import { makeOldPage, makeRun, rowY, ORIGIN } from './fixtures/relink-page.js';
+import { makeOldPage, makeRun, makeMovedPage, rowY, ORIGIN } from './fixtures/relink-page.js';
 
 const keyFields = (l) => ({ id: l.id, text: l.text, indentLevel: l.indentLevel, parentId: l.parentId, checked: l.checked, marker: l.marker });
 
@@ -101,6 +101,25 @@ describe('planTranscript(…, { relink })', () => {
   it('a kind line keeps its yBounds / bounds untouched', () => {
     const lines = [{ id: 'sk', kind: 'sketch', text: 'Sketch', yBounds: { minY: 1, maxY: 2 } }];
     expect(planRelink(lines, { myscriptLines: [], links: [], sent: [] }, [], ORIGIN).lines[0]).toBe(lines[0]);
+  });
+
+  it('linking moved lines (3017/180) changes only their yBounds and ink, never order, indent, parentId or text', () => {
+    const doc = makeMovedPage();
+    const { out, model } = plan(doc, makeRun(doc));
+    expect(model.counts.moved).toBe(3);
+    expect(out.lines.map(keyFields)).toEqual(doc.transcript.lines.map(keyFields));
+    expect(out.lines.slice(-3).map((l) => l.id)).toEqual(['L10', 'L11', 'L12']);
+    expect(out.linked).toBe(28);
+    // Their ink, written mid-page (rows 10-12), is theirs.
+    const rowsOf = (o, id) => doc.strokes.filter((s) => o.lineIdAssignments.get(s.id) === id).map((s) => s.points[0][1]);
+    expect(rowsOf(out, 'L10')).toEqual([rowY(10), rowY(10), rowY(10)]);
+    expect(rowsOf(out, 'L12')).toEqual([rowY(12), rowY(12), rowY(12)]);
+    expect(out.lines.at(-1).yBounds).not.toBeNull();
+    // Don't link on a moved row: its ink stays unlinked, its yBounds go.
+    const off = plan(doc, makeRun(doc), (d) => { d.link.L11 = false; }).out;
+    expect(rowsOf(off, 'L11')).toEqual([]);
+    expect(doc.strokes.slice(33, 36).map((s) => off.lineIdAssignments.get(s.id))).toEqual([null, null, null]);
+    expect(off.lines.find((l) => l.id === 'L11').yBounds).toBeNull();
   });
 
   it('a link to a kind line is refused', () => {
