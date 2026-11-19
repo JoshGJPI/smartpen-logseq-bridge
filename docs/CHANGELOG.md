@@ -64,13 +64,18 @@ link, so the next Transcribe sent the same ink again and the deleted line came b
   Transcribe sent the ink again). Library Edit's ink choice counts only deleted lines with linked ink (from the
   reader's cached doc). `copyMarkdown` moved to `lib/clipboard.js`.
 
-Not in this release (later phases): Relink (B) skips textless strokes when it is built. Emptying a line's text still
-deletes it on save without the ink choice (its strokes are only unlinked), as before. The Editor does not draw
-textless strokes differently.
+- **An emptied line is a Delete** (Josh, 2026-11-19). At Confirm, a line left empty in the dialog is deleted like
+  one deleted with Delete (only itself: its children move up a level): a task asks first, naming it by its text when
+  the dialog opened, and its ink follows the footer's choice, which shows while an emptied line has ink. Before, an
+  emptied line was dropped on save with its strokes only unlinked (the Pages tab even kept it as an empty line).
+  Library Edit never removed emptied lines (it saves them as empty lines), so it is unchanged.
+- Not text ink is drawn like any other ink in the Editor, on purpose (Josh, 2026-11-19).
 
-## Unreleased — audit and cleanup (2026-11-13)
+Not in this release (later phases): Relink (B) skips textless strokes when it is built.
 
-A code audit, area by area. No new features and no version number yet.
+### Also in v3.20.0: audit and cleanup (2026-11-13)
+
+A code audit, area by area, released with 3.20.0 (it was listed as Unreleased).
 
 **Selected strokes in the print list.** The Editor's selected strokes join the print list beside whole pages, one
 item per pen page ("JPI Dotted — P42 · 12 selected strokes"), printed from memory, so freshly imported ink prints

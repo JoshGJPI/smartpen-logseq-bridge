@@ -7,7 +7,8 @@
   Ticked lines (else the focused line) move up / down / to the top or bottom as
   a group (lib/move-lines.js; Alt+↑ / Alt+↓), and are deleted (v3.20.0,
   lib/delete-lines.js; Ctrl+Shift+K, or Backspace on an empty line): a line
-  with children asks Delete line or Delete block, a task asks first. While a
+  with children asks Delete line or Delete block, a task asks first. A line
+  left empty is deleted the same way at Confirm (only itself). While a
   deleted line had ink, the footer asks what happens to it (lib/deleted-ink.js),
   and Confirm hands that choice and the deleted lines to the caller.
 -->
@@ -15,7 +16,7 @@
   import { debug } from '$lib/debug.js';
   import {
     mergeEditorLines, splitEditorLine, editorLineStatus, detectMergeSuggestions,
-    deleteEditorLines, deletedLinesForSave, startHistory, pushHistory, stepHistory
+    deleteEditorLines, deletedLinesForSave, emptiedLines, startHistory, pushHistory, stepHistory
   } from '$lib/editor-lines.js';
   import { deletePrompt } from '$lib/delete-lines.js';
   import { INK_TEXTLESS, lineHasInk } from '$lib/deleted-ink.js';
@@ -247,8 +248,20 @@
     editedLines = editedLines;
   }
 
-  // Hand the lines back and close (writes nothing to disk).
+  // Confirm: an emptied line is a Delete (v3.20.0): a task asks first, and its
+  // ink follows the footer's choice. A line with children loses only itself.
   function handleSave() {
+    const { indices, named } = emptiedLines(editedLines, lines);
+    if (indices.length) {
+      const ask = deletePrompt(named, indices, { ticked: true });
+      if (ask) { pendingDelete = { ...ask, thenSave: true }; return; }
+      applyDelete(indices, false);
+    }
+    finishSave();
+  }
+
+  // Hand the lines back and close (writes nothing to disk).
+  function finishSave() {
     // A merge points the merged-away lines' strokes at the survivor.
     const mergedBlockPairs = [];
     for (const line of editedLines) {
@@ -350,7 +363,9 @@
     synced: statusLabels.filter(l => l === 'synced').length,
     newLines: statusLabels.filter(l => l === 'new').length
   };
-  $: inkCount = priorInkCount + deleted.filter(lineHasInk).length;
+  // Emptied lines are deleted at Confirm, so the choice covers them already.
+  $: inkCount = priorInkCount + deleted.filter(lineHasInk).length
+    + editedLines.filter((l) => (l.text || '').trim() === '' && lineHasInk(l)).length;
 
   $: mergeSuggestions = detectMergeSuggestions(editedLines);
 </script>
@@ -419,7 +434,7 @@
 </div>
 {#if pendingDelete}
   <DeleteLinesPrompt prompt={pendingDelete}
-    onChoose={(block) => applyDelete(pendingDelete.indices, block)}
+    onChoose={(block) => { const then = pendingDelete.thenSave; applyDelete(pendingDelete.indices, block); if (then) finishSave(); }}
     onCancel={() => (pendingDelete = null)} />
 {/if}
 {/if}

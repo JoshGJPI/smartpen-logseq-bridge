@@ -363,3 +363,24 @@ export function mergeExistingAndNewLines(existing, fresh) {
   }
   return out;
 }
+
+/**
+ * The dialog's lines whose text was emptied (v3.20.0: an emptied line is a
+ * Delete, decided at Confirm), and the lines as the delete prompt should name
+ * them: an emptied line is named by its text when the dialog opened, so a task
+ * confirm doesn't read "Delete the task ''?".
+ *
+ * @param {Array<object>} lines  the dialog's lines
+ * @param {Array<object>} opened  the lines the dialog opened on (indexed by `originalIndex`)
+ * @returns {{ indices: number[], named: Array<object> }}
+ */
+export function emptiedLines(lines, opened) {
+  const indices = [];
+  const named = (lines || []).map((l, i) => {
+    if ((l.text || '').trim() !== '') return l;
+    indices.push(i);
+    const was = (opened || [])[l.originalIndex];
+    return { ...l, text: (was && was.text) || '' };
+  });
+  return { indices, named };
+}

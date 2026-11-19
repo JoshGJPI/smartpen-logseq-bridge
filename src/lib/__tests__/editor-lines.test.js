@@ -8,8 +8,9 @@ import { describe, it, expect } from 'vitest';
 import {
   mergeEditorLines, splitEditorLine, keepDiskTaskState, taskFieldsOf, buildEditedTranscript, mergeTranscriptLines,
   editorLineStatus, detectMergeSuggestions, deleteEditorLines, deletedLinesForSave,
-  startHistory, pushHistory, stepHistory, savedLinesForEditor, mergeExistingAndNewLines
+  startHistory, pushHistory, stepHistory, savedLinesForEditor, mergeExistingAndNewLines, emptiedLines
 } from '../editor-lines.js';
+import { deletePrompt } from '../delete-lines.js';
 
 const el = (i, text, extra = {}) => ({
   id: `line-${i}`, originalIndex: i, text, canonical: text.toLowerCase(),
@@ -272,5 +273,43 @@ describe('savedLinesForEditor / mergeExistingAndNewLines (moved from Transcripti
     const out = mergeExistingAndNewLines(existing, [{ text: 'call', yBounds: { minY: 2, maxY: 6 } }, { text: 'more', yBounds: { minY: 9, maxY: 12 } }]);
     expect(out.map((l) => [l.text, l.syncStatus, !!l.fromBatch])).toEqual([['Call', 'synced', false], ['more', 'new', true]]);
     expect(mergeExistingAndNewLines([], [{ text: 'x' }])[0]).toMatchObject({ syncStatus: 'new', fromBatch: true });
+  });
+});
+
+describe('an emptied line is a Delete at Confirm (v3.20.0)', () => {
+  const opened = [el(0, 'Meeting'), el(1, 'schedule coord. meeting w/ Tom', { indentLevel: 1, checked: false }), el(2, 'scribble')];
+
+  it('finds emptied lines and names them by their text when the dialog opened', () => {
+    const now = [opened[0], { ...opened[1], text: '  ' }, { ...opened[2], text: '' }];
+    const { indices, named } = emptiedLines(now, opened);
+    expect(indices).toEqual([1, 2]);
+    expect(named[1].text).toBe('schedule coord. meeting w/ Tom');
+    expect(named[0]).toBe(now[0]);
+  });
+
+  it('an emptied task asks first, naming it; an emptied plain line does not', () => {
+    const now = [opened[0], { ...opened[1], text: '' }, opened[2]];
+    const { indices, named } = emptiedLines(now, opened);
+    expect(deletePrompt(named, indices, { ticked: true })).toMatchObject({
+      askBlock: false, lineTasks: ['schedule coord. meeting w/ Tom']
+    });
+    const plain = emptiedLines([opened[0], opened[1], { ...opened[2], text: '' }], opened);
+    expect(deletePrompt(plain.named, plain.indices, { ticked: true })).toBeNull();
+  });
+
+  it('goes to the save like a Delete: its id, its children up a level, its ink under the footer choice', () => {
+    const now = [{ ...opened[0], text: '' }, opened[1], opened[2]];
+    const { indices } = emptiedLines(now, opened);
+    const r = deleteEditorLines(now, indices);
+    expect(r.lines.map((l) => [l.text, l.indentLevel])).toEqual([['schedule coord. meeting w/ Tom', 0], ['scribble', 0]]);
+    expect(deletedLinesForSave(r.removed).deletedLineIds).toEqual(['L0']);
+    const fresh = { ...el(3, '', { blockUuid: undefined, fromBatch: true, yBounds: { minY: 30, maxY: 34 } }) };
+    expect(deletedLinesForSave(deleteEditorLines([fresh], emptiedLines([fresh], []).indices).removed).deletedLines)
+      .toEqual([{ yBounds: { minY: 30, maxY: 34 }, fromBatch: true }]);
+  });
+
+  it('nothing emptied', () => {
+    expect(emptiedLines(opened, opened).indices).toEqual([]);
+    expect(emptiedLines([], []).indices).toEqual([]);
   });
 });

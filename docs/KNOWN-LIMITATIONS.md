@@ -30,10 +30,10 @@ Reasons and history for each feature are in [CHANGELOG.md](CHANGELOG.md).
 - **Retime (v3.6.0).** Exported to LogSeq: `mergeGraphStrokes()` keeps the published copy by id, so re-exporting a
   retimed page adds the new-time copy beside the old one in the graph. Offline-import dropping is unit-tested only (no
   pen in the Oct 2026 check). Undo before save is the dialog's Reset or shifting back; no separate undo.
-- **Delete lines and Not text (v3.20.0).** Emptying a line's text in Edit Transcription still deletes it on save
-  without the ink choice (its strokes are only unlinked), as before. A line split off a saved
-  line and then deleted has no ink to settle (its strokes stay with the first half). The Editor draws textless
-  strokes like any other; only the ⋯ menu's counts tell. Claude's `delete` op only unlinks, and its edits don't update a page also loaded on the canvas (the
+- **Delete lines and Not text (v3.20.0).** Library Edit keeps an emptied line as an empty line (only the Edit
+  Transcription dialog treats it as a Delete). The Editor draws textless strokes like any other (by choice); only the
+  ⋯ menu's counts tell. A line split off a saved
+  line and then deleted has no ink to settle (its strokes stay with the first half). Claude's `delete` op only unlinks, and its edits don't update a page also loaded on the canvas (the
   Editor's save never writes a stale link back, but that page's Transcribe skips the unlinked ink until it is
   reloaded). A deleted line of an unsaved run whose batch is unknown (a result from before v3.20.0 in memory) only
   unlinks its ink. Unverified with a real

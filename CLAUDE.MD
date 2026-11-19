@@ -212,7 +212,8 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   its deletes on its result (`deletedLineIds`, `deletedLines` for lines of an unsaved run, `deletedInk`);
   `planTranscript()` returns `textlessIds` and the save applies them beside `lineIdAssignments` in the same write.
   Library Edit and the Pages tab's Edit structure go through `lib/deleted-ink.js` `relinkAfterEdit()`. Only lines the
-  user deleted count: a Reset's replaced lines and merged-away lines never become Not text. A deleted line of an
+  user deleted count: a Reset's replaced lines and merged-away lines never become Not text. A line left empty in the
+  dialog is a Delete at Confirm (`emptiedLines`: task confirm, ink choice), never a silent drop. A deleted line of an
   unsaved run owns only strokes that were in its batch (the in-memory `transcribedStrokeIds`, never on disk; the match
   is by Y alone); with the batch unknown its ink is only unlinked, never flagged.
 - **A textless stroke is in no line.** The save drops a link on any textless stroke (a stale canvas link
