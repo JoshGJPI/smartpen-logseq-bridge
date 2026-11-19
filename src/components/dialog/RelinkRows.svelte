@@ -8,13 +8,16 @@
               reading is elsewhere on the page (stored out of place; linking keeps its place)
     no ink    the stored line is kept, with no ink
     leftover  ink MyScript read that no stored line matches: Leave unlinked
-              (default), Add as new line, Not text. Make sketch joins in Phase E.
+              (default), Add to #N (the linked line above takes its ink, text
+              unchanged), Add as new line, Not text. Make sketch joins in Phase E.
+  A stored line merged by hand from several written rows takes several MyScript
+  lines; its reading shows them joined, a ⏎ where the next one starts.
 
   `decisions` is lib/relink.js defaultDecisions()' shape and is changed in place
   (bind:decisions). Pure presentation; the dialog saves.
 -->
 <script>
-  import { applyWordFixes, LEFTOVER_LEAVE, LEFTOVER_ADD, LEFTOVER_TEXTLESS } from '$lib/relink.js';
+  import { applyWordFixes, rowLinked, LEFTOVER_LEAVE, LEFTOVER_ADD, LEFTOVER_TEXTLESS, LEFTOVER_JOIN } from '$lib/relink.js';
   import { stripTaskMarker } from '$lib/task-markers.js';
 
   /** classifyRelink() result */
@@ -60,12 +63,18 @@
       box: raw.slice(0, Math.max(0, at)).trim(),
       words: body.split(/\s+/).filter(Boolean).map((w, i) => {
         const k = byMs.has(i) ? byMs.get(i) : null;
-        return { w, k, taken: k !== null && fixesTaken.includes(k) };
+        return { w, k, taken: k !== null && fixesTaken.includes(k), br: r.breaks.includes(i) };
       })
     };
   }
 
   $: fixesFor = (r) => decisions.fixes[r.lineId] || [];
+  // "Add to #N" only while that line is linked; a choice made before Don't link reads as Leave unlinked.
+  $: canJoin = (r) => !!r.joinTo && rowLinked(model, decisions, r.joinTo);
+  $: leftoverValue = (r) => {
+    const v = decisions.leftover[r.ms] || LEFTOVER_LEAVE;
+    return v === LEFTOVER_JOIN && !canJoin(r) ? LEFTOVER_LEAVE : v;
+  };
 </script>
 
 <table class="rr">
@@ -89,6 +98,7 @@
             {@const parts = readingParts(r, fixesFor(r))}
             {#if parts.box}<span class="box">{parts.box}</span>{' '}{/if}
             {#each parts.words as p}
+              {#if p.br}<span class="br" title="The next line MyScript read: this stored line covers both">⏎</span>{' '}{/if}
               {#if p.k !== null && linked(r)}
                 <span class="fix" class:taken={p.taken}>{p.w}</span><button class="use" {disabled}
                   title={p.taken ? 'Keep the stored word' : `Use “${r.fixes[p.k].to}” instead of “${r.fixes[p.k].from}”`}
@@ -113,9 +123,10 @@
           {:else if r.type === 'noink'}
             <span class="dim">no ink</span>
           {:else}
-            <select value={decisions.leftover[r.ms] || LEFTOVER_LEAVE} {disabled}
+            <select value={leftoverValue(r)} {disabled}
               on:change={(e) => setLeftover(r, e.currentTarget.value)} aria-label="Ink left over">
               <option value={LEFTOVER_LEAVE}>Leave unlinked</option>
+              {#if canJoin(r)}<option value={LEFTOVER_JOIN}>Add to #{r.joinToN}</option>{/if}
               <option value={LEFTOVER_ADD}>Add as new line</option>
               <option value={LEFTOVER_TEXTLESS}>Not text</option>
             </select>
@@ -145,6 +156,7 @@
   }
   .task.closed { color: var(--success); }
   .box { opacity: 0.7; }
+  .br { color: var(--text-secondary); opacity: 0.8; }
   .fix { color: var(--warning); font-weight: 600; }
   .fix.taken { text-decoration: underline; }
   .use {

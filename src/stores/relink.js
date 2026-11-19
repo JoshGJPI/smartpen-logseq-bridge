@@ -41,8 +41,9 @@ export const relinkTarget = writable(null);
 /** Pages a bulk run left for review, newest first: `{ book, pageId, counts, written }`. Session-only (the runs are cached). */
 export const relinkQueue = writable([]);
 
-export function openRelink(book, pageId) {
-  relinkTarget.set({ book: String(book), pageId: String(pageId) });
+/** @param {{ again?: boolean }} [opts]  again: a page already linked (asks first, v3.21.0) */
+export function openRelink(book, pageId, { again = false } = {}) {
+  relinkTarget.set({ book: String(book), pageId: String(pageId), ...(again ? { again: true } : {}) });
 }
 
 export function closeRelink() {
@@ -75,19 +76,20 @@ function relinkGuardState(book, pageId) {
 }
 
 /** Why Relink is refused on this page now (the page read from disk), or null. */
-export async function relinkRefusalFor(book, pageId, doc) {
+export async function relinkRefusalFor(book, pageId, doc, opts = {}) {
   const d = doc === undefined ? await getPage(String(book), String(pageId)) : doc;
-  return relinkRefusal(relinkGuardState(book, pageId), d);
+  return relinkRefusal(relinkGuardState(book, pageId), d, opts);
 }
 
 /**
  * The page's MyScript run for Relink.
- * @param {{ send?: boolean }} [opts]  send: allowed to make a MyScript request when the cache has nothing usable
+ * @param {{ send?: boolean, again?: boolean }} [opts]  send: allowed to make a MyScript request when the cache has
+ *   nothing usable; again: the page may already be linked (Relink again, confirmed in the dialog)
  * @returns {Promise<{ ok: true, doc: Object, run: Object, cached: boolean } | { ok: false, error: string, needsSend?: boolean }>}
  */
-export async function getRelinkRun(book, pageId, { send = false } = {}) {
+export async function getRelinkRun(book, pageId, { send = false, again = false } = {}) {
   const doc = await getPage(String(book), String(pageId));
-  const why = relinkRefusal(relinkGuardState(book, pageId), doc);
+  const why = relinkRefusal(relinkGuardState(book, pageId), doc, { again });
   if (why) return { ok: false, error: why };
   const revision = (doc.metadata && doc.metadata.lastUpdated) || '';
 
@@ -126,8 +128,8 @@ export async function getRelinkRun(book, pageId, { send = false } = {}) {
  * Write a relink.
  * @returns {Promise<{ ok: boolean, error?: string, stale?: boolean, result?: Object }>}
  */
-export async function saveRelink(book, pageId, spec) {
-  const why = relinkRefusal(relinkGuardState(book, pageId), await getPage(String(book), String(pageId)));
+export async function saveRelink(book, pageId, spec, { again = false } = {}) {
+  const why = relinkRefusal(relinkGuardState(book, pageId), await getPage(String(book), String(pageId)), { again });
   if (why) return { ok: false, error: why };
   // A relink that links no line would only bump lastTranscribed and make the page
   // read as trustworthy with all its ink unlinked.

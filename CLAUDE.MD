@@ -251,7 +251,9 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   (`textLines`), so Phase E's sketch lines need no change here.
 - **Moved lines keep their place.** A line stored out of place pairs with its reading elsewhere (`movedPairs`) as a
   confirm row marked `moved`; linking it writes only `yBounds` and ink. A page with one is never saved by the bulk run
-  without review.
+  without review. A line merged by hand takes several consecutive MyScript lines (`alignLinesJoined`, union of
+  their bounds); "Add to #N" gives leftover ink to the linked line above. Neither changes text. A page already linked
+  is relinked only through the reader's ⋯ → Relink again… after a confirm (`relinkRefusal(…, { again })`).
 - **Guards** (`relinkRefusal`): the same four flags as `editRefusal`, read by one function, `stores/page-guards.js`
   `pageGuardState()` (change both refusals together), plus a trustworthy page, no text lines, no ink to send. The
   dialog takes a `transcriptEditorHold()` while reviewing. The save re-checks the revision: a page written since its

@@ -4,11 +4,13 @@
  * `savePageToFolder({ relink })` applies it in one `savePage()`.
  *
  * What it changes, exactly:
- *   - a linked line's `yBounds` (MyScript's, from the relink run) and, when the
+ *   - a linked line's `yBounds` (MyScript's, from the relink run; the union when it
+ *     takes several MyScript lines: a line merged by hand, or "Add to #N") and, when the
  *     review took a word fix, its `text`; a text line left unlinked (no ink,
  *     Don't link) gets `yBounds: null` (its old ones were never re-measured);
  *   - each SENT stroke's `lineId`: the stored line whose MyScript line covers it
- *     most (`strokesIntersectingLine` with the run's batch origin, the fixed
+ *     most (each MyScript line competes on its own; all of a line's MyScript lines
+ *     give their strokes to it) (`strokesIntersectingLine` with the run's batch origin, the fixed
  *     matching code), else null. Every MyScript line competes for strokes, so
  *     ink left over keeps its own strokes rather than handing them to a
  *     neighbour through the tolerance;
@@ -55,12 +57,14 @@ export function planRelink(existingLines, relink, storedStrokes = [], originNcod
 
   // Owner of each MyScript line: a stored line, a new line, Not text, or nothing.
   const owner = ms.map(() => ({ type: 'leave' }));
-  const linkOf = new Map(); // lineId → ms index
-  for (const { lineId, ms: j } of (relink && relink.links) || []) {
+  const linkOf = new Map(); // lineId → the MyScript line indices it takes (a line merged by hand takes several)
+  for (const { lineId, ms: raw } of (relink && relink.links) || []) {
     const l = byId.get(lineId);
-    if (!l || l.kind || !ms[j] || !usable(ms[j].yBounds) || linkOf.has(lineId) || owner[j].type !== 'leave') continue;
-    owner[j] = { type: 'line', lineId };
-    linkOf.set(lineId, j);
+    if (!l || l.kind || linkOf.has(lineId)) continue;
+    const js = (Array.isArray(raw) ? raw : [raw]).filter((j) => ms[j] && usable(ms[j].yBounds) && owner[j].type === 'leave');
+    if (!js.length) continue;
+    for (const j of js) owner[j] = { type: 'line', lineId };
+    linkOf.set(lineId, js);
   }
   const added = new Map(); // ms index → new line record
   for (const j of (relink && relink.add) || []) {
@@ -106,8 +110,9 @@ export function planRelink(existingLines, relink, storedStrokes = [], originNcod
   const texts = (relink && relink.texts) || {};
   let lines = existing.map((l) => {
     if (!linkOf.has(l.id)) return l.kind || l.yBounds == null ? l : { ...l, yBounds: null };
-    const yb = ms[linkOf.get(l.id)].yBounds;
-    const next = { ...l, yBounds: { minY: yb.minY, maxY: yb.maxY } };
+    // The union of its MyScript lines' bounds.
+    const bs = linkOf.get(l.id).map((j) => ms[j].yBounds);
+    const next = { ...l, yBounds: { minY: Math.min(...bs.map((b) => b.minY)), maxY: Math.max(...bs.map((b) => b.maxY)) } };
     const t = texts[l.id];
     if (typeof t === 'string' && t.trim() && t !== l.text) next.text = t;
     return next;
@@ -138,7 +143,7 @@ export function planRelink(existingLines, relink, storedStrokes = [], originNcod
  */
 function placeNewLines(lines, added, linkOf, msCount) {
   if (!added.size) return lines;
-  const lineAtMs = new Map([...linkOf].map(([id, j]) => [j, id]));
+  const lineAtMs = new Map([...linkOf].flatMap(([id, js]) => js.map((j) => [j, id])));
   const after = new Map(), before = new Map(), atEnd = [];
   for (const [j, rec] of [...added].sort((a, b) => a[0] - b[0])) {
     let anchor = null;

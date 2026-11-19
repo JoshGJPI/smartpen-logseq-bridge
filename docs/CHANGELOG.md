@@ -52,6 +52,21 @@ task state by text only. Relink keeps the transcript and takes only geometry fro
   3017/180's meeting (written mid-page, stored at the end) keeps its place in the transcript and gets its ink. A page
   with moved lines always waits for review. Confirm rows start on Link and word fixes stay substitutions only
   (Josh's answers).
+- **Lines merged by hand** (Josh tried a real page, 2026-11-19): his #8, one line merged from two written rows, came
+  back from MyScript as two lines, so it paired with the first at ~70% and the rest was ink left over. The alignment
+  now lets one stored line take 2–3 **consecutive** MyScript lines whose joined text matches it
+  (`line-align.js` `alignLinesJoined`, same `similarity` on the joined text, less a join cost per extra line, so a
+  plain one-to-one pair still wins when it reads better and a stray mark after a line isn't joined on). The pair
+  classifies by the joined similarity (#8: matched, 100%, no leftover). Its `yBounds` are the union of its MyScript
+  lines', each MyScript line still competes per stroke and all of them give their strokes to that line; a link now
+  names a list of MyScript lines. The dialog shows the joined reading with a ⏎ where the next line starts. The MCP
+  keeps `alignLines` for now.
+- **"Add to #N"** for ink left over: the stored line above it (its predecessor in the alignment, when matched or a
+  confirm row on Link) takes the ink and its bounds widen; its text never changes. Within a run of unpaired rows the
+  no-ink lines are listed first, so "above" never skips one.
+- **Relink again**: a page already linked (a saved relink makes it trustworthy) can be relinked from the reader's ⋯
+  next to the header's print menu, after a confirm ("This page's ink is already linked. Relink it again? Lines and
+  task state are kept."). Every other guard still applies; the bulk run still lists untrustworthy pages only.
 - **Split while touching**: SettingsDropdown 395 → 303 lines (`settings/MaintenanceSettings`, dialogs in
   `settings/MaintenanceDialogs`). New components stay under 300 (RelinkDialog, RelinkRows, RelinkOldDialog).
 - Not run against real pages or in the running app yet (MyScript requests wait for Josh's OK); unit tests mock

@@ -20,7 +20,7 @@
  *
  * Tested in `src/lib/__tests__/relink.test.js`.
  */
-import { alignLines, movedPairs, similarity, norm, sameLetters } from './line-align.js';
+import { alignLinesJoined, movedPairs, similarity, norm, sameLetters } from './line-align.js';
 import { stripTaskMarker } from './task-markers.js';
 import { taskStateOf, stateLabel } from './tasks.js';
 import { isTrustworthyTranscript } from './viewer/ink-text.js';
@@ -34,6 +34,8 @@ export const CONFIRM_AT = 0.6;
 export const LEFTOVER_LEAVE = 'leave';
 export const LEFTOVER_ADD = 'add';
 export const LEFTOVER_TEXTLESS = 'textless';
+/** "Add to #N": the leftover ink goes to the linked stored line above it (its text unchanged). */
+export const LEFTOVER_JOIN = 'join';
 
 /** A line that is not plain text (a `kind`, spec E.7): kept, never matched to MyScript. */
 export const isKindLine = (l) => !!(l && l.kind);
@@ -144,8 +146,12 @@ export function applyWordFixes(text, fixes) {
  * @property {string} text             the stored text ('' for leftover)
  * @property {number} indentLevel
  * @property {string|null} task        'TODO' | 'DONE' | 'WAITING' | 'CANCELLED' | null
- * @property {number|null} ms          index into the MyScript lines (null for noink without partner)
- * @property {string} reading          MyScript's text ('' when none)
+ * @property {number|null} ms          index into the MyScript lines (the first; null for noink without partner)
+ * @property {number[]} msAll          every MyScript line the row takes (2+ for a line merged by hand)
+ * @property {number[]} breaks         word indices of the reading where a further MyScript line starts
+ * @property {string} [joinTo]         leftover: the stored line "Add to #N" would give its ink to
+ * @property {number} [joinToN]        leftover: that line's #n
+ * @property {string} reading          MyScript's text, its lines joined by spaces ('' when none)
  * @property {number|null} sim         similarity of the pair
  * @property {Array} fixes             word fixes (matched / confirm rows)
  * @property {boolean} [moved]         a confirm row whose reading is elsewhere on the page (stored out of place)
@@ -165,45 +171,97 @@ export function applyWordFixes(text, fixes) {
 export function classifyRelink(lines, msLines) {
   const stored = textLines(lines);
   const ms = (msLines || []).map((l) => ({ text: String((l && l.text) || ''), yBounds: l && l.yBounds }));
-  const counts = { matched: 0, confirm: 0, moved: 0, noink: 0, leftover: 0, tasks: 0, kindLines: (lines || []).filter(isKindLine).length };
+  const counts = { matched: 0, confirm: 0, moved: 0, joined: 0, noink: 0, leftover: 0, tasks: 0, kindLines: (lines || []).filter(isKindLine).length };
   const rows = [];
-  const storedRow = (l, type, j, sim, moved = false) => {
+  const joinText = (bs) => bs.map((k) => ms[k].text).join(' ');
+  const storedRow = (l, type, bs, sim, moved = false) => {
     const st = taskStateOf(l);
     const n = (lines || []).indexOf(l) + 1;
     if (st) counts.tasks++;
     counts[type]++;
+    if (bs && bs.length > 1) counts.joined++;
+    const reading = bs ? joinText(bs) : '';
     rows.push({
       type, n, lineId: l.id, text: l.text || '', indentLevel: l.indentLevel || 0, task: st ? stateLabel(st) : null,
-      ms: j, reading: j === null ? '' : ms[j].text, sim,
-      fixes: type === 'noink' ? [] : wordFixes(l.text || '', ms[j].text),
+      ms: bs ? bs[0] : null, msAll: bs || [], reading, sim,
+      // Where each further MyScript line starts among the reading's words (the dialog marks it ⏎).
+      breaks: bs && bs.length > 1 ? lineBreaks(bs.map((k) => ms[k].text)) : [],
+      fixes: type === 'noink' ? [] : wordFixes(l.text || '', reading),
       ...(moved ? { moved: true } : {})
     });
   };
   const leftover = (j) => {
     counts.leftover++;
-    rows.push({ type: 'leftover', n: null, lineId: null, text: '', indentLevel: 0, task: null, ms: j, reading: ms[j].text, sim: null, fixes: [] });
+    rows.push({ type: 'leftover', n: null, lineId: null, text: '', indentLevel: 0, task: null, ms: j, msAll: [j], reading: ms[j].text, breaks: [], sim: null, fixes: [] });
   };
-  // In order first; a pair too unlike (or a reading without bounds) is split into
-  // no ink + leftover. Then lines stored out of place (3017/180: a meeting written
-  // mid-page, stored at the end) pair with their reading elsewhere on the page
-  // (movedPairs, at CONFIRM_AT): confirm rows marked moved. Linking one changes only
-  // its yBounds and ink, never its place in the transcript.
-  const simOf = (a, b) => (usableYBounds(ms[b].yBounds) ? similarity(stored[a].text, ms[b].text) : 0);
+  // In order first, where one stored line may take several consecutive MyScript
+  // lines (a line merged by hand from two written rows, alignLinesJoined); a pair
+  // too unlike (or a reading without bounds) is split into no ink + leftover.
+  // Then lines stored out of place (3017/180: a meeting written mid-page, stored
+  // at the end) pair with their reading elsewhere on the page (movedPairs, at
+  // CONFIRM_AT): confirm rows marked moved. Linking one changes only its yBounds
+  // and ink, never its place in the transcript.
+  const usableAt = (k) => usableYBounds(ms[k].yBounds);
+  const simOf = (a, bs) => (bs.every(usableAt) ? similarity(stored[a].text, joinText(bs)) : 0);
+  const joinedOf = new Map();
   const inOrder = [];
-  for (const [a, b] of alignLines(stored, ms)) {
-    if (a !== null && b !== null && simOf(a, b) < CONFIRM_AT) inOrder.push([a, null], [null, b]);
-    else inOrder.push([a, b]);
+  for (const [a, bs] of alignLinesJoined(stored, ms, { usable: usableAt })) {
+    if (a === null) inOrder.push([null, bs[0]]);
+    else if (bs === null) inOrder.push([a, null]);
+    else if (simOf(a, bs) < CONFIRM_AT) inOrder.push([a, null], ...bs.map((k) => [null, k]));
+    else {
+      joinedOf.set(a, bs);
+      inOrder.push([a, bs[0]]);
+    }
   }
-  for (const [a, b, moved] of movedPairs(inOrder, stored, ms, CONFIRM_AT, (k) => usableYBounds(ms[k].yBounds))) {
+  for (const [a, b, moved] of movedPairs(inOrder, stored, ms, CONFIRM_AT, usableAt)) {
     if (a === null) { leftover(b); continue; }
     if (b === null) { storedRow(stored[a], 'noink', null, null); continue; }
-    const sim = simOf(a, b);
+    const bs = moved ? [b] : joinedOf.get(a) || [b];
+    const sim = simOf(a, bs);
     if (moved) {
       counts.moved++;
-      storedRow(stored[a], 'confirm', b, sim, true);
-    } else storedRow(stored[a], sim >= MATCH_AT ? 'matched' : 'confirm', b, sim);
+      storedRow(stored[a], 'confirm', bs, sim, true);
+    } else storedRow(stored[a], sim >= MATCH_AT ? 'matched' : 'confirm', bs, sim);
+  }
+  // Within a run of unpaired rows the alignment's order is arbitrary; put the
+  // stored (no ink) rows first, so a leftover's "line above" never skips one.
+  for (let i = 0; i < rows.length;) {
+    if (rows[i].type !== 'noink' && rows[i].type !== 'leftover') { i++; continue; }
+    let j = i;
+    while (j < rows.length && (rows[j].type === 'noink' || rows[j].type === 'leftover')) j++;
+    const run = rows.slice(i, j);
+    rows.splice(i, j - i, ...run.filter((r) => r.type === 'noink'), ...run.filter((r) => r.type === 'leftover'));
+    i = j;
+  }
+  // "Add to #N": a leftover's predecessor in this order, when it is a matched or
+  // confirm row (the dialog offers it only while that line is linked).
+  let prev = null;
+  for (const r of rows) {
+    if (r.type !== 'leftover') { prev = r; continue; }
+    if (prev && (prev.type === 'matched' || prev.type === 'confirm')) {
+      r.joinTo = prev.lineId;
+      r.joinToN = prev.n;
+    }
   }
   return { rows, counts };
+}
+
+/** Word indices (after a leading task box) where the 2nd, 3rd … of several joined lines start. */
+function lineBreaks(texts) {
+  const out = [];
+  let at = 0;
+  texts.forEach((t, i) => {
+    if (i > 0) out.push(at);
+    at += (i === 0 ? stripTaskMarker(t) : String(t)).split(/\s+/).filter(Boolean).length;
+  });
+  return out;
+}
+
+/** Is that stored line linked under these decisions (matched, or a confirm row on Link)? */
+export function rowLinked(model, decisions, lineId) {
+  const r = ((model && model.rows) || []).find((x) => x.lineId === lineId);
+  return !!r && (r.type === 'matched' || (r.type === 'confirm' && decisions.link[r.lineId] !== false));
 }
 
 /** Why a relink that links no stored line is refused (it would mark the page trustworthy with all its ink unlinked). */
@@ -237,7 +295,8 @@ export function defaultDecisions(model) {
 
 /**
  * The `relink` spec the save takes (save-page.js `planTranscript(…, { relink })`):
- * the MyScript run plus what the review decided.
+ * the MyScript run plus what the review decided. Each link names every MyScript
+ * line its stored line takes (`ms: [..]`: joined lines, and leftovers added to it).
  *
  * @param {Object} run  `{ revision, rotation, originNcodeY, sent: string[], lines: [{text, yBounds}] }`
  * @param {Object} model classifyRelink's result
@@ -245,19 +304,26 @@ export function defaultDecisions(model) {
  */
 export function buildRelinkSpec(run, model, decisions = defaultDecisions(model)) {
   const links = [], texts = {}, add = [], textless = [];
+  const linkFor = new Map();
   for (const r of model.rows) {
     if (r.type === 'matched' || (r.type === 'confirm' && decisions.link[r.lineId] !== false)) {
-      links.push({ lineId: r.lineId, ms: r.ms });
+      const link = { lineId: r.lineId, ms: [...(r.msAll && r.msAll.length ? r.msAll : [r.ms])] };
+      links.push(link);
+      linkFor.set(r.lineId, link);
       const taken = (decisions.fixes[r.lineId] || []).map((k) => r.fixes[k]).filter(Boolean);
       if (taken.length) {
         const text = applyWordFixes(r.text, taken);
         if (text.trim() && text !== r.text) texts[r.lineId] = text;
       }
-    } else if (r.type === 'leftover') {
-      const choice = decisions.leftover[r.ms] || LEFTOVER_LEAVE;
-      if (choice === LEFTOVER_ADD && stripTaskMarker(r.reading)) add.push(r.ms);
-      else if (choice === LEFTOVER_TEXTLESS) textless.push(r.ms);
     }
+  }
+  for (const r of model.rows) {
+    if (r.type !== 'leftover') continue;
+    const choice = decisions.leftover[r.ms] || LEFTOVER_LEAVE;
+    if (choice === LEFTOVER_ADD && stripTaskMarker(r.reading)) add.push(r.ms);
+    else if (choice === LEFTOVER_TEXTLESS) textless.push(r.ms);
+    // "Add to #N": only while that line is linked; otherwise the ink stays unlinked.
+    else if (choice === LEFTOVER_JOIN && r.joinTo && linkFor.has(r.joinTo)) linkFor.get(r.joinTo).ms.push(r.ms);
   }
   return {
     revision: run.revision ?? null,
@@ -284,9 +350,11 @@ export function buildRelinkSpec(run, model, decisions = defaultDecisions(model))
  * @param {{ label: string, draft: boolean, editorOpen: boolean, reset: boolean, pendingTranscription: boolean,
  *           suffixOnCanvas?: boolean }} s  suffixOnCanvas: a letter-suffixed page whose page number is on the canvas
  * @param {Object|null} doc  the page as on disk
+ * @param {{ again?: boolean }} [opts]  again: Relink a page already linked (the reader's "Relink again…",
+ *   after Josh confirms); every other refusal still applies
  * @returns {string|null}
  */
-export function relinkRefusal(s, doc) {
+export function relinkRefusal(s, doc, { again = false } = {}) {
   if (s.draft) return `${s.label} has unsaved transcript edits in the Library; save or cancel them first`;
   if (s.editorOpen) return `${s.label} is open in a transcript editor; close it first`;
   if (s.reset) return `${s.label} is reset for re-transcription in the Editor; transcribe and save it (or undo the reset) first`;
@@ -296,7 +364,7 @@ export function relinkRefusal(s, doc) {
   }
   if (!doc) return `${s.label} was not found`;
   if (!textLines(doc.transcript && doc.transcript.lines).length) return `${s.label} has no transcript lines to relink`;
-  if (isTrustworthyTranscript(doc)) return `${s.label} is already linked to its ink; nothing to relink`;
+  if (!again && isTrustworthyTranscript(doc)) return `${s.label} is already linked to its ink; nothing to relink`;
   if (!relinkSendStrokes(doc).length) return `${s.label} has no ink to send`;
   return null;
 }

@@ -11,8 +11,8 @@ vi.mock('$stores/pending-changes.js', () => ({ noteOnDiskStrokeIds: vi.fn() }));
 
 import { planTranscript } from '../storage/save-page.js';
 import { planRelink } from '../relink-plan.js';
-import { classifyRelink, buildRelinkSpec, defaultDecisions, LEFTOVER_ADD, LEFTOVER_TEXTLESS } from '../relink.js';
-import { makeOldPage, makeRun, makeMovedPage, rowY, ORIGIN } from './fixtures/relink-page.js';
+import { classifyRelink, buildRelinkSpec, defaultDecisions, LEFTOVER_ADD, LEFTOVER_TEXTLESS, LEFTOVER_JOIN } from '../relink.js';
+import { makeOldPage, makeRun, makeMovedPage, makeMergedPage, rowY, mm, ORIGIN } from './fixtures/relink-page.js';
 
 const keyFields = (l) => ({ id: l.id, text: l.text, indentLevel: l.indentLevel, parentId: l.parentId, checked: l.checked, marker: l.marker });
 
@@ -120,6 +120,38 @@ describe('planTranscript(…, { relink })', () => {
     expect(rowsOf(off, 'L11')).toEqual([]);
     expect(doc.strokes.slice(33, 36).map((s) => off.lineIdAssignments.get(s.id))).toEqual([null, null, null]);
     expect(off.lines.find((l) => l.id === 'L11').yBounds).toBeNull();
+  });
+
+  it('a merged line takes the ink of all its MyScript lines and the union of their bounds; text kept', () => {
+    const doc = makeMergedPage();
+    const { out } = plan(doc, makeRun(doc));
+    expect(out.lines.map(keyFields)).toEqual(doc.transcript.lines.map(keyFields));
+    const l17 = out.lines.find((l) => l.id === 'L17');
+    expect(l17.yBounds).toEqual({ minY: mm(rowY(17)), maxY: mm(rowY(19) + 2) });
+    const rowsOf = (id) => [...new Set(doc.strokes.filter((s) => out.lineIdAssignments.get(s.id) === id).map((s) => s.points[0][1]))];
+    expect(rowsOf('L17')).toEqual([rowY(17), rowY(18), rowY(19)]);
+    expect(rowsOf('L05')).toEqual([rowY(5), rowY(6)]);
+    expect(out.linked).toBe(25);
+  });
+
+  it('a link may still name a single ms index (older specs)', () => {
+    const doc = makeOldPage();
+    const out = planRelink(doc.transcript.lines, { myscriptLines: makeRun(doc).lines, links: [{ lineId: 'L00', ms: 0 }], sent: doc.strokes.map((s) => s.id) }, doc.strokes, ORIGIN);
+    expect(out.linked).toBe(1);
+    expect(out.lineIdAssignments.get(doc.strokes[0].id)).toBe('L00');
+  });
+
+  it('"Add to #N": the leftover ink goes to that line, its bounds widen, its text stays', () => {
+    const doc = makeOldPage();
+    const y = rowY(27) + 6;
+    doc.strokes.push({ id: 's9', startTime: 9, endTime: 10, lineId: null, points: [[20, y], [30, y + 2]] });
+    const run = makeRun(doc, { extra: [{ text: 'and the rest', y }] });
+    const { out } = plan(doc, run, (d, m) => { d.leftover[m.rows.find((r) => r.type === 'leftover').ms] = LEFTOVER_JOIN; });
+    expect(out.lineIdAssignments.get('s9')).toBe('L27');
+    const l27 = out.lines.find((l) => l.id === 'L27');
+    expect(l27.yBounds).toEqual({ minY: mm(rowY(27)), maxY: mm(y + 2) });
+    expect(keyFields(l27)).toEqual(keyFields(doc.transcript.lines[27]));
+    expect(out.linesAdded).toBe(0);
   });
 
   it('a link to a kind line is refused', () => {

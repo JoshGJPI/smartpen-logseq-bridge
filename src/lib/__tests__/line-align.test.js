@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { alignLines, movedPairs, MOVED_MIN, similarity, norm, editDistance, sameLetters, alignText } from '../line-align.js';
+import { alignLines, alignLinesJoined, movedPairs, MOVED_MIN, similarity, norm, editDistance, sameLetters, alignText } from '../line-align.js';
 
 describe('alignLines', () => {
   it('pairs similar lines and leaves missing ones unpaired', () => {
@@ -77,5 +77,41 @@ describe('movedPairs (moved here from the MCP, v3.21.0)', () => {
     expect(movedPairs(pairs, s, r)).toEqual(pairs);
     expect(movedPairs(pairs, s, r, 0.6)).toEqual([[0, 0, true]]);
     expect(movedPairs(pairs, s, r, 0.6, () => false)).toEqual(pairs);
+  });
+});
+
+describe('alignLinesJoined (v3.21.0): one stored line may take consecutive reference lines', () => {
+  const merged = "We'll need to provide a coating for the concrete to accommodate being submerged full time";
+
+  it('a line merged by hand from two rows takes both readings', () => {
+    const s = [{ text: 'intro line here' }, { text: merged }, { text: 'next line' }];
+    const r = [{ text: 'intro line here' }, { text: "We'll need to provide a coating for the concrete to accommodate" },
+      { text: 'being submerged full time' }, { text: 'next line' }];
+    expect(similarity(merged, r[1].text)).toBeLessThan(0.85);
+    expect(alignLinesJoined(s, r)).toEqual([[0, [0]], [1, [1, 2]], [2, [3]]]);
+  });
+
+  it('three rows join too, up to maxJoin', () => {
+    const s = [{ text: 'alpha beta gamma delta epsilon zeta' }];
+    const r = [{ text: 'alpha beta' }, { text: 'gamma delta' }, { text: 'epsilon zeta' }];
+    expect(alignLinesJoined(s, r)).toEqual([[0, [0, 1, 2]]]);
+    expect(alignLinesJoined(s, r, { maxJoin: 2 })).not.toEqual([[0, [0, 1, 2]]]);
+  });
+
+  it('never joins a neighbour: two stored lines each matching one reading stay one-to-one', () => {
+    const s = [{ text: 'order steel beams' }, { text: 'call Tom about footing' }];
+    const r = [{ text: 'order steel beams' }, { text: 'call Tom about footing' }];
+    expect(alignLinesJoined(s, r)).toEqual([[0, [0]], [1, [1]]]);
+    // A short stray mark after a long line is left over, not joined on.
+    expect(alignLinesJoined([{ text: 'check deflection at the landing beam' }], [{ text: 'check deflection at the landing beam' }, { text: 'xx' }]))
+      .toEqual([[0, [0]], [null, [1]]]);
+  });
+
+  it('skips readings the filter rules out, and handles empty input', () => {
+    const s = [{ text: 'alpha beta gamma delta' }];
+    const r = [{ text: 'alpha beta' }, { text: 'gamma delta' }];
+    expect(alignLinesJoined(s, r, { usable: (k) => k !== 1 })[0][1]).toEqual([0]);
+    expect(alignLinesJoined([], [])).toEqual([]);
+    expect(alignLinesJoined([{ text: 'x' }], [])).toEqual([[0, null]]);
   });
 });

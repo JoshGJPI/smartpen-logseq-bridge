@@ -7,10 +7,10 @@ import { describe, it, expect } from 'vitest';
 import {
   relinkSendStrokes, textLines, classifyRelink, wordFixes, applyWordFixes, defaultDecisions, buildRelinkSpec,
   relinkNeedsNoReview, relinkRefusal, cachedRunValid, linkedCount, NO_LINKS, runForCache, relinkCandidates, groupCandidates,
-  MATCH_AT, CONFIRM_AT, LEFTOVER_ADD, LEFTOVER_TEXTLESS, LEFTOVER_LEAVE
+  MATCH_AT, CONFIRM_AT, LEFTOVER_ADD, LEFTOVER_TEXTLESS, LEFTOVER_LEAVE, LEFTOVER_JOIN, rowLinked
 } from '../relink.js';
 import { editRefusal } from '../mcp-edits.js';
-import { makeOldPage, makeRun, makeMovedPage, mm, rowY } from './fixtures/relink-page.js';
+import { makeOldPage, makeRun, makeMovedPage, makeMergedPage, mm, rowY } from './fixtures/relink-page.js';
 
 const yb = (i) => ({ minY: mm(rowY(i)), maxY: mm(rowY(i) + 2) });
 
@@ -112,6 +112,66 @@ describe('classifyRelink', () => {
     const at = flat.lines.findIndex((l) => l.text === 'drainage behind wall');
     flat.lines[at] = { ...flat.lines[at], yBounds: { minY: 0, maxY: 0 } };
     expect(classifyRelink(doc.transcript.lines, flat.lines).rows.find((r) => r.lineId === 'L12').type).toBe('noink');
+  });
+
+  it('lines merged by hand (2 and 3 rows) match their joined readings, with no ink left over', () => {
+    const doc = makeMergedPage();
+    const { rows, counts } = classifyRelink(doc.transcript.lines, makeRun(doc).lines);
+    expect(counts).toMatchObject({ matched: 25, confirm: 0, joined: 2, noink: 0, leftover: 0 });
+    const l5 = rows.find((r) => r.lineId === 'L05');
+    expect(l5).toMatchObject({ type: 'matched', msAll: [5, 6], reading: 'boring plate at top confirm anchor spacing', breaks: [4] });
+    expect(l5.fixes.map((f) => f.to)).toEqual(['boring']);
+    expect(rows.find((r) => r.lineId === 'L17')).toMatchObject({ type: 'matched', msAll: [17, 18, 19], breaks: [3, 6] });
+    expect(relinkNeedsNoReview({ rows, counts })).toBe(true);
+    const spec = buildRelinkSpec(makeRun(doc), { rows, counts });
+    expect(spec.links.find((l) => l.lineId === 'L17').ms).toEqual([17, 18, 19]);
+  });
+
+  it("#8: a merged line that pairs at ~70% with MyScript's first line is matched at 100% on the joined reading", () => {
+    const merged = "We'll need to provide a coating for the concrete to accommodate being submerged full time";
+    const lines = [{ id: 'a', text: 'Pump station walls' }, { id: 'b', text: merged }, { id: 'c', text: 'next item' }];
+    const ms = [{ text: 'Pump station walls', yBounds: yb(0) }, { text: "We'll need to provide a coating for the concrete to accommodate", yBounds: yb(1) },
+      { text: 'being submerged full time', yBounds: yb(2) }, { text: 'next item', yBounds: yb(3) }];
+    const { rows, counts } = classifyRelink(lines, ms);
+    expect(rows.find((r) => r.lineId === 'b')).toMatchObject({ type: 'matched', sim: 1, msAll: [1, 2] });
+    expect(counts.leftover).toBe(0);
+  });
+
+  it('two stored lines each matching one reading are never joined', () => {
+    const { rows } = classifyRelink(makeOldPage().transcript.lines, makeRun(makeOldPage()).lines);
+    expect(rows.every((r) => r.msAll.length === 1)).toBe(true);
+  });
+
+  it('a leftover row names the linked line above it for "Add to #N"; not after a no-ink line', () => {
+    const doc = makeOldPage();
+    const run = makeRun(doc, { extra: [{ text: 'scribble', y: rowY(27) + 6 }] });
+    const model = classifyRelink(doc.transcript.lines, run.lines);
+    const left = model.rows.find((r) => r.type === 'leftover');
+    expect(left).toMatchObject({ joinTo: 'L27', joinToN: 28 });
+    const d = defaultDecisions(model);
+    expect(rowLinked(model, d, 'L27')).toBe(true);
+    d.leftover[left.ms] = LEFTOVER_JOIN;
+    const spec = buildRelinkSpec(run, model, d);
+    expect(spec.links.find((l) => l.lineId === 'L27').ms).toEqual([27, left.ms]);
+    expect(spec.add).toEqual([]);
+    expect(spec.texts).toEqual({});
+    // After a no-ink line there is nothing to add to.
+    const run2 = makeRun(doc, { drop: [27], extra: [{ text: 'qqqq zzzz', y: rowY(27) + 6 }] });
+    const left2 = classifyRelink(doc.transcript.lines, run2.lines).rows.find((r) => r.type === 'leftover');
+    expect(left2.joinTo).toBeUndefined();
+  });
+
+  it('"Add to #N" on a confirm row set to Don\'t link leaves the ink unlinked', () => {
+    const lines = [{ id: 'a', text: 'schedule site meeting' }];
+    const ms = [{ text: 'schedule site meetup soon', yBounds: yb(0) }, { text: 'xx yy', yBounds: yb(1) }];
+    const model = classifyRelink(lines, ms);
+    const left = model.rows.find((r) => r.type === 'leftover');
+    expect(left.joinTo).toBe('a');
+    const d = defaultDecisions(model);
+    d.leftover[left.ms] = LEFTOVER_JOIN;
+    d.link.a = false;
+    expect(rowLinked(model, d, 'a')).toBe(false);
+    expect(buildRelinkSpec({ lines: ms }, model, d).links).toEqual([]);
   });
 
   it('a reading without usable yBounds cannot link', () => {
@@ -245,6 +305,10 @@ describe('relinkRefusal (B.6)', () => {
     trusted.transcript.lines.forEach((l, i) => { l.yBounds = yb(i); });
     trusted.strokes.forEach((s, k) => { s.lineId = trusted.transcript.lines[Math.floor(k / 3)].id; });
     expect(relinkRefusal(clear, trusted)).toMatch(/already linked/);
+    // Relink again (confirmed in the dialog) lets a linked page through; the other guards still apply.
+    expect(relinkRefusal(clear, trusted, { again: true })).toBeNull();
+    expect(relinkRefusal({ ...clear, draft: true }, trusted, { again: true })).toMatch(/unsaved transcript edits/);
+    expect(relinkCandidates([{ book: '3017', pageId: '1', doc: trusted }])).toEqual([]);
     const inkless = makeOldPage();
     inkless.strokes.forEach((s) => { s.textless = true; s.lineId = null; });
     expect(relinkRefusal(clear, inkless)).toMatch(/no ink/);

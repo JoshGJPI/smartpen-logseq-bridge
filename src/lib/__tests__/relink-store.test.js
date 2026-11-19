@@ -249,6 +249,39 @@ describe('saveRelink', () => {
   });
 });
 
+describe('Relink again (a page already linked)', () => {
+  it('is refused without the confirm, then sent and saved with it; the dialog target carries it', async () => {
+    const got = await getRelinkRun('3017', '123', { send: true });
+    const model = classifyRelink(got.doc.transcript.lines, got.run.lines);
+    expect((await saveRelink('3017', '123', buildRelinkSpec(got.run, model))).ok).toBe(true);
+    expect(isTrustworthyTranscript(disk.get('3017/123'))).toBe(true);
+
+    const refused = await getRelinkRun('3017', '123', { send: true });
+    expect(refused).toMatchObject({ ok: false, error: expect.stringMatching(/already linked/) });
+    expect(transcribeStrokes).toHaveBeenCalledTimes(1);
+
+    vi.mocked(transcribeStrokes).mockImplementationOnce(async () => reply(makeOldPage()));
+    const again = await getRelinkRun('3017', '123', { send: true, again: true });
+    expect(again.ok).toBe(true);
+    const m2 = classifyRelink(again.doc.transcript.lines, again.run.lines);
+    expect((await saveRelink('3017', '123', buildRelinkSpec(again.run, m2))).ok).toBe(false);
+    expect((await saveRelink('3017', '123', buildRelinkSpec(again.run, m2), { again: true })).ok).toBe(true);
+    expect(savePage).toHaveBeenCalledTimes(2);
+
+    openRelink('3017', '123', { again: true });
+    expect(get(relinkTarget)).toEqual({ book: '3017', pageId: '123', again: true });
+    closeRelink();
+  });
+
+  it('every other guard still applies', async () => {
+    const hold = transcriptEditorHold();
+    hold.set('3017:123', true);
+    try {
+      expect((await getRelinkRun('3017', '123', { send: true, again: true })).error).toMatch(/transcript editor/);
+    } finally { hold.release(); }
+  });
+});
+
 describe('runBulkRelink (B.5)', () => {
   it('saves at once pages that need no review, queues the rest newest first, skips refused pages', async () => {
     const queued = makeOldPage();

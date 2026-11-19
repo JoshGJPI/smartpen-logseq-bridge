@@ -93,6 +93,23 @@ export function makeRun(doc, { overrides = {}, extra = [], drop = [] } = {}) {
 }
 
 /**
+ * A page with lines Josh merged by hand (like #8, "We'll need to provide a
+ * coating … being submerged full time"): stored line 5 holds rows 5 and 6, line
+ * 17 holds rows 17, 18 and 19; the merged-away lines are gone. The ink stays as
+ * written, so MyScript (makeRun) reads those rows as separate lines.
+ */
+export function makeMergedPage() {
+  const doc = makeOldPage();
+  const L = doc.transcript.lines;
+  const text = (i) => TEXTS[i];
+  L[5] = { ...L[5], text: `${text(5)} ${text(6)}` };
+  L[17] = { ...L[17], text: `${text(17)} ${text(18)} ${text(19)}` };
+  const gone = new Set(['L06', 'L18', 'L19']);
+  doc.transcript.lines = L.filter((l) => !gone.has(l.id)).map((l) => (gone.has(l.parentId) ? { ...l, parentId: 'L17' } : l));
+  return doc;
+}
+
+/**
  * A page built like 3017/180: a meeting block (lines 10–12 of makeOldPage, a
  * header and its two children) written mid-page but transcribed later, so
  * stored at the END of the transcript. Its ink stays where it was written, so

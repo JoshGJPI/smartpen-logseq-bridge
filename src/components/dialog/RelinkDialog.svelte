@@ -3,7 +3,9 @@
   App; opens on `relinkTarget` (stores/relink.js: the reader's Relink…, or a
   page the bulk run queued for review).
 
-  Opening it reads the page and the cached MyScript run. Without one it asks
+  Opened with `again` (the page's ⋯ → Relink again… on a page already linked) it
+  asks first; every other guard still applies. Opening it reads the page and the
+  cached MyScript run. Without one it asks
   before sending (one request of the free tier's 2,000 a month). The review
   shows the counts and RelinkRows; Save writes yBounds, stroke links, the word
   fixes taken and any leftover ink's choice in one save
@@ -19,7 +21,7 @@
   import { classifyRelink, defaultDecisions, buildRelinkSpec, linkedCount, NO_LINKS } from '$lib/relink.js';
   import RelinkRows from './RelinkRows.svelte';
 
-  /** 'loading' | 'ask' | 'sending' | 'review' | 'saving' | 'error' */
+  /** 'again' | 'loading' | 'ask' | 'sending' | 'review' | 'saving' | 'error' */
   let phase = 'loading';
   let error = '';
   let target = null;
@@ -45,6 +47,8 @@
     run = model = decisions = null;
     error = staleNote = '';
     if (!k) return;
+    // A page already linked: ask first (the reader's "Relink again…").
+    if (target.again) { phase = 'again'; return; }
     phase = 'loading';
     await load(false);
   }
@@ -55,7 +59,7 @@
     phase = send ? 'sending' : 'loading';
     let got;
     try {
-      got = await getRelinkRun(book, pageId, { send });
+      got = await getRelinkRun(book, pageId, { send, again: !!target.again });
     } catch (e) {
       got = { ok: false, error: `MyScript failed: ${e.message}` };
     }
@@ -78,7 +82,7 @@
     phase = 'saving';
     // Our own hold would refuse the save; nothing else can take the page while we're saving.
     hold.set(null, false);
-    const r = await saveRelink(book, pageId, buildRelinkSpec(run, model, decisions));
+    const r = await saveRelink(book, pageId, buildRelinkSpec(run, model, decisions), { again: !!target.again });
     if (r.ok) { close(); return; }
     if (r.stale) {
       staleNote = 'The page changed since it was sent to MyScript, so these links may not fit. Send it again to review fresh ones.';
@@ -128,7 +132,9 @@
     </div>
 
     <div class="body">
-      {#if phase === 'loading'}
+      {#if phase === 'again'}
+        <p class="note">This page's ink is already linked. Relink it again? Lines and task state are kept.</p>
+      {:else if phase === 'loading'}
         <p class="note">Reading the page…</p>
       {:else if phase === 'ask' || phase === 'sending'}
         {#if staleNote}<p class="note warn">{staleNote}</p>{/if}
@@ -160,6 +166,9 @@
         <span class="sum" class:warn={!nLinked}>{!nLinked ? NO_LINKS + '.' : changes ? `Also: ${changes}.` : 'Only links change.'}</span>
         <button class="btn sec" on:click={close} disabled={phase === 'saving'}>Cancel</button>
         <button class="btn pri" on:click={save} disabled={phase === 'saving' || !nLinked}>{phase === 'saving' ? 'Saving…' : 'Save links'}</button>
+      {:else if phase === 'again'}
+        <button class="btn sec" on:click={close}>Cancel</button>
+        <button class="btn pri" on:click={() => load(false)}>Relink again</button>
       {:else if phase === 'ask' || phase === 'sending'}
         <button class="btn sec" on:click={close} disabled={phase === 'sending'}>Cancel</button>
         <button class="btn pri" on:click={() => load(true)} disabled={phase === 'sending'}>{phase === 'sending' ? 'Sending…' : 'Send to MyScript'}</button>

@@ -14,7 +14,8 @@
   ~350 px, and the old per-page toolbar clipped "Load into Editor" there.
 
   Relink… (v3.21.0) shows only on a page whose transcript can't be linked to its
-  ink (`onRelink`, set by PageSpreadView); it opens the Relink dialog.
+  ink (`onRelink`, set by PageSpreadView); it opens the Relink dialog. A page
+  already linked offers Relink again… in a ⋯ menu instead (`onRelinkAgain`).
 -->
 <script>
   import { writtenLabel, writtenChips } from '$lib/viewer/written-on.js';
@@ -37,6 +38,8 @@
   export let printRef = null;
   /** Opens Relink for a page whose lines aren't linked to ink; null hides it. */
   export let onRelink = null;
+  /** Relink a page already linked (after a confirm in the dialog), from a ⋯ menu; null hides it. */
+  export let onRelinkAgain = null;
 
   $: listed = printRef ? inPrintList($printList, printRef) : false;
   $: printItems = printRef ? [
@@ -84,6 +87,12 @@
   {#if onRelink}
     <button type="button" class="ph-relink" on:click={() => onRelink()}
       title="Link this transcript's lines to their ink, keeping the text and tasks">Relink…</button>
+  {/if}
+  {#if onRelinkAgain}
+    <span class="ph-more">
+      <OverflowMenu quiet label="More page actions"
+        items={[{ label: 'Relink again…', title: 'Find each line’s ink again; lines and task state are kept', onSelect: () => onRelinkAgain() }]} />
+    </span>
   {/if}
   {#if printRef}
     <span class="ph-print">
@@ -187,5 +196,7 @@
   }
   .ph-relink:hover { border-color: #4a7cf7; }
   .ph-relink + .ph-print, .ph-relink + .ph-load { margin-left: 0; }
+  .ph-more { margin-left: auto; display: flex; }
+  .ph-more + .ph-print, .ph-more + .ph-load { margin-left: 0; }
   .ph-load:hover { background: #eef3ff; border-color: #c7d6fb; color: #4a7cf7; }
 </style>

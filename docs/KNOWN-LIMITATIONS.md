@@ -59,7 +59,9 @@ Reasons and history for each feature are in [CHANGELOG.md](CHANGELOG.md).
 - **Relink (v3.21.0).** Checked by unit tests with MyScript mocked; not yet run against real pages or in the running
   app (it needs MyScript requests, which wait for Josh's OK). A line stored out of place (3017/180) is offered as a
   "moved" confirm row and keeps its place when linked; reorder it by hand if wanted. A moved reading below 0.60
-  stays no ink plus ink left over, where "Add as new line" would duplicate it. Confirm rows start on Link. Word fixes are offered for one word
+  stays no ink plus ink left over, where "Add as new line" would duplicate it. Confirm rows start on Link. One MyScript line covering
+  two stored lines (the reverse of a line merged by hand) stays a confirm row for one of them; the other is no ink.
+  Joins take at most 3 consecutive MyScript lines. Word fixes are offered for one word
   read as another only (not for added or missing words). The review queue is session-only; the MyScript runs behind it
   are cached in `<userData>/relink-cache/` (never pruned, one small file per page) and a second Run costs nothing.
   Make sketch for leftover ink waits for Phase E. A letter-suffixed page (P151b) is refused while its page number is

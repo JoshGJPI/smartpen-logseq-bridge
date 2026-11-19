@@ -201,6 +201,7 @@
     {onLoadIntoEditor}
     printRef={{ book: record.book, pageId }}
     onRelink={doc && lines.length && strokes.length && !trusted ? () => openRelink(record.book, pageId) : null}
+    onRelinkAgain={doc && lines.length && strokes.length && trusted ? () => openRelink(record.book, pageId, { again: true }) : null}
   />
 
   <div class="pv-area" class:inktext={contentMode === 'inktext'} class:stack={layout === 'stack'}>
