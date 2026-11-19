@@ -9,15 +9,18 @@
   the table; it closes when the tag is gone (renamed, merged or deleted).
 -->
 <script>
-  import { tagStatsList } from '$stores/tags.js';
+  import { tagStatsList, tagInfo } from '$stores/tags.js';
+  import { withInfoOnlyTags } from '$lib/tags.js';
   import { plural } from '$lib/plural.js';
   import TagManager from './TagManager.svelte';
   import TagDetails from './TagDetails.svelte';
 
   let selected = null;
 
-  $: count = $tagStatsList.length;
-  $: if (selected && !$tagStatsList.some((r) => r.tag === selected)) selected = null;
+  // Tags on no page that kept their details count and stay selectable (v3.22.0).
+  $: all = withInfoOnlyTags($tagStatsList, $tagInfo);
+  $: count = all.length;
+  $: if (selected && !all.some((r) => r.tag === selected)) selected = null;
 </script>
 
 <div class="tmv">

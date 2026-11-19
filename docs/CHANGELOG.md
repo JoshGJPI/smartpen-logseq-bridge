@@ -23,8 +23,12 @@ block scope and a page of its own.
   `lib/tags.js` `normalizeTagInfo()` owns the fields. A 3.21 build writing tags keeps `info` (unknown top-level fields
   were already kept); a patch without `info` leaves it untouched. Capitals live only in `label` and `aliases`: Phase D
   matches people case-sensitively (decision 4), so "Rich" and "rich" are distinct aliases.
-- **Merge**: the target keeps its own details and gains the source's aliases. Rejected: carrying the source's label
-  as an alias automatically (it would make a merged-away name match people in Phase D without a click).
+- **Merge**: the target keeps its own fields and gains the source's names as aliases: its display name, its aliases
+  and, for a person, its key unless a target name already reads the same, so merging `thomas` ("Thomas") into `tom`
+  still finds Tom by "Thomas" (coordinator QA). A rename is a merge whenever the target is on a page or has info of
+  its own (`renameIsMerge`), and the tag manager's confirm uses the same rule.
+- **Tags on no page**: a tag removed from its last page keeps its details (the person is remembered); Manage tags
+  lists it with 0 pages (`withInfoOnlyTags`) so it can be edited, renamed or deleted.
 - **Store**: `stores/tags.js` `commit()` now diffs pages, dismissals and info together, applies them optimistically,
   and on a failed write rolls back per page and per tag, only where nothing changed since (`rollbackInfoPatch`).
   Undo of a manager change restores info too.
@@ -34,7 +38,9 @@ block scope and a page of its own.
   `tagInfo` itself) shows the label in its type's colour: teal project, violet person, grey topic. The tag home and
   the left panel's Tags list group **Projects, People, Topics**; `collapsedTagGroups` is keyed by type and a stored
   "keywords" reads as Topics. The tag input offers **Add as Topic** (Enter) and **Add as Person** for a new keyword;
-  the person's label is the text as typed. Its type-ahead also finds a tag by its label or an alias.
+  the person's label is the text as typed, and the page's tag and the person are **one write**: TagInput passes
+  `onAdd(tag, typeAs)` and each host hands `{ typeAs }` to `setPageTagList()` / `addTagToPages()` (QA: two writes
+  could leave a Person on no page, or a Topic). Its type-ahead also finds a tag by its label or an alias.
 - **Search**: `person:`, `topic:`, `project:` (a value matches a tag's key, label or alias, case-insensitively,
   within that type), `type:person|project|topic`, `is:job`, `is:proposal`; quoted values take spaces. Facets keep the
   pages carrying a named tag (several: each must hold), narrow word and date results, and alone list those pages

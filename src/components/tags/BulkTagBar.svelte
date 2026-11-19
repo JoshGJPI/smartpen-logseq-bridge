@@ -31,10 +31,10 @@
   })();
   $: if (!keys.length || !onSelection.length) removeOpen = false;
 
-  async function add(tag) {
+  async function add(tag, typeAs) {
     if (!keys.length) { status = 'Tick some pages first'; return; }
     const n = keys.length;
-    if (await addTagToPages(keys, tag)) status = `Added “${tag}” to ${n} ${plural(n, 'page')}`;
+    if (await addTagToPages(keys, tag, { typeAs })) status = `Added “${tag}” to ${n} ${plural(n, 'page')}`;
   }
 
   async function remove(tag) {

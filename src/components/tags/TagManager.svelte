@@ -16,12 +16,13 @@
 <script>
   import { tick } from 'svelte';
   import {
-    tagStatsList, dismissedTags, tagInfo, renameTag, mergeTags, deleteTag, resetDismissed, tagUndo, undoTagChange
+    tagStatsList, pageTags, dismissedTags, tagInfo, renameTag, mergeTags, deleteTag, resetDismissed, tagUndo, undoTagChange
   } from '$stores/tags.js';
   import { openLibraryView } from '$stores/viewer.js';
   import { dataFolderReady } from '$stores/settings.js';
   import {
-    normalizeTag, sortTagStats, nextTagStatSort, parseTagStatSort, tagTypeOf, tagLabel, TAG_MANAGER_SORT_KEY
+    normalizeTag, sortTagStats, nextTagStatSort, parseTagStatSort, tagTypeOf, tagLabel, renameIsMerge, withInfoOnlyTags,
+    TAG_MANAGER_SORT_KEY
   } from '$lib/tags.js';
   import { readJson, write } from '$lib/safe-storage.js';
   import { plural } from '$lib/plural.js';
@@ -39,7 +40,8 @@
   let field;
 
   let sort = parseTagStatSort(readJson(TAG_MANAGER_SORT_KEY, null));
-  $: rows = sortTagStats($tagStatsList.map((r) => ({ ...r, type: tagTypeOf(r.tag, $tagInfo) })), sort);
+  // v3.22.0: tags on no page whose details were kept are listed too (0 pages), so they can be edited or deleted.
+  $: rows = sortTagStats(withInfoOnlyTags($tagStatsList, $tagInfo).map((r) => ({ ...r, type: tagTypeOf(r.tag, $tagInfo) })), sort);
 
   const COLUMNS = [
     { by: 'tag', label: 'Tag' },
@@ -74,7 +76,7 @@
     const to = normalizeTag(draft);
     editing = null;
     if (!from || !to || to === from) return;
-    if (rows.some((r) => r.tag === to)) {
+    if (renameIsMerge($pageTags, $tagInfo, to)) {
       if (!window.confirm(`“${to}” already exists. Merge “${from}” into it? ${n(pagesOf(from))} relabelled; “${from}” is removed.`)) return;
     }
     await renameTag(from, to);
@@ -93,7 +95,10 @@
   }
 
   async function remove(tag) {
-    if (!window.confirm(`Remove “${tag}” from ${n(pagesOf(tag))}? The pages themselves are not touched.`)) return;
+    const msg = pagesOf(tag)
+      ? `Remove “${tag}” from ${n(pagesOf(tag))}? The pages themselves are not touched.`
+      : `Forget the details of “${tag}”? It is on no page.`;
+    if (!window.confirm(msg)) return;
     await deleteTag(tag);
   }
 

@@ -361,9 +361,9 @@ describe('tag info (v3.22.0)', () => {
     pageTags.set({ '388/1': ['tom'], '388/2': ['thomas'] });
     tagInfo.set({ tom, thomas: { type: 'person', label: 'Thomas B.' } });
     await mergeTags('tom', 'thomas');
-    expect(get(tagInfo)).toEqual({ thomas: { type: 'person', label: 'Thomas B.', aliases: ['Thomas'] } });
+    expect(get(tagInfo)).toEqual({ thomas: { type: 'person', label: 'Thomas B.', aliases: ['Tom', 'Thomas'] } });
     expect(patchTags).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(patchTags).mock.calls[0][0].info).toEqual({ tom: null, thomas: { type: 'person', label: 'Thomas B.', aliases: ['Thomas'] } });
+    expect(vi.mocked(patchTags).mock.calls[0][0].info).toEqual({ tom: null, thomas: { type: 'person', label: 'Thomas B.', aliases: ['Tom', 'Thomas'] } });
   });
 
   it('delete drops the record in the same write', async () => {
@@ -399,5 +399,63 @@ describe('tag info (v3.22.0)', () => {
     tagInfo.set({ tom });
     await addTagToPages(['388/1'], 'beam');
     expect(patchTags).toHaveBeenCalledWith({ pages: { '388/1': ['beam'] }, dismissed: {} });
+  });
+});
+
+describe('coordinator QA fixes: one write, merge rule, info-only tags (v3.22.0)', () => {
+  const typeAs = { tag: 'rich', type: 'person', label: 'Rich' };
+
+  beforeEach(() => {
+    tagInfo.set({});
+    tagUndo.set(null);
+  });
+
+  it('"Add as Person" on one page is ONE patch: the page list and the person together', async () => {
+    expect(await setPageTagList('388', '1', ['rich'], { typeAs })).toBe(true);
+    expect(patchTags).toHaveBeenCalledTimes(1);
+    expect(patchTags).toHaveBeenCalledWith({
+      pages: { '388/1': ['rich'] }, dismissed: {}, info: { rich: { type: 'person', label: 'Rich' } }
+    });
+  });
+
+  it('"Add as Person" on many pages (bulk bar) is ONE patch', async () => {
+    expect(await addTagToPages(['388/1', '388/2'], 'rich', { typeAs })).toBe(true);
+    expect(patchTags).toHaveBeenCalledTimes(1);
+    expect(patchTags).toHaveBeenCalledWith({
+      pages: { '388/1': ['rich'], '388/2': ['rich'] }, dismissed: {}, info: { rich: { type: 'person', label: 'Rich' } }
+    });
+  });
+
+  it('if that write fails, neither the page nor the person is left behind', async () => {
+    vi.mocked(patchTags).mockRejectedValueOnce(new Error('disk full'));
+    expect(await setPageTagList('388', '1', ['rich'], { typeAs })).toBe(false);
+    expect(get(pageTags)).toEqual({});
+    expect(get(tagInfo)).toEqual({});
+  });
+
+  it('a type for a tag the lists do not carry is not written', async () => {
+    await setPageTagList('388', '1', ['beam'], { typeAs });
+    expect(patchTags).toHaveBeenCalledWith({ pages: { '388/1': ['beam'] }, dismissed: {} });
+    expect(get(tagInfo)).toEqual({});
+  });
+
+  it('renaming onto a tag on no page that kept its details says Merged, and merges', async () => {
+    pageTags.set({ '388/1': ['tommy'] });
+    tagInfo.set({ tom: { type: 'person', label: 'Tom' }, tommy: { label: 'Tommy' } });
+    await renameTag('tommy', 'tom');
+    expect(get(tagUndo).label).toMatch(/^Merged “tommy” into “tom”/);
+    expect(get(tagInfo)).toEqual({ tom: { type: 'person', label: 'Tom', aliases: ['Tommy'] } });
+    expect(get(pageTags)).toEqual({ '388/1': ['tom'] });
+  });
+
+  it('a tag removed from its last page keeps its details; Delete then drops them', async () => {
+    pageTags.set({ '388/1': ['tom'] });
+    tagInfo.set({ tom: { type: 'person', label: 'Tom' } });
+    await removeTagFromPages(['388/1'], 'tom');
+    expect(get(tagInfo)).toEqual({ tom: { type: 'person', label: 'Tom' } });
+    await deleteTag('tom');
+    expect(get(tagInfo)).toEqual({});
+    expect(get(tagUndo).label).toBe('Removed the details of “tom”');
+    expect(patchTags).toHaveBeenLastCalledWith({ pages: {}, dismissed: {}, info: { tom: null } });
   });
 });

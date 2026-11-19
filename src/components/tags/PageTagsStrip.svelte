@@ -36,8 +36,8 @@
     : [];
   $: disabled = !$dataFolderReady || !focusKey;
 
-  function add(t) {
-    if (record) setPageTagList(record.book, idOf(record), [...tags, t]);
+  function add(t, typeAs) {
+    if (record) setPageTagList(record.book, idOf(record), [...tags, t], { typeAs });
   }
   function remove(t) {
     if (record) setPageTagList(record.book, idOf(record), tags.filter((x) => x !== t));

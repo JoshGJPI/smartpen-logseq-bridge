@@ -350,28 +350,57 @@ export function withTagType(info, tag, type, label = '') {
  * Info after a rename or merge (`renameTagInMap`'s sibling, applied in the
  * same write). Onto a new name the record moves; fields the new name's type
  * can't hold are dropped (a keyword renamed to a project number loses its type
- * and label). Onto an existing tag (a merge, `exists`) the target keeps its
- * own info and gains the source's aliases. The source's record goes either way.
+ * and label). Onto an existing tag (a merge, `exists`, or a target with info
+ * of its own) the target keeps its own fields and gains the source's names as
+ * aliases: its display name, its aliases, and for a person its key when no
+ * target name already reads the same (case-insensitively), so "Thomas" still
+ * finds the merged tag, and Phase D still matches it. The source's record goes
+ * either way.
  */
 export function renameTagInfo(info, from, to, exists = false) {
   const f = normalizeTag(from);
   const t = normalizeTag(to);
   const map = info || {};
-  if (!f || !t || f === t || !(f in map)) return map;
+  if (!f || !t || f === t || !hasOwn(map, f)) return map;
   const src = map[f];
   const next = { ...map };
   delete next[f];
-  if (exists || next[t]) {
-    const target = next[t] || {};
-    return withTagInfo(next, t, { ...target, aliases: [...(target.aliases || []), ...(src.aliases || [])] });
+  if (exists || hasOwn(next, t)) {
+    const target = infoOf(next, t);
+    const gained = [...(src.label ? [src.label] : []), ...(src.aliases || [])];
+    const names = [...tagNames(t, next), ...gained].map((n) => n.toLowerCase());
+    if (src.type === 'person' && !names.includes(f)) gained.push(f);
+    return withTagInfo(next, t, { ...target, aliases: [...(target.aliases || []), ...gained] });
   }
   return withTagInfo(next, t, src);
+}
+
+const hasOwn = (o, k) => !!o && Object.prototype.hasOwnProperty.call(o, k);
+
+/**
+ * Is renaming onto `to` a merge? Yes when `to` is on some page OR has info of
+ * its own (a tag on no page whose details were kept, v3.22.0). One rule for the
+ * store's label and the tag manager's confirm.
+ */
+export function renameIsMerge(pages, info, to) {
+  const t = normalizeTag(to);
+  return !!t && (tagExists(pages, t) || hasOwn(info, t));
+}
+
+/**
+ * `tagStats()` rows plus a 0-page row for each tag that has info but is on no
+ * page (v3.22.0), so the tag manager can show, edit or delete it.
+ */
+export function withInfoOnlyTags(stats, info) {
+  const have = new Set((stats || []).map((s) => s.tag));
+  const extra = Object.keys(info || {}).filter((t) => !have.has(t)).map((tag) => ({ tag, pages: 0, notebooks: 0 }));
+  return extra.length ? [...(stats || []), ...extra] : stats || [];
 }
 
 /** Info with a tag's record removed (the tag was deleted from every page). */
 export function deleteTagInfo(info, tag) {
   const t = normalizeTag(tag);
-  if (!t || !info || !(t in info)) return info || {};
+  if (!t || !hasOwn(info, t)) return info || {};
   const next = { ...info };
   delete next[t];
   return next;

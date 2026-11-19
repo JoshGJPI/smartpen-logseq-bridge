@@ -14,7 +14,7 @@ import {
   parseTagView, parseCollapsedGroups, parseTagPageSort, sortTagPageTiles,
   normalizeTagInfo, tagTypeOf, tagLabel, projectKind, tagNames, tagAnswersTo, withTagInfo, withTagType,
   renameTagInfo, deleteTagInfo, diffTagInfo, rollbackInfoPatch, groupByTagType, createRows, sortTagStats,
-  TAG_TYPES, TAG_GROUP_LABELS, MAX_INFO_TEXT, MAX_INFO_NOTE, MAX_ALIASES
+  TAG_TYPES, TAG_GROUP_LABELS, MAX_INFO_TEXT, MAX_INFO_NOTE, MAX_ALIASES, renameIsMerge, withInfoOnlyTags
 } from '$lib/tags.js';
 
 const rec = (book, pageId, extra = {}) => ({
@@ -697,15 +697,15 @@ describe('rename / merge / delete carry info (v3.22.0)', () => {
 
   it('a merge keeps the target\'s info and adds the source\'s aliases', () => {
     const next = renameTagInfo(info, 'tom', 'thomas', true);
-    // Thomas's own label stays; Tom's company and label do not come along.
-    expect(next.thomas).toEqual({ type: 'person', label: 'Thomas B.', aliases: ['TB', 'Thomas'] });
+    // Thomas's own label stays; Tom's display name joins the aliases, his company does not come along.
+    expect(next.thomas).toEqual({ type: 'person', label: 'Thomas B.', aliases: ['TB', 'Tom', 'Thomas'] });
     expect(next.tom).toBeUndefined();
   });
 
   it('a merge into a tag with no info gives it the source\'s aliases only', () => {
     const next = renameTagInfo(info, 'framing', 'carpentry', true);
     expect(next.carpentry).toEqual({ aliases: ['framed'] });
-    expect(renameTagInfo({ tom: { type: 'person', label: 'Tom' } }, 'tom', 'x', true)).toEqual({});
+    expect(renameTagInfo({ tom: { type: 'person', label: 'Tom' } }, 'tom', 'x', true)).toEqual({ x: { aliases: ['Tom'] } });
   });
 
   it('renaming a keyword to a project number drops what a project can\'t hold', () => {
@@ -774,5 +774,48 @@ describe('tag groups, rows and the type-ahead (v3.22.0)', () => {
     const rows = [{ tag: 'b', type: 'topic' }, { tag: 'tom', type: 'person' }, { tag: '5444-006', type: 'project' }, { tag: 'a', type: 'topic' }];
     expect(sortTagStats(rows, { by: 'type', dir: 'asc' }).map((r) => r.tag)).toEqual(['5444-006', 'tom', 'a', 'b']);
     expect(sortTagStats(rows, { by: 'type', dir: 'desc' }).map((r) => r.tag)).toEqual(['a', 'b', 'tom', '5444-006']);
+  });
+});
+
+describe('coordinator QA fixes (v3.22.0)', () => {
+  it('a merge keeps the source\'s display name: thomas ("Thomas") into tom', () => {
+    const info = { tom: { type: 'person', label: 'Tom' }, thomas: { type: 'person', label: 'Thomas', aliases: ['Tommy'] } };
+    const next = renameTagInfo(info, 'thomas', 'tom', true);
+    expect(next).toEqual({ tom: { type: 'person', label: 'Tom', aliases: ['Thomas', 'Tommy'] } });
+    expect(tagAnswersTo('tom', next, 'Thomas')).toBe(true);
+  });
+
+  it('a person\'s key joins too when no target name reads the same', () => {
+    const info = { tom: { type: 'person', label: 'Tom' }, tb: { type: 'person', company: 'Burnell' } };
+    expect(renameTagInfo(info, 'tb', 'tom', true).tom.aliases).toEqual(['tb']);
+    // "Thomas" already among the names: the key `thomas` is not added again.
+    const info2 = { tom: { type: 'person', label: 'Tom' }, thomas: { type: 'person', label: 'Thomas' } };
+    expect(renameTagInfo(info2, 'thomas', 'tom', true).tom.aliases).toEqual(['Thomas']);
+    // A topic's key is not a name: not added.
+    expect(renameTagInfo({ tom: { type: 'person' }, framing: { aliases: ['framed'] } }, 'framing', 'tom', true).tom.aliases)
+      .toEqual(['framed']);
+  });
+
+  it('a target with info but on no page is merged into, not overwritten', () => {
+    const info = { tom: { type: 'person', label: 'Tom', company: 'Burnell' }, tommy: { label: 'Tommy' } };
+    expect(renameTagInfo(info, 'tommy', 'tom')).toEqual({ tom: { type: 'person', label: 'Tom', company: 'Burnell', aliases: ['Tommy'] } });
+  });
+
+  it('renameIsMerge: a target on a page, or with info of its own', () => {
+    const pages = { '388/1': ['beam'] };
+    const info = { tom: { type: 'person' } };
+    expect(renameIsMerge(pages, info, 'beam')).toBe(true);
+    expect(renameIsMerge(pages, info, 'Tom')).toBe(true);
+    expect(renameIsMerge(pages, info, 'slab')).toBe(false);
+    expect(renameIsMerge(pages, info, 'constructor')).toBe(false);
+    expect(renameIsMerge(pages, info, '??')).toBe(false);
+  });
+
+  it('withInfoOnlyTags lists a tag on no page with 0 pages', () => {
+    const stats = [{ tag: 'beam', pages: 3, notebooks: 1 }];
+    expect(withInfoOnlyTags(stats, { beam: { aliases: ['girder'] }, tom: { type: 'person' } }))
+      .toEqual([...stats, { tag: 'tom', pages: 0, notebooks: 0 }]);
+    expect(withInfoOnlyTags(stats, {})).toBe(stats);
+    expect(withInfoOnlyTags(null, null)).toEqual([]);
   });
 });

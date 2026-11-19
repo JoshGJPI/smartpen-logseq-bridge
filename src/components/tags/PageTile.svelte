@@ -83,7 +83,7 @@
         bind:this={input}
         {tags}
         label="Tags for P{tile.pageId}"
-        onAdd={(t) => setPageTagList(book, tile.pageId, [...tags, t])}
+        onAdd={(t, typeAs) => setPageTagList(book, tile.pageId, [...tags, t], { typeAs })}
         onRemove={(t) => setPageTagList(book, tile.pageId, tags.filter((x) => x !== t))}
       />
     </div>

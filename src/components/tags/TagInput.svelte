@@ -16,14 +16,14 @@
   window shortcut already stands down while typing (isTypingTarget).
 -->
 <script>
-  import { tagStatsList, tagInfo, setTagType } from '$stores/tags.js';
+  import { tagStatsList, tagInfo } from '$stores/tags.js';
   import { tagOptions, createRows, normalizeTag, tagEnterChoice, backspaceRemovesTag } from '$lib/tags.js';
   import { plural } from '$lib/plural.js';
   import TagChip from './TagChip.svelte';
 
   /** The page's tags (chips). */
   export let tags = [];
-  /** (tag) => void, tag already normalized */
+  /** (tag, typeAs) => void, tag already normalized; typeAs `{ tag, type: 'person', label }` or null (v3.22.0) */
   export let onAdd = () => {};
   /** (tag) => void; null hides the chips' × */
   export let onRemove = null;
@@ -65,19 +65,21 @@
   $: if (hi >= items.length) hi = Math.max(0, items.length - 1);
   $: showList = open && !disabled && items.length > 0;
 
-  function add(tag) {
+  function add(tag, typeAs = null) {
     const t = normalizeTag(tag);
     if (!t) return;
-    if (!tags.includes(t)) onAdd(t);
+    if (!tags.includes(t)) onAdd(t, typeAs);
     text = '';
     hi = 0;
     navigated = false;
   }
 
-  /** A row: "Add as Person" stores the type and typed label first (its own locked write), then adds. */
+  /**
+   * A row. "Add as Person" hands the host `{ tag, type: 'person', label }` with the tag, and the
+   * host passes it to setPageTagList / addTagToPages, which write the page and the type in ONE patch.
+   */
   function choose(o) {
-    if (o.create === 'person') setTagType(o.tag, 'person', o.label);
-    add(o.tag);
+    add(o.tag, o.create === 'person' ? { tag: o.tag, type: 'person', label: o.label } : null);
   }
 
   function onKey(e) {

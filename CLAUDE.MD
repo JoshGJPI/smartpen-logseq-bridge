@@ -225,8 +225,9 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   the shape (`tags-sidecar.cjs` `checkInfo`: plain fields, `type` only `"person"` and never on a project number); the
   renderer owns the fields. A patch without `info` leaves the section untouched, so a 3.21 build writing tags keeps it.
 - **One write for a tag manager change**: rename, merge and delete carry or drop `info` in the same patch as the pages
-  (`renameTagInfo`: a rename moves the record; a merge keeps the target's record and adds the source's aliases;
-  `deleteTagInfo`). `stores/tags.js` `commit()` diffs pages, dismissals and info together, applies them
+  (`renameTagInfo`: a rename moves the record; a merge keeps the target's fields and adds the source's display name,
+  aliases and, for a person, its key as aliases; `deleteTagInfo`). A rename is a merge whenever the target is on a page
+  **or has info of its own** (`renameIsMerge`, one rule for the store's label and the manager's confirm). `stores/tags.js` `commit()` diffs pages, dismissals and info together, applies them
   optimistically, rolls back per page and per tag (`rollbackInfoPatch`, only where nothing changed since), and Undo
   restores info too.
 - **Three types only; a project is never stored.** `tagTypeOf()` reads the pattern first, so a stored type on a
@@ -234,6 +235,11 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   only through `tagTypeOf()` / `tagLabel()` / `tagNames()`; chips (`TagChip`, which reads `tagInfo` itself) show the
   label in the type's colour.
 - Nothing is typed without a click: "Add as Person" in the tag input, or Manage tags → Details. No MCP tool sets a type.
+  **"Add as Person" is one write**: TagInput hands its host `onAdd(tag, typeAs)` and every host passes `{ typeAs }` to
+  `setPageTagList()` / `addTagToPages()`, which put the page list and the person in one patch (never a separate
+  `setTagType()` call).
+- A tag removed from its last page by hand keeps its `info`; Manage tags lists such tags with 0 pages
+  (`withInfoOnlyTags`) so they can be edited, renamed or deleted.
 - `collapsedTagGroups` holds type ids (`project`, `person`, `topic`); `parseCollapsedGroups()` reads the old
   `projects` / `keywords` as Projects / Topics.
 

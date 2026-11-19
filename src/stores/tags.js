@@ -29,7 +29,7 @@
 
 import { writable, derived, get } from 'svelte/store';
 import {
-  normalizeTag, normalizeTagsFile, tagExists, tagKey, withPageList, addTagToKeys, removeTagFromKeys,
+  normalizeTag, normalizeTagsFile, renameIsMerge, tagKey, withPageList, addTagToKeys, removeTagFromKeys,
   renameTagInMap, deleteTagFromMap, diffTagMaps, rollbackPatch, buildTagIndex, tagStats, planTagCarry,
   withTagInfo, withTagType, renameTagInfo, deleteTagInfo, diffTagInfo, rollbackInfoPatch
 } from '../lib/tags.js';
@@ -141,24 +141,45 @@ async function commit(nextPages, nextDismissed, what, undoLabel = null, nextInfo
 const keysOf = (keys) => [...new Set([...(keys || [])].filter(Boolean))];
 
 /**
+ * The info to write beside a tag being added (v3.22.0): with `typeAs` (the tag
+ * input's "Add as Person", `{ tag, type, label }`) that tag's type and label
+ * are set in the SAME patch as the page lists, so the page and the person land
+ * or fail together. Only for a tag the new lists actually carry.
+ */
+function infoForAdd(pages, typeAs) {
+  const info = get(tagInfo);
+  if (!typeAs) return info;
+  const t = normalizeTag(typeAs.tag);
+  if (!t || !Object.values(pages).some((list) => list.includes(t))) return info;
+  return withTagType(info, t, typeAs.type, typeAs.label || '');
+}
+
+/**
  * Replace one page's tags.
  * @param {string} book  book key
  * @param {string|number} pageId
  * @param {string[]} tags
+ * @param {{typeAs?: {tag: string, type: 'person'|'topic', label?: string}}} [opts]
+ *   v3.22.0: a new tag's type, written in the same patch
  */
-export function setPageTagList(book, pageId, tags) {
+export function setPageTagList(book, pageId, tags, { typeAs = null } = {}) {
   const key = tagKey(book, pageId);
   if (!key) {
     log(`Can't tag page ${book}/${pageId}: not a valid page`, 'error');
     return Promise.resolve(false);
   }
-  return commit(withPageList(get(pageTags), key, tags), get(dismissedTags), 'the page’s tags');
+  const pages = withPageList(get(pageTags), key, tags);
+  return commit(pages, get(dismissedTags), 'the page’s tags', null, infoForAdd(pages, typeAs));
 }
 
-/** Add a tag to many pages in one write. @param {string[]} keys page keys */
-export function addTagToPages(keys, tag) {
+/**
+ * Add a tag to many pages in one write. @param {string[]} keys page keys
+ * @param {{typeAs?: object}} [opts]  as setPageTagList
+ */
+export function addTagToPages(keys, tag, { typeAs = null } = {}) {
   if (!normalizeTag(tag)) return Promise.resolve(false);
-  return commit(addTagToKeys(get(pageTags), keysOf(keys), tag), get(dismissedTags), 'tags');
+  const pages = addTagToKeys(get(pageTags), keysOf(keys), tag);
+  return commit(pages, get(dismissedTags), 'tags', null, infoForAdd(pages, typeAs));
 }
 
 /** Remove a tag from many pages in one write. */
@@ -175,7 +196,9 @@ export function renameTag(from, to) {
   const t = normalizeTag(to);
   if (!f || !t) return Promise.resolve(false);
   const map = get(pageTags);
-  const exists = tagExists(map, t);
+  // A merge whenever the target is on a page OR has details of its own (v3.22.0):
+  // the same rule as the tag manager's confirm (lib/tags.js renameIsMerge).
+  const exists = renameIsMerge(map, get(tagInfo), t);
   const label = exists ? `Merged “${f}” into “${t}”` : `Renamed “${f}” to “${t}”`;
   return commit(renameTagInMap(map, f, t), get(dismissedTags), 'the renamed tag', label,
     renameTagInfo(get(tagInfo), f, t, exists));
@@ -186,12 +209,16 @@ export function mergeTags(from, into) {
   return renameTag(from, into);
 }
 
-/** Remove a tag from every page. Pages themselves are not touched. */
+/**
+ * Remove a tag from every page, and its details. Pages themselves are not
+ * touched. A tag on no page (only details kept, v3.22.0) just loses its details.
+ */
 export function deleteTag(tag) {
   const map = get(pageTags);
-  const n = Object.values(map).filter((list) => list.includes(normalizeTag(tag))).length;
-  return commit(deleteTagFromMap(map, tag), get(dismissedTags), 'tags', `Removed “${normalizeTag(tag)}” from ${n} ${n === 1 ? 'page' : 'pages'}`,
-    deleteTagInfo(get(tagInfo), tag));
+  const t = normalizeTag(tag);
+  const n = Object.values(map).filter((list) => list.includes(t)).length;
+  const label = n ? `Removed “${t}” from ${n} ${n === 1 ? 'page' : 'pages'}` : `Removed the details of “${t}”`;
+  return commit(deleteTagFromMap(map, tag), get(dismissedTags), 'tags', label, deleteTagInfo(get(tagInfo), tag));
 }
 
 /**

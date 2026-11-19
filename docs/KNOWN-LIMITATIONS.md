@@ -29,10 +29,9 @@ Reasons and history for each feature are in [CHANGELOG.md](CHANGELOG.md).
   "Recently written" in tag grouping uses the newest capture date under the tag (no tag timestamps are stored).
 - **Tag types (v3.22.0).** A project's chip shows its number, never its name (the name is in Details and `list_tags`).
   A type or details set on a tag that is later removed from every page by hand (not Delete) stay in `_tags.json`
-  (`info`), so re-adding the tag brings them back; only Manage tags → Delete drops them. A merge keeps the target's
-  details and adds only the source's aliases: the source's display name and company are dropped (add the old name as an
-  alias first if it should still match). "Add as Person" writes the type and the page's tag as two locked writes; if
-  the second fails the tag is a Person on no page. A person's name in transcript text does nothing yet (Phase D's block
+  (`info`), so re-adding the tag brings them back; Manage tags lists them with 0 pages, and Delete there drops them. A
+  merge keeps the target's fields: the source's company, client or note are dropped (its names become aliases). A
+  person's name in transcript text does nothing yet (Phase D's block
   scope); search facets look at page tags only. Name sort in Manage tags and the tag lists is by the stored key, not the
   label. No MCP tool sets a type (read-only by design).
 - **Retime (v3.6.0).** Exported to LogSeq: `mergeGraphStrokes()` keeps the published copy by id, so re-exporting a

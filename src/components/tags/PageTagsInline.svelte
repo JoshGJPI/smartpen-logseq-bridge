@@ -43,7 +43,7 @@
   $: suggestions = key ? suggestProjectNumbers(lines, { exclude: [...tags, ...dismissed] }) : [];
   $: disabled = !$dataFolderReady || !key;
 
-  const add = (t) => setPageTagList(book, pageId, [...tags, t]);
+  const add = (t, typeAs) => setPageTagList(book, pageId, [...tags, t], { typeAs });
   const remove = (t) => setPageTagList(book, pageId, tags.filter((x) => x !== t));
   const dismiss = (t) => key && dismissSuggestion([key], t);
   const addAll = () => setPageTagList(book, pageId, [...tags, ...suggestions.map((s) => s.tag)]);
