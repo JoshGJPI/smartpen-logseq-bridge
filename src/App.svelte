@@ -13,6 +13,7 @@
   import BookSelectionDialog from './components/dialog/BookSelectionDialog.svelte';
   import BluetoothDevicePicker from './components/dialog/BluetoothDevicePicker.svelte';
   import PrintDialog from './components/dialog/PrintDialog.svelte';
+  import RelinkDialog from './components/dialog/RelinkDialog.svelte';
   import McpEditToast from './components/layout/McpEditToast.svelte';
   import { initMcpEdits } from '$stores/mcp-edits.js';
 
@@ -284,6 +285,7 @@
   <BookSelectionDialog />
   <BluetoothDevicePicker />
   <PrintDialog />
+  <RelinkDialog />
   <McpEditToast />
 </div>
 

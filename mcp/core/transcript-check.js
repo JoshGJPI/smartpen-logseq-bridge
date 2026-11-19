@@ -17,6 +17,10 @@
  */
 import { dayKey } from '../../src/lib/timeline.js';
 import { taskStateOf, stateLabel } from '../../src/lib/tasks.js';
+// alignLines and its text measures live in src/lib/line-align.js (v3.21.0), shared with the app's Relink.
+import { alignLines, similarity, editDistance, words, sameLetters } from '../../src/lib/line-align.js';
+
+export { alignLines };
 
 /** 1 Ncode unit in mm (the pen SDK's figure, as in myscript-api.js and stroke-filter.js; not imported so the MCP stays clear of the MyScript client). */
 const NCODE_TO_MM = 2.371;
@@ -115,64 +119,6 @@ export function parseReference(md) {
     const m = body.match(MARKER);
     return { level, text: m ? body.slice(m[0].length) : body, state: m ? m[1] : null };
   });
-}
-
-const norm = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9$%&?#@']+/g, ' ').trim();
-const words = (t) => norm(t).split(' ').filter(Boolean);
-/** Same letters and digits in the same order: case, punctuation and spacing aside (`IBC 2024` / `IBC2024`). */
-const sameLetters = (a, b) => norm(a).replace(/ /g, '') === norm(b).replace(/ /g, '');
-
-function editDistance(a, b) {
-  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
-  for (let i = 1; i <= a.length; i++) {
-    const cur = [i];
-    for (let j = 1; j <= b.length; j++) {
-      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-    }
-    prev = cur;
-  }
-  return prev[b.length];
-}
-
-const similarity = (a, b) => {
-  const x = norm(a), y = norm(b);
-  return 1 - editDistance(x, y) / Math.max(1, x.length, y.length);
-};
-
-const GAP = -0.2;          // cost of leaving a line unmatched
-const MATCH_MIN = 0.4;     // below this two lines are different lines, not a misreading
-
-/**
- * Align stored lines with reference lines (order kept; either side may have
- * lines the other lacks).
- * @param {Array<{text:string}>} stored
- * @param {Array<{text:string}>} ref
- * @returns {Array<[number|null, number|null]>} index pairs
- */
-export function alignLines(stored, ref) {
-  const n = stored.length, m = ref.length;
-  const score = Array.from({ length: n + 1 }, () => new Float64Array(m + 1));
-  const move = Array.from({ length: n + 1 }, () => new Uint8Array(m + 1));   // 1 = both, 2 = stored only, 3 = ref only
-  for (let i = 1; i <= n; i++) { score[i][0] = i * GAP; move[i][0] = 2; }
-  for (let j = 1; j <= m; j++) { score[0][j] = j * GAP; move[0][j] = 3; }
-  for (let i = 1; i <= n; i++) {
-    for (let j = 1; j <= m; j++) {
-      const s = similarity(stored[i - 1].text, ref[j - 1].text);
-      let best = score[i - 1][j - 1] + (s >= MATCH_MIN ? s : -1), mv = 1;
-      if (score[i - 1][j] + GAP > best) { best = score[i - 1][j] + GAP; mv = 2; }
-      if (score[i][j - 1] + GAP > best) { best = score[i][j - 1] + GAP; mv = 3; }
-      score[i][j] = best;
-      move[i][j] = mv;
-    }
-  }
-  const pairs = [];
-  for (let i = n, j = m; i > 0 || j > 0;) {
-    const mv = move[i][j];
-    if (mv === 1) { pairs.push([i - 1, j - 1]); i--; j--; }
-    else if (mv === 2) { pairs.push([i - 1, null]); i--; }
-    else { pairs.push([null, j - 1]); j--; }
-  }
-  return pairs.reverse();
 }
 
 const stateOf = (l) => {

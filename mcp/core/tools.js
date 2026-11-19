@@ -195,7 +195,8 @@ export function createTools(root) {
         return `#${String(i + 1).padEnd(3)} ${'  '.repeat(Math.max(0, l.indentLevel || 0))}- ${mark}${l.text}`;
       }).join('\n');
       const note = isTrustworthyTranscript(doc) ? ''
-        : '\n(Stroke-to-line links on this page are unreliable (transcribed before the line-matching fix); the text itself is fine.)';
+        : '\n(Stroke-to-line links on this page are unreliable (transcribed before the line-matching fix); the text itself is fine. '
+          + 'Relink in the app (the page header\'s Relink…, or Settings → Maintenance → Relink old transcripts) links them and keeps the text.)';
       return { content: [text(`Transcript ${book}/${page}, transcribed ${when.slice(0, 10)}:\n${body}${note}`)] };
     },
 

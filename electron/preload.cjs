@@ -122,6 +122,11 @@ contextBridge.exposeInMainWorld('mcpAPI', {
   editLog: (action, book, page, payload) => ipcRenderer.invoke('mcp:editLog', action, book, page, payload),
 });
 
+// Relink old transcripts (v3.21.0): MyScript runs cached in <userData>/relink-cache/.
+contextBridge.exposeInMainWorld('relinkAPI', {
+  cache: (action, book, page, entry) => ipcRenderer.invoke('relink:cache', action, book, page, entry),
+});
+
 // Print to PDF or a printer: main asks where to save, renders the document in a hidden
 // window and writes the PDF. Returns { ok, result: { path, bytes } | { canceled } }.
 contextBridge.exposeInMainWorld('printAPI', {

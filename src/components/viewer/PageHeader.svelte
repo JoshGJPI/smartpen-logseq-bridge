@@ -12,6 +12,9 @@
 
   The row wraps rather than widening the page: at 1200 wide a spread page is
   ~350 px, and the old per-page toolbar clipped "Load into Editor" there.
+
+  Relink… (v3.21.0) shows only on a page whose transcript can't be linked to its
+  ink (`onRelink`, set by PageSpreadView); it opens the Relink dialog.
 -->
 <script>
   import { writtenLabel, writtenChips } from '$lib/viewer/written-on.js';
@@ -32,6 +35,8 @@
   export let onLoadIntoEditor = () => {};
   /** `{ book, pageId }` of this page, for the print menu; null hides it. */
   export let printRef = null;
+  /** Opens Relink for a page whose lines aren't linked to ink; null hides it. */
+  export let onRelink = null;
 
   $: listed = printRef ? inPrintList($printList, printRef) : false;
   $: printItems = printRef ? [
@@ -76,6 +81,10 @@
     <span class="ph-meta">no capture time</span>
   {/if}
 
+  {#if onRelink}
+    <button type="button" class="ph-relink" on:click={() => onRelink()}
+      title="Link this transcript's lines to their ink, keeping the text and tasks">Relink…</button>
+  {/if}
   {#if printRef}
     <span class="ph-print">
       <OverflowMenu quiet label="Print" items={printItems}>
@@ -172,5 +181,11 @@
   /* Print sits beside Load into Editor, which then no longer needs the auto margin. */
   .ph-print { margin-left: auto; display: flex; }
   .ph-print + .ph-load { margin-left: 0; }
+  .ph-relink {
+    margin-left: auto; flex-shrink: 0; padding: 1px 8px; font-size: 12px; cursor: pointer;
+    border: 1px solid #c7d6fb; border-radius: 10px; background: #eef3ff; color: #3a5bd0;
+  }
+  .ph-relink:hover { border-color: #4a7cf7; }
+  .ph-relink + .ph-print, .ph-relink + .ph-load { margin-left: 0; }
   .ph-load:hover { background: #eef3ff; border-color: #c7d6fb; color: #4a7cf7; }
 </style>

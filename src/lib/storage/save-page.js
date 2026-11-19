@@ -62,6 +62,15 @@
  *       (carryTaskState). A Reset with no new transcription saved changes
  *       nothing on disk (a null in-memory link never clears a stored one).
  *
+ *   Transcript (Relink, v3.21.0, lib/relink.js):
+ *     - `relink` (instead of a pageTranscription) carries a MyScript run of the
+ *       whole page and the review's decisions. The stored lines are kept
+ *       (ids, text, order, indent, parentId, checked, marker); linked lines
+ *       take the run's yBounds, every stroke that was sent takes the line whose
+ *       MyScript line covers it (or none), taken word fixes and lines added
+ *       from leftover ink land in the same write, and `lastTranscribed` is
+ *       bumped. Refused when the page changed since the run (`stale`).
+ *
  *   planTranscript() is the one place that decides the written transcript,
  *   and the save dialog (page-changes.js) asks it too, so "will this save
  *   change the transcript?" has the same answer as the save.
@@ -73,7 +82,7 @@
 import { getPage, savePage, deletePage } from './local-store.js';
 import { emptyPageDoc, computeBounds, PAGE_DOC_VERSION } from './page-doc.js';
 import { pageInfoForDisk } from '$lib/volumes.js';
-import { yBoundsToNcode } from '$lib/myscript-api.js';
+import { strokesIntersectingLine } from './line-match.js';
 import { normalizeRotation, rotateStoredPoints } from '$lib/page-orientation.js';
 import { noteOnDiskStrokeIds } from '$stores/pending-changes.js';
 import { parseTaskMarker, stripTaskMarker } from '$lib/task-markers.js';
@@ -81,6 +90,7 @@ import { taskStateOf, withTaskState } from '$lib/tasks.js';
 import { round2, strokeToStored } from './stroke-format.js';
 import { sameInk, shiftStoredStroke } from './duplicate-strokes.js';
 import { INK_TEXTLESS, normalizeDeletedInk, withTextless } from '$lib/deleted-ink.js';
+import { planRelink } from '$lib/relink-plan.js';
 
 /* -----------------------------------------------------------------
  *  Stroke shape conversion
@@ -114,19 +124,6 @@ function yBoundsOverlap(a, b, tol = 0) {
   if (!a || !b) return false;
   return !(a.maxY + tol < b.minY || b.maxY + tol < a.minY);
 }
-
-/**
- * How far outside a line's own Y range a stroke may sit and still be counted as
- * part of it, in **Ncode units** (~2.4mm each; a recognised line is 2.4-5 units
- * tall across the saved corpus).
- *
- * MyScript's word boxes wrap the text core, so descenders, a stray i-dot and a
- * comma dropped below the baseline land just outside. This is the same number
- * TranscriptStrokePreview uses for its own "which strokes are this line?"
- * highlight - the two have to agree, or the preview shows one answer while the
- * saved lineId records another.
- */
-const LINE_MATCH_TOLERANCE_NCODE = 1;
 
 /**
  * Ncode Y that a MyScript batch's millimetre coordinates are anchored to.
@@ -180,48 +177,6 @@ export function transcriptionOriginY(pageTranscription, storedStrokes) {
 
   const scoped = ids ? scan(ids) : Infinity;
   return Number.isFinite(scoped) ? scoped : scan(null);
-}
-
-/**
- * For each new MyScript line, find the storage-format strokes whose Y range
- * touches the line's. Used to attach lineId to strokes.
- *
- * A line's `yBounds` are MyScript **millimetres** measured from the batch
- * origin; stroke points are raw **Ncode**. They are not the same space, and
- * comparing them directly - as this did until Aug 2026 - links strokes to
- * whichever line happens to collide numerically. `yBoundsToNcode` is the inverse
- * of the transform `convertStrokesToMyScript` applied on the way out.
- *
- * The returned `overlap` is how much of the stroke's Y range falls inside the
- * line's, and is **negative** for a stroke matched only by the tolerance - so
- * ordering by it means "most overlapping, else nearest", which is what settles a
- * stroke that touches two lines.
- *
- * @param {Object} line - { yBounds: {minY, maxY} } in MyScript mm
- * @param {Array} storedStrokes - StoredStroke[]
- * @param {number} originNcodeY - see transcriptionOriginY
- * @param {number} tol - tolerance in Ncode units
- * @returns {Array<{id: string, overlap: number}>}
- */
-function strokesIntersectingLine(line, storedStrokes, originNcodeY, tol = LINE_MATCH_TOLERANCE_NCODE) {
-  const range = yBoundsToNcode(line.yBounds, originNcodeY);
-  // null covers an absent or unusable yBounds and an origin we could not work
-  // out. Assigning nothing is right in both cases: a wrong link is worse than
-  // none, since it also marks the stroke as already transcribed.
-  if (!range) return [];
-
-  const out = [];
-  for (const s of storedStrokes) {
-    if (!s.points || s.points.length === 0) continue;
-    let minY = Infinity, maxY = -Infinity;
-    for (const p of s.points) {
-      if (p[1] < minY) minY = p[1];
-      if (p[1] > maxY) maxY = p[1];
-    }
-    const overlap = Math.min(maxY, range.maxY) - Math.max(minY, range.minY);
-    if (overlap >= -tol) out.push({ id: s.id, overlap });
-  }
-  return out;
 }
 
 /**
@@ -490,12 +445,21 @@ export function sentStrokeIds(pageTranscription) {
  * them with `deletedInk: 'textless'` (the default), none with 'retry'. Pass
  * strokes with their `lineId` and without textless ones (never matched).
  *
+ * With `{ relink }` (a lib/relink.js buildRelinkSpec() result, v3.21.0) the plan
+ * is Relink's instead (lib/relink-plan.js): `pageTranscription` is ignored,
+ * `lineIdAssignments` covers every sent stroke (null = unlinked) and
+ * `textlessIds` the leftover ink marked Not text.
+ *
  * @returns {{ lines: Array, changed: boolean, linesAdded: number,
  *   lineIdAssignments: Map<string,string>, lineIdRemap: Map<string,string>,
  *   deletedInkIds: Set<string>, textlessIds: Set<string> }}
  */
-export function planTranscript(existingLines, pageTranscription, storedStrokes = [], originNcodeY = null) {
+export function planTranscript(existingLines, pageTranscription, storedStrokes = [], originNcodeY = null, { relink = null } = {}) {
   const existing = Array.isArray(existingLines) ? existingLines : [];
+  // Relink (v3.21.0): a plan kind of its own. The stored lines stay (ids, text,
+  // order, structure, task state); only yBounds, stroke links, taken word fixes
+  // and lines added from leftover ink change (lib/relink-plan.js).
+  if (relink) return planRelink(existing, relink, storedStrokes, originNcodeY);
   const none = {
     lines: existing, changed: false, linesAdded: 0, lineIdAssignments: new Map(), lineIdRemap: new Map(),
     deletedInkIds: new Set(), textlessIds: new Set()
@@ -629,7 +593,7 @@ export function strokesInTranscriptionFrame(storedStrokes, rotation) {
  * @returns {Promise<SavePageOutput>}
  */
 export async function savePageToFolder(input) {
-  const { book, page, activeStrokes = [], deletedStrokeIds = new Set(), pageTranscription = null } = input;
+  const { book, page, activeStrokes = [], deletedStrokeIds = new Set(), pageTranscription = null, relink = null } = input;
 
   try {
     // `book` is a BOOK KEY ("388" or "388v2"). On disk it splits back into a
@@ -638,7 +602,16 @@ export async function savePageToFolder(input) {
     // `typeof book === 'number'` check satisfied.
     const pageInfo = pageInfoForDisk(activeStrokes[0]?.pageInfo, book, page);
 
-    const existing = (await getPage(book, page)) || emptyPageDoc(pageInfo);
+    const onDisk = await getPage(book, page);
+    // Relink (v3.21.0) was planned from a MyScript run of the page as it was
+    // then; a page written since is sent again, never relinked from a stale run.
+    if (relink) {
+      if (!onDisk) return { success: false, error: 'page not found', added: 0, edited: 0, deleted: 0, total: 0, lineCount: 0 };
+      if ((onDisk.metadata?.lastUpdated || null) !== (relink.revision || null)) {
+        return { success: false, stale: true, error: 'the page changed since it was sent to MyScript', added: 0, edited: 0, deleted: 0, total: 0, lineCount: 0 };
+      }
+    }
+    const existing = onDisk || emptyPageDoc(pageInfo);
     if (existing.pageInfo) {
       if (!pageInfo.section && existing.pageInfo.section) pageInfo.section = existing.pageInfo.section;
       if (!pageInfo.owner && existing.pageInfo.owner)   pageInfo.owner = existing.pageInfo.owner;
@@ -805,6 +778,26 @@ export async function savePageToFolder(input) {
       }
     }
 
+    // ----- Relink (v3.21.0): new links for the sent ink, the stored lines kept -----
+    let relinked = 0;
+    if (relink) {
+      const frameStrokes = strokesInTranscriptionFrame(merged.filter(s => !s.textless), relink.rotation);
+      const plan = planTranscript(transcript.lines || [], null, frameStrokes, relink.originNcodeY, { relink });
+      linesAdded = plan.linesAdded;
+      transcriptChanged = plan.changed;
+      textlessIds = plan.textlessIds;
+      relinked = plan.linked;
+      merged = merged.map(s => {
+        if (textlessIds.has(s.id)) return withTextless(s, true);
+        if (!plan.lineIdAssignments.has(s.id)) return s;
+        const id = plan.lineIdAssignments.get(s.id) || null;
+        return (s.lineId || null) === id ? s : { ...s, lineId: id };
+      });
+      // The links now come from the fixed matching code, which is what
+      // isTrustworthyTranscript() reads this date for.
+      transcript = { ...transcript, lastTranscribed: new Date().toISOString(), lines: plan.lines };
+    }
+
     // Scrub any dangling lineIds (defensive — e.g. after editor-driven deletes).
     // A dead link the canvas synced in never replaces a live one on disk.
     {
@@ -851,6 +844,7 @@ export async function savePageToFolder(input) {
       // (stores/canvas-save.js): flagged textless, or only unlinked.
       textlessIds: [...textlessIds],
       unlinkedIds: [...unlinkedIds],
+      ...(relink ? { relinked, strokes: merged } : {}),
       path: result.path
     };
   } catch (err) {

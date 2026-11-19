@@ -12,7 +12,8 @@
 
   Ink + text links a hovered line to its ink only on pages whose stroke
   lineIds can be trusted (lib/viewer/ink-text.js); other pages sit side by
-  side without linking. Nothing here writes lineIds or touches the merge.
+  side without linking; their header offers Relink… (v3.21.0, stores/relink.js).
+  Nothing here writes lineIds or touches the merge.
   A global search hit (`readerFocus`) lights its matching line's ink and marks
   the line, on trusted pages only; elsewhere the page just opens. A task's
   page link names the line by id (v3.4.0), so that line is marked on any
@@ -37,6 +38,7 @@
   import PageInk from './PageInk.svelte';
   import TranscriptPane from './TranscriptPane.svelte';
   import PageTurnButtons from './PageTurnButtons.svelte';
+  import { openRelink } from '$stores/relink.js';
 
   /** store record: lightweight { book, page, pageId, strokeCount, ... } — NO strokes */
   export let record;
@@ -156,7 +158,7 @@
   $: linkable = contentMode === 'inktext' && doc ? isTrustworthyTranscript(doc) : false;
   $: lineInk = linkable ? strokesByLine(strokes, lines) : null;
   $: linkNote = contentMode === 'inktext' && doc && !linkable && lines.length
-    ? 'Lines aren’t linked to ink on this page: its transcript predates the Aug 2026 line matching. Re-transcribing links it.'
+    ? 'Lines aren’t linked to ink on this page: its transcript predates the Aug 2026 line matching. Relink… (above) links it and keeps the text.'
     : '';
   $: if (!linkable) lineHighlight = null;
 
@@ -198,6 +200,7 @@
     onOpenDay={openTimelineDay}
     {onLoadIntoEditor}
     printRef={{ book: record.book, pageId }}
+    onRelink={doc && lines.length && strokes.length && !trusted ? () => openRelink(record.book, pageId) : null}
   />
 
   <div class="pv-area" class:inktext={contentMode === 'inktext'} class:stack={layout === 'stack'}>

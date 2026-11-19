@@ -17,9 +17,7 @@
  */
 import { writable, get } from 'svelte/store';
 import { dataRoot, dataFolderReady, allowClaudeEdits } from './settings.js';
-import { isViewerPageDirty, isTranscriptEditorOpen } from './viewer.js';
-import { pageTranscriptions } from './transcription.js';
-import { isPageReset } from './transcript-reset.js';
+import { pageGuardState } from './page-guards.js';
 import { log } from './ui.js';
 import { getPage, savePage } from '$lib/storage/local-store.js';
 import { saveTranscriptLines } from '$lib/viewer/save-transcript.js';
@@ -37,25 +35,13 @@ function newId() {
   return crypto.randomUUID();
 }
 
-function pageNumber(page) {
-  return parseInt(String(page), 10);
-}
-
-/** What the stores say about this page, for editRefusal(). */
+/** What the stores say about this page, for editRefusal() (the flags are shared with Relink: page-guards.js). */
 function guardState(book, page, requestRoot) {
-  const n = pageNumber(page);
-  const pending = [...get(pageTranscriptions).values()].some(
-    (t) => t && t.pageInfo && String(t.pageInfo.book) === String(book) && Number(t.pageInfo.page) === n
-  );
   return {
+    ...pageGuardState(book, page),
     appRoot: get(dataRoot),
     folderReady: get(dataFolderReady),
     requestRoot,
-    label: label(book, page),
-    draft: isViewerPageDirty(String(book), String(page)),
-    editorOpen: isTranscriptEditorOpen(String(book), String(page)),
-    pendingTranscription: pending,
-    reset: isPageReset(String(book), n) || isPageReset(String(book), String(page)),
   };
 }
 

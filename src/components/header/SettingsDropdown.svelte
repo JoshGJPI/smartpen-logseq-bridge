@@ -5,26 +5,22 @@
   change: Pen, Notebooks, Data folder, Publish to LogSeq, Handwriting
   recognition (MyScript keys, set once), Maintenance. Each heading carries a
   one-line status, so a folded section still says whether it is set. Rescan
-  is under Data folder (also the Library home's ⋯ menu); Convert task boxes…, a
-  one-off, is under Maintenance with the Activity Log, and so is Clean up duplicate
-  strokes… (v3.18.0), whose count shows in the section heading.
+  is under Data folder (also the Library home's ⋯ menu). Maintenance (the
+  Activity Log and the one-offs) is its own component since v3.21.0
+  (settings/MaintenanceSettings.svelte, its dialogs in MaintenanceDialogs).
 -->
 <script>
   import {
     hasMyScriptCredentials,
-    logMessages,
-    openActivityLogDialog,
     autoPickPen,
     rememberedPen,
     isScanning
   } from '$stores';
-  import ActivityLogDialog from '../dialog/ActivityLogDialog.svelte';
-  import ConvertTaskBoxesDialog from '../dialog/ConvertTaskBoxesDialog.svelte';
-  import DuplicateStrokesDialog from '../dialog/DuplicateStrokesDialog.svelte';
-  import { pagesWithDuplicateStrokes } from '$stores/duplicate-strokes.js';
   import DataFolderSettings from '../settings/DataFolderSettings.svelte';
   import GraphFolderSettings from '../settings/GraphFolderSettings.svelte';
   import MyScriptSettings from '../settings/MyScriptSettings.svelte';
+  import MaintenanceSettings from '../settings/MaintenanceSettings.svelte';
+  import MaintenanceDialogs from '../settings/MaintenanceDialogs.svelte';
   import SettingsSection from '../settings/SettingsSection.svelte';
   import BooksTab from '../books/BooksTab.svelte';
   import { dataRoot, dataFolderReady, graphFolderReady } from '$stores/settings.js';
@@ -33,8 +29,6 @@
 
   let isOpen = false;
   let gearBtn;
-  let convertBoxesOpen = false;
-  let duplicatesOpen = false;
 
   function toggleDropdown() {
     isOpen = !isOpen;
@@ -44,34 +38,8 @@
     isOpen = false;
   }
 
-  /** Errors and warnings are what the log is opened for, so the button counts them. */
-  $: logProblemCount = $logMessages.filter(
-    e => e.level === 'error' || e.level === 'warning'
-  ).length;
-
   $: penName = $rememberedPen?.deviceName || ($rememberedPen?.deviceId ? 'a pen' : '');
   $: folderName = ($dataRoot || '').split(/[\\/]/).filter(Boolean).pop() || '';
-
-  function handleConvertTaskBoxes() {
-    convertBoxesOpen = true;
-    isOpen = false;  // the dialog is modal
-  }
-
-  $: duplicateCount = $pagesWithDuplicateStrokes.reduce((n, p) => n + p.duplicateStrokes, 0);
-  $: maintStatus = [
-    duplicateCount ? `${duplicateCount} duplicate ${duplicateCount === 1 ? 'stroke' : 'strokes'}` : '',
-    logProblemCount ? `${logProblemCount} ${logProblemCount === 1 ? 'problem' : 'problems'} in the log` : ''
-  ].filter(Boolean).join(' · ');
-
-  function handleDuplicateStrokes() {
-    duplicatesOpen = true;
-    isOpen = false;  // the dialog is modal
-  }
-
-  function handleShowActivityLog() {
-    openActivityLogDialog();
-    isOpen = false;  // Close settings dropdown — the dialog is modal
-  }
 
   // Close dropdown when clicking outside
   function handleClickOutside(event) {
@@ -173,51 +141,13 @@
         <MyScriptSettings />
       </SettingsSection>
 
-      <!-- One-offs and diagnostics -->
-      <SettingsSection title="Maintenance" storageKey="smartpen-settings-open-maint"
-        status={maintStatus}
-        warn={logProblemCount > 0 || duplicateCount > 0}>
-        <button class="btn tool-btn" on:click={handleShowActivityLog}>
-          <span class="button-text">Activity Log</span>
-          {#if logProblemCount > 0}
-            <span class="badge problems">{logProblemCount}</span>
-          {/if}
-        </button>
-        <p class="help-text">
-          A running record of what the app has done this session — open it when
-          something did not behave as expected.
-        </p>
-
-        <!-- One-off: pages transcribed before v3.3.0 kept MyScript's ☐ / ☑ as text -->
-        <button class="btn tool-btn" on:click={handleConvertTaskBoxes} disabled={!$dataFolderReady}>
-          <span class="button-text">Convert task boxes…</span>
-        </button>
-        <p class="help-text">
-          Older transcripts keep a drawn box as text (☐ Call Troy). This shows which lines would become
-          TODO / DONE, and changes nothing until you confirm.
-        </p>
-
-        <!-- Strokes on one page sharing an id (s{startTime}); counted by the capture-date scan -->
-        <button class="btn tool-btn" on:click={handleDuplicateStrokes} disabled={!$dataFolderReady}>
-          <span class="button-text">Clean up duplicate strokes…</span>
-          {#if duplicateCount > 0}
-            <span class="badge problems">{duplicateCount}</span>
-          {/if}
-        </button>
-        <p class="help-text">
-          Two strokes saved with the same id can't be told apart by a delete or an edit. This lists them,
-          removes exact copies, keeps different ink under its own id, and changes nothing until you confirm.
-        </p>
-      </SettingsSection>
+      <MaintenanceSettings onClose={closeDropdown} />
     </div>
   {/if}
 </div>
 
-<!-- The dialogs are mounted outside the {#if isOpen} block so they survive the
-     dropdown closing behind them. -->
-<ActivityLogDialog />
-<ConvertTaskBoxesDialog bind:open={convertBoxesOpen} />
-<DuplicateStrokesDialog bind:open={duplicatesOpen} />
+<!-- Mounted outside the {#if isOpen} block so they survive the dropdown closing behind them. -->
+<MaintenanceDialogs />
 
 <style>
   .settings-dropdown {
@@ -350,28 +280,6 @@
     color: var(--text-secondary);
     text-align: center;
     margin-top: 10px;
-  }
-
-  /* "Open a tool" button: Activity Log. */
-  .tool-btn {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-  }
-
-  .tool-btn .button-text {
-    flex: 1;
-    text-align: left;
-  }
-
-  .tool-btn .badge.problems {
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 0.7rem;
-    font-weight: 600;
-    background: rgba(251, 191, 36, 0.15);
-    color: var(--warning);
   }
 
   /* Scrollbar styling */

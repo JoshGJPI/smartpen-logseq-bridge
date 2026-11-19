@@ -90,15 +90,10 @@ describe('parseReference', () => {
   });
 });
 
-describe('alignLines', () => {
-  it('pairs similar lines and leaves missing ones unpaired', () => {
-    const s = [{ text: 'alpha beta' }, { text: 'gamma' }, { text: 'delta epsilon' }];
-    const r = [{ text: 'alpha betta' }, { text: 'new line here' }, { text: 'delta epsilon' }];
-    const pairs = alignLines(s, r);
-    expect(pairs[0]).toEqual([0, 0]);
-    expect(pairs[3]).toEqual([2, 2]);
-    expect(pairs.slice(1, 3)).toEqual(expect.arrayContaining([[1, null], [null, 1]]));
-    expect(alignLines([], [{ text: 'x' }])).toEqual([[null, 0]]);
+// alignLines' own tests moved to src/lib/__tests__/line-align.test.js (v3.21.0).
+describe('alignLines (re-exported from src/lib/line-align.js)', () => {
+  it('is the shared implementation', () => {
+    expect(alignLines([{ text: 'a b' }], [{ text: 'a b' }])).toEqual([[0, 0]]);
   });
 });
 

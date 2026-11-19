@@ -12,6 +12,7 @@ const pageStore = require('./page-store.cjs');
 const { buildTaskSummary } = require('./task-summary.cjs');
 const mcpEndpoint = require('./mcp-endpoint.cjs');
 const mcpEditLog = require('./mcp-edit-log.cjs');
+const relinkCache = require('./relink-cache.cjs');
 
 const {
   parseBookKey, requireBookKey, requirePageId, pagesDir, writeFileAtomic, createLock, readSidecarJson,
@@ -1317,6 +1318,11 @@ ipcMain.on('mcp:edit-result', (event, msg) => {
 ipcMain.handle('mcp:editLog', ipcSafe(async (action, book, page, payload) => {
   const key = `${requireBookKey(book)}-${requirePageId(page)}`;
   return mcpEditLog.handle(app.getPath('userData'), action, key, payload);
+}));
+
+// Relink's MyScript runs (v3.21.0): <userData>/relink-cache/<bookKey>/<pageId>.json, never in the data folder.
+ipcMain.handle('relink:cache', ipcSafe(async (action, book, page, entry) => {
+  return relinkCache.handle(app.getPath('userData'), action, requireBookKey(book), requirePageId(page), entry);
 }));
 
 app.on('will-quit', () => {

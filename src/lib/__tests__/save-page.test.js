@@ -1203,3 +1203,98 @@ describe('QA fixes (v3.20.0): sent strokes only, stale canvas links', () => {
     expect(strokeById('s1000').lineId).toBe('A');
   });
 });
+
+describe('savePageToFolder — Relink (v3.21.0, spec B.3 / B.7)', () => {
+  // Imported here so the rest of the file is unchanged.
+  let isTrustworthyTranscript, classifyRelink, buildRelinkSpec, defaultDecisions, fixture;
+  beforeEach(async () => {
+    ({ isTrustworthyTranscript } = await import('../viewer/ink-text.js'));
+    ({ classifyRelink, buildRelinkSpec, defaultDecisions } = await import('../relink.js'));
+    fixture = await import('./fixtures/relink-page.js');
+    vi.mocked(getPage).mockReset();
+    vi.mocked(savePage).mockReset();
+    vi.mocked(savePage).mockResolvedValue({ success: true, path: 'x' });
+  });
+
+  const written = () => vi.mocked(savePage).mock.calls.at(-1)[2];
+  const fields = (l) => ({ id: l.id, text: l.text, indentLevel: l.indentLevel, parentId: l.parentId, checked: l.checked, marker: l.marker });
+
+  function relinkOf(doc, run, decide = () => {}) {
+    const model = classifyRelink(doc.transcript.lines, run.lines);
+    const d = defaultDecisions(model);
+    decide(d, model);
+    return buildRelinkSpec(run, model, d);
+  }
+
+  it('the 3017/123-like page (28 lines, 5 tasks, one CANCELLED): trustworthy after, every task unchanged', async () => {
+    const doc = fixture.makeOldPage();
+    expect(isTrustworthyTranscript(doc)).toBe(false);
+    vi.mocked(getPage).mockResolvedValue(JSON.parse(JSON.stringify(doc)));
+    const r = await savePageToFolder({ book: '3017', page: '123', activeStrokes: [], relink: relinkOf(doc, fixture.makeRun(doc)) });
+    expect(r.success).toBe(true);
+    expect(r.relinked).toBe(28);
+    const out = written();
+    expect(isTrustworthyTranscript(out)).toBe(true);
+    // Every line field but yBounds kept: ids, text, order, indent, parent, task state.
+    expect(out.transcript.lines.map(fields)).toEqual(doc.transcript.lines.map(fields));
+    const tasks = (ls) => ls.filter((l) => l.checked != null).map((l) => [l.id, l.checked, l.marker ?? null]);
+    expect(tasks(out.transcript.lines)).toEqual(tasks(doc.transcript.lines));
+    expect(tasks(out.transcript.lines)).toHaveLength(5);
+    expect(out.transcript.lines.find((l) => l.marker === 'CANCELLED')).toMatchObject({ id: 'L13', checked: true });
+    // No stroke deleted, points and order untouched, each linked to its own line.
+    expect(out.strokes).toHaveLength(doc.strokes.length);
+    out.strokes.forEach((s, k) => {
+      expect(s.points).toEqual(doc.strokes[k].points);
+      expect(s.lineId).toBe(doc.transcript.lines[Math.floor(k / 3)].id);
+    });
+    expect(out.transcript.lastTranscribed > doc.transcript.lastTranscribed).toBe(true);
+    expect(out.metadata.lastUpdated > doc.metadata.lastUpdated).toBe(true);
+    expect(out.pageInfo).toMatchObject({ book: 3017, page: 123, section: 3, owner: 1012 });
+  });
+
+  it('leaves textless and kind-line strokes alone and keeps the kind line', async () => {
+    const doc = fixture.makeOldPage();
+    doc.strokes[0].textless = true;
+    doc.strokes[0].lineId = null;
+    doc.transcript.lines.push({ id: 'sk', kind: 'sketch', text: 'Sketch', indentLevel: 0, parentId: null, checked: null, yBounds: null });
+    doc.strokes[4].lineId = 'sk';
+    vi.mocked(getPage).mockResolvedValue(JSON.parse(JSON.stringify(doc)));
+    const run = fixture.makeRun(doc);
+    run.sent = run.sent.filter((id) => id !== doc.strokes[4].id);
+    await savePageToFolder({ book: '3017', page: '123', relink: relinkOf(doc, run) });
+    const out = written();
+    expect(out.strokes[0]).toEqual(doc.strokes[0]);
+    expect(out.strokes[4]).toEqual(doc.strokes[4]);
+    expect(out.transcript.lines.at(-1)).toEqual(doc.transcript.lines.at(-1));
+  });
+
+  it('writes leftover ink chosen as Not text, and a taken word fix, in the same save', async () => {
+    const doc = fixture.makeOldPage();
+    const y = fixture.rowY(27) + 6;
+    doc.strokes.push({ id: 's1765400000000', startTime: 1765400000000, endTime: 1765400000400, lineId: 'L03', points: [[20, y], [30, y + 2]] });
+    vi.mocked(getPage).mockResolvedValue(JSON.parse(JSON.stringify(doc)));
+    const run = fixture.makeRun(doc, { extra: [{ text: 'scribble', y }] });
+    const spec = relinkOf(doc, run, (d, m) => {
+      d.leftover[m.rows.find((r) => r.type === 'leftover').ms] = 'textless';
+      d.fixes.L05 = [0];
+    });
+    const r = await savePageToFolder({ book: '3017', page: '123', relink: spec });
+    const out = written();
+    expect(out.strokes.at(-1)).toMatchObject({ textless: true, lineId: null });
+    expect(r.textlessIds).toEqual(['s1765400000000']);
+    expect(out.transcript.lines[5].text).toBe('boring plate at top');
+    expect(out.transcript.lines).toHaveLength(28);
+  });
+
+  it('refuses a page written since its MyScript run (stale), writing nothing', async () => {
+    const doc = fixture.makeOldPage();
+    const spec = relinkOf(doc, fixture.makeRun(doc));
+    vi.mocked(getPage).mockResolvedValue({ ...JSON.parse(JSON.stringify(doc)), metadata: { ...doc.metadata, lastUpdated: '2026-11-19T09:00:00.000Z' } });
+    const r = await savePageToFolder({ book: '3017', page: '123', relink: spec });
+    expect(r).toMatchObject({ success: false, stale: true });
+    expect(savePage).not.toHaveBeenCalled();
+    vi.mocked(getPage).mockResolvedValue(null);
+    expect(await savePageToFolder({ book: '3017', page: '123', relink: spec })).toMatchObject({ success: false });
+    expect(savePage).not.toHaveBeenCalled();
+  });
+});

@@ -68,7 +68,7 @@ export function checkColoring(doc, { byLine, decorative }) {
     if (!lines.length) {
       key.push('color_by_line: page not transcribed, ink drawn plain.');
     } else if (!isTrustworthyTranscript(doc)) {
-      key.push('color_by_line: this page\'s stroke-to-line links are unreliable (transcribed before the line-matching fix), ink drawn plain. Re-transcribing the page fixes it.');
+      key.push('color_by_line: this page\'s stroke-to-line links are unreliable (transcribed before the line-matching fix), ink drawn plain. Relink in the app fixes it and keeps the text.');
     } else {
       lineColor = new Map();
       const counts = new Map();
