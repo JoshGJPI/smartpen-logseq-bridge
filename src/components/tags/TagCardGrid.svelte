@@ -1,7 +1,7 @@
 <!--
   TagCardGrid.svelte — the Library home in Tag grouping (v3.1.0 page tags;
-  mockup 4): project-number tags under Projects, keywords under Keywords, each
-  in the chosen sort, then the dashed Untagged card. A card opens that tag's
+  mockup 4): project-number tags under Projects, Person tags under People and
+  the other keywords under Topics (v3.22.0), each in the chosen sort, then the dashed Untagged card. A card opens that tag's
   pages across notebooks (TagPages) through openLibraryView. Everything comes
   from derived stores (sidecar + scan); nothing here reads a page.
 
@@ -14,15 +14,14 @@
   import {
     tagCardList, untaggedSummary, libraryTagSort, libraryTagView, collapsedTagGroups, toggleTagGroup, openLibraryView
   } from '$stores';
-  import { sortTagCards } from '$lib/tags.js';
+  import { tagInfo } from '$stores/tags.js';
+  import { sortTagCards, groupByTagType } from '$lib/tags.js';
   import TagCard from './TagCard.svelte';
   import TagPill from './TagPill.svelte';
 
   $: sorted = sortTagCards($tagCardList, $libraryTagSort);
-  $: groups = [
-    { id: 'projects', label: 'Projects', cards: sorted.filter((c) => c.project) },
-    { id: 'keywords', label: 'Keywords', cards: sorted.filter((c) => !c.project) }
-  ].filter((g) => g.cards.length);
+  // v3.22.0: Projects, People, Topics (lib/tags.js groupByTagType), keyed by type.
+  $: groups = groupByTagType(sorted, $tagInfo).map((g) => ({ ...g, cards: g.items }));
   $: pills = $libraryTagView === 'pills';
   $: Item = pills ? TagPill : TagCard;
 </script>

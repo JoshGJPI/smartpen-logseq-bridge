@@ -7,7 +7,14 @@
  *   "today", "yesterday"  → days (local day keys)
  *   "Study Notes", "B390", "390v2"                         → notebooks
  *   "beam", "p2026-141"                                    → tags (v3.1.0)
+ *   "person:tom", "topic:framing", "project:5444-006",
+ *   "type:person|project|topic", "is:job", "is:proposal"   → tag facets (v3.22.0)
  *   everything else                                         → transcript words
+ *
+ * A facet keeps the pages carrying a tag it names (several facets: a page must
+ * satisfy each). A facet value names a tag by its key, label or an alias,
+ * case-insensitively; quote a value with spaces (`person:"Tom Burnell"`). A
+ * facet with an unknown value (`type:x`, `is:x`) stays an ordinary word.
  *
  * Numeric dates are read month first (10/14), the way Josh writes them. A date
  * with no year is its most recent occurrence on or before today, so in October
@@ -19,7 +26,67 @@
 
 import { dayKey } from './timeline.js';
 import { tokenize } from './transcript-search.js';
-import { normalizeTag, isProjectTag } from './tags.js';
+import { normalizeTag, isProjectTag, tagTypeOf, tagAnswersTo, tagNames, projectKind, TAG_TYPES } from './tags.js';
+
+/** `key:value` or `key:"two words"`, at a word start. */
+const FACET_RE = /(^|\s)(person|topic|project|type|is):(?:"([^"]*)"|(\S+))/gi;
+const IS_VALUES = ['job', 'proposal'];
+
+/**
+ * Take the tag facets out of a query (v3.22.0).
+ * @param {string} text
+ * @returns {{text: string, facets: Array<{key: string, value: string}>}}
+ *   `text` with the facets removed; facets in query order, keys lowercase
+ *   (`type` and `is` values lowercase too)
+ */
+export function extractFacets(text) {
+  const facets = [];
+  const rest = String(text || '').replace(FACET_RE, (m, lead, k, quoted, bare) => {
+    const key = k.toLowerCase();
+    let value = (quoted != null ? quoted : bare).replace(/\s+/g, ' ').trim();
+    if (key === 'type' || key === 'is') value = value.toLowerCase();
+    if (!value) return m;
+    if (key === 'type' && !TAG_TYPES.includes(value)) return m;
+    if (key === 'is' && !IS_VALUES.includes(value)) return m;
+    facets.push({ key, value });
+    return `${lead} `;
+  });
+  return { text: rest, facets };
+}
+
+/** Does one facet take this tag? */
+export function facetTakesTag(facet, tag, info) {
+  const type = tagTypeOf(tag, info);
+  switch (facet && facet.key) {
+    case 'type': return type === facet.value;
+    case 'is': return projectKind(tag) === facet.value;
+    case 'person': case 'topic': case 'project':
+      return type === facet.key && tagAnswersTo(tag, info, facet.value);
+    default: return false;
+  }
+}
+
+/**
+ * The tags each facet names, and the pages that satisfy every facet.
+ * @param {Array<{key: string, value: string}>} facets
+ * @param {Record<string, string[]>} pageTags  page key → tags
+ * @param {Record<string, object>} [info]
+ * @returns {{tags: string[], keys: Set<string>|null}}  `tags`: every tag any
+ *   facet named, sorted by key; `keys`: null without facets
+ */
+export function facetPages(facets, pageTags, info = {}) {
+  if (!facets || !facets.length) return { tags: [], keys: null };
+  const all = new Set();
+  for (const list of Object.values(pageTags || {})) for (const t of list) all.add(t);
+  const sets = facets.map((f) => new Set([...all].filter((t) => facetTakesTag(f, t, info))));
+  const keys = new Set();
+  for (const [key, list] of Object.entries(pageTags || {})) {
+    if (sets.every((s) => list.some((t) => s.has(t)))) keys.add(key);
+  }
+  const tags = new Set();
+  for (const s of sets) for (const t of s) tags.add(t);
+  return { tags: [...tags].sort(), keys };
+}
 
 const MONTH_RE =
   'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?';
@@ -76,13 +143,15 @@ function resolveYear(m, d, now) {
  *
  * @param {string} input
  * @param {{now?: Date}} [opts]
- * @returns {{raw: string, text: string, tokens: string[], days: string[]}}
- *   `text` is the query with the dates taken out; `tokens` are its search words
- *   (same tokenizer as Transcripts → Search); `days` are unique, in query order.
+ * @returns {{raw: string, text: string, tokens: string[], days: string[], facets: Array<{key: string, value: string}>}}
+ *   `text` is the query with the facets and dates taken out; `tokens` are its
+ *   search words (same tokenizer as Transcripts → Search); `days` are unique,
+ *   in query order; `facets` from extractFacets (v3.22.0).
  */
 export function parseSearchQuery(input, { now = new Date() } = {}) {
   const raw = typeof input === 'string' ? input : '';
-  let text = raw;
+  const { text: noFacets, facets } = extractFacets(raw);
+  let text = noFacets;
   const days = [];
   const add = (k) => { if (k && !days.includes(k)) days.push(k); };
 
@@ -104,7 +173,7 @@ export function parseSearchQuery(input, { now = new Date() } = {}) {
   });
 
   text = text.replace(/\s+/g, ' ').trim();
-  return { raw, text, tokens: [...tokenize(text)], days };
+  return { raw, text, tokens: [...tokenize(text)], days, facets };
 }
 
 /**
@@ -141,18 +210,21 @@ export function matchNotebooks(text, notebooks) {
  * Page tags a query names (v3.1.0). A query shaped like a project number
  * ("p2026–141", "[[2327-018]]") matches only that tag, normalized; anything
  * else matches tags containing every query word (case-insensitive), exact and
- * prefix matches first, then most pages.
+ * prefix matches first, then most pages. v3.22.0: with `info`, text equal to a
+ * tag's label or an alias (case-insensitive) finds that tag as an exact match
+ * ("Thomas" finds `tom`).
  *
  * @param {string} text  the query with dates removed
  * @param {Array<{tag: string, pages: number}>} tags  tagStats() of the sidecar
+ * @param {Record<string, object>} [info]  the tags' info map
  * @returns {Array<{tag: string, pages: number, exact: boolean}>}
  */
-export function matchTags(text, tags) {
+export function matchTags(text, tags, info = null) {
   const raw = String(text || '').trim();
   if (!raw || !Array.isArray(tags)) return [];
   const asTag = normalizeTag(raw);
   if (asTag && isProjectTag(asTag)) {
-    return tags.filter((t) => t.tag === asTag).map((t) => ({ ...t, exact: true }));
+    return tags.filter((t) => t.tag === asTag || (info && tagAnswersTo(t.tag, info, raw))).map((t) => ({ ...t, exact: true }));
   }
   if (raw.length < 2) return [];
   const q = raw.toLowerCase();
@@ -160,8 +232,12 @@ export function matchTags(text, tags) {
   const out = [];
   for (const t of tags) {
     const name = t.tag.toLowerCase();
-    if (!words.every((w) => name.includes(w))) continue;
-    const rank = name === asTag || name === q ? 0 : name.startsWith(words[0]) ? 1 : 2;
+    const named = !!info && tagAnswersTo(t.tag, info, raw.replace(/^#/, ''));
+    // One bare word equal to a label or alias ("Thomas beam") finds the tag too.
+    const alt = info ? tagNames(t.tag, info).slice(1).map((n) => n.toLowerCase()) : [];
+    const wordNamed = !named && words.some((w) => alt.includes(w));
+    if (!named && !wordNamed && !words.every((w) => name.includes(w))) continue;
+    const rank = named || name === asTag || name === q ? 0 : wordNamed || name.startsWith(words[0]) ? 1 : 2;
     out.push({ ...t, exact: rank === 0, rank });
   }
   return out

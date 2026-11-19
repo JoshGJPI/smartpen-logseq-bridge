@@ -2,7 +2,8 @@
   TagManager.svelte — the tag table (v3.1.0 page tags; mockup 7), shown in the
   Library's Manage tags view (TagManagerView, v3.2.0; it was a Settings
   dialog): every tag with how many pages and notebooks carry it (straight from
-  the sidecar), and Rename, Merge into…, Delete; plus Reset dismissed
+  the sidecar) and its type (v3.22.0), and Details (opens TagDetails beside the
+  table), Rename, Merge into…, Delete; plus Reset dismissed
   suggestions. A tag's chip opens its pages. Click a column header to sort by
   it, again to reverse (remembered per viewer). After a rename, merge, delete
   or reset, a bar offers Undo until the next tag change (`tagUndo`).
@@ -15,14 +16,22 @@
 <script>
   import { tick } from 'svelte';
   import {
-    tagStatsList, dismissedTags, renameTag, mergeTags, deleteTag, resetDismissed, tagUndo, undoTagChange
+    tagStatsList, dismissedTags, tagInfo, renameTag, mergeTags, deleteTag, resetDismissed, tagUndo, undoTagChange
   } from '$stores/tags.js';
   import { openLibraryView } from '$stores/viewer.js';
   import { dataFolderReady } from '$stores/settings.js';
-  import { normalizeTag, sortTagStats, nextTagStatSort, parseTagStatSort, TAG_MANAGER_SORT_KEY } from '$lib/tags.js';
+  import {
+    normalizeTag, sortTagStats, nextTagStatSort, parseTagStatSort, tagTypeOf, tagLabel, TAG_MANAGER_SORT_KEY
+  } from '$lib/tags.js';
   import { readJson, write } from '$lib/safe-storage.js';
   import { plural } from '$lib/plural.js';
   import TagChip from './TagChip.svelte';
+
+  /** The tag whose Details panel is open (v3.22.0), and how to open one. */
+  export let selected = null;
+  export let onDetails = () => {};
+
+  const TYPE_NAMES = { project: 'Project', person: 'Person', topic: 'Topic' };
 
   let editing = null;   // tag being renamed
   let draft = '';
@@ -30,10 +39,11 @@
   let field;
 
   let sort = parseTagStatSort(readJson(TAG_MANAGER_SORT_KEY, null));
-  $: rows = sortTagStats($tagStatsList, sort);
+  $: rows = sortTagStats($tagStatsList.map((r) => ({ ...r, type: tagTypeOf(r.tag, $tagInfo) })), sort);
 
   const COLUMNS = [
     { by: 'tag', label: 'Tag' },
+    { by: 'type', label: 'Type' },
     { by: 'pages', label: 'Pages' },
     { by: 'notebooks', label: 'Notebooks' }
   ];
@@ -121,14 +131,15 @@
       </thead>
       <tbody>
         {#each rows as r (r.tag)}
-          <tr>
+          <tr class:sel={selected === r.tag}>
             <td class="name">
               {#if editing === r.tag}
                 <input bind:this={field} bind:value={draft} aria-label="New name for {r.tag}" on:keydown={onKey} on:blur={commitRename} />
               {:else}
-                <TagChip tag={r.tag} onClick={() => openLibraryView({ kind: 'tag', tag: r.tag })} title="Show the pages tagged {r.tag}" />
+                <TagChip tag={r.tag} onClick={() => openLibraryView({ kind: 'tag', tag: r.tag })} title="Show the pages tagged {tagLabel(r.tag, $tagInfo)}" />
               {/if}
             </td>
+            <td class="type">{TYPE_NAMES[r.type]}</td>
             <td>{r.pages}</td>
             <td>{r.notebooks}</td>
             <td class="acts">
@@ -138,6 +149,8 @@
                   {#each rows.filter((x) => x.tag !== r.tag) as o (o.tag)}<option value={o.tag}>{o.tag}</option>{/each}
                 </select>
               {:else}
+                <button type="button" class:on={selected === r.tag} aria-pressed={selected === r.tag}
+                  on:click={() => onDetails(selected === r.tag ? null : r.tag)}>Details</button>
                 <button type="button" on:click={() => startRename(r.tag)}>Rename</button>
                 <button type="button" disabled={rows.length < 2} on:click={() => { editing = null; merging = r.tag; }}>Merge into…</button>
                 <button type="button" class="del" on:click={() => remove(r.tag)}>Delete</button>
@@ -179,6 +192,9 @@
   th button.sort.on { color: #2c56c4; }
   .arrow { display: inline-block; width: 8px; font-size: 8px; }
   td.name { max-width: 260px; }
+  td.type { font-size: 12px; color: #777; }
+  tr.sel td { background: #f5f8ff; }
+  .acts button.on { border-color: #4a7cf7; color: #2c56c4; background: #eef3ff; }
   .acts { text-align: right; white-space: nowrap; }
   button, select, input {
     padding: 3px 9px;

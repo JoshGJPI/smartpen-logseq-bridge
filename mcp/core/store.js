@@ -124,6 +124,7 @@ export class Store {
     const pages = [...this.cache.values()].sort(
       (a, b) => compareBookKeys(a.book, b.book) || a.page - b.page || a.suffix.localeCompare(b.suffix)
     );
+    const tagsFile = readTags(this.root);
     return {
       pages,
       // The `_timeline.json` shape that lib/timeline.js consumes.
@@ -131,7 +132,9 @@ export class Store {
       aliases: readAliases(this.root),
       volumes: readVolumes(this.root),
       orientations: readOrientations(this.root),
-      tags: readTags(this.root).pages
+      tags: tagsFile.pages,
+      // Tag types and details (v3.22.0): the `info` section of _tags.json.
+      tagInfo: tagsFile.info
     };
   }
 

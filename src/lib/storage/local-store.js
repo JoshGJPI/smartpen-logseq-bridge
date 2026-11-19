@@ -284,7 +284,7 @@ export async function setOrientation(book, pageId, rotation) {
  * ============================================================ */
 
 /**
- * The tags sidecar, raw: `{ version, pages, dismissed, state }`, where state is
+ * The tags sidecar, raw: `{ version, pages, dismissed, info, state }`, where state is
  * 'missing' | 'ok' | 'corrupt' | 'newer'. Run it through `normalizeTagsFile()`
  * (lib/tags.js) before use. Never touches a PageDoc.
  */
@@ -296,7 +296,8 @@ export async function getTags() {
 
 /**
  * Apply per-page changes to the tags sidecar in one locked write:
- * `{ pages?: { "<bookKey>/<pageId>": tags[] | null }, dismissed?: {...} }`.
+ * `{ pages?: { "<bookKey>/<pageId>": tags[] | null }, dismissed?: {...},
+ *    info?: { "<tag>": record | null } }` (info: v3.22.0, lib/tags.js normalizeTagInfo).
  * Tags must already be normalized (lib/tags.js). Resolves `{ replacedCorrupt }`.
  */
 export async function patchTags(patch) {

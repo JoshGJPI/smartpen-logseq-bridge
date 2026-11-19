@@ -16,7 +16,7 @@ import { getTags, patchTags } from '$lib/storage/local-store.js';
 import {
   pageTags, dismissedTags, tagIndex, tagStatsList, loadTags, clearTags, setPageTagList,
   addTagToPages, removeTagFromPages, renameTag, mergeTags, deleteTag, dismissSuggestion,
-  resetDismissed, tagsFor, carryTagsForMoves, tagUndo, undoTagChange
+  resetDismissed, tagsFor, carryTagsForMoves, tagUndo, undoTagChange, tagInfo, setTagInfo, setTagType
 } from '$stores/tags.js';
 import { logMessages } from '$stores/ui.js';
 
@@ -286,5 +286,118 @@ describe('undo (v3.2.0)', () => {
     await mergeTags('a', 'b');
     clearTags();
     expect(get(tagUndo)).toBe(null);
+  });
+});
+
+describe('tag info (v3.22.0)', () => {
+  const tom = { type: 'person', label: 'Tom', aliases: ['Thomas'] };
+
+  beforeEach(() => {
+    tagInfo.set({});
+    tagUndo.set(null);
+  });
+
+  it('loadTags reads the info section, normalized', async () => {
+    vi.mocked(getTags).mockResolvedValue({
+      version: 1, state: 'ok', pages: { '388/1': ['tom'] }, dismissed: {},
+      info: { tom: { ...tom, junk: 1 }, Bad: { label: 'x' } }
+    });
+    await loadTags();
+    expect(get(tagInfo)).toEqual({ tom });
+    clearTags();
+    expect(get(tagInfo)).toEqual({});
+  });
+
+  it('setTagInfo writes one record at once, as an info-only patch', async () => {
+    expect(await setTagInfo('tom', { ...tom, note: ' PM ' })).toBe(true);
+    expect(get(tagInfo)).toEqual({ tom: { ...tom, note: 'PM' } });
+    expect(patchTags).toHaveBeenCalledWith({ pages: {}, dismissed: {}, info: { tom: { ...tom, note: 'PM' } } });
+    expect(await setTagInfo('tom', null)).toBe(true);
+    expect(patchTags).toHaveBeenLastCalledWith({ pages: {}, dismissed: {}, info: { tom: null } });
+    expect(await setTagInfo('Tom', tom)).toBe(false);   // keys are normalized tags
+  });
+
+  it('a failed info write rolls back that tag only, and says so', async () => {
+    tagInfo.set({ beam: { aliases: ['girder'] } });
+    vi.mocked(patchTags).mockRejectedValueOnce(new Error('disk full'));
+    expect(await setTagInfo('tom', tom)).toBe(false);
+    expect(get(tagInfo)).toEqual({ beam: { aliases: ['girder'] } });
+    expect(lastLog().message).toMatch(/details.*disk full/);
+  });
+
+  it('a rollback leaves a later edit to the same tag alone', async () => {
+    let fail;
+    vi.mocked(patchTags).mockImplementationOnce(() => new Promise((_, rej) => { fail = rej; }));
+    const first = setTagInfo('tom', tom);
+    await setTagInfo('beam', { aliases: ['girder'] });
+    fail(new Error('nope'));
+    await first;
+    expect(get(tagInfo)).toEqual({ beam: { aliases: ['girder'] } });
+  });
+
+  it('setTagType makes a keyword a Person or a Topic; a project number is refused', async () => {
+    expect(await setTagType('tom', 'person', 'Tom')).toBe(true);
+    expect(get(tagInfo)).toEqual({ tom: { type: 'person', label: 'Tom' } });
+    expect(await setTagType('tom', 'topic')).toBe(true);
+    expect(get(tagInfo)).toEqual({ tom: { label: 'Tom' } });
+    vi.mocked(patchTags).mockClear();
+    expect(await setTagType('5444-006', 'person')).toBe(false);
+    expect(await setTagType('tom', 'project')).toBe(false);
+    expect(patchTags).not.toHaveBeenCalled();
+  });
+
+  it('rename carries the record in the same write as the pages', async () => {
+    pageTags.set({ '388/1': ['tom'], '388/2': ['tom'] });
+    tagInfo.set({ tom });
+    await renameTag('tom', 'tom-b');
+    expect(get(tagInfo)).toEqual({ 'tom-b': tom });
+    expect(patchTags).toHaveBeenCalledTimes(1);
+    expect(patchTags).toHaveBeenCalledWith({
+      pages: { '388/1': ['tom-b'], '388/2': ['tom-b'] }, dismissed: {}, info: { tom: null, 'tom-b': tom }
+    });
+  });
+
+  it('merge keeps the target\'s info and adds the source\'s aliases, in one write', async () => {
+    pageTags.set({ '388/1': ['tom'], '388/2': ['thomas'] });
+    tagInfo.set({ tom, thomas: { type: 'person', label: 'Thomas B.' } });
+    await mergeTags('tom', 'thomas');
+    expect(get(tagInfo)).toEqual({ thomas: { type: 'person', label: 'Thomas B.', aliases: ['Thomas'] } });
+    expect(patchTags).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(patchTags).mock.calls[0][0].info).toEqual({ tom: null, thomas: { type: 'person', label: 'Thomas B.', aliases: ['Thomas'] } });
+  });
+
+  it('delete drops the record in the same write', async () => {
+    pageTags.set({ '388/1': ['tom', 'beam'] });
+    tagInfo.set({ tom, beam: { aliases: ['girder'] } });
+    await deleteTag('tom');
+    expect(get(tagInfo)).toEqual({ beam: { aliases: ['girder'] } });
+    expect(patchTags).toHaveBeenCalledWith({ pages: { '388/1': ['beam'] }, dismissed: {}, info: { tom: null } });
+  });
+
+  it('a failed rename rolls back pages and info together', async () => {
+    pageTags.set({ '388/1': ['tom'] });
+    tagInfo.set({ tom });
+    vi.mocked(patchTags).mockRejectedValueOnce(new Error('locked'));
+    expect(await renameTag('tom', 'tom-b')).toBe(false);
+    expect(get(pageTags)).toEqual({ '388/1': ['tom'] });
+    expect(get(tagInfo)).toEqual({ tom });
+    expect(get(tagUndo)).toBeNull();
+  });
+
+  it('undo of a delete brings the record back', async () => {
+    pageTags.set({ '388/1': ['tom'] });
+    tagInfo.set({ tom });
+    await deleteTag('tom');
+    expect(get(tagInfo)).toEqual({});
+    await undoTagChange();
+    expect(get(pageTags)).toEqual({ '388/1': ['tom'] });
+    expect(get(tagInfo)).toEqual({ tom });
+    expect(patchTags).toHaveBeenLastCalledWith({ pages: { '388/1': ['tom'] }, dismissed: {}, info: { tom } });
+  });
+
+  it('tag edits that do not touch info send no info section', async () => {
+    tagInfo.set({ tom });
+    await addTagToPages(['388/1'], 'beam');
+    expect(patchTags).toHaveBeenCalledWith({ pages: { '388/1': ['beam'] }, dismissed: {} });
   });
 });

@@ -7,6 +7,8 @@
   index built once per scan: stores/library.js); dates ("Oct 14", "2026-10-14",
   "yesterday") give Day results and the pages written that day; notebook names
   or keys give Notebook results (lib/search-query.js, lib/global-search.js).
+  Tag facets (v3.22.0: person:tom, topic:framing, project:5444-006,
+  type:person, is:job, is:proposal) keep the pages carrying those tags.
   Debounced; nothing reads a page except the result thumbnails on screen.
 
   Enter opens the result: a page in the reader (openPageInLibrary, so the
@@ -24,7 +26,8 @@
   import {
     globalSearchIndex, searchRecords, searchDates, notebookNames, transcriptEditing,
     ensureTimelineLoaded, openPageInLibrary, openNotebookInLibrary, focusReaderLine,
-    navigateTo, setTimelineRange, setActiveTab, openTranscriptSearch, openLibraryView, tagStatsList, destination
+    navigateTo, setTimelineRange, setActiveTab, openTranscriptSearch, openLibraryView, tagStatsList, destination,
+    pageTags, tagInfo
   } from '$stores';
   import { timelineIndexFiltered } from '$stores/timeline.js';
   import { parseSearchQuery } from '$lib/search-query.js';
@@ -61,7 +64,9 @@
     timeline: $timelineIndexFiltered,
     dates: $searchDates,
     records: $searchRecords,
-    tags: $tagStatsList
+    tags: $tagStatsList,
+    pageTags: $pageTags,
+    info: $tagInfo
   });
 
   onDestroy(() => clearTimeout(timer));

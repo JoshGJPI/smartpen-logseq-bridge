@@ -99,3 +99,100 @@ describe('applyTagsPatch', () => {
     expect(parseTagsFile(serializeTagsFile(next))).toEqual({ file: next, state: 'ok' });
   });
 });
+
+describe('info (v3.22.0)', () => {
+  const file = {
+    version: 1, pages: { '388/1': ['tom'] }, dismissed: {}, blocks: { kept: true },
+    info: { tom: { type: 'person', label: 'Tom' }, framing: { aliases: ['framed'] } }
+  };
+
+  it('sets and removes records in the same patch as page lists, keeping unknown fields', () => {
+    const next = applyTagsPatch(file, {
+      pages: { '388/2': ['tom-b'], '388/1': null },
+      info: { 'tom-b': { type: 'person', label: 'Tom', aliases: ['Thomas'] }, tom: null }
+    }, guards);
+    expect(next).toEqual({
+      version: 1,
+      pages: { '388/2': ['tom-b'] },
+      dismissed: {},
+      blocks: { kept: true },
+      info: { framing: { aliases: ['framed'] }, 'tom-b': { type: 'person', label: 'Tom', aliases: ['Thomas'] } }
+    });
+    expect(file.info.tom).toBeDefined();   // input untouched
+  });
+
+  it('a patch without info leaves the info section exactly as it was', () => {
+    const next = applyTagsPatch(file, { pages: { '388/3': ['beam'] } }, guards);
+    expect(next.info).toBe(file.info);
+    expect('info' in applyTagsPatch(emptyTagsFile(), { pages: { '388/3': ['beam'] } }, guards)).toBe(false);
+  });
+
+  it('creates the section on a file that has none; an empty record removes', () => {
+    const next = applyTagsPatch(emptyTagsFile(), { info: { tom: { type: 'person' }, x: {} } }, guards);
+    expect(next.info).toEqual({ tom: { type: 'person' } });
+  });
+
+  it('a file whose info is not an object is replaced by the patched records', () => {
+    const next = applyTagsPatch({ ...emptyTagsFile(), info: 'junk' }, { info: { tom: { label: 'Tom' } } }, guards);
+    expect(next.info).toEqual({ tom: { label: 'Tom' } });
+  });
+
+  it('rejects the whole patch on a bad info key, shape or type, writing nothing', () => {
+    const bad = [
+      { info: { Tom: { label: 'Tom' } } },                         // key not normalized
+      { info: { '../x': null } },
+      { info: { tom: 'Tom' } },
+      { info: { tom: ['person'] } },
+      { info: { tom: { label: { nested: 1 } } } },
+      { info: { tom: { aliases: [1, 2] } } },
+      { info: { tom: { type: 'company' } } },                      // only person is stored
+      { info: { '5444-006': { type: 'person' } } },                // a project's type is the pattern
+      { info: { 'P2026-141': { type: 'person' } } },
+      { info: { tom: { label: 'x'.repeat(1001) } } },
+      { info: [] },
+      { pages: { '388/1': ['ok'] }, info: { BAD: null } }           // a good page list does not go through alone
+    ];
+    for (const patch of bad) expect(() => applyTagsPatch(file, patch, guards), JSON.stringify(patch)).toThrow();
+  });
+
+  it('parseTagsFile keeps an info section untouched, and a 3.21-style patch never drops it', () => {
+    const { file: read } = parseTagsFile(serializeTagsFile(file));
+    expect(read.info).toEqual(file.info);
+    const next = applyTagsPatch(read, { pages: { '388/1': ['tom', 'beam'] }, dismissed: {} }, guards);
+    expect(next.info).toEqual(file.info);
+    expect(next.blocks).toEqual({ kept: true });
+  });
+});
+
+describe('info under the tags lock (v3.22.0)', () => {
+  // main.cjs storage:patchTags, reproduced over an in-memory file: read, apply, write, inside one lock.
+  const { createLock } = require('../../../electron/page-store.cjs');
+
+  it('an info patch and a page patch sent together both land', async () => {
+    let disk = serializeTagsFile({ version: 1, pages: { '388/1': ['tom'] }, dismissed: {} });
+    const withTagsLock = createLock();
+    const tick = () => new Promise((r) => setTimeout(r, 1));
+    const patchTags = (patch) => withTagsLock(async () => {
+      const { file } = parseTagsFile(disk);
+      await tick();   // the read and the write are apart, as they are on disk
+      const next = applyTagsPatch(file, patch, guards);
+      await tick();
+      disk = serializeTagsFile(next);
+    });
+    await Promise.all([
+      patchTags({ info: { tom: { type: 'person', label: 'Tom' } } }),
+      patchTags({ pages: { '388/2': ['beam'] } }),
+      patchTags({ info: { beam: { aliases: ['girder'] } } })
+    ]);
+    const { file } = parseTagsFile(disk);
+    expect(file.pages).toEqual({ '388/1': ['tom'], '388/2': ['beam'] });
+    expect(file.info).toEqual({ tom: { type: 'person', label: 'Tom' }, beam: { aliases: ['girder'] } });
+  });
+});
+
+describe('info: a keyword that only ends like a number (v3.22.0)', () => {
+  it('may be a person; only a whole project number may not', () => {
+    const next = applyTagsPatch(emptyTagsFile(), { info: { 'x1234-567': { type: 'person' } } }, guards);
+    expect(next.info).toEqual({ 'x1234-567': { type: 'person' } });
+  });
+});

@@ -10,8 +10,14 @@
  *   {
  *     "version": 1,
  *     "pages":     { "3017/42": ["P2026-141", "beam"], "388v2/7": ["2327-018"] },
- *     "dismissed": { "3017/42": ["2327-018"] }
+ *     "dismissed": { "3017/42": ["2327-018"] },
+ *     "info":      { "tom": { "type": "person", "label": "Tom", "aliases": ["Thomas"], "company": "Burnell" },
+ *                    "5444-006": { "name": "…", "client": "…", "active": true } }
  *   }
+ *
+ * `info` (v3.22.0) holds a tag's type and details, keyed by the normalized tag
+ * (see "Tag info" below). A tag with no details has no entry. Phase D's
+ * `blocks` will be another top-level sibling.
  *
  * This module owns the format: normalizing a tag, the per-page lists, every
  * edit (add, remove, rename, merge, delete) as a map → map function, the patch
@@ -137,18 +143,266 @@ function normalizeMap(raw) {
 }
 
 /**
- * Whatever main read from `_tags.json` → `{ pages, dismissed }` holding only
- * valid keys and normalized, non-empty lists. Missing, corrupt or wrongly
- * shaped input is two empty maps, never a thrown error.
+ * Whatever main read from `_tags.json` → `{ pages, dismissed, info }` holding
+ * only valid keys, normalized non-empty lists and normalized info records.
+ * Missing, corrupt or wrongly shaped input is three empty maps, never a thrown
+ * error.
  * @param {any} raw
- * @returns {{pages: Record<string, string[]>, dismissed: Record<string, string[]>}}
+ * @returns {{pages: Record<string, string[]>, dismissed: Record<string, string[]>, info: Record<string, object>}}
  */
 export function normalizeTagsFile(raw) {
   const ok = raw && typeof raw === 'object';
   return {
     pages: normalizeMap(ok ? raw.pages : null),
-    dismissed: normalizeMap(ok ? raw.dismissed : null)
+    dismissed: normalizeMap(ok ? raw.dismissed : null),
+    info: normalizeInfoMap(ok ? raw.info : null)
   };
+}
+
+/* ============================================================
+ *  Tag info: types and details (v3.22.0)
+ * ============================================================ */
+
+/**
+ * The three tag types (docs/TRANSCRIPT-STRUCTURE-SPEC.md Phase C).
+ * - **project**: the pattern alone (`isProjectTag`: job `2327-018`, proposal
+ *   `P2026-141`). Never stored, never changed.
+ * - **person**: a keyword whose info says `type: "person"`. The only type stored.
+ * - **topic**: every other keyword (no stored type). A keyword is never a project.
+ */
+export const TAG_TYPES = ['project', 'person', 'topic'];
+
+/** Longest label, alias, name, client or company, in characters. */
+export const MAX_INFO_TEXT = 80;
+/** Longest note. */
+export const MAX_INFO_NOTE = 500;
+/** Most aliases per tag. */
+export const MAX_ALIASES = 20;
+
+/*
+ * Fields an info record may hold, per type (anything else is dropped):
+ * - every type: `aliases` (case kept, exact duplicates dropped), `note`
+ * - person: `type: "person"`, `label` (display name, case kept), `company`
+ * - topic: `label`
+ * - project: `name`, `client`, `active` (boolean), and on a proposal `job`
+ *   (the job number it became)
+ */
+
+function cleanText(v, max = MAX_INFO_TEXT) {
+  if (typeof v !== 'string') return '';
+  const s = v.replace(/\s+/g, ' ').trim();
+  return s.length > max ? s.slice(0, max).trim() : s;
+}
+
+function cleanNote(v) {
+  if (typeof v !== 'string') return '';
+  const s = v.replace(/\r\n?/g, '\n').trim();
+  return s.length > MAX_INFO_NOTE ? s.slice(0, MAX_INFO_NOTE).trim() : s;
+}
+
+/**
+ * Aliases as stored: trimmed, non-empty, at most MAX_ALIASES; exact
+ * (case-sensitive) duplicates and the label itself dropped. A string is split
+ * on commas and newlines (the Details field).
+ */
+export function normalizeAliases(list, label = '') {
+  const raw = Array.isArray(list) ? list : typeof list === 'string' ? list.split(/[,\n]/) : [];
+  const out = [];
+  for (const a of raw) {
+    const s = cleanText(a);
+    if (s && s !== label && !out.includes(s)) out.push(s);
+    if (out.length >= MAX_ALIASES) break;
+  }
+  return out;
+}
+
+/**
+ * One tag's info record as stored, or null when nothing is left. The tag's
+ * type decides which fields survive: a project number's record never holds a
+ * type, and a keyword's `type` is kept only as `"person"` (topic is the
+ * default, so it is never written). A label equal to the tag is dropped.
+ *
+ * @param {string} tag  normalized tag (the info key); anything else → null
+ * @param {any} raw
+ * @returns {object|null}
+ */
+export function normalizeTagInfo(tag, raw) {
+  const t = normalizeTag(tag);
+  if (!t || t !== tag || !raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const type = isProjectTag(t) ? 'project' : raw.type === 'person' ? 'person' : 'topic';
+  const out = {};
+  if (type === 'person') out.type = 'person';
+  if (type !== 'project') {
+    const label = cleanText(raw.label);
+    if (label && label !== t) out.label = label;
+  }
+  if (type === 'person') {
+    const company = cleanText(raw.company);
+    if (company) out.company = company;
+  }
+  if (type === 'project') {
+    const name = cleanText(raw.name);
+    const client = cleanText(raw.client);
+    if (name) out.name = name;
+    if (client) out.client = client;
+    if (typeof raw.active === 'boolean') out.active = raw.active;
+    const job = normalizeTag(raw.job);
+    if (projectKind(t) === 'proposal' && projectKind(job) === 'job') out.job = job;
+  }
+  const aliases = normalizeAliases(raw.aliases, out.label || '');
+  if (aliases.length) out.aliases = aliases;
+  const note = cleanNote(raw.note);
+  if (note) out.note = note;
+  return Object.keys(out).length ? out : null;
+}
+
+/** The `info` map as stored: normalized keys and records, empty ones dropped. */
+export function normalizeInfoMap(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const key of Object.keys(raw)) {
+    const rec = normalizeTagInfo(key, raw[key]);
+    if (rec) out[key] = rec;
+  }
+  return out;
+}
+
+/** A tag's info record, or an empty object. */
+export function infoOf(info, tag) {
+  return (info && Object.prototype.hasOwnProperty.call(info, tag) && info[tag]) || {};
+}
+
+/**
+ * A tag's type: 'project' by the pattern, 'person' when its info says so,
+ * else 'topic'.
+ * @param {string} tag
+ * @param {Record<string, object>} [info]  the info map
+ * @returns {'project'|'person'|'topic'}
+ */
+export function tagTypeOf(tag, info) {
+  if (isProjectTag(tag)) return 'project';
+  return infoOf(info, tag).type === 'person' ? 'person' : 'topic';
+}
+
+/** 'job' (`2327-018`), 'proposal' (`P2026-141`), or null for anything else. */
+export function projectKind(tag) {
+  if (!isProjectTag(tag)) return null;
+  return tag.startsWith('P') ? 'proposal' : 'job';
+}
+
+/** What a chip shows: a project's number, else the stored label (capitals kept), else the tag. */
+export function tagLabel(tag, info) {
+  if (isProjectTag(tag)) return tag;
+  return infoOf(info, tag).label || tag;
+}
+
+/** Every name a tag answers to: its key, its label (if any) and its aliases, in that order. */
+export function tagNames(tag, info) {
+  const rec = infoOf(info, tag);
+  const out = [tag];
+  if (rec.label && !out.includes(rec.label)) out.push(rec.label);
+  for (const a of rec.aliases || []) if (!out.includes(a)) out.push(a);
+  return out;
+}
+
+/**
+ * Does `value` name this tag? Its key (`value` normalized), or its label or an
+ * alias, compared case-insensitively: a search for "tom" finds Tom. (Phase D's
+ * case-sensitive person match is on transcript text, not on searches.)
+ */
+export function tagAnswersTo(tag, info, value) {
+  const v = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+  if (!v) return false;
+  if (normalizeTag(v) === tag) return true;
+  const low = v.toLowerCase();
+  return tagNames(tag, info).some((n) => n.toLowerCase() === low);
+}
+
+/** `info` with one tag's record replaced (normalized); null or an empty record removes it. */
+export function withTagInfo(info, tag, record) {
+  const next = { ...(info || {}) };
+  const rec = record ? normalizeTagInfo(tag, record) : null;
+  if (rec) next[tag] = rec;
+  else delete next[tag];
+  return next;
+}
+
+/**
+ * `info` with a keyword's type set. 'person' adds `type` (and `label` when
+ * none is stored yet: the capitals typed in "Add as Person"); 'topic' drops
+ * the type and the person-only `company`. A project's type can't be set, and
+ * nothing can become a project: `info` comes back unchanged.
+ */
+export function withTagType(info, tag, type, label = '') {
+  if (!normalizeTag(tag) || isProjectTag(tag) || (type !== 'person' && type !== 'topic')) return info || {};
+  const next = { ...infoOf(info, tag) };
+  if (type === 'person') {
+    next.type = 'person';
+    if (!next.label && label) next.label = label;
+  } else {
+    delete next.type;
+    delete next.company;
+  }
+  return withTagInfo(info, tag, next);
+}
+
+/**
+ * Info after a rename or merge (`renameTagInMap`'s sibling, applied in the
+ * same write). Onto a new name the record moves; fields the new name's type
+ * can't hold are dropped (a keyword renamed to a project number loses its type
+ * and label). Onto an existing tag (a merge, `exists`) the target keeps its
+ * own info and gains the source's aliases. The source's record goes either way.
+ */
+export function renameTagInfo(info, from, to, exists = false) {
+  const f = normalizeTag(from);
+  const t = normalizeTag(to);
+  const map = info || {};
+  if (!f || !t || f === t || !(f in map)) return map;
+  const src = map[f];
+  const next = { ...map };
+  delete next[f];
+  if (exists || next[t]) {
+    const target = next[t] || {};
+    return withTagInfo(next, t, { ...target, aliases: [...(target.aliases || []), ...(src.aliases || [])] });
+  }
+  return withTagInfo(next, t, src);
+}
+
+/** Info with a tag's record removed (the tag was deleted from every page). */
+export function deleteTagInfo(info, tag) {
+  const t = normalizeTag(tag);
+  if (!t || !info || !(t in info)) return info || {};
+  const next = { ...info };
+  delete next[t];
+  return next;
+}
+
+const sameRecord = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+/** The info records that differ, as main applies them: `{ tag: record }` to set, `{ tag: null }` to remove. */
+export function diffTagInfo(prev, next) {
+  const out = {};
+  const p = prev || {};
+  const n = next || {};
+  for (const tag of new Set([...Object.keys(p), ...Object.keys(n)])) {
+    if (!sameRecord(p[tag], n[tag])) out[tag] = n[tag] || null;
+  }
+  return out;
+}
+
+/**
+ * Undo a failed info write: each tag it set goes back to its previous record,
+ * but only where the map still holds what that write set (a later edit wins).
+ */
+export function rollbackInfoPatch(info, patch, prev) {
+  let next = info || {};
+  for (const tag of Object.keys(patch || {})) {
+    if (!sameRecord(next[tag], patch[tag])) continue;
+    next = { ...next };
+    if (prev && prev[tag]) next[tag] = prev[tag];
+    else delete next[tag];
+  }
+  return next;
 }
 
 /* ============================================================
@@ -473,14 +727,32 @@ export function parseTagView(raw) {
   return raw === 'pills' ? 'pills' : 'cards';
 }
 
-/** The tag home's collapsible groups. */
-export const TAG_GROUPS = ['projects', 'keywords'];
+/**
+ * The tag home's collapsible groups, keyed by tag type (v3.22.0): Projects,
+ * People, Topics. Before 3.22 the ids were 'projects' and 'keywords'.
+ */
+export const TAG_GROUPS = ['project', 'person', 'topic'];
+export const TAG_GROUP_LABELS = { project: 'Projects', person: 'People', topic: 'Topics' };
 export const TAG_COLLAPSED_KEY = 'smartpen-library-tag-collapsed';
 
-/** A stored list of collapsed groups: known group ids only, no repeats. */
+/** Pre-3.22 group ids: "keywords" reads as Topics. */
+const OLD_GROUP_IDS = { projects: 'project', keywords: 'topic' };
+
+/** A stored list of collapsed groups: type ids only (old ids mapped), no repeats, in group order. */
 export function parseCollapsedGroups(raw) {
   if (!Array.isArray(raw)) return [];
-  return TAG_GROUPS.filter((g) => raw.includes(g));
+  const ids = raw.map((g) => OLD_GROUP_IDS[g] || g);
+  return TAG_GROUPS.filter((g) => ids.includes(g));
+}
+
+/**
+ * Items split into the type groups, in TAG_GROUPS order, empty groups left
+ * out: `[{ id, label, items }]`. `tagOf` reads an item's tag.
+ */
+export function groupByTagType(items, info, tagOf = (x) => x.tag) {
+  const by = { project: [], person: [], topic: [] };
+  for (const it of items || []) by[tagTypeOf(tagOf(it), info)].push(it);
+  return TAG_GROUPS.filter((g) => by[g].length).map((id) => ({ id, label: TAG_GROUP_LABELS[id], items: by[id] }));
 }
 
 /* ----- A tag's pages: sort (v3.11.0) ----- */
@@ -547,7 +819,7 @@ export function tagStats(map) {
 /* ----- Tag manager column sort (v3.2.0) ----- */
 
 /** Sortable tag manager columns, and the direction a first click on each gives. */
-export const TAG_STAT_COLUMNS = { tag: 'asc', pages: 'desc', notebooks: 'desc' };
+export const TAG_STAT_COLUMNS = { tag: 'asc', type: 'asc', pages: 'desc', notebooks: 'desc' };
 export const TAG_MANAGER_SORT_KEY = 'smartpen-tag-manager-sort';
 
 /** A stored `{ by, dir }`, or most pages first. */
@@ -575,6 +847,10 @@ export function sortTagStats(rows, { by = 'pages', dir = 'desc' } = {}) {
   const sign = dir === 'asc' ? 1 : -1;
   const list = [...(rows || [])];
   if (by === 'tag') return list.sort((a, b) => sign * compareTags(a.tag, b.tag));
+  if (by === 'type') {
+    const rank = (r) => TAG_GROUPS.indexOf(r.type || tagTypeOf(r.tag));
+    return list.sort((a, b) => sign * (rank(a) - rank(b)) || compareTags(a.tag, b.tag));
+  }
   return list.sort((a, b) => sign * ((a[by] || 0) - (b[by] || 0)) || compareTags(a.tag, b.tag));
 }
 
@@ -637,26 +913,48 @@ export const FILTER_CHIPS_SHOWN = 8;
  * Type-ahead for the tag editor: existing tags containing the typed text (the
  * exact tag first, then most used first), minus those already on the page, and whether to offer creating
  * the typed tag.
+ * v3.22.0: with `info`, a tag also matches when its label or an alias contains
+ * the typed text (case-insensitive), so "Thomas" offers `tom`.
  * @param {string} input
  * @param {Array<{tag: string, pages: number}>} stats  tagStats()
  * @param {string[]} have
+ * @param {number} [limit]
+ * @param {Record<string, object>} [info]  the info map
  * @returns {{options: Array<{tag: string, pages: number}>, create: string|null}}
  */
-export function tagOptions(input, stats, have = [], limit = 6) {
+export function tagOptions(input, stats, have = [], limit = 6, info = null) {
   const q = normalizeTag(input);
   const typed = String(input || '').trim();
   const has = new Set(have);
   // Typed text that is no tag at all ("??") matches nothing.
   if (typed && !q) return { options: [], create: null };
   const needle = typed ? q.toLowerCase() : '';
+  const low = typed.replace(/\s+/g, ' ').toLowerCase();
+  const named = (tag) => !!info && tagNames(tag, info).slice(1).some((n) => n.toLowerCase().includes(low));
   const matches = (stats || [])
-    .filter((s) => !has.has(s.tag) && (!needle || s.tag.toLowerCase().includes(needle)));
+    .filter((s) => !has.has(s.tag) && (!needle || s.tag.toLowerCase().includes(needle) || named(s.tag)));
   // The exact tag first, so the highlighted row is what Enter adds.
   const exact = matches.findIndex((s) => s.tag === q);
   if (exact > 0) matches.unshift(matches.splice(exact, 1)[0]);
   const options = matches.slice(0, limit);
   const exists = q && (stats || []).some((s) => s.tag === q);
   return { options, create: q && !exists && !has.has(q) ? q : null };
+}
+
+/**
+ * The "new tag" rows under the type-ahead (v3.22.0): a project number is one
+ * row (its type is the pattern); a new keyword gets "Add as Topic" (what Enter
+ * adds) and "Add as Person", whose label is the text as typed, capitals kept
+ * ("Tom" → tag `tom`, label "Tom").
+ * @param {string|null} create  tagOptions().create
+ * @param {string} typed  the field's text
+ * @returns {Array<{tag: string, create: 'project'|'topic'|'person', label?: string}>}
+ */
+export function createRows(create, typed) {
+  if (!create) return [];
+  if (isProjectTag(create)) return [{ tag: create, create: 'project' }];
+  const label = cleanText(typed);
+  return [{ tag: create, create: 'topic' }, { tag: create, create: 'person', label: label || create }];
 }
 
 /**

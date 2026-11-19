@@ -3,19 +3,21 @@
   (v3.1.0 page tags; mockup 1). Used by the reader's strip, the thumbnail's
   "+ tag" popover and (without chips) the bulk bar.
 
-  The popover lists existing tags containing what is typed, most-used first
-  with page counts (from the sidecar: tagStatsList), and a Create "…" row for a
-  new one; a project-number shape is normalized (p2026-141 → P2026-141).
-  ↑ ↓ choose, Enter adds the chosen row or else exactly what was typed (the
-  exact tag is listed first), Esc closes the list (then leaves the field),
+  The popover lists existing tags containing what is typed (in the tag, its
+  label or an alias), most-used first with page counts (from the sidecar:
+  tagStatsList), then rows for a new one: a project number (p2026-141 →
+  P2026-141), or a keyword's "Add as Topic" and "Add as Person" (v3.22.0; the
+  person's label is the text as typed, capitals kept).
+  ↑ ↓ choose, Enter adds the chosen row or else exactly what was typed, as a
+  Topic (the exact tag is listed first), Esc closes the list (then leaves the field),
   Backspace on an empty field removes the last chip (one per press, not on
   auto-repeat). Escape is
   preventDefault()-ed so the reader behind leaves it alone; every other
   window shortcut already stands down while typing (isTypingTarget).
 -->
 <script>
-  import { tagStatsList } from '$stores/tags.js';
-  import { tagOptions, normalizeTag, isProjectTag, tagEnterChoice, backspaceRemovesTag } from '$lib/tags.js';
+  import { tagStatsList, tagInfo, setTagType } from '$stores/tags.js';
+  import { tagOptions, createRows, normalizeTag, tagEnterChoice, backspaceRemovesTag } from '$lib/tags.js';
   import { plural } from '$lib/plural.js';
   import TagChip from './TagChip.svelte';
 
@@ -58,8 +60,8 @@
     if (input && document.activeElement === input) input.blur();
   }
 
-  $: res = tagOptions(text, $tagStatsList, exclude || tags);
-  $: items = [...res.options, ...(res.create ? [{ tag: res.create, create: true }] : [])];
+  $: res = tagOptions(text, $tagStatsList, exclude || tags, 6, $tagInfo);
+  $: items = [...res.options, ...createRows(res.create, text)];
   $: if (hi >= items.length) hi = Math.max(0, items.length - 1);
   $: showList = open && !disabled && items.length > 0;
 
@@ -72,6 +74,12 @@
     navigated = false;
   }
 
+  /** A row: "Add as Person" stores the type and typed label first (its own locked write), then adds. */
+  function choose(o) {
+    if (o.create === 'person') setTagType(o.tag, 'person', o.label);
+    add(o.tag);
+  }
+
   function onKey(e) {
     if (e.isComposing) return;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -81,8 +89,11 @@
       if (items.length) hi = (hi + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length;
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      const t = tagEnterChoice(items, hi, navigated, text);
-      if (t) add(t);
+      if (navigated && items[hi]) choose(items[hi]);
+      else {
+        const t = tagEnterChoice(items, hi, false, text);
+        if (t) add(t);
+      }
     } else if (backspaceRemovesTag(e, text) && showChips && onRemove && tags.length) {
       onRemove(tags[tags.length - 1]);
     } else if (e.key === 'Escape') {
@@ -122,7 +133,7 @@
   {#if showList}
     <div class="pop" class:up={dropUp} id={listId} role="listbox" tabindex="-1" on:mousedown|preventDefault>
       <div class="hd">{text.trim() ? 'Matching tags' : 'Your tags'}</div>
-      {#each items as o, i (o.create ? `+${o.tag}` : o.tag)}
+      {#each items as o, i (o.create ? `+${o.create}:${o.tag}` : o.tag)}
         <button
           type="button"
           role="option"
@@ -130,10 +141,14 @@
           class="it"
           class:hi={i === hi}
           on:mousemove={() => (hi = i)}
-          on:click|stopPropagation={() => add(o.tag)}
+          on:click|stopPropagation={() => choose(o)}
         >
-          {#if o.create}
-            <span>Create <b>“{o.tag}”</b></span><small>{isProjectTag(o.tag) ? 'project number' : 'new tag'}</small>
+          {#if o.create === 'project'}
+            <span>Create <b>“{o.tag}”</b></span><small>project number</small>
+          {:else if o.create === 'topic'}
+            <span>Add <b>“{o.tag}”</b> as Topic</span><small>Enter</small>
+          {:else if o.create === 'person'}
+            <span>Add <b class="person">“{o.label}”</b> as Person</span><small>new person</small>
           {:else}
             <TagChip tag={o.tag} /><small>{o.pages} {plural(o.pages, 'page')}</small>
           {/if}
@@ -204,4 +219,5 @@
   }
   .it.hi { background: #eef3ff; }
   .it small { color: #999; white-space: nowrap; }
+  .it b.person { color: #6a3fa8; }
 </style>

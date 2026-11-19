@@ -3,7 +3,16 @@
 Status: **built 2026-10-21 (v3.1.0).** Two implementation notes differ from the text below and are recorded in
 [CHANGELOG.md](CHANGELOG.md) (v3.1.0): main exposes one `storage:patchTags` (per-page patches; every edit is worked
 out in `lib/tags.js`) instead of one handler per edit, and suggestions read the scan records' `transcriptionText`
-instead of `getPage()`, so the background pass reads no pages at all. Was: **specified 2026-10-21, not built.** Mockups: [TAGS-UI-MOCKUPS.html](TAGS-UI-MOCKUPS.html) (live, clickable; the
+instead of `getPage()`, so the background pass reads no pages at all.
+
+**Since v3.22.0** ([TRANSCRIPT-STRUCTURE-SPEC.md](TRANSCRIPT-STRUCTURE-SPEC.md) Phase C) parts of this file are out of
+date: every tag has a **type** (Project by the number's pattern, Person, or Topic for every other keyword) and optional
+details, in a new `info` section of the same `_tags.json` (§3); chips show a tag's label in its type's colour, so
+decision 9 and the "no colours" non-goal no longer hold (§1, §2); the Library's Tag grouping and the left panel have
+three groups, **Projects, People, Topics**, where §6.3 says Projects and Keywords; the tag input offers *Add as Topic*
+(Enter) and *Add as Person* for a new keyword (§6.1); Manage tags has a Type column and a **Details** panel (§6.5); and
+search takes tag facets (`person:`, `topic:`, `project:`, `type:`, `is:job`, `is:proposal`) and finds a tag by its
+label or an alias (§6.6). The rest stands. Was: **specified 2026-10-21, not built.** Mockups: [TAGS-UI-MOCKUPS.html](TAGS-UI-MOCKUPS.html) (live, clickable; the
 mockups are the visual source of truth, this file is the behavioural one). Ships as **v3.1.0**.
 
 ## 1. Goal
@@ -44,6 +53,9 @@ feature.** Tags are display-style metadata: not an unsaved edit (no `markUnsaved
   "dismissed": { "3017/42": ["2327-018"] }
 }
 ```
+
+v3.22.0 adds `"info": { "<tag>": record }` beside `pages` (types and details; `lib/tags.js` `normalizeTagInfo()`
+owns the record, documented in CLAUDE.md "Data formats"). The version stays 1.
 
 - Key = `"<bookKey>/<pageId>"` (string book key, so `388v2` works; `pageId` keeps its letter suffix, `151b`). Build keys
   with one helper, as `orientationKey()` does, validated through `requireBookKey()` / `requirePageId()` in main so paths

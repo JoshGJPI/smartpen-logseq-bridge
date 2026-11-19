@@ -26,7 +26,8 @@ electron/main.cjs, preload.cjs   all disk IO + MyScript proxy, exposed as window
 electron/page-store.cjs   book keys, path guards, writeFileAtomic, createLock, PageDoc serializer, page IO (tested from Vitest)
 src/stores/        one store per concern (strokes, selection, pending-changes, viewer, timeline, volumes, tags, ...);
                    the Editor's Save and Transcribe run in canvas-save.js / canvas-transcribe.js (ActionBar only wires them)
-src/lib/           pure logic, no UI, testable without DOM (tags, tag-suggestions, task-markers: ☐ / ☑ → TODO / DONE,
+src/lib/           pure logic, no UI, testable without DOM (tags: also tag types and `info`, v3.22.0; tag-details: the
+                   Manage tags Details form; tag-suggestions, task-markers: ☐ / ☑ → TODO / DONE,
                    tasks: task state and list, retime, move-lines, canvas-page-targets: what the Editor's rotate and
                    🏷 Tags act on, book-types, canvas-save-plan: which pages a save writes and which deletion marks it
                    settles, canvas-text-view: the Editor's text view, delete-lines: Delete line / block and what it
@@ -107,6 +108,14 @@ each launch opens the Library on its home. Left panel tabs, Library views, the r
 - **Point tuples are variable length:** `[x, y]`, `[x, y, ts]` or `[x, y, ts|null, force]`. Force is written for
   *every* stroke, not only sketches, because flagging happens long after capture. Older, shorter tuples
   read back fine and render at a constant `flatWidth`.
+- **`_tags.json` `info`** (v3.22.0, spec Phase C; the version stays 1): `{ "<tag>": record }`, no entry = no details.
+  The type is **project** by the pattern alone (job `####-###`, proposal `P####-###`; never stored, never changed),
+  **person** when the record says `"type": "person"` (the only type stored), else **topic**. A record holds, per type:
+  every type `aliases` (strings, case kept, exact duplicates dropped) and `note`; person `type`, `label` (display
+  name, case kept) and `company`; topic `label`; project `name`, `client`, `active` (boolean) and, on a proposal, `job`
+  (the job number it became). Keys stay normalized tags (`tom`); capitals live only in `label` and `aliases`.
+  `lib/tags.js` `normalizeTagInfo()` owns it (drops other fields, a label equal to the key, a type on a project).
+  Phase D's `blocks` will be another top-level sibling.
 - `PAGE_DOC_VERSION` stays `"2.0"`. `validatePageDoc()` rejects anything else, so changes must be
   backward-compatible additions.
 - `marker` is written only as `"WAITING"` beside `checked: false` (v3.4.0) or `"CANCELLED"` beside `checked: true`
@@ -120,7 +129,8 @@ each launch opens the Library on its home. Left panel tabs, Library views, the r
   replaces it, `page-store.cjs` `readSidecarJson`), `_timeline.json` (per-page capture-day histograms; a pure cache, safe to delete), `_orientation.json`
   (display rotation per page, `"<bookKey>/<pageId>": 90|180|270`, portrait by absence; missing or corrupt = all portrait),
   `_tags.json` (page tags and dismissed suggestions, `{ version: 1, pages: { "<bookKey>/<pageId>": [tags] }, dismissed:
-  {...} }`, untagged by absence; missing or corrupt = no tags, and a corrupt file is replaced only by the next tag change),
+  {...}, info: {...} }`, untagged by absence; missing or corrupt = no tags, and a corrupt file is replaced only by the next tag change;
+  `info` (v3.22.0) is each tag's type and details keyed by the normalized tag, below),
   `_retimed.json` (v3.6.0, pen ids retimed away, `{ version: 1, pages: { "<ncodeBook>/<page>": { "s<penId>": "s<idNow>" } } }`,
   keyed by the PHYSICAL page, not the book key; offline import drops pen strokes listed here. Not a cache: deleting it
   lets a pen re-import bring retimed strokes back at their old times).
@@ -207,6 +217,25 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   `finalizePageMoves().emptied` → `carryTagsForMoves()` (whole-page moves only, never onto a page that has tags).
 - **Suggestions are never stored**, only dismissals; they are computed from stored transcript text
   (`record.transcriptionText`, so no page read) and never applied without a click.
+
+### Tag types and details (v3.22.0, docs/TRANSCRIPT-STRUCTURE-SPEC.md Phase C)
+
+- **`info` lives in `_tags.json`, never in a PageDoc**, and goes through the same `storage:patchTags` and the same lock:
+  a patch's `info: { tag: record | null }` is applied in the same read-merge-write as its page lists. Main checks only
+  the shape (`tags-sidecar.cjs` `checkInfo`: plain fields, `type` only `"person"` and never on a project number); the
+  renderer owns the fields. A patch without `info` leaves the section untouched, so a 3.21 build writing tags keeps it.
+- **One write for a tag manager change**: rename, merge and delete carry or drop `info` in the same patch as the pages
+  (`renameTagInfo`: a rename moves the record; a merge keeps the target's record and adds the source's aliases;
+  `deleteTagInfo`). `stores/tags.js` `commit()` diffs pages, dismissals and info together, applies them
+  optimistically, rolls back per page and per tag (`rollbackInfoPatch`, only where nothing changed since), and Undo
+  restores info too.
+- **Three types only; a project is never stored.** `tagTypeOf()` reads the pattern first, so a stored type on a
+  project number is ignored, and `withTagType()` never makes a keyword a project. Read a tag's type, label and names
+  only through `tagTypeOf()` / `tagLabel()` / `tagNames()`; chips (`TagChip`, which reads `tagInfo` itself) show the
+  label in the type's colour.
+- Nothing is typed without a click: "Add as Person" in the tag input, or Manage tags → Details. No MCP tool sets a type.
+- `collapsedTagGroups` holds type ids (`project`, `person`, `topic`); `parseCollapsedGroups()` reads the old
+  `projects` / `keywords` as Projects / Topics.
 
 ### Deleted lines and Not text (v3.20.0, docs/TRANSCRIPT-STRUCTURE-SPEC.md Phase A)
 
@@ -474,7 +503,7 @@ The full list (per feature: rotation, volumes, tags, retime, tasks, print, LogSe
 | [docs/PAGE-TAGS-SPEC.md](docs/PAGE-TAGS-SPEC.md) | **v3.1.0** page tags (built), with [mockups](docs/TAGS-UI-MOCKUPS.html) |
 | [docs/MCP-SERVER-SPEC.md](docs/MCP-SERVER-SPEC.md), [mcp/README.md](mcp/README.md) | The read-only MCP server: decisions (spec); tools, caps and setup (README) |
 | [docs/MCP-WRITE-SPEC.md](docs/MCP-WRITE-SPEC.md) | **v3.18.0** transcript edits from Claude through the running app (built) |
-| [docs/TRANSCRIPT-STRUCTURE-SPEC.md](docs/TRANSCRIPT-STRUCTURE-SPEC.md) | Delete lines + Not text (A, v3.20.0), Relink (B, v3.21.0) built; tag types, people, sketches (C–E) to come |
+| [docs/TRANSCRIPT-STRUCTURE-SPEC.md](docs/TRANSCRIPT-STRUCTURE-SPEC.md) | Delete lines + Not text (A, v3.20.0), Relink (B, v3.21.0), tag types (C, v3.22.0) built; people, sketches (D–E) to come |
 | [docs/NEOSMARTPEN-SDK-USAGE.md](docs/NEOSMARTPEN-SDK-USAGE.md) | Pen SDK usage |
 | [docs/EDITOR-IMPORT-SPEC.md](docs/EDITOR-IMPORT-SPEC.md) | The handwriting editor's import formats, which the JSON / Markdown exports follow |
 | [docs/Archive/ARCHIVE-INDEX.md](docs/Archive/ARCHIVE-INDEX.md) | Superseded v1 / LogSeq-era specs, reviews and implementation logs |

@@ -61,8 +61,10 @@ reg('list_pages',
     limit: limit(100, 300), offset },
   'List pages');
 reg('list_tags',
-  'Page tags (project numbers like P2026-141 and free tags) with page counts, or with `tag` the pages under that tag.',
-  { tag: z.string().optional().describe('A tag: list its pages instead of all tags') }, 'List tags');
+  'Page tags with page counts, each with its type (project: job 2327-018 or proposal P2026-141, by pattern; person; topic: every other keyword) '
+  + 'and label (display name), or with `tag` the pages under that tag and its details. Read-only: types and details are set in the app.',
+  { tag: z.string().optional().describe('A tag (or its label or an alias): list its pages instead of all tags'),
+    type: z.enum(['project', 'person', 'topic']).optional().describe('Only tags of this type') }, 'List tags');
 reg('get_transcript',
   'Handwriting-recognition transcript of one page (text, indentation, TODO/DONE/WAITING/CANCELLED), each line numbered #n (the stored line number). Cheap; prefer this over an image when the text is enough. Many pages are untranscribed: use render_page for those.',
   { book, page }, 'Get transcript');
@@ -112,7 +114,7 @@ reg('list_tasks',
     limit: limit(LIMITS.tasks.limit, LIMITS.tasks.maxLimit), offset },
   'List tasks');
 reg('search',
-  'The app\'s global search: words in transcripts, dates ("Oct 14", "10/14", "2026-10-14", "yesterday"), notebook names or keys ("Study Notes", "390v2") and tags ("P2026-141"). '
+  'The app\'s global search: words in transcripts, dates ("Oct 14", "10/14", "2026-10-14", "yesterday"), notebook names or keys ("Study Notes", "390v2") and tags ("P2026-141"), with tag facets person:tom, topic:framing, project:5444-006, type:person|project|topic, is:job, is:proposal (pages carrying such a tag). '
   + 'Returns pages with snippets plus matching notebooks, days and tags. Transcribed text only.',
   { query: z.string().describe('Words, a date, a notebook name or key, or a tag') }, 'Search');
 

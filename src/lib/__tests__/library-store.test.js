@@ -148,12 +148,14 @@ describe('page tags on the Library home (v3.1.0)', () => {
     setLibraryTagView('junk');
     expect(get(libraryTagView)).toBe('cards');
 
-    toggleTagGroup('keywords');
-    toggleTagGroup('projects');
-    expect(get(collapsedTagGroups)).toEqual(['projects', 'keywords']);
-    expect(JSON.parse(localStorage.getItem(TAG_COLLAPSED_KEY))).toEqual(['projects', 'keywords']);
-    toggleTagGroup('projects');
-    toggleTagGroup('keywords');
+    toggleTagGroup('topic');
+    toggleTagGroup('person');
+    toggleTagGroup('project');
+    expect(get(collapsedTagGroups)).toEqual(['project', 'person', 'topic']);
+    expect(JSON.parse(localStorage.getItem(TAG_COLLAPSED_KEY))).toEqual(['project', 'person', 'topic']);
+    toggleTagGroup('project');
+    toggleTagGroup('person');
+    toggleTagGroup('topic');
     expect(get(collapsedTagGroups)).toEqual([]);
 
     setTagPageSort('recent');

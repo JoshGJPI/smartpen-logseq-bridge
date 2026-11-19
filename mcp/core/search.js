@@ -12,6 +12,7 @@
  *   searchDates        pageDates(timelineIndexFiltered)    → pageDates(scan.index)
  *   searchRecords      recordsByKey(savedPages)            → recordsByKey(scan.pages)
  *   tagStatsList       tagStats(pageTags)                  → tagStats(scan.tags)
+ *   pageTags, tagInfo  (facets, labels, aliases; v3.22.0)  → scan.tags, scan.tagInfo
  */
 import { parseSearchQuery } from '../../src/lib/search-query.js';
 import { buildSearchIndex, recordsByKey, runSearch } from '../../src/lib/global-search.js';
@@ -32,7 +33,7 @@ export function createSearch() {
   let built = null;
   return function search(scan, input, { now = new Date() } = {}) {
     const k = scan.pages.map((p) => `${p.book}/${p.pageId}:${p.mtimeMs}:${p.size}`).join('|')
-      + `#${JSON.stringify(scan.aliases)}#${JSON.stringify(scan.tags)}`;
+      + `#${JSON.stringify(scan.aliases)}#${JSON.stringify(scan.tags)}#${JSON.stringify(scan.tagInfo || {})}`;
     if (k !== key) {
       built = {
         index: buildSearchIndex(scan.pages),
@@ -40,7 +41,9 @@ export function createSearch() {
         timeline: scan.index,
         dates: pageDates(scan.index),
         records: recordsByKey(scan.pages),
-        tags: tagStats(scan.tags)
+        tags: tagStats(scan.tags),
+        pageTags: scan.tags,
+        info: scan.tagInfo || {}
       };
       key = k;
     }

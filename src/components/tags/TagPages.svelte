@@ -15,8 +15,10 @@
 <script>
   import { onMount } from 'svelte';
   import { savedPages, searchRecords, libraryPageDates, ensureTimelineLoaded, tagPageSort, setTagPageSort } from '$stores';
-  import { pageTags, tagIndex } from '$stores/tags.js';
-  import { recordsForKeys, untaggedRecords, isProjectTag, sortTagPageTiles, TAG_PAGE_SORT_ORDERS } from '$lib/tags.js';
+  import { pageTags, tagIndex, tagInfo } from '$stores/tags.js';
+  import { recordsForKeys, untaggedRecords, tagTypeOf, projectKind, sortTagPageTiles, TAG_PAGE_SORT_ORDERS } from '$lib/tags.js';
+
+  const TYPE_HEADINGS = { person: 'Person', topic: 'Topic' };
   import { pageTiles } from '$lib/library-home.js';
   import { plural } from '$lib/plural.js';
   import TagChip from './TagChip.svelte';
@@ -40,7 +42,7 @@
 <div class="tp">
   <div class="tp-head">
     {#if view.kind === 'tag'}
-      <h2>{isProjectTag(view.tag) ? 'Project' : 'Tag'}</h2>
+      <h2>{projectKind(view.tag) === 'job' ? 'Job' : projectKind(view.tag) === 'proposal' ? 'Proposal' : TYPE_HEADINGS[tagTypeOf(view.tag, $tagInfo)]}</h2>
       <TagChip tag={view.tag} />
     {:else}
       <h2>Untagged pages</h2>

@@ -61,7 +61,8 @@ beforeAll(() => {
   side('_aliases.json', { 388: 'Field Book', '388v2': 'Field Book 2', bogus: 'x' });
   side('_volumes.json', { version: 1, active: { 388: 2 } });
   side('_orientation.json', { version: 1, pages: { '388/1': 90, '388/2': 90, '388v2/151b': 7 } });
-  side('_tags.json', { version: 1, pages: { '388v2/151b': ['beam'], '390/5': ['P2026-141'], '388/999': ['ghost'] }, dismissed: {} });
+  side('_tags.json', { version: 1, pages: { '388v2/151b': ['beam'], '390/5': ['P2026-141'], '388/999': ['ghost'] }, dismissed: {},
+    info: { beam: { aliases: ['girder'] }, 'P2026-141': { name: 'Parking deck', type: 'person' } } });
   fs.mkdirSync(path.join(root, 'pages', '_backgrounds', '388'), { recursive: true });
   fs.writeFileSync(manifestPath(root, 388), JSON.stringify({ version: 1, source: 'neo', sob: '3_27_388', title: 'T', frame: FRAME, firstPage: 1, lastPage: 144, ext: 'jpg' }));
 });
@@ -147,7 +148,7 @@ describe('sidecars', () => {
     fs.writeFileSync(path.join(empty, 'pages', '_tags.json'), '{not json');
     fs.writeFileSync(manifestPath(empty, 388), '{"frame":{"x0":5,"y0":0,"x1":1,"y1":9},"firstPage":1,"lastPage":2}');
     expect(readAliases(empty)).toEqual({});
-    expect(readTags(empty)).toEqual({ pages: {}, dismissed: {} });
+    expect(readTags(empty)).toEqual({ pages: {}, dismissed: {}, info: {} });
     expect(readOrientations(empty)).toEqual({});
     expect(readPaper(empty, 388)).toBeNull();
     fs.rmSync(empty, { recursive: true });
@@ -340,9 +341,27 @@ describe('tools', () => {
     expect(r.content[0].text).toMatch(/^2 tag\(s\); 3 untagged page\(s\); 1 tagged page\(s\) no longer exist/);
     const stats = JSON.parse(r.content[0].text.split('\n')[1]);
     expect(stats.map((s) => s.tag).sort()).toEqual(['P2026-141', 'beam']);
+    expect(stats.find((s) => s.tag === 'beam')).toMatchObject({ type: 'topic', label: 'beam' });
+    expect(stats.find((s) => s.tag === 'P2026-141')).toMatchObject({ type: 'project', label: 'P2026-141' });
     const one = tools().list_tags({ tag: 'p2026-141' });
-    expect(JSON.parse(one.content[0].text.split('\n')[1])).toMatchObject([{ page: '390/5', days: ['2026-10-17'], transcribed: true }]);
+    expect(JSON.parse(one.content[0].text.split('\n')[1])).toEqual({ name: 'Parking deck', tag: 'P2026-141', type: 'project', label: 'P2026-141' });
+    expect(JSON.parse(one.content[0].text.split('\n')[2])).toMatchObject([{ page: '390/5', days: ['2026-10-17'], transcribed: true }]);
     expect(tools().list_tags({ tag: 'ghost' }).content[0].text).toMatch(/No pages/);
+  });
+  it('list_tags: types, labels, aliases and the type filter (v3.22.0)', () => {
+    const stats = (args) => JSON.parse(tools().list_tags(args).content[0].text.split('\n')[1]);
+    expect(stats().find((s) => s.tag === 'beam')).toMatchObject({ type: 'topic', label: 'beam', aliases: ['girder'] });
+    // A stored type on a project number is ignored: projects come from the pattern.
+    expect(stats().find((s) => s.tag === 'P2026-141').type).toBe('project');
+    expect(stats({ type: 'project' }).map((s) => s.tag)).toEqual(['P2026-141']);
+    expect(stats({ type: 'person' })).toEqual([]);
+    expect(tools().list_tags({ type: 'company' }).isError).toBe(true);
+    const byAlias = tools().list_tags({ tag: 'Girder' }).content[0].text.split('\n');
+    expect(byAlias[0]).toMatch(/^"beam": 1 page/);
+    expect(JSON.parse(byAlias[1])).toEqual({ aliases: ['girder'], tag: 'beam', type: 'topic', label: 'beam' });
+    expect(JSON.parse(tools().list_tags({ tag: 'P2026-141' }).content[0].text.split('\n')[1]))
+      .toEqual({ name: 'Parking deck', tag: 'P2026-141', type: 'project', label: 'P2026-141' });
+    expect(tools().list_tags({ tag: 'beam', type: 'person' }).content[0].text).toMatch(/is a topic tag/);
   });
   it('search uses the app semantics: words, dates, notebooks, tags', () => {
     const out = (q) => JSON.parse(tools().search({ query: q }).content[0].text.split('\n')[1]);
@@ -353,8 +372,13 @@ describe('tools', () => {
     expect(out('2026-10-17').pages.map((p) => p.page).sort()).toEqual(['388/2', '390/5']);   // untranscribed pages too
     expect(out('field book').notebooks.map((n) => n.book)).toEqual(['388', '388v2']);
     expect(out('388v2').notebooks).toEqual([{ book: '388v2', name: 'Field Book 2', exact: true }]);
-    expect(out('P2026-141').tags).toEqual([{ tag: 'P2026-141', pages: 1, exact: true }]);
+    expect(out('P2026-141').tags).toEqual([{ tag: 'P2026-141', type: 'project', label: 'P2026-141', pages: 1, exact: true }]);
     expect(tools().search({ query: '  ' }).isError).toBe(true);
+    // Tag facets (v3.22.0): pages carrying the tag, untranscribed or not.
+    expect(out('is:proposal').pages.map((p) => p.page)).toEqual(['390/5']);
+    expect(out('topic:girder').pages.map((p) => p.page)).toEqual(['388v2/151b']);
+    expect(out('girder').tags.map((t) => t.tag)).toEqual(['beam']);
+    expect(out('is:job').pages).toEqual([]);
   });
 });
 

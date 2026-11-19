@@ -11,7 +11,10 @@ import {
   suggestProjectNumbers, splitSuggestionLine, buildTagIndex, recordsForKeys, untaggedRecords,
   tagCards, untaggedCard, sortTagCards, tagStats, filterByTags, filterChoices, rankFilterChoices, tagOptions, tagEnterChoice, backspaceRemovesTag,
   parseTagSort, parseGroupBy, planTagCarry, MAX_TAG_LENGTH,
-  parseTagView, parseCollapsedGroups, parseTagPageSort, sortTagPageTiles
+  parseTagView, parseCollapsedGroups, parseTagPageSort, sortTagPageTiles,
+  normalizeTagInfo, tagTypeOf, tagLabel, projectKind, tagNames, tagAnswersTo, withTagInfo, withTagType,
+  renameTagInfo, deleteTagInfo, diffTagInfo, rollbackInfoPatch, groupByTagType, createRows, sortTagStats,
+  TAG_TYPES, TAG_GROUP_LABELS, MAX_INFO_TEXT, MAX_INFO_NOTE, MAX_ALIASES
 } from '$lib/tags.js';
 
 const rec = (book, pageId, extra = {}) => ({
@@ -125,12 +128,13 @@ describe('normalizeTagsFile', () => {
       dismissed: { '3017/42': ['2327-018'], '3017/43': 'nope' }
     })).toEqual({
       pages: { '3017/42': ['P2026-141', 'beam'], '388v2/7': ['2327-018'] },
-      dismissed: { '3017/42': ['2327-018'] }
+      dismissed: { '3017/42': ['2327-018'] },
+      info: {}
     });
   });
 
   it('missing, corrupt or wrongly shaped input is empty', () => {
-    const empty = { pages: {}, dismissed: {} };
+    const empty = { pages: {}, dismissed: {}, info: {} };
     expect(normalizeTagsFile(null)).toEqual(empty);
     expect(normalizeTagsFile('garbage')).toEqual(empty);
     expect(normalizeTagsFile({ pages: [] })).toEqual(empty);
@@ -493,7 +497,8 @@ describe('tag home display (v3.11.0)', () => {
   });
 
   it('parseCollapsedGroups keeps known groups once, in group order', () => {
-    expect(parseCollapsedGroups(['keywords', 'projects', 'keywords', 'x'])).toEqual(['projects', 'keywords']);
+    expect(parseCollapsedGroups(['topic', 'project', 'topic', 'x'])).toEqual(['project', 'topic']);
+    expect(parseCollapsedGroups(['person'])).toEqual(['person']);
     expect(parseCollapsedGroups([])).toEqual([]);
     expect(parseCollapsedGroups('projects')).toEqual([]);
     expect(parseCollapsedGroups(null)).toEqual([]);
@@ -557,5 +562,217 @@ describe('rankFilterChoices (v3.14.0)', () => {
     expect(choices).toEqual(copy);
     expect(rankFilterChoices([], items)).toEqual([]);
     expect(rankFilterChoices(null, null)).toEqual([]);
+  });
+});
+
+/* ============================================================
+ *  Tag types and details (v3.22.0, spec Phase C)
+ * ============================================================ */
+
+describe('normalizeTagInfo (v3.22.0)', () => {
+  it('keeps a person\'s fields, capitals and all', () => {
+    expect(normalizeTagInfo('tom', {
+      type: 'person', label: '  Tom ', aliases: ['Thomas', ' Tom B. ', 'Thomas', '', 7], company: 'Burnell', note: ' PM ', junk: 1
+    })).toEqual({ type: 'person', label: 'Tom', aliases: ['Thomas', 'Tom B.'], company: 'Burnell', note: 'PM' });
+  });
+
+  it('aliases keep case: "Rich" and "rich" are two aliases; the label itself is dropped', () => {
+    expect(normalizeTagInfo('rich', { type: 'person', label: 'Rich', aliases: ['Rich', 'rich', 'RICH'] }))
+      .toEqual({ type: 'person', label: 'Rich', aliases: ['rich', 'RICH'] });
+  });
+
+  it('a topic never stores a type, and drops a person\'s company', () => {
+    expect(normalizeTagInfo('framing', { type: 'topic', aliases: ['framed'], company: 'x' })).toEqual({ aliases: ['framed'] });
+    expect(normalizeTagInfo('framing', { type: 'project', label: 'Framing' })).toEqual({ label: 'Framing' });
+  });
+
+  it('a project number never stores a type or label; a proposal may name its job', () => {
+    expect(normalizeTagInfo('5444-006', { type: 'person', label: 'X', name: 'Stair', client: 'Acme', active: true, job: '2327-018' }))
+      .toEqual({ name: 'Stair', client: 'Acme', active: true });
+    expect(normalizeTagInfo('P2026-141', { job: '2327–018', active: false })).toEqual({ active: false, job: '2327-018' });
+    expect(normalizeTagInfo('P2026-141', { job: 'P2026-001' })).toBeNull();
+    expect(normalizeTagInfo('P2026-141', { active: 'yes' })).toBeNull();
+  });
+
+  it('a label equal to the tag, empty records and bad keys give null', () => {
+    expect(normalizeTagInfo('tom', { label: 'tom' })).toBeNull();
+    expect(normalizeTagInfo('tom', {})).toBeNull();
+    expect(normalizeTagInfo('Tom', { type: 'person' })).toBeNull();   // keys are normalized tags
+    expect(normalizeTagInfo('tom', null)).toBeNull();
+    expect(normalizeTagInfo('tom', ['person'])).toBeNull();
+    expect(normalizeTagInfo('tom', { type: 'person' })).toEqual({ type: 'person' });
+  });
+
+  it('long text, many aliases and long notes are capped', () => {
+    const rec = normalizeTagInfo('tom', {
+      label: 'x'.repeat(200), aliases: Array.from({ length: 40 }, (_, i) => `a${i}`), note: 'n'.repeat(900)
+    });
+    expect(rec.label.length).toBe(MAX_INFO_TEXT);
+    expect(rec.aliases).toHaveLength(MAX_ALIASES);
+    expect(rec.note.length).toBe(MAX_INFO_NOTE);
+  });
+
+  it('normalizeTagsFile reads the info section, dropping bad keys and empty records', () => {
+    const out = normalizeTagsFile({
+      pages: {}, dismissed: {},
+      info: { tom: { type: 'person', label: 'Tom' }, 'Not A Key': { label: 'x' }, empty: {}, '5444-006': { name: 'Stair' } }
+    });
+    expect(out.info).toEqual({ tom: { type: 'person', label: 'Tom' }, '5444-006': { name: 'Stair' } });
+    expect(normalizeTagsFile({ info: [] }).info).toEqual({});
+  });
+});
+
+describe('tag types and labels (v3.22.0)', () => {
+  const info = { tom: { type: 'person', label: 'Tom', aliases: ['Thomas'] }, framing: { label: 'Framing', aliases: ['framed'] } };
+
+  it('type: project by the pattern, person by info, topic by default', () => {
+    expect(tagTypeOf('5444-006', info)).toBe('project');
+    expect(tagTypeOf('P2026-141', { 'P2026-141': { type: 'person' } })).toBe('project');
+    expect(tagTypeOf('tom', info)).toBe('person');
+    expect(tagTypeOf('framing', info)).toBe('topic');
+    expect(tagTypeOf('sketch', {})).toBe('topic');
+    expect(tagTypeOf('sketch')).toBe('topic');
+    expect(TAG_TYPES).toEqual(['project', 'person', 'topic']);
+  });
+
+  it('job and proposal are told apart by the pattern', () => {
+    expect(projectKind('2327-018')).toBe('job');
+    expect(projectKind('P2026-141')).toBe('proposal');
+    expect(projectKind('tom')).toBeNull();
+    expect(projectKind(null)).toBeNull();
+  });
+
+  it('label: the project number, else the stored label, else the tag', () => {
+    expect(tagLabel('5444-006', info)).toBe('5444-006');
+    expect(tagLabel('tom', info)).toBe('Tom');
+    expect(tagLabel('sketch', info)).toBe('sketch');
+    expect(tagLabel('tom', null)).toBe('tom');
+  });
+
+  it('names and matching: key, label or alias, case-insensitive', () => {
+    expect(tagNames('tom', info)).toEqual(['tom', 'Tom', 'Thomas']);
+    expect(tagAnswersTo('tom', info, 'TOM')).toBe(true);
+    expect(tagAnswersTo('tom', info, 'thomas')).toBe(true);
+    expect(tagAnswersTo('tom', info, 'Tomas')).toBe(false);
+    expect(tagAnswersTo('5444-006', info, '5444–006')).toBe(true);
+    expect(tagAnswersTo('tom', info, '  ')).toBe(false);
+    expect(tagAnswersTo('constructor', {}, 'constructor')).toBe(true);
+    expect(tagLabel('constructor', {})).toBe('constructor');   // no prototype leaks
+  });
+
+  it('withTagType: a keyword becomes a Person or a Topic; a project never changes', () => {
+    const a = withTagType({}, 'tom', 'person', 'Tom');
+    expect(a).toEqual({ tom: { type: 'person', label: 'Tom' } });
+    // An existing label wins over the typed one.
+    expect(withTagType(info, 'tom', 'person', 'TOMMY').tom.label).toBe('Tom');
+    const b = withTagType({ tom: { type: 'person', label: 'Tom', company: 'Burnell' } }, 'tom', 'topic');
+    expect(b).toEqual({ tom: { label: 'Tom' } });
+    expect(withTagType({ tom: { type: 'person' } }, 'tom', 'topic')).toEqual({});
+    const same = { x: 1 };
+    expect(withTagType(same, '5444-006', 'person')).toBe(same);
+    expect(withTagType(same, 'tom', 'project')).toBe(same);
+  });
+
+  it('withTagInfo sets a normalized record; null or empty removes it', () => {
+    expect(withTagInfo({}, 'tom', { type: 'person', label: 'Tom' })).toEqual({ tom: { type: 'person', label: 'Tom' } });
+    expect(withTagInfo(info, 'tom', null).tom).toBeUndefined();
+    expect(withTagInfo(info, 'tom', { label: '' }).tom).toBeUndefined();
+    expect(info.tom).toEqual({ type: 'person', label: 'Tom', aliases: ['Thomas'] });   // input untouched
+  });
+});
+
+describe('rename / merge / delete carry info (v3.22.0)', () => {
+  const info = {
+    tom: { type: 'person', label: 'Tom', aliases: ['Thomas'], company: 'Burnell' },
+    thomas: { type: 'person', label: 'Thomas B.', aliases: ['TB'] },
+    framing: { aliases: ['framed'] }
+  };
+
+  it('a rename moves the record to the new key', () => {
+    const next = renameTagInfo(info, 'tom', 'tom-b');
+    expect(next['tom-b']).toEqual(info.tom);
+    expect(next.tom).toBeUndefined();
+    expect(info.tom).toBeDefined();   // input untouched
+  });
+
+  it('a merge keeps the target\'s info and adds the source\'s aliases', () => {
+    const next = renameTagInfo(info, 'tom', 'thomas', true);
+    // Thomas's own label stays; Tom's company and label do not come along.
+    expect(next.thomas).toEqual({ type: 'person', label: 'Thomas B.', aliases: ['TB', 'Thomas'] });
+    expect(next.tom).toBeUndefined();
+  });
+
+  it('a merge into a tag with no info gives it the source\'s aliases only', () => {
+    const next = renameTagInfo(info, 'framing', 'carpentry', true);
+    expect(next.carpentry).toEqual({ aliases: ['framed'] });
+    expect(renameTagInfo({ tom: { type: 'person', label: 'Tom' } }, 'tom', 'x', true)).toEqual({});
+  });
+
+  it('renaming a keyword to a project number drops what a project can\'t hold', () => {
+    expect(renameTagInfo(info, 'tom', '5444-006')['5444-006']).toEqual({ aliases: ['Thomas'] });
+  });
+
+  it('a tag with no info renames to nothing; no-ops return the same map', () => {
+    expect(renameTagInfo(info, 'beam', 'girder')).toBe(info);
+    expect(renameTagInfo(info, 'tom', 'tom')).toBe(info);
+    expect(renameTagInfo(info, '??', 'x')).toBe(info);
+  });
+
+  it('delete drops the record', () => {
+    expect(deleteTagInfo(info, 'tom').tom).toBeUndefined();
+    expect(deleteTagInfo(info, 'beam')).toBe(info);
+  });
+
+  it('diffTagInfo lists set and removed records; rollbackInfoPatch puts back only what the write set', () => {
+    const next = { ...deleteTagInfo(info, 'framing'), tom: { type: 'person', label: 'Tommy' } };
+    const patch = diffTagInfo(info, next);
+    expect(patch).toEqual({ tom: { type: 'person', label: 'Tommy' }, framing: null });
+    expect(rollbackInfoPatch(next, patch, info)).toEqual(info);
+    // A later edit to tom wins over the rollback.
+    const later = { ...next, tom: { type: 'person', label: 'T.' } };
+    const rolled = rollbackInfoPatch(later, patch, info);
+    expect(rolled.tom).toEqual({ type: 'person', label: 'T.' });
+    expect(rolled.framing).toEqual(info.framing);
+    expect(diffTagInfo(info, info)).toEqual({});
+  });
+});
+
+describe('tag groups, rows and the type-ahead (v3.22.0)', () => {
+  const info = { tom: { type: 'person', label: 'Tom', aliases: ['Thomas'] } };
+
+  it('an old "keywords" collapse entry reads as Topics, "projects" as Projects', () => {
+    expect(parseCollapsedGroups(['keywords'])).toEqual(['topic']);
+    expect(parseCollapsedGroups(['projects', 'keywords', 'topic'])).toEqual(['project', 'topic']);
+    expect(TAG_GROUP_LABELS).toEqual({ project: 'Projects', person: 'People', topic: 'Topics' });
+  });
+
+  it('groupByTagType: Projects, People, Topics, empty groups left out', () => {
+    const items = [{ tag: 'sketch' }, { tag: 'tom' }, { tag: '5444-006' }, { tag: 'dream' }];
+    expect(groupByTagType(items, info).map((g) => [g.id, g.label, g.items.map((i) => i.tag)])).toEqual([
+      ['project', 'Projects', ['5444-006']], ['person', 'People', ['tom']], ['topic', 'Topics', ['sketch', 'dream']]
+    ]);
+    expect(groupByTagType([{ tag: 'a' }], {}).map((g) => g.id)).toEqual(['topic']);
+    expect(groupByTagType(null, info)).toEqual([]);
+  });
+
+  it('createRows: a keyword offers Topic (Enter) and Person with the typed capitals', () => {
+    expect(createRows('tom', ' Tom ')).toEqual([
+      { tag: 'tom', create: 'topic' }, { tag: 'tom', create: 'person', label: 'Tom' }
+    ]);
+    expect(createRows('P2026-141', 'p2026-141')).toEqual([{ tag: 'P2026-141', create: 'project' }]);
+    expect(createRows(null, 'x')).toEqual([]);
+  });
+
+  it('tagOptions finds a tag by its label or alias', () => {
+    const stats = [{ tag: 'tom', pages: 3 }, { tag: 'beam', pages: 9 }];
+    expect(tagOptions('thom', stats, [], 6, info).options.map((o) => o.tag)).toEqual(['tom']);
+    expect(tagOptions('thom', stats, [], 6).options).toEqual([]);
+    expect(tagOptions('Thomas', stats, [], 6, info).create).toBe('thomas');
+  });
+
+  it('sortTagStats by type: projects, people, topics, then name', () => {
+    const rows = [{ tag: 'b', type: 'topic' }, { tag: 'tom', type: 'person' }, { tag: '5444-006', type: 'project' }, { tag: 'a', type: 'topic' }];
+    expect(sortTagStats(rows, { by: 'type', dir: 'asc' }).map((r) => r.tag)).toEqual(['5444-006', 'tom', 'a', 'b']);
+    expect(sortTagStats(rows, { by: 'type', dir: 'desc' }).map((r) => r.tag)).toEqual(['a', 'b', 'tom', '5444-006']);
   });
 });

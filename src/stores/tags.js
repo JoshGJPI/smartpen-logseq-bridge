@@ -19,12 +19,19 @@
  * undone (v3.2.0): `tagUndo` holds the last one until the next tag change of
  * any kind, and undoTagChange() puts back the pages it changed the same way a
  * failed write is rolled back. Session-only.
+ *
+ * `tagInfo` (v3.22.0): each tag's type and details (`{ tag: record }`, the
+ * `info` section of the same file, lib/tags.js normalizeTagInfo). It travels
+ * in the same patch and the same lock as the pages it goes with: rename, merge
+ * and delete carry or drop it in one write, and a failed write rolls it back
+ * per tag, like pages.
  */
 
 import { writable, derived, get } from 'svelte/store';
 import {
   normalizeTag, normalizeTagsFile, tagExists, tagKey, withPageList, addTagToKeys, removeTagFromKeys,
-  renameTagInMap, deleteTagFromMap, diffTagMaps, rollbackPatch, buildTagIndex, tagStats, planTagCarry
+  renameTagInMap, deleteTagFromMap, diffTagMaps, rollbackPatch, buildTagIndex, tagStats, planTagCarry,
+  withTagInfo, withTagType, renameTagInfo, deleteTagInfo, diffTagInfo, rollbackInfoPatch
 } from '../lib/tags.js';
 import { getTags, patchTags } from '../lib/storage/local-store.js';
 import { debug } from '../lib/debug.js';
@@ -32,6 +39,8 @@ import { log } from './ui.js';
 
 export const pageTags = writable({});
 export const dismissedTags = writable({});
+/** Tag types and details (v3.22.0): `{ "<tag>": record }`; no entry = a plain tag (Topic, or Project by pattern). */
+export const tagInfo = writable({});
 
 /** tag → page keys; rebuilt once per change, never per render. */
 export const tagIndex = derived(pageTags, ($tags) => buildTagIndex($tags));
@@ -41,7 +50,7 @@ export const tagStatsList = derived(pageTags, ($tags) => tagStats($tags));
 
 /**
  * The last undoable change, or null: `{ label, pages, prevPages, dismissed,
- * prevDismissed }` (the patches it applied and the maps before it). Cleared by
+ * prevDismissed, info, prevInfo }` (the patches it applied and the maps before it). Cleared by
  * any later tag change, an undo, a failed write, or a data-folder change.
  */
 export const tagUndo = writable(null);
@@ -59,9 +68,10 @@ export async function loadTags() {
   await writes;
   try {
     const raw = await getTags();
-    const { pages, dismissed } = normalizeTagsFile(raw);
+    const { pages, dismissed, info } = normalizeTagsFile(raw);
     pageTags.set(pages);
     dismissedTags.set(dismissed);
+    tagInfo.set(info);
     if (raw && raw.state === 'corrupt') {
       log('Page tags: _tags.json is unreadable, so no tags are shown. The next tag change replaces it.', 'warning');
     } else if (raw && raw.state === 'newer') {
@@ -80,36 +90,45 @@ export async function loadTags() {
 export function clearTags() {
   pageTags.set({});
   dismissedTags.set({});
+  tagInfo.set({});
   tagUndo.set(null);
 }
 
 /**
- * Apply new maps optimistically and write the difference. With `undoLabel`
- * the change becomes the one Undo puts back; without, it ends any earlier one.
+ * Apply new maps optimistically and write the difference: pages, dismissals
+ * and info in one patch, so one locked write. `nextInfo` defaults to the info
+ * as it is. With `undoLabel` the change becomes the one Undo puts back;
+ * without, it ends any earlier one.
  * @returns {Promise<boolean>}
  */
-async function commit(nextPages, nextDismissed, what, undoLabel = null) {
+async function commit(nextPages, nextDismissed, what, undoLabel = null, nextInfo = get(tagInfo)) {
   const prevPages = get(pageTags);
   const prevDismissed = get(dismissedTags);
+  const prevInfo = get(tagInfo);
   const pages = diffTagMaps(prevPages, nextPages);
   const dismissed = diffTagMaps(prevDismissed, nextDismissed);
-  if (!Object.keys(pages).length && !Object.keys(dismissed).length) return true;
+  const info = diffTagInfo(prevInfo, nextInfo);
+  if (!Object.keys(pages).length && !Object.keys(dismissed).length && !Object.keys(info).length) return true;
 
   pageTags.set(nextPages);
   dismissedTags.set(nextDismissed);
+  tagInfo.set(nextInfo);
   const undo = undoLabel
-    ? { label: undoLabel, pages, prevPages, dismissed, prevDismissed }
+    ? { label: undoLabel, pages, prevPages, dismissed, prevDismissed, info, prevInfo }
     : null;
   tagUndo.set(undo);
 
+  const patch = { pages, dismissed };
+  if (Object.keys(info).length) patch.info = info;
   const run = (async () => {
     try {
-      const res = await patchTags({ pages, dismissed });
+      const res = await patchTags(patch);
       if (res && res.replacedCorrupt) log('Page tags: replaced the unreadable _tags.json', 'warning');
       return true;
     } catch (err) {
       pageTags.update((m) => rollbackPatch(m, pages, prevPages));
       dismissedTags.update((m) => rollbackPatch(m, dismissed, prevDismissed));
+      tagInfo.update((m) => rollbackInfoPatch(m, info, prevInfo));
       if (undo && get(tagUndo) === undo) tagUndo.set(null);
       log(`Could not save ${what}: ${err?.message || err}`, 'error');
       return false;
@@ -156,8 +175,10 @@ export function renameTag(from, to) {
   const t = normalizeTag(to);
   if (!f || !t) return Promise.resolve(false);
   const map = get(pageTags);
-  const label = tagExists(map, t) ? `Merged “${f}” into “${t}”` : `Renamed “${f}” to “${t}”`;
-  return commit(renameTagInMap(map, f, t), get(dismissedTags), 'the renamed tag', label);
+  const exists = tagExists(map, t);
+  const label = exists ? `Merged “${f}” into “${t}”` : `Renamed “${f}” to “${t}”`;
+  return commit(renameTagInMap(map, f, t), get(dismissedTags), 'the renamed tag', label,
+    renameTagInfo(get(tagInfo), f, t, exists));
 }
 
 /** Merge `from` into `into` (a rename onto an existing tag). */
@@ -169,7 +190,33 @@ export function mergeTags(from, into) {
 export function deleteTag(tag) {
   const map = get(pageTags);
   const n = Object.values(map).filter((list) => list.includes(normalizeTag(tag))).length;
-  return commit(deleteTagFromMap(map, tag), get(dismissedTags), 'tags', `Removed “${normalizeTag(tag)}” from ${n} ${n === 1 ? 'page' : 'pages'}`);
+  return commit(deleteTagFromMap(map, tag), get(dismissedTags), 'tags', `Removed “${normalizeTag(tag)}” from ${n} ${n === 1 ? 'page' : 'pages'}`,
+    deleteTagInfo(get(tagInfo), tag));
+}
+
+/**
+ * Replace a tag's details (v3.22.0, Manage tags → Details): one record,
+ * normalized by lib/tags.js; null or an empty record removes it. Written at
+ * once, rolled back if the write fails.
+ */
+export function setTagInfo(tag, record) {
+  const t = normalizeTag(tag);
+  if (!t || t !== tag) return Promise.resolve(false);
+  return commit(get(pageTags), get(dismissedTags), 'the tag’s details', null, withTagInfo(get(tagInfo), t, record));
+}
+
+/**
+ * Make a keyword a Person or a Topic (v3.22.0). A project number's type is
+ * fixed and nothing becomes a project: those come back false, unwritten.
+ * `label` is the display name to store when the tag has none yet.
+ */
+export function setTagType(tag, type, label = '') {
+  const t = normalizeTag(tag);
+  const cur = get(tagInfo);
+  if (!t || t !== tag) return Promise.resolve(false);
+  const next = withTagType(cur, t, type, label);
+  if (next === cur) return Promise.resolve(false);
+  return commit(get(pageTags), get(dismissedTags), 'the tag’s type', null, next);
 }
 
 /**
@@ -197,7 +244,8 @@ export function undoTagChange() {
   if (!u) return Promise.resolve(false);
   const pages = rollbackPatch(get(pageTags), u.pages, u.prevPages);
   const dismissed = rollbackPatch(get(dismissedTags), u.dismissed, u.prevDismissed);
-  return commit(pages, dismissed, 'the undo');
+  const info = rollbackInfoPatch(get(tagInfo), u.info, u.prevInfo);
+  return commit(pages, dismissed, 'the undo', null, info);
 }
 
 /**

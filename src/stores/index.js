@@ -103,6 +103,9 @@ export {
 export {
   pageTags,
   dismissedTags,
+  tagInfo,
+  setTagInfo,
+  setTagType,
   tagIndex,
   tagStatsList,
   loadTags,

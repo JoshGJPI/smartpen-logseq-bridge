@@ -1,7 +1,8 @@
 # Transcript structure: delete lines, relink, tag types, people, sketches — spec
 
 Status: **decisions settled** (Josh, 2026-11-19); Phase A built (v3.20.0, branch `phase-a-delete-lines`), Phase B built
-(v3.21.0, branch `phase-b-relink`; Make sketch in B.4 waits for Phase E), C–E not started. Phase E waits for a mockup Josh approves. Five phases, each a release that leaves the app working and
+(v3.21.0, branch `phase-b-relink`; Make sketch in B.4 waits for Phase E), Phase C built (v3.22.0, branch
+`phase-c-tag-types`), D–E not started. Phase E waits for a mockup Josh approves. Five phases, each a release that leaves the app working and
 tested. Background and mockups: the "Tag Types and Transcription" deep dive (17 Nov 2026), whose numbers are repeated
 here where they matter.
 
@@ -181,6 +182,12 @@ every task is unchanged.
 ---
 
 ## Phase C — Tag types and details (3.22)
+
+Built in v3.22.0. Where the build settles something this section leaves open: a Topic may have a display name
+(`label`) as well as aliases; every type may have aliases and a `note`; a project's chip shows its number (its name is
+in Details); "Add as Person" stores the typed text as the label; facet values match case-insensitively (decision 4's
+case-sensitive match is Phase D's, on transcript text); facets narrow Pages to pages carrying a named tag, and with no
+words list those pages. CLAUDE.md "Data formats" documents the `info` record.
 
 ### C.1 Types
 

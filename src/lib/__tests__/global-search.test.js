@@ -209,3 +209,49 @@ describe('tags in search (v3.1.0)', () => {
     expect(runSearch(q('beam'), ctx).tags).toEqual([]);
   });
 });
+
+describe('tag facets in runSearch (v3.22.0)', () => {
+  const tags = [
+    { tag: 'rich', pages: 1, notebooks: 1 }, { tag: '5444-006', pages: 1, notebooks: 1 },
+    { tag: 'P2026-141', pages: 1, notebooks: 1 }, { tag: 'framing', pages: 2, notebooks: 1 }
+  ];
+  const pageTags = {
+    '388/170': ['5444-006', 'rich'],
+    '388/101': ['P2026-141', 'framing'],
+    '387/31': ['framing'],
+    '388/999': ['rich']   // a page deleted since it was tagged
+  };
+  const info = { rich: { type: 'person', label: 'Rich', aliases: ['Richard'] }, framing: { aliases: ['framed'] } };
+  const run = (s) => runSearch(q(s), { ...ctx, tags, pageTags, info });
+
+  it('facets alone list the pages carrying the tag, newest first, untranscribed too', () => {
+    expect(keys(run('topic:framing').pages)).toEqual(['387/31', '388/101']);
+    expect(keys(run('person:Richard').pages)).toEqual(['388/170']);
+    expect(keys(run('type:project').pages)).toEqual(['388/170', '388/101']);
+    expect(keys(run('is:proposal').pages)).toEqual(['388/101']);
+    expect(run('person:nobody').pages).toEqual([]);
+  });
+
+  it('facets narrow word and date results', () => {
+    expect(keys(run('beam').pages).sort()).toEqual(['388/101', '388/170', '390v2/3']);
+    expect(keys(run('beam is:job').pages)).toEqual(['388/170']);
+    expect(keys(run('beam topic:framed').pages)).toEqual(['388/101']);
+    expect(keys(run('oct 14 topic:framing').pages)).toEqual(['387/31']);
+  });
+
+  it('the tags a facet names lead the Tags group', () => {
+    const r = run('person:rich');
+    expect(r.tags.map((t) => [t.tag, t.exact])).toEqual([['rich', true]]);
+    expect(r.order.indexOf('tags')).toBe(r.order.indexOf('pages') - 1);
+    expect(r.notebooks).toEqual([]);
+  });
+
+  it('a bare word equal to a label or alias still finds the tag', () => {
+    expect(run('Richard').tags.map((t) => t.tag)).toEqual(['rich']);
+    expect(run('framed').tags.map((t) => t.tag)).toEqual(['framing']);
+  });
+
+  it('without the sidecar maps a facet finds nothing, and nothing breaks', () => {
+    expect(runSearch(q('person:rich'), { ...ctx, tags }).pages).toEqual([]);
+  });
+});

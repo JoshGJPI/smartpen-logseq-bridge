@@ -20,7 +20,7 @@
 import { tokenize, highlightMatches } from './transcript-search.js';
 import { filterTranscriptionProperties } from '../utils/formatting.js';
 import { isTypingTarget } from './left-panel.js';
-import { matchNotebooks, matchTags } from './search-query.js';
+import { matchNotebooks, matchTags, facetPages } from './search-query.js';
 import { pageKeyOf } from './library-home.js';
 import { pagesOnDay } from './timeline.js';
 
@@ -135,6 +135,10 @@ export function recordsByKey(records) {
  * - **Notebooks**: names or keys matching the words (`matchNotebooks`).
  * - **Tags** (v3.1.0): page tags matching the text (`matchTags`), always the
  *   group just above Pages.
+ * - **Facets** (v3.22.0, `person:` `topic:` `project:` `type:` `is:`): Pages
+ *   keeps only pages carrying a tag each facet names (`facetPages`), and those
+ *   tags lead the Tags group. Facets with no words list the pages themselves,
+ *   most recently written first.
  *
  * `order` puts the group the query is most clearly about first: Days for a
  * date-only query, Notebooks when a notebook is named exactly, else Pages.
@@ -142,14 +146,18 @@ export function recordsByKey(records) {
  * @param {{text: string, tokens: string[], days: string[]}} q  from parseSearchQuery
  * @param {{index: Array, notebooks: Array<{book: string, name: string}>,
  *          timeline?: Object|null, dates?: Map|null, records?: Map|null,
- *          tags?: Array<{tag: string, pages: number}>}} ctx
+ *          tags?: Array<{tag: string, pages: number}>, pageTags?: Record<string, string[]>,
+ *          info?: Record<string, object>}} ctx
  *   `timeline` is the FILTERED capture-date index; `dates` is pageDates() of it;
- *   `records` maps every page key to its scan record (`recordsByKey`)
+ *   `records` maps every page key to its scan record (`recordsByKey`);
+ *   `pageTags` and `info` are the tags sidecar (facets, label / alias matches)
  * @returns {{pages: Array, notebooks: Array, days: Array, tags: Array, order: string[], total: number}}
  */
-export function runSearch(q, { index, notebooks, timeline = null, dates = null, records = null, tags = [] }) {
+export function runSearch(q, { index, notebooks, timeline = null, dates = null, records = null, tags = [], pageTags = {}, info = {} }) {
   const empty = { pages: [], notebooks: [], days: [], tags: [], order: ['tags', 'pages', 'notebooks', 'days'], total: 0 };
-  if (!q || (!q.tokens.length && !q.days.length && q.text.length < 2)) return empty;
+  const facets = (q && q.facets) || [];
+  if (!q || (!facets.length && !q.tokens.length && !q.days.length && q.text.length < 2)) return empty;
+  const fac = facetPages(facets, pageTags, info);
 
   // Days, and which pages they hold.
   const days = [];
@@ -169,10 +177,12 @@ export function runSearch(q, { index, notebooks, timeline = null, dates = null, 
     }
   }
 
-  // Pages.
+  // Pages: words, then days, then facets narrow them.
+  let only = onDays ? new Set(onDays.keys()) : null;
+  if (fac.keys) only = only ? new Set([...only].filter((k) => fac.keys.has(k))) : fac.keys;
   let pages;
   if (q.tokens.length) {
-    pages = searchIndex(index, q.tokens, { dates, only: onDays ? new Set(onDays.keys()) : null }).map((h) => ({
+    pages = searchIndex(index, q.tokens, { dates, only }).map((h) => ({
       record: h.entry.record,
       key: h.entry.key,
       score: h.score,
@@ -182,15 +192,28 @@ export function runSearch(q, { index, notebooks, timeline = null, dates = null, 
     // Untranscribed pages count too, so look records up in the whole scan.
     const entries = new Map((index || []).map((e) => [e.key, e]));
     pages = [...onDays.entries()]
+      .filter(([key]) => !only || only.has(key))
       .sort((a, b) => b[1] - a[1])
       .map(([key]) => ({ key, record: (records && records.get(key)) || null, score: 0, snippet: entries.get(key)?.lines[0] || '' }))
+      .filter((p) => p.record);
+  } else if (fac.keys) {
+    const entries = new Map((index || []).map((e) => [e.key, e]));
+    const last = (k) => (dates && dates.get(k)?.lastMs) || 0;
+    pages = [...fac.keys]
+      .sort((a, b) => last(b) - last(a) || (a < b ? -1 : a > b ? 1 : 0))
+      .map((key) => ({ key, record: (records && records.get(key)) || null, score: 0, snippet: entries.get(key)?.lines[0] || '' }))
       .filter((p) => p.record);
   } else {
     pages = [];
   }
 
-  const nbs = matchNotebooks(q.text, notebooks);
-  const tagHits = matchTags(q.text, tags);
+  const nbs = facets.length && q.text.length < 2 ? [] : matchNotebooks(q.text, notebooks);
+  const facetHits = fac.tags
+    .map((t) => (tags || []).find((s) => s.tag === t))
+    .filter(Boolean)
+    .map((s) => ({ ...s, exact: true }));
+  const textHits = matchTags(q.text, tags, info).filter((t) => !fac.tags.includes(t.tag));
+  const tagHits = [...facetHits, ...textHits];
 
   let order = ['pages', 'notebooks', 'days'];
   if (q.days.length && !q.tokens.length) order = ['days', 'pages', 'notebooks'];

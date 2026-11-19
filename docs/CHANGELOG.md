@@ -6,6 +6,44 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.22.0 — Tag types and details (November 2026)
+
+Phase C of [TRANSCRIPT-STRUCTURE-SPEC.md](TRANSCRIPT-STRUCTURE-SPEC.md). Every tag is now a **Project**, a **Person**
+or a **Topic** (decision 3: no Company or Personal type), with a few details, so Phase D can give a person's tag a
+block scope and a page of its own.
+
+- **Types**: a project is the pattern alone (job `####-###`, proposal `P####-###`), never stored and never retyped; a
+  keyword is a Topic unless its info says `type: "person"`, and can never become a project. The four existing keywords
+  stay Topics with no change on disk. Job vs proposal is still not a type, but the UI and search tell them apart
+  (`projectKind`: the tag page reads Job or Proposal; `is:job`, `is:proposal`).
+- **Storage**: `_tags.json` gains `info` beside `pages` and `dismissed`, keyed by the normalized tag; the version
+  stays 1. Same file, same lock: `storage:patchTags` takes `info: { tag: record | null }` and applies it in the same
+  read-merge-write as the page lists, so rename, merge and delete move or drop a tag's details in one write. Main
+  checks only the shape (`checkInfo`: plain fields, `type` only `"person"`, never on a project number);
+  `lib/tags.js` `normalizeTagInfo()` owns the fields. A 3.21 build writing tags keeps `info` (unknown top-level fields
+  were already kept); a patch without `info` leaves it untouched. Capitals live only in `label` and `aliases`: Phase D
+  matches people case-sensitively (decision 4), so "Rich" and "rich" are distinct aliases.
+- **Merge**: the target keeps its own details and gains the source's aliases. Rejected: carrying the source's label
+  as an alias automatically (it would make a merged-away name match people in Phase D without a click).
+- **Store**: `stores/tags.js` `commit()` now diffs pages, dismissals and info together, applies them optimistically,
+  and on a failed write rolls back per page and per tag, only where nothing changed since (`rollbackInfoPatch`).
+  Undo of a manager change restores info too.
+- **UI**: Manage tags has a Type column (sortable) and **Details** (a panel beside the table, `TagDetails`): a
+  project shows its type as fixed and has name, client, Active and (a proposal) the job it became; a keyword switches
+  Person / Topic and has a display name, aliases, company (person) and a note. Every chip (`TagChip`, which reads
+  `tagInfo` itself) shows the label in its type's colour: teal project, violet person, grey topic. The tag home and
+  the left panel's Tags list group **Projects, People, Topics**; `collapsedTagGroups` is keyed by type and a stored
+  "keywords" reads as Topics. The tag input offers **Add as Topic** (Enter) and **Add as Person** for a new keyword;
+  the person's label is the text as typed. Its type-ahead also finds a tag by its label or an alias.
+- **Search**: `person:`, `topic:`, `project:` (a value matches a tag's key, label or alias, case-insensitively,
+  within that type), `type:person|project|topic`, `is:job`, `is:proposal`; quoted values take spaces. Facets keep the
+  pages carrying a named tag (several: each must hold), narrow word and date results, and alone list those pages
+  newest first, untranscribed pages included. A bare word equal to a label or alias still finds its tag. Unknown
+  values stay words.
+- **MCP**: `list_tags` returns `type`, `label` and aliases per tag, takes `type`, and with `tag` (key, label or alias)
+  prints the tag's details; `search` takes the facets and labels its tags. Read-only: no tool sets a type.
+- Nothing is typed without a click (decision 5's spirit for Phase D's name suggestions).
+
 ## v3.21.0 — Relink old transcripts (November 2026)
 
 Phase B of [TRANSCRIPT-STRUCTURE-SPEC.md](TRANSCRIPT-STRUCTURE-SPEC.md). 99 transcribed pages (84 JPI Dotted, 8 JPI

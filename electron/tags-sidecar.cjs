@@ -5,7 +5,8 @@
  *
  *   { "version": 1,
  *     "pages":     { "<bookKey>/<pageId>": ["P2026-141", "beam"] },
- *     "dismissed": { "<bookKey>/<pageId>": ["2327-018"] } }
+ *     "dismissed": { "<bookKey>/<pageId>": ["2327-018"] },
+ *     "info":      { "<tag>": { "type": "person", "label": "Tom", "aliases": ["Thomas"] } } }   (v3.22.0)
  *
  * The renderer owns the format (src/lib/tags.js normalizes every tag and works
  * out every edit); main applies a PATCH of whole per-page lists, read-merge-
@@ -81,11 +82,43 @@ function checkList(list, key) {
   return [...new Set(list)];
 }
 
+/** A project number's key: its type is the pattern, never stored. */
+const PROJECT_SHAPE = /^P?\d{4}-\d{3}$/;
+
+/** Bounds on one info record (v3.22.0); far above what src/lib/tags.js writes. */
+const MAX_INFO_FIELDS = 20;
+const MAX_INFO_STRING = 1000;
+const MAX_INFO_LIST = 50;
+
 /**
- * Apply `{ pages?: {key: tags[]|null}, dismissed?: {key: tags[]|null} }` to a
- * file, returning a new file. Everything is validated before anything is
- * applied, so a bad entry rejects the whole patch (nothing is written).
- * An empty list removes the entry, as null does.
+ * An info patch value: null (remove) or one record. The renderer owns the
+ * fields (lib/tags.js normalizeTagInfo); main checks only the shape: a plain
+ * object of strings, booleans and short string lists, `type` only "person",
+ * and never on a project number.
+ */
+function checkInfo(rec, tag) {
+  if (rec === null) return null;
+  const r = plainObject(rec);
+  if (!r) throw new Error(`Invalid tag info for ${tag}`);
+  const keys = Object.keys(r);
+  if (keys.length > MAX_INFO_FIELDS) throw new Error(`Too many info fields for ${tag}`);
+  for (const k of keys) {
+    const v = r[k];
+    const ok = typeof v === 'boolean'
+      || (typeof v === 'string' && v.length <= MAX_INFO_STRING)
+      || (Array.isArray(v) && v.length <= MAX_INFO_LIST && v.every((x) => typeof x === 'string' && x.length <= MAX_INFO_STRING));
+    if (!ok) throw new Error(`Invalid info field ${k} for ${tag}`);
+  }
+  if ('type' in r && (r.type !== 'person' || PROJECT_SHAPE.test(tag))) throw new Error(`Invalid tag type for ${tag}`);
+  return { ...r };
+}
+
+/**
+ * Apply `{ pages?: {key: tags[]|null}, dismissed?: {key: tags[]|null},
+ * info?: {tag: record|null} }` to a file, returning a new file. Everything is
+ * validated before anything is applied, so a bad entry rejects the whole patch
+ * (nothing is written). An empty list removes the entry, as null does; an
+ * `info` section is created only when a patch sets a record.
  */
 function applyTagsPatch(file, patch, guards) {
   const p = plainObject(patch);
@@ -99,10 +132,27 @@ function applyTagsPatch(file, patch, guards) {
       checked.push([section, checkKey(key, guards), checkList(entries[key], key)]);
     }
   }
+  const infoChecked = [];
+  if (p.info != null) {
+    const entries = plainObject(p.info);
+    if (!entries) throw new Error('Invalid tags patch: info');
+    for (const tag of Object.keys(entries)) {
+      if (!TAG_SHAPE.test(tag)) throw new Error(`Invalid tag: ${String(tag).slice(0, 50)}`);
+      infoChecked.push([tag, checkInfo(entries[tag], tag)]);
+    }
+  }
   const next = { ...file, pages: { ...(file.pages || {}) }, dismissed: { ...(file.dismissed || {}) } };
   for (const [section, key, list] of checked) {
     if (list && list.length) next[section][key] = list;
     else delete next[section][key];
+  }
+  if (infoChecked.length) {
+    const info = { ...(plainObject(file.info) || {}) };
+    for (const [tag, rec] of infoChecked) {
+      if (rec && Object.keys(rec).length) info[tag] = rec;
+      else delete info[tag];
+    }
+    next.info = info;
   }
   return next;
 }

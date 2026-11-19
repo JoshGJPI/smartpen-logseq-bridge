@@ -1,37 +1,36 @@
 <!--
   TagNav.svelte — the left panel beside a tag's page, Untagged, the tag manager
-  or the suggestions queue (v3.14.0): every tag, projects then keywords, with
+  or the suggestions queue (v3.14.0): every tag, in Projects, People and Topics (v3.22.0), with
   its page count, and Untagged; a click opens that tag's page, so moving from
   one project to the next takes no trip back to the Library home. The open
   tag is marked. Counts come from the tag store, never from a page read.
 -->
 <script>
   import { untaggedSummary, openLibraryView } from '$stores';
-  import { tagStatsList } from '$stores/tags.js';
-  import { isProjectTag, compareTags } from '$lib/tags.js';
+  import { tagStatsList, tagInfo } from '$stores/tags.js';
+  import { compareTags, groupByTagType, tagLabel } from '$lib/tags.js';
 
   /** The open Library view (`libraryView`), to mark the current tag. */
   export let view = null;
 
   $: sorted = [...$tagStatsList].sort((a, b) => compareTags(a.tag, b.tag));
-  $: projects = sorted.filter((t) => isProjectTag(t.tag));
-  $: keywords = sorted.filter((t) => !isProjectTag(t.tag));
+  // v3.22.0: Projects, People, Topics.
+  $: groups = groupByTagType(sorted, $tagInfo);
   $: current = view?.kind === 'tag' ? view.tag : view?.kind === 'untagged' ? '\u0000untagged' : null;
 </script>
 
 <div class="tn">
-  {#each [['Projects', projects], ['Keywords', keywords]] as [title, list] (title)}
-    {#if list.length}
-      <p class="h">{title} <span>{list.length}</span></p>
-      {#each list as t (t.tag)}
-        <button type="button" class="row" class:on={current === t.tag} aria-current={current === t.tag ? 'page' : undefined}
-          on:click={() => openLibraryView({ kind: 'tag', tag: t.tag })}
-          title="{t.tag}: {t.pages} {t.pages === 1 ? 'page' : 'pages'} in {t.notebooks} {t.notebooks === 1 ? 'notebook' : 'notebooks'}">
-          <span class="name" class:mono={title === 'Projects'}>{t.tag}</span>
-          <span class="n">{t.pages}</span>
-        </button>
-      {/each}
-    {/if}
+  {#each groups as g (g.id)}
+    <p class="h">{g.label} <span>{g.items.length}</span></p>
+    {#each g.items as t (t.tag)}
+      {@const label = tagLabel(t.tag, $tagInfo)}
+      <button type="button" class="row" class:on={current === t.tag} aria-current={current === t.tag ? 'page' : undefined}
+        on:click={() => openLibraryView({ kind: 'tag', tag: t.tag })}
+        title="{label}: {t.pages} {t.pages === 1 ? 'page' : 'pages'} in {t.notebooks} {t.notebooks === 1 ? 'notebook' : 'notebooks'}">
+        <span class="name" class:mono={g.id === 'project'}>{label}</span>
+        <span class="n">{t.pages}</span>
+      </button>
+    {/each}
   {/each}
   {#if $untaggedSummary.pageCount}
     <p class="h">Other</p>
@@ -41,7 +40,7 @@
       <span class="n">{$untaggedSummary.pageCount}</span>
     </button>
   {/if}
-  {#if !projects.length && !keywords.length}
+  {#if !groups.length}
     <p class="note">No tags yet. Tag a page from the reader's tag strip or a page grid's + tag.</p>
   {/if}
 </div>

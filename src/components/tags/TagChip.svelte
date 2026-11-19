@@ -1,13 +1,16 @@
 <!--
   TagChip.svelte — one tag as a pill (v3.1.0 page tags; mockups 1–7).
 
-  Keywords are grey, project numbers teal; a suggested project number is a
-  dashed amber chip with ✓ (add as a tag) and ✕ (dismiss for this page).
-  `onRemove` adds a × ; `onClick` makes the whole chip a toggle (filters), with
-  `on` for a chosen filter and `count` for a small number after the name.
+  Topics are grey, project numbers teal, people violet (v3.22.0: the type and
+  the label come from tagInfo, so the chip for `tom` reads "Tom"); a suggested
+  project number is a dashed amber chip with ✓ (add as a tag) and ✕ (dismiss
+  for this page). `onRemove` adds a × ; `onClick` makes the whole chip a toggle
+  (filters), with `on` for a chosen filter and `count` for a small number after
+  the name.
 -->
 <script>
-  import { isProjectTag } from '$lib/tags.js';
+  import { tagTypeOf, tagLabel } from '$lib/tags.js';
+  import { tagInfo } from '$stores/tags.js';
 
   export let tag;
   export let suggested = false;
@@ -19,28 +22,31 @@
   export let onAccept = null;
   export let onDismiss = null;
   export let disabled = false;
-  /** Tooltip; defaults to the tag. */
+  /** Tooltip; defaults to the label (and the tag, when they differ). */
   export let title = '';
 
-  $: project = isProjectTag(tag);
+  $: type = tagTypeOf(tag, $tagInfo);
+  $: label = tagLabel(tag, $tagInfo);
+  $: tip = title || (label !== tag ? `${label} (${tag})` : tag);
 </script>
 
 {#if onClick}
   <button
     type="button"
     class="tg"
-    class:p={project}
+    class:p={type === 'project'}
+    class:pp={type === 'person'}
     class:on
     aria-pressed={on}
     {disabled}
-    title={title || tag}
+    title={tip}
     on:click={onClick}
-  >{tag}{#if count != null}<small>{count}</small>{/if}{#if on}<span class="x" aria-hidden="true">×</span>{/if}</button>
+  >{label}{#if count != null}<small>{count}</small>{/if}{#if on}<span class="x" aria-hidden="true">×</span>{/if}</button>
 {:else}
-  <span class="tg" class:p={project} class:s={suggested} title={title || tag}>
-    {tag}{#if count != null}<small>{count}</small>{/if}
+  <span class="tg" class:p={type === 'project'} class:pp={type === 'person'} class:s={suggested} title={tip}>
+    {label}{#if count != null}<small>{count}</small>{/if}
     {#if onRemove}
-      <button type="button" class="x" {disabled} aria-label="Remove tag {tag}" title="Remove" on:click|stopPropagation={onRemove}>×</button>
+      <button type="button" class="x" {disabled} aria-label="Remove tag {label}" title="Remove" on:click|stopPropagation={onRemove}>×</button>
     {/if}
     {#if suggested && onAccept}
       <button type="button" class="ok" {disabled} aria-label="Add {tag} as a tag" title="Add as a tag" on:click|stopPropagation={onAccept}>✓</button>
@@ -70,6 +76,7 @@
     font-family: inherit;
   }
   .tg.p { background: #e3f5f2; color: #0f766e; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tg.pp { background: #f1ebfb; color: #6a3fa8; font-weight: 600; }
   .tg.s { background: #fff8e1; color: #9a6700; border: 1px dashed #e0b84a; font-weight: 600; padding-right: 3px; }
   button.tg { cursor: pointer; }
   button.tg:hover:not(:disabled) { filter: brightness(0.95); }

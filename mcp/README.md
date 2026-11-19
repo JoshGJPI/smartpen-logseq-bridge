@@ -60,11 +60,11 @@ New pages show up without a restart: each call re-stats the folder and re-reads 
 |---|---|---|
 | `list_notebooks` | Book keys, names, page / stroke / transcribed / open-task counts, first and last day, active volume, paper known | text |
 | `list_pages` | One notebook's pages: strokes, days, tags, transcribed, open tasks, rotation. Tag / date filters, paged | text |
-| `list_tags` | Tags with page, notebook and open-task counts, untagged count; with `tag`, that tag's pages | text |
+| `list_tags` | Tags with `type` (project / person / topic), `label`, aliases, page, notebook and open-task counts, untagged count; `type` filters (v3.22.0). With `tag` (key, label or alias), that tag's details and pages. Read-only: no tool sets a type | text |
 | `list_tasks` | Task lines (TODO / DONE / WAITING / CANCELLED): the app's Tasks view rows, filtered by state, project, tags, notebook, days, text; grouped; paged | text, ~350 chars a row |
 | `check_transcript` | Without `reference`: the page's written rows from the ink (height, left margin, indent column, possible wraps), no transcript text. With `reference` (Claude's reading as markdown bullets): the stored transcript diffed against it (wording, indent, task state, missing lines, strokes per line). See "Checking a transcription" | text |
 | `get_transcript` | One page's lines, numbered `#n` (the stored line number `edit_transcript` takes), with indent and TODO / DONE / WAITING / CANCELLED; flags pages whose stroke-to-line links are unreliable | text, few KB |
-| `search` | The app's header search: words, dates, notebook names / keys, tags (same code, same limits) | text |
+| `search` | The app's header search: words, dates, notebook names / keys, tags, tag facets `person:` `topic:` `project:` `type:` `is:job` / `is:proposal` (same code, same limits) | text |
 | `days_summary` | Per local day: strokes and pages touched | text |
 | `render_page` | One page as a PNG, stored rotation, on the printed page (`fit: "ink"` crops to the ink). `color_by_line` / `show_decorative` for checking a transcription (see "Checking a transcription") | ~1,700 visual tokens at 1000 px |
 | `render_days` | One PNG per page written on in the range: that range's ink dark, the rest of the page grey; `transcript: true` adds each page's text | 4 images, ~3,500 visual tokens at 700 px |

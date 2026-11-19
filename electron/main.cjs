@@ -827,7 +827,7 @@ ipcMain.handle('storage:setOrientation', ipcSafe(async (root, book, page, rotati
 
 ipcMain.handle('storage:getTags', ipcSafe(async (root) => {
   const { file, state } = await readTags(root);
-  return { version: file.version, pages: file.pages, dismissed: file.dismissed, state };
+  return { version: file.version, pages: file.pages, dismissed: file.dismissed, info: file.info || {}, state };
 }));
 ipcMain.handle('storage:patchTags', ipcSafe(async (root, patch) => withTagsLock(async () => {
   const { file, state } = await readTags(root);

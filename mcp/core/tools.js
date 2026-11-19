@@ -23,7 +23,7 @@ import { dayKey, dayStart, rangeBoundsMs, pagesInRange, pagesOnDay, eachDay, inR
 import { pageDayGroups, formatSittingLabel } from '../../src/lib/viewer/page-sittings.js';
 import { rotationFor } from '../../src/lib/page-orientation.js';
 import { isTrustworthyTranscript } from '../../src/lib/viewer/ink-text.js';
-import { buildTagIndex, tagStats, normalizeTag } from '../../src/lib/tags.js';
+import { buildTagIndex, tagStats, normalizeTag, tagTypeOf, tagLabel, tagAnswersTo, infoOf, TAG_TYPES } from '../../src/lib/tags.js';
 import { taskStateOf, stateLabel, groupTaskRows } from '../../src/lib/tasks.js';
 import {
   allTaskRows, rowsInState, countsOf, filterTasks, orderTasks, taskOut, openTasksByPage, unconvertedPages,
@@ -300,25 +300,40 @@ export function createTools(root) {
         if (exists.has(k)) live[k] = list; else orphans++;
       }
       const open = openTasksByPage(scan);
+      const info = scan.tagInfo || {};
+      const type = args.type == null || args.type === '' ? null : String(args.type).toLowerCase();
+      if (type && !TAG_TYPES.includes(type)) return fail(`Unknown type "${args.type}": use ${TAG_TYPES.join(', ')}`);
       if (!args.tag) {
         const index = buildTagIndex(live);
-        const stats = tagStats(live).map((s) => {
-          const n = (index.get(s.tag) || []).reduce((a, k) => a + (open.get(k) || 0), 0);
-          return n ? { ...s, openTasks: n } : s;
-        });
+        const stats = tagStats(live)
+          .map((s) => ({ tag: s.tag, type: tagTypeOf(s.tag, info), label: tagLabel(s.tag, info), pages: s.pages, notebooks: s.notebooks }))
+          .filter((s) => !type || s.type === type)
+          .map((s) => {
+            const n = (index.get(s.tag) || []).reduce((a, k) => a + (open.get(k) || 0), 0);
+            const rec = infoOf(info, s.tag);
+            const out = { ...s };
+            if (rec.aliases) out.aliases = rec.aliases;
+            if (n) out.openTasks = n;
+            return out;
+          });
         const untagged = scan.pages.filter((p) => !(live[pageKey(p)] || []).length).length;
-        return { content: [text(`${stats.length} tag(s); ${untagged} untagged page(s)`
+        return { content: [text(`${stats.length} ${type ? `${type} ` : ''}tag(s); ${untagged} untagged page(s)`
           + (orphans ? `; ${orphans} tagged page(s) no longer exist (ignored)` : '') + `\n${JSON.stringify(stats)}`)] };
       }
-      const tag = normalizeTag(args.tag) || String(args.tag).toLowerCase();
-      const keys = buildTagIndex(live).get(tag) || [];
+      const index = buildTagIndex(live);
+      let tag = normalizeTag(args.tag) || String(args.tag).toLowerCase();
+      // A label or alias names its tag too ("Tom" → tom).
+      if (!index.has(tag)) tag = [...index.keys()].find((t) => tagAnswersTo(t, info, args.tag)) || tag;
+      const keys = index.get(tag) || [];
       if (!keys.length) return { content: [text(`No pages tagged "${tag}".`)] };
+      if (type && tagTypeOf(tag, info) !== type) return { content: [text(`"${tag}" is a ${tagTypeOf(tag, info)} tag, not a ${type} tag.`)] };
       const byKey = new Map(scan.pages.map((p) => [pageKey(p), p]));
       const rows = keys.map((k) => {
         const p = byKey.get(k);
         return { page: k, notebook: bookName(scan.aliases, p.book), strokes: p.strokes, days: Object.keys(p.days).sort(), transcribed: p.lineCount > 0, openTasks: open.get(k) || undefined, tags: live[k] };
       });
-      return { content: [text(`"${tag}": ${rows.length} page(s)\n${JSON.stringify(rows)}`)] };
+      const head = { ...infoOf(info, tag), tag, type: tagTypeOf(tag, info), label: tagLabel(tag, info) };
+      return { content: [text(`"${tag}": ${rows.length} page(s)\n${JSON.stringify(head)}\n${JSON.stringify(rows)}`)] };
     },
 
     list_tasks(args) {
@@ -383,7 +398,7 @@ ${JSON.stringify(body)}`)] };
         }),
         notebooks: res.notebooks.map((n) => ({ book: n.book, name: n.name, exact: n.exact })),
         days: res.days,
-        tags: res.tags.map((t) => ({ tag: t.tag, pages: t.pages, exact: t.exact }))
+        tags: res.tags.map((t) => ({ tag: t.tag, type: tagTypeOf(t.tag, scan.tagInfo || {}), label: tagLabel(t.tag, scan.tagInfo || {}), pages: t.pages, exact: t.exact }))
       };
       const head = `${res.total} result(s): ${out.pages.length} page(s), ${out.notebooks.length} notebook(s), ${out.days.length} day(s), ${out.tags.length} tag(s)`
         + ' (app global-search semantics and limits; transcribed text only, so untranscribed pages are found by date, notebook or tag)';
