@@ -33,7 +33,10 @@ src/lib/           pure logic, no UI, testable without DOM (tags, tag-suggestion
                    asks, deleted-ink: the deleted lines' ink and the `textless` flag; one line each in
                    docs/ARCHITECTURE.md "Key Libraries")
 src/lib/storage/   PageDoc layer: local-store (IPC facade), save-page, load-page, load-range, scan, page-changes, graph-export,
-                   convert-task-boxes (one-off conversion of old transcripts)
+                   convert-task-boxes (one-off conversion of old transcripts), line-match (stroke ↔ MyScript line, v3.21.0)
+src/lib/relink.js, relink-plan.js, line-align.js   Relink old pages (v3.21.0, spec Phase B): what is sent, classify,
+                   word fixes, guards; the write plan; in-order line alignment shared with the MCP. stores/relink.js runs
+                   it (MyScript, cache, save, bulk); electron/relink-cache.cjs keeps runs in <userData>/relink-cache/
 src/lib/viewer/    reader helpers: SVG render, page cache, thumbnails, transcript markdown/save, feed loader,
                    transcript-draft.js (the Library Edit's line operations),
                    task-state.js (the one task write path, v3.4.0)
@@ -232,6 +235,26 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
 - **Claude's edits never set it.** `saveTranscriptLines()` flags only when passed `deletedInk: 'textless'` (Library
   Edit's choice); `edit_transcript` passes nothing, so its deletes only unlink.
 
+### Relink (v3.21.0, docs/TRANSCRIPT-STRUCTURE-SPEC.md Phase B)
+
+- **Relink keeps the transcript; Reset replaces it.** `planTranscript(…, { relink })` (`lib/relink-plan.js`) writes
+  only linked lines' `yBounds`, the sent strokes' `lineId`, `lastTranscribed` and `lastUpdated`, plus the word fixes
+  the review took and lines from "Add as new line". Never line ids, other text, order, indent, `parentId`, `checked`,
+  `marker` or kind lines, so no task state is carried. No stroke is deleted; leftover ink is unlinked or, by choice,
+  flagged Not text in the same write. One write path: `savePageToFolder({ relink })`, then `refreshAfterSave()`.
+- **Never sent, never relinked**: textless strokes and strokes linked to a line with any `kind` (`relinkSendStrokes`;
+  `planRelink` touches only the run's `sent` ids and skips a kind line's strokes). Kind lines are never aligned
+  (`textLines`), so Phase E's sketch lines need no change here.
+- **Guards** (`relinkRefusal`): the same four flags as `editRefusal`, read by one function, `stores/page-guards.js`
+  `pageGuardState()` (change both refusals together), plus a trustworthy page, no text lines, no ink to send. The
+  dialog takes a `transcriptEditorHold()` while reviewing. The save re-checks the revision: a page written since its
+  MyScript run is refused (`stale`) and sent again.
+- **The cache lives in `<userData>/relink-cache/<bookKey>/<pageId>.json`, never in the data folder**, keyed by the
+  page's `metadata.lastUpdated` (`cachedRunValid`); dropped after a save. No MyScript request without a click (the
+  dialog's Send, or the bulk Run).
+- A page also loaded in the Editor takes the written links on its canvas copy (`syncCanvasLinks` in
+  `stores/relink.js`), or the Editor's next save would put the old links back.
+
 ### Tasks (v3.4.0)
 
 - **One write path for a task's state:** `lib/viewer/task-state.js` `setTaskState()` (from the UI through
@@ -312,7 +335,8 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   Ncode (~2.4mm per unit). Convert with `yBoundsToNcode()` using the batch origin (`batchOriginY()`, stored as
   `originNcodeY`) before matching strokes to lines. `LINE_MATCH_TOLERANCE_NCODE = 1` deliberately matches
   `TranscriptStrokePreview`.
-- Pages transcribed before Aug 2026 mostly have wrong stroke `lineId`s (left alone; re-transcribing fixes a page).
+- Pages transcribed before Aug 2026 mostly have wrong stroke `lineId`s (left alone until relinked: Relink, v3.21.0, fixes a
+  page and keeps its text; re-transcribing replaces the transcript).
   The batch origin is never stored, so line → ink in the Library's Ink + text uses the stored `lineId`s, and only
   where `isTrustworthyTranscript()` (`lib/viewer/ink-text.js`) says the page was matched by the fixed code; a
   date check alone is wrong (Library transcript edits bump `lastTranscribed`).
@@ -431,6 +455,7 @@ The full list (per feature: rotation, volumes, tags, retime, tasks, print, LogSe
 | [docs/PAGE-TAGS-SPEC.md](docs/PAGE-TAGS-SPEC.md) | **v3.1.0** page tags (built), with [mockups](docs/TAGS-UI-MOCKUPS.html) |
 | [docs/MCP-SERVER-SPEC.md](docs/MCP-SERVER-SPEC.md), [mcp/README.md](mcp/README.md) | The read-only MCP server: decisions (spec); tools, caps and setup (README) |
 | [docs/MCP-WRITE-SPEC.md](docs/MCP-WRITE-SPEC.md) | **v3.18.0** transcript edits from Claude through the running app (built) |
+| [docs/TRANSCRIPT-STRUCTURE-SPEC.md](docs/TRANSCRIPT-STRUCTURE-SPEC.md) | Delete lines + Not text (A, v3.20.0), Relink (B, v3.21.0) built; tag types, people, sketches (C–E) to come |
 | [docs/NEOSMARTPEN-SDK-USAGE.md](docs/NEOSMARTPEN-SDK-USAGE.md) | Pen SDK usage |
 | [docs/EDITOR-IMPORT-SPEC.md](docs/EDITOR-IMPORT-SPEC.md) | The handwriting editor's import formats, which the JSON / Markdown exports follow |
 | [docs/Archive/ARCHIVE-INDEX.md](docs/Archive/ARCHIVE-INDEX.md) | Superseded v1 / LogSeq-era specs, reviews and implementation logs |

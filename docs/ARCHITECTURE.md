@@ -50,7 +50,10 @@ App.svelte (Root)
 │   └── SettingsDropdown (gear, warning dot when the data folder is not ready; folding SettingsSections, v3.14.0:
 │       │                 Pen, Notebooks, Data folder, Publish to LogSeq, Handwriting recognition, Maintenance)
 │       ├── BooksTab (Settings → Notebooks: per-notebook aliases + volume routing)
+│       ├── settings/MaintenanceSettings (the Maintenance section, v3.21.0 split; its buttons set
+│       │   `maintenanceTool`, and settings/MaintenanceDialogs, mounted outside the dropdown, opens:)
 │       ├── ConvertTaskBoxesDialog (Maintenance → Convert task boxes…: preview, then write; v3.3.0)
+│       ├── RelinkOldDialog (Maintenance → Relink old transcripts…: preview, Run, review queue; v3.21.0)
 │       ├── DuplicateStrokesDialog (Maintenance → Clean up duplicate strokes…: preview, then write; v3.18.0)
 │       └── ActivityLogDialog (Maintenance → 🩺, filter by level + copy)
 ├── LeftPanel (contextual tabs — see "Left panel tabs" below; folds to a 48 px rail, `stores/left-panel.js`)
@@ -107,7 +110,8 @@ App.svelte (Root)
     │       ├── ReaderTagsLayout (wraps the spread; a container query folds the strip into a bar under 900px)
     │       │   └── PageTagsStrip (P12 | P13 · TagInput: chips + type-ahead · Suggested from transcript ✓ ✕)
     │       └── PageSpreadView ×1–2 (one page: header + Strokes | Transcript | Ink + text)
-    │       ├── PageHeader (title, strokes, written-on date / day chips, Load into Editor icon)
+    │       ├── PageHeader (title, strokes, written-on date / day chips, Load into Editor icon; Relink… on a page
+    │       │   whose lines can't be linked to ink, v3.21.0 → RelinkDialog, mounted in App, rows in RelinkRows)
     │       ├── PageInk (SVG render, per-page zoom/pan/fit, refit on resize)
     │       │   ├── PageTurnButtons (‹ › edge strips over the ink)
     │       │   ├── OrientationControl compact (page corner)
@@ -436,6 +440,10 @@ All state is managed through Svelte stores located in `src/stores/`. Main-proces
 - `editor-lines.js` - the Edit Transcription dialog's line operations (pure): `mergeEditorLines()`, `mergeTranscriptLines()` (the reader's merge), `splitEditorLine()`, `deleteEditorLines()` / `deletedLinesForSave()` (v3.20.0, Delete and what the save needs to know), the undo history `startHistory()` / `pushHistory()` / `stepHistory()` (lines and deleted lines), `savedLinesForEditor()` / `mergeExistingAndNewLines()` (the Review tab's opening lines), `taskFieldsOf()`, `editorLineStatus()` / `detectMergeSuggestions()` (the dialog's row badges and merge hints), and the write-back rule `keepDiskTaskState()` / `buildEditedTranscript()` (edits never change task state)
 - `delete-lines.js` (v3.20.0) - deleting transcript lines, shared by the dialog and Library Edit (pure): `deleteLines(lines, indices, {block})` (Delete line: children up one level per deleted ancestor; Delete block), `deletePrompt(lines, indices, {ticked})` (line or block for a line with children, a confirm naming tasks), `taskConfirmText()`, `hasChildren()`, `blockEnd()`, `taskTexts()`. UI: `dialog/DeleteLinesPrompt.svelte`
 - `deleted-ink.js` (v3.20.0) - the ink of deleted lines and the `textless` flag (pure): `INK_TEXTLESS` / `INK_RETRY`, `normalizeDeletedInk()`, `withTextless()`, `settleDeletedInk()`, `relinkAfterEdit()` (Library Edit and the Pages tab's direct writes; reports what it flagged and unlinked), `lineHasInk()`, `linkedLineIds()` (Library Edit's ink choice).
+- `line-align.js` (v3.21.0) - align two lists of transcript lines in order, with gaps (pure; moved from `mcp/core/transcript-check.js`, which re-exports it): `alignLines()` (dynamic programming over normalized edit distance), `similarity()` (task marker stripped, so `☑ x` matches a DONE line `x`), `norm()`, `words()`, `sameLetters()`, `editDistance()`, `alignText()`. Used by Relink and by the MCP's `check_transcript`
+- `relink.js` (v3.21.0) - **Relink old pages** (pure; [TRANSCRIPT-STRUCTURE-SPEC.md](TRANSCRIPT-STRUCTURE-SPEC.md) Phase B): `relinkSendStrokes()` (the page's ink minus textless strokes and a kind line's strokes), `textLines()` / `isKindLine()` (any line with a `kind` is never aligned, spec E.7), `classifyRelink()` (matched ≥ `MATCH_AT` 0.85, confirm from `CONFIRM_AT` 0.60, no ink, ink left over; counts), `wordFixes()` / `applyWordFixes()` (decision 2: offered, kept unless taken), `defaultDecisions()`, `buildRelinkSpec()` (the save's `relink`), `relinkNeedsNoReview()` (bulk saves at once), `relinkRefusal()` (Claude's edit guards plus trustworthy / no text lines / no ink), `cachedRunValid()` / `runForCache()`, `relinkCandidates()` / `groupCandidates()`. Store `stores/relink.js` (`getRelinkRun()`, `saveRelink()`, `runBulkRelink()`, `relinkQueue`, `relinkTarget` / `openRelink()`); guard flags `stores/page-guards.js` `pageGuardState()` (shared with `stores/mcp-edits.js`); main `electron/relink-cache.cjs` (`<userData>/relink-cache/<bookKey>/<pageId>.json`, IPC `relink:cache`, `window.relinkAPI`); UI `dialog/RelinkDialog`, `dialog/RelinkRows`, `dialog/RelinkOldDialog`
+- `relink-plan.js` (v3.21.0) - `planRelink()`, the plan behind `save-page.js` `planTranscript(…, { relink })` (pure): linked lines take MyScript's yBounds (and taken word fixes), every sent stroke takes the line whose MyScript line covers it most (leftover ink competes too, so it keeps its strokes), Not text leftovers → `textlessIds`, Add as new line → a new line placed by y; never ids, order, indent, `parentId`, `checked`, `marker` or kind lines
+- `storage/line-match.js` (v3.21.0) - `strokesIntersectingLine()` and `LINE_MATCH_TOLERANCE_NCODE`, moved out of `save-page.js` so the save and Relink match strokes with the same code
 - `clipboard.js` - `copyMarkdown(md, what, log)`: transcript markdown to the clipboard with the log line (Review, the reader, Library Edit) UI: `dialog/DeletedInkChoice.svelte`
 - `canvas-save-plan.js` - the Editor's Save and Transcribe planning (pure): `groupPagesToSave()`, `settledDeletionIndices()` (only marks on pages actually written), `describePageSave()`, `groupStrokesForTranscription()`, `transcriptionPageKey()`, `countPartlyLoadedPages()`
 - `canvas-text-view.js` - which transcripts the Editor's text view draws (pure): `pageKeyMatches()`, `findPageKey()` (volume keys sorted by `compareBookKeys`), `collectVisibleTranscriptions()`

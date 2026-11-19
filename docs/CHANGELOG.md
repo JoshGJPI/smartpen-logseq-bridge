@@ -6,6 +6,52 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.21.0 — Relink old transcripts (November 2026)
+
+Phase B of [TRANSCRIPT-STRUCTURE-SPEC.md](TRANSCRIPT-STRUCTURE-SPEC.md). 99 transcribed pages (84 JPI Dotted, 8 JPI
+Ruled, 6 Study Notes, 1 Printed Grid on 2026-11-19; the spec counted 100) were saved before the Aug 2026 line
+matching, so `isTrustworthyTranscript()` rejects their links and Ink + text can't light a line's ink. The 3.17 Reset
+fixes a page by re-transcribing and **replacing** the transcript, which throws away Josh's corrections and carries
+task state by text only. Relink keeps the transcript and takes only geometry from a new MyScript reading.
+
+- **One page**: the Library header shows **Relink…** on such a page. The dialog asks before sending (one request of
+  the 2,000 a month), then sends the page's ink, read from disk (no canvas needed), turned upright as Transcribe does
+  (`rotateCanvasStrokes`), minus textless strokes and strokes linked to a line with a `kind`.
+- **Align**: `alignLines()` moved from `mcp/core/transcript-check.js` to `src/lib/line-align.js` (the MCP re-exports
+  it), and compares text with the task marker stripped, so MyScript's `☑ order steel` matches a DONE line. Each stored
+  line is **matched** (≥ 0.85), **to confirm** (0.60–0.85: Link / Don't link) or **no ink** (kept as it is); a
+  reading with no partner is **ink left over**: Leave unlinked (default), Add as new line (MyScript's text, a new id,
+  placed by y), or Not text (Phase A's flag). Make sketch joins these in Phase E.
+- **Word fixes** (decision 2): where a pair differs in a word, MyScript's word shows in amber with **Use**. Nothing
+  changes unless clicked; a taken fix replaces the word's letters (its punctuation stays) in the same save.
+- **The write** is a plan kind of its own, `planTranscript(…, { relink })` (`lib/relink-plan.js`), saved through
+  `savePageToFolder({ relink })` and then `refreshAfterSave()`: linked lines' `yBounds`, every sent stroke's `lineId`
+  (the line whose MyScript line covers it most, by `strokesIntersectingLine` with the run's batch origin, now in
+  `storage/line-match.js`), `lastTranscribed`, `lastUpdated`, and the fixes and added lines. Never line ids, other
+  text, order, indent, `parentId`, `checked`, `marker`, kind lines, points or flags, so no task state needs carrying.
+  Every MyScript line competes for strokes, so leftover ink keeps its own rather than handing it to a neighbour
+  through the 1-unit tolerance. A copy of the page on the Editor's canvas takes the new links, or its next save would
+  put the old ones back.
+- **Bulk**: Settings → Maintenance → **Relink old transcripts…**, preview first like Convert task boxes (pages per
+  notebook with line and task counts). Run goes page by page, newest ink first; a page where every line matched and
+  no ink is left over is saved at once, the rest wait in a review queue (session-only). Stop finishes the page in hand.
+- **Cache**: each MyScript run is kept in `<userData>/relink-cache/<bookKey>/<pageId>.json` with the page's
+  `metadata.lastUpdated` (`electron/relink-cache.cjs`, IPC `relink:cache`), never in the data folder, so a second Run
+  or reopening the dialog costs nothing. A page written since is sent again; the save itself re-checks the revision
+  and refuses a stale run.
+- **Guards**: the same four refusals as Claude's edits (a Library draft, any transcript editor open, a pending Editor
+  transcription, a re-transcribe reset), now read by one function, `stores/page-guards.js` `pageGuardState()`, for
+  both; plus an already trustworthy page, no text lines, no ink to send. The dialog holds the page like an editor
+  while reviewing.
+- **MCP**: `get_transcript` and `color_by_line` name Relink where they said links are unreliable; the
+  check-transcription skill suggests it for old pages before checking links.
+- Rejected: aligning out-of-order lines (the MCP's `movedPairs`) in Relink; the spec says in order, and a moved line
+  shows as no ink plus ink left over (see KNOWN-LIMITATIONS). Confirm rows start on Link (an open question for Josh).
+- **Split while touching**: SettingsDropdown 395 → 303 lines (`settings/MaintenanceSettings`, dialogs in
+  `settings/MaintenanceDialogs`). New components stay under 300 (RelinkDialog, RelinkRows, RelinkOldDialog).
+- Not run against real pages or in the running app yet (MyScript requests wait for Josh's OK); unit tests mock
+  MyScript.
+
 ## v3.20.0 — Delete lines in Edit Transcription; "Not text" ink (November 2026)
 
 Phase A of [TRANSCRIPT-STRUCTURE-SPEC.md](TRANSCRIPT-STRUCTURE-SPEC.md). The Edit Transcription dialog had merge,

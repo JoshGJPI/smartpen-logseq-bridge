@@ -87,6 +87,13 @@ A `LINKS BROKEN?` line in the reply (one line with several times the median stro
 none) means the stroke links are wrong from there down. The text may still be fine. The fix is to re-transcribe, not
 to edit lines: see step 7.
 
+On a page transcribed before Aug 2026 the replies say the stroke-to-line links are **unreliable**: rows aren't marked
+`not transcribed` and `color_by_line` draws the ink plain. That is not ink in no line. Suggest **Relink** (v3.21.0):
+the page header's Relink… in the Library, or Settings → Maintenance → Relink old transcripts for many pages. It sends
+the page to MyScript once, links each stored line to its ink, and keeps the text and task states (unlike
+re-transcribing, which replaces the transcript). Relink before checking the links; text corrections can be applied
+before or after, since Relink never changes text unless Josh takes one of its word fixes.
+
 `MOVED` lines (and an `OUT OF ORDER` line in the summary) are stored somewhere other than where they are on the page,
 usually ink transcribed later and appended at the end (3017/180's 11/6 meeting). Report them as one entry: which lines
 and the line they belong after; Josh ticks them and uses Move (↑ / ↓ / Top / Bottom) in Library Edit or Edit
@@ -116,7 +123,8 @@ it is never counted as ink in no line or as `not transcribed`, so don't report i
    Edit (Delete, or Ctrl+Shift+K in the dialog) with **Not text**, so its ink is never sent again; ink in no line
    that isn't text (a drawing, a stray mark): Editor, select it → ⋯ (or right-click) → **Leave out of transcripts**.
    Your own `delete` op only unlinks the ink, which the next Transcribe sends again, so suggest these instead for
-   junk lines. To
+   junk lines. Ink in no line on an old page with unreliable links: **Relink** (above) first; afterwards its review
+   offers each leftover piece of ink as Add as new line, Not text or Leave unlinked. To
    re-transcribe a page: Editor, load the whole page (by page, not by date), Transcripts tab → "Re-transcribe a saved
    page" → ↺ Re-transcribe (unlinks its strokes so they are sent again), select the text strokes with any drawing
    deselected, Transcribe, Save. The new run replaces the saved transcript (task states carry over where the text

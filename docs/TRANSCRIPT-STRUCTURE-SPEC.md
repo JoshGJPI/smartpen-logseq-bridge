@@ -1,6 +1,7 @@
 # Transcript structure: delete lines, relink, tag types, people, sketches — spec
 
-Status: **decisions settled** (Josh, 2026-11-19); Phase A built (v3.20.0, branch `phase-a-delete-lines`), B–E not started. Phase E waits for a mockup Josh approves. Five phases, each a release that leaves the app working and
+Status: **decisions settled** (Josh, 2026-11-19); Phase A built (v3.20.0, branch `phase-a-delete-lines`), Phase B built
+(v3.21.0, branch `phase-b-relink`; Make sketch in B.4 waits for Phase E), C–E not started. Phase E waits for a mockup Josh approves. Five phases, each a release that leaves the app working and
 tested. Background and mockups: the "Tag Types and Transcription" deep dive (17 Nov 2026), whose numbers are repeated
 here where they matter.
 
