@@ -19,7 +19,7 @@
   import { bookAliases, viewerMode } from '$stores';
   // v2.0: folder-backed transcript edits
   import { getPage } from '$lib/storage/local-store.js';
-  import { markerField } from '$lib/tasks.js';
+  import { savedLinesForEditor, mergeExistingAndNewLines } from '$lib/editor-lines.js';
   import { formatBookName } from '$utils/formatting.js';
 
   import TranscriptionEditorModal from '$components/dialog/TranscriptionEditorModal.svelte';
@@ -96,17 +96,7 @@
     try {
       const doc = await getPage(pageData.pageInfo.book, pageData.pageInfo.page);
       if (doc?.transcript?.lines?.length) {
-        existingLines = doc.transcript.lines.map(l => ({
-          text: l.text || '',
-          canonical: (l.text || '').trim().toLowerCase(),
-          yBounds: l.yBounds || { minY: 0, maxY: 0 },
-          indentLevel: l.indentLevel || 0,
-          blockUuid: l.id,
-          // Task state, so a merge or split in the dialog carries it (editor-lines.js)
-          checked: l.checked ?? null,
-          ...markerField(l),
-          syncStatus: 'synced'
-        }));
+        existingLines = savedLinesForEditor(doc.transcript.lines);
         log(`Loaded ${existingLines.length} existing transcript line(s) from folder`, 'info');
       }
     } catch (e) {
@@ -131,35 +121,10 @@
     showEditorModal = true;
   }
 
-  /**
-   * Local merge — keeps the editor's existing line/new line model intact.
-   *
-   * `fromBatch` marks the lines whose yBounds came from the transcription run
-   * being confirmed, so the stroke preview knows which origin to undo. It is not
-   * the same as `syncStatus: 'new'`, which only means "has no block yet" and is
-   * also set on the second half of a split.
-   */
-  function mergeExistingAndNewLines(existing, fresh) {
-    const asNew = l => ({ ...l, syncStatus: 'new', fromBatch: true });
-    if (!existing || existing.length === 0) return (fresh || []).map(asNew);
-    const out = [...existing];
-    for (const newLine of fresh || []) {
-      const newText = (newLine.text || '').trim().toLowerCase();
-      const dup = existing.some(e => {
-        if ((e.canonical || '') !== newText) return false;
-        const eY = e.yBounds, nY = newLine.yBounds;
-        if (!eY || !nY) return false;
-        return !(eY.maxY + 3 < nY.minY || nY.maxY + 3 < eY.minY);
-      });
-      if (!dup) out.push(asNew(newLine));
-    }
-    return out;
-  }
-  
   // Handle editor modal save
   // Updates only the local store - the file write happens via the Save button
   function handleEditorSave(event) {
-    const { lines, book, page, mergedBlockPairs } = event.detail;
+    const { lines, book, page, mergedBlockPairs, deletedLineIds = [], deletedLines = [], deletedInk } = event.detail;
 
     if (!editingPageData) return;
 
@@ -173,9 +138,13 @@
       ...(editingPageData.replaceBaseIds || []),
       ...(editingPageData.mergedLines || []).map(l => l.blockUuid).filter(Boolean)
     ])];
+    // Deleted lines (v3.20.0) add up over reopenings too; the last ink choice covers them all.
     updatePageTranscriptionLines(editingPageData.pageKey, lines, {
       editorBaseIds,
-      mergedBlockPairs: [...(editingPageData.mergedBlockPairs || []), ...(mergedBlockPairs || [])]
+      mergedBlockPairs: [...(editingPageData.mergedBlockPairs || []), ...(mergedBlockPairs || [])],
+      deletedLineIds: [...new Set([...(editingPageData.deletedLineIds || []), ...deletedLineIds])],
+      deletedLines: [...(editingPageData.deletedLines || []), ...deletedLines],
+      deletedInk
     });
 
     log(`Updated structure for Book ${book}/Page ${page} (use Save to persist changes)`, 'success');
@@ -409,6 +378,8 @@
   page={editingPageData.pageInfo.page}
   lines={editingPageData.mergedLines || editingPageData.lines}
   batchOriginY={editingPageData.originNcodeY ?? null}
+  deletedInk={editingPageData.deletedInk}
+  priorInkCount={(editingPageData.deletedLineIds?.length || 0) + (editingPageData.deletedLines?.length || 0)}
   visible={showEditorModal}
   on:save={handleEditorSave}
   on:close={handleEditorClose}

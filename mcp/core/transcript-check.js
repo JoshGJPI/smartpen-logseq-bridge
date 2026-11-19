@@ -53,7 +53,8 @@ export function inkRows(doc) {
   const lineIds = new Set(((doc && doc.transcript && doc.transcript.lines) || []).map((l) => l.id));
   const strokes = ((doc && doc.strokes) || [])
     .filter((s) => s && Array.isArray(s.points) && s.points.length > 1)
-    .map((s) => ({ t: Number(s.startTime) || 0, b: box(s), linked: !!(s.lineId && lineIds.has(s.lineId)) }))
+    // Textless ink ("Not text", v3.20.0) was left out on purpose: it counts as accounted for, like linked ink.
+    .map((s) => ({ t: Number(s.startTime) || 0, b: box(s), linked: !!(s.textless === true || (s.lineId && lineIds.has(s.lineId))) }))
     .filter((s) => s.b && s.b.h >= LETTER.minH && s.b.h <= LETTER.maxH && s.b.w <= LETTER.maxW)
     .sort((a, b) => a.t - b.t);
 
@@ -188,9 +189,11 @@ export function diffTranscript(doc, referenceMd) {
   const lines = (doc && doc.transcript && doc.transcript.lines) || [];
   const counts = new Map();
   let unlinked = 0;
+  let textless = 0;
   const ids = new Set(lines.map((l) => l.id));
   for (const s of (doc && doc.strokes) || []) {
-    if (s && s.lineId && ids.has(s.lineId)) counts.set(s.lineId, (counts.get(s.lineId) || 0) + 1);
+    if (s && s.textless === true) textless++;   // left out on purpose: not "in no line"
+    else if (s && s.lineId && ids.has(s.lineId)) counts.set(s.lineId, (counts.get(s.lineId) || 0) + 1);
     else unlinked++;
   }
   const stored = lines.map((l, i) => ({
@@ -232,7 +235,7 @@ export function diffTranscript(doc, referenceMd) {
     }
   }
   return {
-    rows, tally, unlinked, totalStrokes: ((doc && doc.strokes) || []).length,
+    rows, tally, unlinked, textless, totalStrokes: ((doc && doc.strokes) || []).length,
     storedLines: stored.length, refLines: ref.length, swollen: swollenLines(stored)
   };
 }
@@ -277,6 +280,13 @@ export function movedPairs(pairs, stored, ref) {
 
 /** Below this share of the page's strokes linked to a line, a transcribed page is called partly transcribed. */
 export const PARTLY_TRANSCRIBED_BELOW = 0.75;
+
+/** Strokes left out of transcripts on purpose ("Not text", `textless: true`, v3.20.0). */
+export function textlessStrokeCount(doc) {
+  let n = 0;
+  for (const s of (doc && doc.strokes) || []) if (s && s.textless === true) n++;
+  return n;
+}
 
 /** Strokes linked to an existing transcript line. */
 export function linkedStrokeCount(doc) {
@@ -333,7 +343,8 @@ export function formatDiff(d) {
     + `${t.wording} worded differently (${pct}% of reference words differ); indent differs on ${t.indent}, task state on ${t.state}`
     + (moved ? `, out of order ${moved}` : '') + '; '
     + `${t.missing} stored line(s) not in the reference, ${t.extra} reference line(s) not stored. `
-    + `${d.unlinked} stroke(s) linked to no line.`,
+    + `${d.unlinked} stroke(s) linked to no line`
+    + (d.textless ? ` (not counting ${d.textless} left out as Not text).` : '.'),
     ...(moved ? [`OUT OF ORDER: ${moved} stored line(s) sit somewhere else than on the page (marked MOVED below, with the line they follow `
       + 'in the reference). Usually ink transcribed later and appended at the end; reorder them in the app (tick them, then Move).'] : []),
     ...(d.swollen || []).map((s) => `LINKS BROKEN? #${s.n} has ${s.strokes} strokes (median line ${s.median})`
@@ -363,8 +374,8 @@ export function formatDiff(d) {
 
 /**
  * The ink rows as text for the tool reply.
- * @param {object} [opts] `links: true` marks rows with no stroke in any transcript line ("not transcribed"); pass it
- *   only for a transcribed page whose links can be trusted.
+ * @param {object} [opts] `links: true` marks rows with no stroke in any transcript line ("not transcribed"; ink left
+ *   out as Not text counts as in a line); pass it only for a transcribed page whose links can be trusted.
  */
 export function formatRows(rows, { links = false } = {}) {
   if (!rows.length) return 'No written rows found (no letter-sized ink).';

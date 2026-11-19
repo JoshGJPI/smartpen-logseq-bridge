@@ -69,6 +69,9 @@ export const PAGE_DOC_VERSION = '2.0';
  *                                                  pressure-varying thickness rather than a
  *                                                  uniform line. Omitted entirely when false,
  *                                                  so handwriting pages are unchanged on disk.
+ * @property {boolean} [textless]                 - "Not text" (v3.20.0): left out of transcripts,
+ *                                                  never sent to MyScript, `lineId` always null.
+ *                                                  Omitted when false, like `sketch`.
  * @property {Array<[number, number, (number|null)?, number?]>} points
  *   - [x, y, timestamp?, force?]
  *

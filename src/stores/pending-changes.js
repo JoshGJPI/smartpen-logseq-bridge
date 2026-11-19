@@ -197,6 +197,7 @@ export const canUndo = derived(
 /**
  * @typedef {Object} OnDiskStrokeState
  * @property {boolean} sketch - the sketch flag as it exists on disk
+ * @property {boolean} textless - the "Not text" flag as it exists on disk (v3.20.0)
  * @property {number|null} points - stored point count, or null if unknown
  */
 
@@ -223,7 +224,7 @@ function strokeStateMap(strokeArray) {
     const id = s.id || (s.startTime != null ? `s${s.startTime}` : null);
     // `sketch` is absent rather than false when off, both on disk and on the
     // canvas, so normalise here — the diff compares booleans.
-    if (id) states.set(id, { sketch: !!s.sketch, points: pointCountOf(s) });
+    if (id) states.set(id, { sketch: !!s.sketch, textless: !!s.textless, points: pointCountOf(s) });
   }
   return states;
 }
@@ -333,6 +334,13 @@ canvasPageKeys.subscribe(($keys) => {
  * @returns {Map<string,{book:number,page:number,additions:number[],edits:number[],modifications:number[],deletions:number[],retimes:number[],moves:number[],isSaved:boolean}>}
  */
 export function computePendingChangesMap(strokesArr, deletedSet, onDiskIds, savedPages) {
+  // "Not text" (v3.20.0) toggled on the canvas. Only an explicit true / false
+  // counts: a canvas copy without the key has no say (save-page.js syncs the
+  // same way), so a flag set from the Library never reads as a change here.
+  // page-changes.js asks the same question; change both together.
+  const textlessToggled = (stroke, stored) =>
+    typeof stroke.textless === 'boolean' && stroke.textless !== !!stored.textless;
+
   const changes = new Map();
 
   // Group all canvas strokes by page.
@@ -400,7 +408,7 @@ export function computePendingChangesMap(strokesArr, deletedSet, onDiskIds, save
         const countDiffers = stored.points != null && canvasPoints != null && canvasPoints !== stored.points;
         if (countDiffers || stroke.pointsEdited) {
           editIndices.push(canvasIndex);
-        } else if (!!stroke.sketch !== !!stored.sketch) {
+        } else if (!!stroke.sketch !== !!stored.sketch || textlessToggled(stroke, stored)) {
           modificationIndices.push(canvasIndex);
         }
       });

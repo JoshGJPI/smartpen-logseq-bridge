@@ -82,6 +82,18 @@ describe('groupStrokesForTranscription', () => {
     expect(groups.get('S3/O1012/B388v2/P1').untranscribedStrokes).toEqual([c]);
   });
 
+  it('never sends a textless stroke ("Not text", v3.20.0), but still counts it toward the page', () => {
+    const a = stroke('388', 1);
+    const t = stroke('388', 1, { textless: true });
+    const back = stroke('388', 1, { textless: false });
+    const groups = groupStrokesForTranscription([a, t, back]);
+    const p1 = groups.get('S3/O1012/B388/P1');
+    expect(p1.allStrokes).toEqual([a, t, back]);
+    expect(p1.untranscribedStrokes).toEqual([a, back]);
+    // A page whose only unlinked ink is textless has nothing to send.
+    expect(groupStrokesForTranscription([t]).get('S3/O1012/B388/P1').untranscribedStrokes).toEqual([]);
+  });
+
   it('keys a stroke without pageInfo as zeros', () => {
     expect([...groupStrokesForTranscription([{ startTime: 1 }]).keys()]).toEqual(['S0/O0/B0/P0']);
     expect(transcriptionPageKey(null)).toBe('S0/O0/B0/P0');

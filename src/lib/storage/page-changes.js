@@ -11,7 +11,7 @@
  */
 
 import { getPage } from './local-store.js';
-import { planTranscript, round2 } from './save-page.js';
+import { planTranscript, round2, hasTranscriptToPlan } from './save-page.js';
 
 function getStrokeId(s) {
   return s.id || (s.startTime ? `s${s.startTime}` : null);
@@ -90,10 +90,13 @@ export async function computePageChangesFolder(
           // data is overwritten — so it gets its own category and its own
           // warning, not the flag bucket.
           strokeEdits++;
-        } else if (!!s.sketch !== !!stored.sketch) {
-          // Already on disk, but the sketch flag was toggled since. The save
-          // syncs the flag onto the stored stroke, so it is a real change —
-          // it just doesn't alter the stroke count.
+        } else if (!!s.sketch !== !!stored.sketch ||
+          (typeof s.textless === 'boolean' && s.textless !== !!stored.textless)) {
+          // Already on disk, but the sketch flag, or "Not text" (v3.20.0, only
+          // an explicit true / false, as the save syncs it), was toggled since.
+          // The save syncs the flag onto the stored stroke, so it is a real
+          // change — it just doesn't alter the stroke count. Same rule as
+          // pendingChanges (computePendingChangesMap).
           strokeModifications++;
         }
       }
@@ -115,7 +118,7 @@ export async function computePageChangesFolder(
 
     let hasNewTranscription = false;
     let transcriptionChanged = false;
-    if (transcription && Array.isArray(transcription.lines) && transcription.lines.length > 0) {
+    if (hasTranscriptToPlan(transcription)) {
       // Asks the save's own planner, not a text comparison: the save parses task
       // boxes, skips lines already saved and keeps saved lines the batch didn't
       // cover, so comparing raw text called a saved page "changed" forever.

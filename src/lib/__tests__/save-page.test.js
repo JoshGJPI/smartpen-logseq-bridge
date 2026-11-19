@@ -985,3 +985,136 @@ describe('savePageToFolder — a retimed stroke (v3.6.0)', () => {
     expect('retimedFrom' in moved).toBe(false);        // in-memory marker never reaches disk
   });
 });
+
+describe('textless ("Not text", v3.20.0)', () => {
+  const writtenDoc = () => savePage.mock.calls[0][2];
+  const strokeById = (id) => writtenDoc().strokes.find((s) => s.id === id);
+  const doc = (strokes, lines = []) => ({
+    version: '2.0', pageInfo: PAGE_INFO, metadata: { lastUpdated: 'x', totalStrokes: strokes.length, bounds: {} },
+    transcript: { lastTranscribed: '2026-11-01T00:00:00.000Z', lines }, strokes
+  });
+  const textLine = (id, text, extra = {}) => ({ id, text, indentLevel: 0, parentId: null, checked: null, yBounds: null, ...extra });
+
+  beforeEach(() => {
+    getPage.mockReset();
+    savePage.mockReset();
+    savePage.mockResolvedValue({ path: '/tmp/P42.json' });
+  });
+
+  it('strokeToStored writes it only when true, and a textless stroke is in no line', () => {
+    const on = strokeToStored(canvasStroke(1000, [[1, 2, 300]], { textless: true, blockUuid: 'L1' }));
+    expect(on.textless).toBe(true);
+    expect(on.lineId).toBeNull();
+    const off = strokeToStored(canvasStroke(1000, [[1, 2, 300]], { textless: false, blockUuid: 'L1' }));
+    expect('textless' in off).toBe(false);
+    expect(off.lineId).toBe('L1');
+    // A fixed key list: an in-memory marker never reaches disk.
+    expect(Object.keys(on)).toEqual(['id', 'startTime', 'endTime', 'lineId', 'textless', 'points']);
+  });
+
+  it('a canvas toggle syncs both ways; a canvas copy without the key leaves the disk alone', async () => {
+    getPage.mockResolvedValue(doc([
+      { ...storedAtY(1000, 40, 43), lineId: 'L1' },
+      { ...storedAtY(2000, 50, 53), textless: true },
+      { ...storedAtY(3000, 60, 63), textless: true },
+    ], [textLine('L1', 'a')]));
+    await savePageToFolder({
+      book: 3017, page: 42,
+      activeStrokes: [
+        { ...strokeAtY(1000, 40, 43), blockUuid: 'L1', textless: true },  // left out: unlinked too
+        { ...strokeAtY(2000, 50, 53), textless: false },                  // taken back in
+        { ...strokeAtY(3000, 60, 63), blockUuid: 'L1' },                  // stale copy: no say, and no link
+      ],
+    });
+    expect(strokeById('s1000')).toMatchObject({ textless: true, lineId: null });
+    expect('textless' in strokeById('s2000')).toBe(false);
+    expect(strokeById('s3000')).toMatchObject({ textless: true, lineId: null });
+    expect(writtenDoc().strokes).toHaveLength(3);
+  });
+
+  it('a textless stroke is never matched to a new line of a transcription', async () => {
+    getPage.mockResolvedValue(doc([{ ...storedAtY(1000, 40, 43), textless: true }, storedAtY(2000, 40, 43)]));
+    await savePageToFolder({
+      book: 3017, page: 42,
+      activeStrokes: [strokeAtY(1000, 40, 43), strokeAtY(2000, 40, 43)],
+      pageTranscription: { originNcodeY: 40, lines: [{ text: 'line', yBounds: mmBounds(40, 43, 40) }] },
+    });
+    const [line] = writtenDoc().transcript.lines;
+    expect(strokeById('s2000').lineId).toBe(line.id);
+    expect(strokeById('s1000')).toMatchObject({ textless: true, lineId: null });
+  });
+
+  describe('a line deleted in the Edit Transcription dialog', () => {
+    const saved = () => doc(
+      [{ ...storedAtY(1000, 40, 43), lineId: 'L1' }, { ...storedAtY(2000, 50, 53), lineId: 'L2' }, { ...storedAtY(2500, 50, 53), lineId: 'L2' }],
+      [textLine('L1', 'keep'), textLine('L2', 'scribble')]
+    );
+    const canvas = () => [
+      { ...strokeAtY(1000, 40, 43), blockUuid: 'L1' },
+      { ...strokeAtY(2000, 50, 53), blockUuid: 'L2' },
+      { ...strokeAtY(2500, 50, 53), blockUuid: 'L2' },
+    ];
+    const editorResult = (extra) => ({
+      lines: [{ text: 'keep', blockUuid: 'L1', indentLevel: 0 }],
+      editorBaseIds: ['L1', 'L2'], deletedLineIds: ['L2'], deletedLines: [], ...extra
+    });
+
+    it('is removed and its strokes are unlinked, kept, and flagged Not text (the default)', async () => {
+      getPage.mockResolvedValue(saved());
+      const result = await savePageToFolder({ book: 3017, page: 42, activeStrokes: canvas(), pageTranscription: editorResult({}) });
+      expect(writtenDoc().transcript.lines.map((l) => l.id)).toEqual(['L1']);
+      expect(writtenDoc().strokes).toHaveLength(3);
+      expect(strokeById('s1000')).toMatchObject({ lineId: 'L1' });
+      expect('textless' in strokeById('s1000')).toBe(false);
+      expect(strokeById('s2000')).toMatchObject({ lineId: null, textless: true });
+      expect(strokeById('s2500')).toMatchObject({ lineId: null, textless: true });
+      expect(result.textlessIds.sort()).toEqual(['s2000', 's2500']);
+      expect(result.unlinkedIds).toEqual([]);
+      expect(result.deleted).toBe(0);
+    });
+
+    it('with Transcribe again, its strokes are unlinked and not flagged', async () => {
+      getPage.mockResolvedValue(saved());
+      const result = await savePageToFolder({
+        book: 3017, page: 42, activeStrokes: canvas(), pageTranscription: editorResult({ deletedInk: 'retry' })
+      });
+      expect(writtenDoc().transcript.lines.map((l) => l.id)).toEqual(['L1']);
+      expect(strokeById('s2000').lineId).toBeNull();
+      expect(writtenDoc().strokes.some((s) => s.textless)).toBe(false);
+      expect(result.textlessIds).toEqual([]);
+      expect(result.unlinkedIds.sort()).toEqual(['s2000', 's2500']);
+    });
+
+    it('a line merged away (not deleted) hands its strokes to the survivor, never flagged', async () => {
+      getPage.mockResolvedValue(saved());
+      await savePageToFolder({
+        book: 3017, page: 42, activeStrokes: canvas(),
+        pageTranscription: editorResult({
+          lines: [{ text: 'keep scribble', blockUuid: 'L1', indentLevel: 0 }], deletedLineIds: [],
+          mergedBlockPairs: [{ deletedBlockUuid: 'L2', survivingBlockUuid: 'L1' }]
+        })
+      });
+      expect(strokeById('s2000')).toMatchObject({ lineId: 'L1' });
+      expect(writtenDoc().strokes.some((s) => s.textless)).toBe(false);
+    });
+
+    it('a line of the run not saved yet: the strokes it covered are flagged, the kept line still gets its own', async () => {
+      getPage.mockResolvedValue(null);
+      const result = await savePageToFolder({
+        book: 3017, page: 42,
+        activeStrokes: [strokeAtY(1000, 40, 43), strokeAtY(2000, 50, 53)],
+        pageTranscription: {
+          originNcodeY: 40,
+          lines: [{ text: 'top', yBounds: mmBounds(40, 43, 40), fromBatch: true }],
+          editorBaseIds: [], deletedLineIds: [],
+          deletedLines: [{ yBounds: mmBounds(50, 53, 40), fromBatch: true }],
+        },
+      });
+      const [top] = writtenDoc().transcript.lines;
+      expect(writtenDoc().transcript.lines).toHaveLength(1);
+      expect(strokeById('s1000').lineId).toBe(top.id);
+      expect(strokeById('s2000')).toMatchObject({ lineId: null, textless: true });
+      expect(result.textlessIds).toEqual(['s2000']);
+    });
+  });
+});

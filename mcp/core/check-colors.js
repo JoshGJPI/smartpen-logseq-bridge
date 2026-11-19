@@ -82,7 +82,9 @@ export function checkColoring(doc, { byLine, decorative }) {
           + `${'  '.repeat(l.indentLevel || 0)}${lineState(l)}${l.text}`);
       });
       const unlinked = strokes.filter((s) => s && !(s.lineId && lineColor.has(s.lineId))).length;
-      key.push(`${unlinked} stroke(s) linked to no line (dark): untranscribed ink, decorative strokes left out, or ink MyScript did not place.`);
+      const textless = strokes.filter((s) => s && s.textless === true).length;
+      key.push(`${unlinked} stroke(s) linked to no line (dark): untranscribed ink, decorative strokes left out, or ink MyScript did not place`
+        + (textless ? `; ${textless} of them left out as Not text on purpose.` : '.'));
     }
   }
 

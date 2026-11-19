@@ -206,3 +206,55 @@ describe('saveTranscriptLines', () => {
     expect(savePage).not.toHaveBeenCalled();
   });
 });
+
+describe('saveTranscriptLines — the ink of deleted lines (Library Edit, v3.20.0)', () => {
+  const ln = (id, text, extra = {}) => ({ id, text, indentLevel: 0, parentId: null, checked: null, yBounds: null, ...extra });
+  const page = () => ({
+    version: '2.0',
+    pageInfo: { section: 3, owner: 1012, book: 1, page: 5 },
+    metadata: { lastUpdated: 'x' },
+    transcript: { lastTranscribed: 'x', lines: [ln('A', 'keep'), ln('B', 'scribble'), ln('C', 'merged')] },
+    strokes: [
+      { id: 's1', lineId: 'A', points: [] },
+      { id: 's2', lineId: 'B', points: [] },
+      { id: 's3', lineId: 'C', points: [] },
+      { id: 's4', lineId: 'OLD', points: [] },
+    ],
+  });
+  const written = () => savePage.mock.calls[0][2];
+  const base = () => page().transcript.lines;
+  // B deleted; C merged into A.
+  const draft = () => [{ ...ln('A', 'keep merged'), mergedIds: ['C'] }];
+
+  beforeEach(() => {
+    getPage.mockReset();
+    savePage.mockReset();
+    savePage.mockResolvedValue({ success: true, path: '/x' });
+    getPage.mockResolvedValue(page());
+  });
+
+  it("Not text: a deleted line's strokes are flagged and unlinked; merged ink follows the survivor; none removed", async () => {
+    const result = await saveTranscriptLines(1, 5, draft(), { base: base(), deletedInk: 'textless' });
+    const byId = new Map(written().strokes.map((s) => [s.id, s]));
+    expect(written().strokes).toHaveLength(4);
+    expect(byId.get('s1')).toMatchObject({ lineId: 'A' });
+    expect(byId.get('s2')).toMatchObject({ lineId: null, textless: true });
+    expect(byId.get('s3')).toMatchObject({ lineId: 'A' });
+    expect('textless' in byId.get('s3')).toBe(false);
+    // A link that was already dangling before this edit is only scrubbed: not this edit's delete.
+    expect(byId.get('s4')).toEqual({ id: 's4', lineId: null, points: [] });
+    expect(result.textlessIds).toEqual(['s2']);
+  });
+
+  it('Transcribe again: unlinked, not flagged', async () => {
+    await saveTranscriptLines(1, 5, draft(), { base: base(), deletedInk: 'retry' });
+    expect(written().strokes.find((s) => s.id === 's2')).toEqual({ id: 's2', lineId: null, points: [] });
+    expect(written().strokes.some((s) => s.textless)).toBe(false);
+  });
+
+  it("no choice passed (Claude's edits): only unlinked, as before", async () => {
+    const result = await saveTranscriptLines(1, 5, draft(), { base: base() });
+    expect(written().strokes.some((s) => s.textless)).toBe(false);
+    expect(result.textlessIds).toEqual([]);
+  });
+});

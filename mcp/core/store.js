@@ -24,7 +24,7 @@ import { pageNumberOfId, manifestCoversPage } from '../../src/lib/neo-background
 import { buildTaskSummary, normalizeTaskSummary } from '../../src/lib/tasks.js';
 import { mightHaveTaskBoxes } from '../../src/lib/storage/convert-task-boxes.js';
 import { isTrustworthyTranscript } from '../../src/lib/viewer/ink-text.js';
-import { linkedStrokeCount } from './transcript-check.js';
+import { linkedStrokeCount, textlessStrokeCount } from './transcript-check.js';
 
 const PAGE_FILE_RE = /^P(\d+)([a-zA-Z]?)\.json$/;
 
@@ -64,7 +64,9 @@ function summarize(doc, f, st) {
     taskBoxesInText: mightHaveTaskBoxes(text),  // not converted to tasks yet (the app's Convert task boxes… step)
     // Strokes linked to a transcript line, where the links can be trusted (else null): a page with most of its ink
     // in no line is only partly transcribed (list_pages' `partly`).
-    linkedStrokes: lines.length && isTrustworthyTranscript(doc) ? linkedStrokeCount(doc) : null
+    linkedStrokes: lines.length && isTrustworthyTranscript(doc) ? linkedStrokeCount(doc) : null,
+    // Strokes left out as Not text (v3.20.0): not counted as ink in no line.
+    textlessStrokes: textlessStrokeCount(doc)
   };
 }
 

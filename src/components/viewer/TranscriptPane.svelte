@@ -5,14 +5,17 @@
                 clickable with `tasks` (v3.4.0), the empty state, and in Ink +
                 text the line → ink hover).
   Edit mode:    inline structured editor — edit text, Tab/Shift+Tab to
-                indent/outdent, Enter adds a line below, Backspace on an empty
-                line deletes it, Merge (Ctrl+J) joins the ticked lines (or the
+                indent/outdent, Enter adds a line below, Delete (or Backspace on
+                an empty line) deletes the line: a line with children asks Delete
+                line / Delete block, a task asks first, and while a deleted saved
+                line had ink an ink choice shows (v3.20.0, lib/delete-lines.js,
+                lib/deleted-ink.js). Merge (Ctrl+J) joins the ticked lines (or the
                 focused line and the next) into the first, for prose written
                 across several lines (lib/editor-lines.js mergeTranscriptLines;
                 the merged-away lines' strokes follow on save). Ticked lines
                 move together (v3.17.0, lib/move-lines.js): Alt+↑ / Alt+↓ or a
                 ticked row's arrows step the group, Top / Bottom gather it. Long lines wrap
-                (TranscriptEditRow); the buttons are TranscriptEditToolbar and the
+                (TranscriptEditList, TranscriptEditRow); the buttons are TranscriptEditToolbar and the
                 line maths lib/viewer/transcript-draft.js. Task state isn't edited here: typing `TODO`,
                 `[ ]` or ☐ (`DONE`, `[x]`, ☑) in front of a plain line makes it a
                 task on save (save-transcript.js parseTypedTasks); a task's own
@@ -31,14 +34,17 @@
   import { tick, onDestroy } from 'svelte';
   import { log, markViewerDirtyPage, clearViewerDirtyPage, viewerDirtyPages, transcriptEditorHold } from '$stores';
   import { linesToLogseqMarkdown, subtreeLines } from '$lib/viewer/transcript-markdown.js';
+  import { copyMarkdown as writeClipboard } from '../transcription/ReviewTranscriptLines.svelte';
+  import { deleteLines, deletePrompt } from '$lib/delete-lines.js';
+  import { INK_TEXTLESS } from '$lib/deleted-ink.js';
   import { saveTranscriptLines } from '$lib/viewer/save-transcript.js';
   import { mergeTranscriptLines } from '$lib/editor-lines.js';
   import { moveLines, moveLinesToEdge } from '$lib/move-lines.js';
   import {
-    blankLine, cloneLines, indentAt, outdentAt, swapAt, siblingSlot, insertAt, removeAt, mergeIndices, tickedIndices
+    blankLine, cloneLines, indentAt, outdentAt, swapAt, siblingSlot, insertAt, mergeIndices, tickedIndices, deletedBaseIds
   } from '$lib/viewer/transcript-draft.js';
   import TranscriptLines from '../transcription/TranscriptLines.svelte';
-  import TranscriptEditRow from './TranscriptEditRow.svelte';
+  import TranscriptEditList from './TranscriptEditList.svelte';
   import TranscriptEditToolbar from './TranscriptEditToolbar.svelte';
 
   /** @type {Array<{id:string,text:string,indentLevel:number,checked:boolean|null}>} */
@@ -68,8 +74,8 @@
   let editing = false;
   let saving = false;
   let dirty = false;
-  /** @type {Array<TranscriptEditRow>} */
-  let inputEls = [];
+  /** @type {TranscriptEditList} */
+  let list;
   /** ids of the lines ticked for Merge */
   let selectedIds = new Set();
   /** working copy while editing */
@@ -78,6 +84,10 @@
   let base = [];
   /** index of the line whose input currently has focus (-1 = none selected) */
   let activeIndex = -1;
+  /** What Delete is asking (DeleteLinesPrompt), or null; and the deleted lines' ink. */
+  let pendingDelete = null;
+  let deletedInk = INK_TEXTLESS;
+  $: inkCount = editing ? deletedBaseIds(draft, base).length : 0;
 
   function setDirty(v) {
     dirty = v;
@@ -92,6 +102,8 @@
     editing = true;
     activeIndex = -1;
     selectedIds = new Set();
+    pendingDelete = null;
+    deletedInk = INK_TEXTLESS;
     setDirty(false);
     onEditingChange(true);
   }
@@ -108,7 +120,7 @@
   async function save() {
     saving = true;
     try {
-      const result = await saveTranscriptLines(book, page, draft, { base });
+      const result = await saveTranscriptLines(book, page, draft, { base, deletedInk });
       if (!result || result.success === false) {
         throw new Error((result && result.error) || 'save failed');
       }
@@ -124,19 +136,6 @@
       log(`Transcript save failed: ${e.message}`, 'error');
     } finally {
       saving = false;
-    }
-  }
-
-  async function writeClipboard(md, what) {
-    if (!md) {
-      log('Nothing to copy — transcript is empty', 'warning');
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(md);
-      log(`Copied ${what} to clipboard (LogSeq format)`, 'success');
-    } catch {
-      log('Failed to copy to clipboard', 'error');
     }
   }
 
@@ -158,7 +157,7 @@
     draft = next;
     setDirty(true);
     await tick();
-    if (focusAt != null) inputEls[focusAt]?.focus();
+    if (focusAt != null) list?.focusRow(focusAt);
     return true;
   }
   const indentLine = (i) => apply(indentAt(draft, i));
@@ -171,8 +170,8 @@
     const focusId = activeIndex >= 0 ? draft[activeIndex]?.id : null;
     await apply(r.lines);
     const at = focusId ? draft.findIndex((l) => l.id === focusId) : -1;
-    if (at >= 0) inputEls[at]?.focus();
-    inputEls[r.selected[0]]?.scrollIntoView?.({ block: 'nearest' });
+    if (at >= 0) list?.focusRow(at);
+    list?.scrollRow(r.selected[0]);
   }
   // A ticked line's own move takes the whole ticked group with it.
   const movesGroup = (i) => selectedIds.size > 1 && selectedIds.has(draft[i]?.id);
@@ -186,9 +185,19 @@
     const slot = siblingSlot(draft, activeIndex);
     return apply(insertAt(draft, slot.at, blankLine(slot.indentLevel)), slot.at);
   }
+  /** Delete line i, asking first for a line with children or a task (deletePrompt). */
   function deleteLine(i) {
-    if (selectedIds.has(draft[i]?.id)) toggleSelect(draft[i].id);
-    return apply(removeAt(draft, i), Math.max(0, i - 1));
+    if (!draft[i]) return;
+    const ask = deletePrompt(draft, [i]);
+    if (ask) pendingDelete = ask;
+    else applyDelete([i], false);
+  }
+  function applyDelete(indices, block) {
+    pendingDelete = null;
+    const r = deleteLines(draft, indices, { block });
+    const gone = new Set(r.removed.map((l) => l.id));
+    selectedIds = new Set([...selectedIds].filter((id) => !gone.has(id)));
+    return apply(r.lines.length ? r.lines : [blankLine()], Math.max(0, indices[0] - 1));
   }
   function toggleSelect(id) {
     const next = new Set(selectedIds);
@@ -203,27 +212,6 @@
     return apply(mergeTranscriptLines(draft, indices), indices[0]);
   }
   $: canMerge = mergeIndices(draft, selectedIds, activeIndex).length >= 2;
-
-  function onKey(e, i) {
-    // Mid-IME, Enter / Backspace belong to the composition.
-    if (e.isComposing) return;
-    if ((e.key === 'j' || e.key === 'J') && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      merge();
-    } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.altKey) {
-      e.preventDefault();
-      moveLine(i, e.key === 'ArrowUp' ? -1 : 1);
-    } else if (e.key === 'Tab') {
-      e.preventDefault();
-      e.shiftKey ? outdentLine(i) : indentLine(i);
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      addLineBelow(i);
-    } else if (e.key === 'Backspace' && draft[i].text === '' && draft.length > 1) {
-      e.preventDefault();
-      deleteLine(i);
-    }
-  }
 
   $: hasContent = lines.some((l) => (l.text || '').trim() !== '');
 
@@ -258,26 +246,11 @@
 
   <div class="tp-body">
     {#if editing}
-      <div class="tp-edit-hint">Tab / Shift+Tab to indent · Alt+↑ / Alt+↓ to reorder (ticked lines move together) · Enter for a new line · tick lines and Merge (Ctrl+J) to join them</div>
-      {#each draft as line, i (line.id)}
-        <TranscriptEditRow
-          bind:text={line.text}
-          bind:this={inputEls[i]}
-          indentLevel={line.indentLevel}
-          selected={selectedIds.has(line.id)}
-          isFirst={i === 0}
-          isLast={i === draft.length - 1}
-          onEdit={() => setDirty(true)}
-          onKey={(e) => onKey(e, i)}
-          onFocus={() => (activeIndex = i)}
-          onBlur={() => { if (activeIndex === i) activeIndex = -1; }}
-          onToggleSelect={() => toggleSelect(line.id)}
-          onMoveUp={() => moveLine(i, -1)}
-          onMoveDown={() => moveLine(i, 1)}
-          onOutdent={() => outdentLine(i)}
-          onIndent={() => indentLine(i)}
-        />
-      {/each}
+      <TranscriptEditList bind:this={list} bind:draft bind:deletedInk {selectedIds} {inkCount} {pendingDelete}
+        onEdit={() => setDirty(true)} onFocus={(i) => (activeIndex = i)}
+        onBlur={(i) => { if (activeIndex === i) activeIndex = -1; }} onToggle={toggleSelect}
+        onMove={moveLine} onIndent={indentLine} onOutdent={outdentLine} onAddBelow={addLineBelow}
+        onDelete={deleteLine} onMerge={merge} onChooseDelete={applyDelete} onCancelDelete={() => (pendingDelete = null)} />
     {:else}
       <TranscriptLines {lines} onCopyLine={copyBranch} {onHoverLine} {linkNote} {onTranscribe} onAddTranscript={startEdit} focusId={focusLineId}
         taskBook={tasks ? book : null} taskPageId={tasks ? page : null} {taskLock} />
@@ -342,12 +315,5 @@
     color: #222;
   }
 
-  .tp-edit-hint {
-    font-size: 11px;
-    color: #999;
-    margin-bottom: 10px;
-    padding-bottom: 8px;
-    border-bottom: 1px dashed #eee;
-  }
 
 </style>

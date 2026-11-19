@@ -16,7 +16,7 @@ import { renderPageSvg, svgToPng, fitWidth, visualTokens, MAX_EDGE } from './ren
 import { viewBounds } from './bounds.js';
 import { createSearch } from './search.js';
 import { checkColoring } from './check-colors.js';
-import { inkRows, formatRows, diffTranscript, formatDiff, linkedStrokeCount, partlyTranscribedNote, PARTLY_TRANSCRIBED_BELOW } from './transcript-check.js';
+import { inkRows, formatRows, diffTranscript, formatDiff, linkedStrokeCount, textlessStrokeCount, partlyTranscribedNote, PARTLY_TRANSCRIBED_BELOW } from './transcript-check.js';
 import { requireBookKey, requirePageId } from './paths.js';
 import { parseBookKey } from '../../src/lib/volumes.js';
 import { dayKey, dayStart, rangeBoundsMs, pagesInRange, pagesOnDay, eachDay, inRange } from '../../src/lib/timeline.js';
@@ -48,9 +48,12 @@ const label = (aliases, p) => `${bookName(aliases, p.book)} (${p.book}) p.${p.pa
 const clampInt = (v, dflt, lo, hi) => Math.max(lo, Math.min(hi, Math.round(Number.isFinite(Number(v)) && v !== null && v !== undefined ? Number(v) : dflt)));
 const widthFor = (args, lim) => clampInt(args.width, lim.width, LIMITS.minWidth, LIMITS.maxEdge);
 const rangeText = (r) => `${r.from}${r.to !== r.from ? ` to ${r.to}` : ''}`;
-/** A transcribed page with most of its ink in no line: `"16% of ink in a line"`, else undefined. */
-const partly = (p) => (p.lineCount && p.linkedStrokes != null && p.strokes && p.linkedStrokes / p.strokes < PARTLY_TRANSCRIBED_BELOW
-  ? `${Math.round((100 * p.linkedStrokes) / p.strokes)}% of ink in a line` : undefined);
+/** A transcribed page with most of its ink (not counting Not text) in no line: `"16% of ink in a line"`, else undefined. */
+const partly = (p) => {
+  const ink = (p.strokes || 0) - (p.textlessStrokes || 0);   // Not text (v3.20.0) is left out on purpose
+  return p.lineCount && p.linkedStrokes != null && ink > 0 && p.linkedStrokes / ink < PARTLY_TRANSCRIBED_BELOW
+    ? `${Math.round((100 * p.linkedStrokes) / ink)}% of ink in a line` : undefined;
+};
 
 function dayRange(from, to) {
   const end = to || from;
@@ -227,10 +230,12 @@ export function createTools(root) {
       const name = label(scan.aliases, { book, pageId: page });
       const trusted = lines.length > 0 && isTrustworthyTranscript(doc);
       const total = (doc.strokes || []).length;
-      const partlyNote = trusted ? partlyTranscribedNote(linkedStrokeCount(doc), total) : '';
+      // Ink left out as Not text (v3.20.0) is neither in a line nor missing from one.
+      const textless = textlessStrokeCount(doc);
+      const partlyNote = trusted ? partlyTranscribedNote(linkedStrokeCount(doc), total - textless) : '';
       if (args.reference == null || String(args.reference).trim() === '') {
         // Text-free on purpose: safe to read before a blind reading of the page.
-        return { content: [text(`${name}: ${total} strokes, ${lines.length ? `transcribed (${lines.length} lines; text not shown here)` : 'not transcribed'}.\n`
+        return { content: [text(`${name}: ${total} strokes${textless ? ` (${textless} left out as Not text)` : ''}, ${lines.length ? `transcribed (${lines.length} lines; text not shown here)` : 'not transcribed'}.\n`
           + (partlyNote ? `${partlyNote}\n` : '')
           + formatRows(inkRows(doc), { links: trusted }))] };
       }

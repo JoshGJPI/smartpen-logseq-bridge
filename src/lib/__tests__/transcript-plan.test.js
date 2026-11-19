@@ -269,3 +269,40 @@ describe('carryTaskState', () => {
     expect(carryTaskState([], out)).toBe(out);
   });
 });
+
+describe('planTranscript: lines deleted in the dialog (v3.20.0)', () => {
+  const s = (id, lineId) => ({ id, lineId, points: [[1, 1], [2, 2]] });
+
+  it('every line deleted: the transcript is emptied, and the save dialog sees the change', async () => {
+    const saved = [line('L1', 'a'), line('L2', 'b')];
+    const plan = planTranscript(saved, { lines: [], editorBaseIds: ['L1', 'L2'], deletedLineIds: ['L1', 'L2'] }, [s('s1', 'L1')]);
+    expect(plan.lines).toEqual([]);
+    expect(plan.changed).toBe(true);
+    expect([...plan.textlessIds]).toEqual(['s1']);
+    const { onDisk, after } = await saveThenAsk(pageDoc(saved), { lines: [], editorBaseIds: ['L1', 'L2'], deletedLineIds: ['L1', 'L2'] });
+    expect(onDisk.transcript.lines).toEqual([]);
+    expect(after.transcriptionChanged).toBe(false);
+  });
+
+  it('a MyScript result with no lines still changes nothing', () => {
+    const saved = [line('L1', 'a')];
+    expect(planTranscript(saved, { lines: [] }).changed).toBe(false);
+  });
+
+  it('only the ids the dialog deleted count: a saved line it never showed keeps its ink', () => {
+    const saved = [line('L1', 'a'), line('L2', 'b'), line('L3', 'written since')];
+    const plan = planTranscript(saved,
+      { lines: [{ text: 'a', blockUuid: 'L1' }], editorBaseIds: ['L1', 'L2'], deletedLineIds: ['L2', 'L3'] },
+      [s('s1', 'L1'), s('s2', 'L2'), s('s3', 'L3')]);
+    expect(plan.lines.map((l) => l.id)).toEqual(['L1', 'L3']);
+    expect([...plan.deletedInkIds]).toEqual(['s2']);
+  });
+
+  it('a re-transcription (replace) drops the old lines without flagging their ink', () => {
+    const saved = [line('OLD', 'old')];
+    const plan = planTranscript(saved,
+      { replace: true, lines: [{ text: 'new' }], editorBaseIds: ['OLD'], deletedLineIds: [] }, [s('s1', 'OLD')]);
+    expect(plan.lines.map((l) => l.text)).toEqual(['new']);
+    expect(plan.textlessIds.size).toBe(0);
+  });
+});

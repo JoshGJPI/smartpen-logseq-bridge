@@ -102,3 +102,21 @@ export function mergeIndices(draft, selectedIds, activeIndex) {
 export function tickedIndices(draft, selectedIds) {
   return draft.map((l, i) => (selectedIds.has(l.id) ? i : -1)).filter((i) => i >= 0);
 }
+
+/**
+ * Ids of the `base` lines (the saved lines Edit opened on) that the draft
+ * deleted: gone from it, and not merged into a line still in it (a merged
+ * line's ink follows the survivor, mergeTranscriptLines' `mergedIds`). Their
+ * ink is what Library Edit's ink choice is about (v3.20.0).
+ * @param {Array<{id: string, mergedIds?: string[]}>} draft
+ * @param {Array<{id: string}>} base
+ * @returns {string[]}
+ */
+export function deletedBaseIds(draft, base) {
+  const kept = new Set();
+  for (const l of draft || []) {
+    kept.add(l.id);
+    for (const id of l.mergedIds || []) kept.add(id);
+  }
+  return (base || []).map((l) => l && l.id).filter((id) => id && !kept.has(id));
+}

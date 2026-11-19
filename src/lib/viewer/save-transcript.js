@@ -10,7 +10,10 @@
  *      a task when a box was typed in front of it (`TODO`, `[ ]`, ☐, `DONE`,
  *      `[x]`, ☑: parseTypedTasks, as the Editor's dialog and transcription do),
  *   4. points a merged-away line's strokes at the line it was merged into, and
- *      scrubs `lineId` on strokes whose line was deleted,
+ *      scrubs `lineId` on strokes whose line was deleted; with
+ *      `deletedInk: 'textless'` (v3.20.0, Library Edit's ink choice) the ink of
+ *      lines this edit deleted is also flagged "Not text" (lib/deleted-ink.js),
+ *      never deleted,
  *   5. bumps timestamps and writes atomically via savePage().
  */
 
@@ -18,6 +21,7 @@ import { getPage, savePage } from '$lib/storage/local-store.js';
 import { markerField } from '$lib/tasks.js';
 import { keepDiskTaskState } from '$lib/editor-lines.js';
 import { parseTaskMarker } from '$lib/task-markers.js';
+import { relinkAfterEdit } from '$lib/deleted-ink.js';
 
 /**
  * Recompute each line's parentId from its indentLevel: the parent is the
@@ -82,13 +86,16 @@ export function parseTypedTasks(lines, base) {
  * @param {number} book
  * @param {number} page
  * @param {Array<Object>} lines - editor line objects ({id, text, indentLevel, checked, yBounds})
- * @param {{ base?: Array<Object> }} [opts]  `base`: the lines the edit started
+ * @param {{ base?: Array<Object>, deletedInk?: string }} [opts]  `base`: the lines the edit started
  *   from. A line whose task state the edit didn't change takes the state on
  *   disk, so a task change made after Edit was opened is not written back.
- * @returns {Promise<import('$lib/storage/page-doc.js').SaveResult & { lines: Array<Object> }>}
- *   `lines` as written
+ *   `deletedInk`: 'textless' flags the ink of base lines the edit deleted (not
+ *   merged) as Not text; anything else (Claude's edits pass nothing) only
+ *   unlinks it, as before v3.20.0.
+ * @returns {Promise<import('$lib/storage/page-doc.js').SaveResult & { lines: Array<Object>, textlessIds: string[] }>}
+ *   `lines` as written, `textlessIds` the strokes flagged
  */
-export async function saveTranscriptLines(book, page, lines, { base = null } = {}) {
+export async function saveTranscriptLines(book, page, lines, { base = null, deletedInk = null } = {}) {
   const doc = await getPage(book, page);
   if (!doc) {
     throw new Error(`Cannot save transcript: page B${book}/P${page} not found`);
@@ -105,10 +112,11 @@ export async function saveTranscriptLines(book, page, lines, { base = null } = {
   for (const l of lines) {
     for (const dead of l.mergedIds || []) if (dead !== l.id && !keptIds.has(dead)) remap.set(dead, l.id);
   }
-  const strokes = (doc.strokes || []).map((s) => {
-    if (!s.lineId || keptIds.has(s.lineId)) return s;
-    return { ...s, lineId: remap.get(s.lineId) ?? null };
+  // The base lines this edit deleted are the ones gone and not merged away.
+  const settled = relinkAfterEdit(doc.strokes || [], {
+    liveIds: keptIds, remap, deletedLineIds: (base || []).map((l) => l && l.id), deletedInk
   });
+  const strokes = settled.strokes;
 
   const now = new Date().toISOString();
   const next = {
@@ -126,5 +134,5 @@ export async function saveTranscriptLines(book, page, lines, { base = null } = {
   };
 
   const result = await savePage(book, page, next);
-  return result && typeof result === 'object' ? { ...result, lines: normalised } : result;
+  return result && typeof result === 'object' ? { ...result, lines: normalised, textlessIds: settled.textless } : result;
 }

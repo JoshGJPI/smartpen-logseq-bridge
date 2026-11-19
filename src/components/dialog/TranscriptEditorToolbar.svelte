@@ -1,7 +1,7 @@
 <!--
   TranscriptEditorToolbar.svelte - The Edit Transcription dialog's toolbar
-  (TranscriptionEditorModal): undo / redo, select and merge, indent, move
-  (lib/move-lines.js) and Smart merge. Buttons only; each dispatches an event
+  (TranscriptionEditorModal): undo / redo, select, merge and delete, indent,
+  move (lib/move-lines.js) and Smart merge. Buttons only; each dispatches an event
   named after its action, and the dialog's keyboard shortcuts do the same.
 -->
 <script>
@@ -28,6 +28,10 @@
     <button class="tool-btn primary" on:click={() => dispatch('merge')} disabled={selectedCount < 2}
       title={selectedCount < 2 ? 'Tick two or more lines to merge them (Ctrl+J)' : 'Merge the ticked lines (Ctrl+J)'}>
       Merge ({selectedCount})
+    </button>
+    <button class="tool-btn danger" on:click={() => dispatch('delete')} disabled={!canMove}
+      title={canMove ? 'Delete the ticked lines, else the focused line (Ctrl+Shift+K)' : 'Tick lines or click one to delete it'}>
+      Delete
     </button>
   </div>
 
@@ -107,6 +111,8 @@
   .tool-btn.primary:hover:not(:disabled) {
     opacity: 0.9;
   }
+
+  .tool-btn.danger:not(:disabled) { color: #f87171; }
 
   .tool-btn.suggest {
     background: #f59e0b;

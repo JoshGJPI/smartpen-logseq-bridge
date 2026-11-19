@@ -162,10 +162,12 @@ export function setIsTranscribing(transcribing) {
  * Used when editing structure in TranscriptionEditorModal
  * @param {string} pageKey - Page identifier
  * @param {Array} updatedLines - New lines array
- * @param {{editorBaseIds: string[], mergedBlockPairs?: Array}|null} [editor] - the
+ * @param {{editorBaseIds: string[], mergedBlockPairs?: Array, deletedLineIds?: string[],
+ *   deletedLines?: Array, deletedInk?: string}|null} [editor] - the
  *   saved line ids the dialog opened with, and its merges. Their presence makes
  *   the save apply these lines as the whole transcript (save-page.js
- *   applyEditorLines) rather than append them as new.
+ *   applyEditorLines) rather than append them as new. The lines deleted in the
+ *   dialog and the choice for their ink (v3.20.0) ride along for the save.
  */
 export function updatePageTranscriptionLines(pageKey, updatedLines, editor = null) {
   pageTranscriptions.update(pt => {
@@ -186,7 +188,10 @@ export function updatePageTranscriptionLines(pageKey, updatedLines, editor = nul
       text: updatedText,
       ...(editor ? {
         editorBaseIds: [...(editor.editorBaseIds || [])],
-        mergedBlockPairs: [...(editor.mergedBlockPairs || [])]
+        mergedBlockPairs: [...(editor.mergedBlockPairs || [])],
+        deletedLineIds: [...(editor.deletedLineIds || [])],
+        deletedLines: [...(editor.deletedLines || [])],
+        ...(editor.deletedInk ? { deletedInk: editor.deletedInk } : {})
       } : {}),
       timestamp: Date.now()
     });

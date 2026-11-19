@@ -22,7 +22,7 @@
   import { openTranscriptSearch, openSvgExportDialog } from '$stores';
   import { isTypingTarget, modalOpen } from '$lib/left-panel.js';
   import { hasSelection } from '$stores/selection.js';
-  import { sketchProfile, sketchProfileSummary, sketchStrokeCount, markStrokesAsSketch, unmarkStrokesAsSketch } from '$stores';
+  import { sketchProfile, sketchStrokeCount } from '$stores';
   import { reassignVolume } from '$stores/strokes.js';
   import { knownBookIds } from '$stores/book-aliases.js';
   import { volumesForBook } from '$stores/volumes.js';
@@ -57,7 +57,8 @@
   import CanvasControls from './CanvasControls.svelte';
   import PointEditPanel from './PointEditPanel.svelte';
   import PageSelector from './PageSelector.svelte';
-  import SketchStylePopover from './SketchStylePopover.svelte';
+  import SketchActions from './SketchActions.svelte';
+  import SelectionTranscriptMenu from './SelectionTranscriptMenu.svelte';
   import CanvasSearch from './CanvasSearch.svelte';
   import EditorEmptyState from './EditorEmptyState.svelte';
   import { editorActionsHost } from '$stores/editor-actions.js';
@@ -479,40 +480,9 @@
     renderStrokes(false);
   }
 
-  // How many of the selected strokes are already flagged. Drives whether the
-  // header offers Mark, Unmark, or both for a mixed selection. Computed from
-  // $strokes directly so it recomputes when the flags change, not just when the
-  // selection does.
-  $: selectedSketchCount = $hasSelection
-    ? Array.from($selectedIndices).reduce((n, i) => n + ($strokes[i]?.sketch ? 1 : 0), 0)
-    : 0;
-  $: selectedPlainCount = $selectionCount - selectedSketchCount;
 
-  /**
-   * Flag or unflag the current selection as sketch strokes.
-   * @param {boolean} sketch
-   */
-  function applySketchFlag(sketch) {
-    const indices = $selectedIndices;
-    if (!indices || indices.size === 0) return;
-
-    const changed = sketch ? markStrokesAsSketch(indices) : unmarkStrokesAsSketch(indices);
-    if (changed === 0) {
-      log(`No change — ${$selectionCount} stroke${$selectionCount !== 1 ? 's' : ''} already ${sketch ? 'marked' : 'unmarked'}`, 'info');
-      return;
-    }
-
-    const noun = `stroke${changed !== 1 ? 's' : ''}`;
-    log(
-      sketch
-        ? `Marked ${changed} ${noun} as sketch (${$sketchProfileSummary})`
-        : `Unmarked ${changed} ${noun} — back to uniform width`,
-      'success'
-    );
-    // The flag changes how these strokes draw, and $strokes updating does not by
-    // itself schedule a repaint from any of the reactive blocks above.
-    renderStrokes(false);
-  }
+  /** The selection's ⋯ (Leave out of / Include in transcripts), also on right-click. */
+  let selectionMenu;
 
   /* ---------------------------------------------------------------
    *  Page orientation — show a page written sideways upright
@@ -2054,6 +2024,7 @@
         >
           🕒 Set time…
         </button>
+        <SelectionTranscriptMenu bind:this={selectionMenu} />
       </div>
 
       {#if $pastedCount > 0}
@@ -2198,6 +2169,7 @@
       on:mouseleave={handleMouseLeave}
       on:click={handleCanvasClick}
       on:wheel={handleWheel}
+      on:contextmenu={(e) => selectionMenu?.openAt(e)}
     ></canvas>
     
     {#if canvasEmpty}
@@ -2272,32 +2244,8 @@
       on:unloaded={handlePageUnloaded}
     />
     
-    <!-- Sketch rendering: mark strokes, then tune how marked strokes are drawn.
-         Grouped here rather than in the top bar so the style popover opens
-         beside the controls that produce the strokes it restyles. -->
-    <div class="sketch-actions" role="group" aria-label="Sketch rendering">
-      <button
-        class="btn btn-secondary small tone-sketch"
-        on:click={() => applySketchFlag(true)}
-        disabled={selectedPlainCount === 0}
-        title={selectedPlainCount > 0
-          ? `Render ${selectedPlainCount} selected stroke${selectedPlainCount !== 1 ? 's' : ''} with pressure-varying thickness (${$sketchProfileSummary})`
-          : 'Select strokes that are not already sketches'}
-      >
-        ✏️ Sketch{#if selectedPlainCount > 0} ({selectedPlainCount}){/if}
-      </button>
-      <button
-        class="btn btn-secondary small tone-sketch"
-        on:click={() => applySketchFlag(false)}
-        disabled={selectedSketchCount === 0}
-        title={selectedSketchCount > 0
-          ? `Return ${selectedSketchCount} selected sketch stroke${selectedSketchCount !== 1 ? 's' : ''} to a uniform width`
-          : 'Select sketch strokes to return them to a uniform width'}
-      >
-        ✒️ Unmark{#if selectedSketchCount > 0} ({selectedSketchCount}){/if}
-      </button>
-      <SketchStylePopover />
-    </div>
+    <!-- Sketch marking and its style popover (the flag changes how strokes draw). -->
+    <SketchActions onChanged={() => renderStrokes(false)} />
 
     <!-- Four permanent export buttons was a poor trade for the width; exports
          are occasional. -->
@@ -2538,14 +2486,6 @@
     background: var(--error);
     color: white;
     border-color: var(--error);
-  }
-
-  /* Sketch marking. Distinguished from the neutral toolbar actions because it
-     changes how strokes render and is a saved, page-level annotation. */
-  .tone-sketch:hover:not(:disabled) {
-    background: #7c5cff;
-    color: white;
-    border-color: #7c5cff;
   }
 
   .sketch-indicator {
@@ -2833,18 +2773,6 @@
     cursor: not-allowed;
   }
 
-  /* Sketch marking + the style popover, moved down from the top bar. */
-  .sketch-actions {
-    display: flex;
-    gap: 4px;
-    flex-shrink: 0;
-    align-items: center;
-  }
-
-  .sketch-actions .tone-sketch:not(:disabled) {
-    border-color: rgba(139, 92, 246, 0.55);
-    color: #c4b5fd;
-  }
 
 
   .canvas-controls-row {

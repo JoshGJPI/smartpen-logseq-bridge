@@ -99,6 +99,10 @@ export function storedStrokesToCanvas(storedStrokes, sharedPageInfo, extra = nul
       // compatibility with existing transcript matching code.
       blockUuid: s.lineId || null,
       sketch: !!s.sketch,
+      // Only when set: an absent flag means "the canvas has no say", so a page
+      // loaded before a Library delete flagged its ink can't clear the flag
+      // on its next save (save-page.js syncs only true / false).
+      ...(s.textless === true ? { textless: true } : {}),
       dotArray: points.map((p, i) => {
         const [x, y, ts, f] = p;
         let dotType;

@@ -9,8 +9,9 @@
  *     - Start from the existing PageDoc on disk as the base.
  *     - Remove strokes whose id is in deletedStrokeIds.
  *     - Append new strokes from the canvas (deduplicated by id).
- *     - Update lineId and the sketch flag on existing strokes if the in-memory
- *       version differs.
+ *     - Update lineId, the sketch flag and the textless flag on existing
+ *       strokes if the in-memory version differs (textless only where the
+ *       canvas set it true or false; a textless stroke always has lineId null).
  *     - Never infer deletions from count differences.
  *     - ONE exception to immutable geometry: rewrite a stored stroke's `points`
  *       when the canvas copy carries the `pointsEdited` marker, which only
@@ -42,6 +43,11 @@
  *       is new; a saved line the dialog dropped (merged or deleted) is removed,
  *       and strokes linked to a merged-away line follow the survivor
  *       (`mergedBlockPairs`). Saved lines the dialog never saw are kept.
+ *     - Lines deleted with the dialog's Delete (v3.20.0) are listed on the
+ *       result: `deletedLineIds` (saved lines) and `deletedLines` (lines of the
+ *       run not saved yet, with their yBounds). Their ink is unlinked, and with
+ *       `deletedInk: 'textless'` (the default) flagged `textless` in the same
+ *       write (planTranscript's `textlessIds`, lib/deleted-ink.js).
  *       See applyEditorLines. Before Oct 2026 these lines went through the
  *       append-merge, which appended an edited line beside its original.
  *
@@ -74,6 +80,7 @@ import { parseTaskMarker, stripTaskMarker } from '$lib/task-markers.js';
 import { taskStateOf, withTaskState } from '$lib/tasks.js';
 import { round2, strokeToStored } from './stroke-format.js';
 import { sameInk, shiftStoredStroke } from './duplicate-strokes.js';
+import { INK_TEXTLESS, normalizeDeletedInk, withTextless } from '$lib/deleted-ink.js';
 
 /* -----------------------------------------------------------------
  *  Stroke shape conversion
@@ -399,6 +406,22 @@ function applyEditorLines(existingLines, pageTranscription, storedStrokes, origi
     }
   }
 
+  // Lines of the run deleted in the dialog keep the strokes they cover from
+  // the kept lines (most overlap wins, a tie stays with the kept line): that
+  // ink was the deleted line's, so it must not end up in a neighbour.
+  const deletedWins = new Set();
+  for (const del of pageTranscription.deletedLines || []) {
+    if (!del || del.fromBatch === false) continue;
+    for (const { id, overlap } of strokesIntersectingLine(del, storedStrokes, originNcodeY)) {
+      const held = bestOverlap.get(id);
+      if (held === undefined || overlap > held) {
+        bestOverlap.set(id, overlap);
+        lineIdAssignments.delete(id);
+        deletedWins.add(id);
+      }
+    }
+  }
+
   // Saved lines the dialog never had (written since it opened): kept, at the end.
   for (const l of existingLines) if (!used.has(l.id) && !base.has(l.id)) out.push(l);
 
@@ -423,7 +446,16 @@ function applyEditorLines(existingLines, pageTranscription, storedStrokes, origi
       lineIdRemap.set(deletedBlockUuid, survivingBlockUuid);
     }
   }
-  return { lines, lineIdAssignments, lineIdRemap };
+
+  // The ink of the deleted lines: strokes linked to a deleted saved line, and
+  // strokes won by a deleted line of the run that are linked to no line.
+  const deletedSaved = new Set((pageTranscription.deletedLineIds || [])
+    .filter((id) => id && !live.has(id) && !lineIdRemap.has(id)));
+  const deletedInkIds = new Set();
+  for (const s of storedStrokes || []) {
+    if (s.lineId ? deletedSaved.has(s.lineId) : deletedWins.has(s.id)) deletedInkIds.add(s.id);
+  }
+  return { lines, lineIdAssignments, lineIdRemap, deletedInkIds };
 }
 
 /**
@@ -432,13 +464,22 @@ function applyEditorLines(existingLines, pageTranscription, storedStrokes, origi
  * a result confirmed in the Edit Transcription dialog. Pure, so the save dialog
  * can ask the same question without writing (pass no strokes).
  *
+ * `deletedInkIds` are the strokes of lines deleted in the dialog (none for a
+ * MyScript result); `textlessIds` the ones the save flags `textless`: all of
+ * them with `deletedInk: 'textless'` (the default), none with 'retry'. Pass
+ * strokes with their `lineId` and without textless ones (never matched).
+ *
  * @returns {{ lines: Array, changed: boolean, linesAdded: number,
- *   lineIdAssignments: Map<string,string>, lineIdRemap: Map<string,string> }}
+ *   lineIdAssignments: Map<string,string>, lineIdRemap: Map<string,string>,
+ *   deletedInkIds: Set<string>, textlessIds: Set<string> }}
  */
 export function planTranscript(existingLines, pageTranscription, storedStrokes = [], originNcodeY = null) {
   const existing = Array.isArray(existingLines) ? existingLines : [];
-  const none = { lines: existing, changed: false, linesAdded: 0, lineIdAssignments: new Map(), lineIdRemap: new Map() };
-  if (!pageTranscription || !Array.isArray(pageTranscription.lines) || !pageTranscription.lines.length) return none;
+  const none = {
+    lines: existing, changed: false, linesAdded: 0, lineIdAssignments: new Map(), lineIdRemap: new Map(),
+    deletedInkIds: new Set(), textlessIds: new Set()
+  };
+  if (!hasTranscriptToPlan(pageTranscription)) return none;
 
   const fromEditor = Array.isArray(pageTranscription.editorBaseIds);
   // A page reset for re-transcription (v3.17.0): the new run is the whole
@@ -446,7 +487,7 @@ export function planTranscript(existingLines, pageTranscription, storedStrokes =
   // the old one) and the old lines go; the dialog path drops them because the
   // Review tab adds their ids to editorBaseIds. Task state follows the text.
   const replace = pageTranscription.replace === true;
-  let { lines, lineIdAssignments, lineIdRemap = new Map() } = fromEditor
+  let { lines, lineIdAssignments, lineIdRemap = new Map(), deletedInkIds = new Set() } = fromEditor
     ? applyEditorLines(existing, pageTranscription, storedStrokes, originNcodeY)
     : mergeTranscript(replace ? [] : existing, pageTranscription.lines, storedStrokes, originNcodeY);
   if (replace) {
@@ -467,8 +508,21 @@ export function planTranscript(existingLines, pageTranscription, storedStrokes =
     changed: !transcriptLinesEqual(existing, lines),
     linesAdded: lines.filter((l) => !before.has(l.id)).length,
     lineIdAssignments,
-    lineIdRemap
+    lineIdRemap,
+    deletedInkIds,
+    textlessIds: normalizeDeletedInk(pageTranscription.deletedInk) === INK_TEXTLESS ? deletedInkIds : new Set()
   };
+}
+
+/**
+ * Is there a transcript for planTranscript / the save to apply? A MyScript
+ * result with lines, or any result confirmed in the Edit Transcription dialog,
+ * even one with every line deleted (v3.20.0: that empties the transcript).
+ * @param {Object|null} pageTranscription
+ */
+export function hasTranscriptToPlan(pageTranscription) {
+  if (!pageTranscription || !Array.isArray(pageTranscription.lines)) return false;
+  return pageTranscription.lines.length > 0 || Array.isArray(pageTranscription.editorBaseIds);
 }
 
 /**
@@ -509,7 +563,7 @@ export function carryTaskState(oldLines, lines) {
  * Stored strokes as the transcription saw them: turned upright when the page
  * was sent rotated (ActionBar records the rotation on the transcription), so
  * their Y can be compared with the batch's yBounds and origin. A matching-only
- * copy of `{ id, points }` — never what is written back.
+ * copy of `{ id, lineId, points }` — never what is written back.
  *
  * @param {Array} storedStrokes
  * @param {number} [rotation]
@@ -517,7 +571,7 @@ export function carryTaskState(oldLines, lines) {
  */
 export function strokesInTranscriptionFrame(storedStrokes, rotation) {
   if (!normalizeRotation(rotation)) return storedStrokes;
-  return storedStrokes.map(s => ({ id: s.id, points: rotateStoredPoints(s.points || [], rotation) }));
+  return storedStrokes.map(s => ({ id: s.id, lineId: s.lineId ?? null, points: rotateStoredPoints(s.points || [], rotation) }));
 }
 
 /* -----------------------------------------------------------------
@@ -598,8 +652,15 @@ export async function savePageToFolder(input) {
       activeStrokes.filter(s => s && s.pointsEdited).map(s => `s${s.startTime}`)
     );
 
+    // "Not text" (v3.20.0), set or cleared on the canvas. Only an explicit
+    // true / false is synced: a canvas copy without the key (loaded before a
+    // Library delete flagged the stroke) has no say and leaves the disk alone.
+    const textlessIntent = new Map(
+      activeStrokes.filter(s => s && typeof s.textless === 'boolean').map(s => [`s${s.startTime}`, s.textless])
+    );
+
     // Sync mutable per-stroke state from the canvas onto strokes already on disk:
-    // lineId and the sketch flag are annotations the user changes after the fact,
+    // lineId and the sketch and textless flags are annotations the user changes after the fact,
     // and points are rewritten only for explicitly edited strokes.
     merged = merged.map(s => {
       const fresh = newById.get(s.id);
@@ -625,6 +686,9 @@ export async function savePageToFolder(input) {
         next = { ...next, points: fresh.points };
         editedCount++;
       }
+      if (textlessIntent.has(s.id)) next = withTextless(next, textlessIntent.get(s.id));
+      // A textless stroke is in no line, whatever a stale canvas link says.
+      if (next.textless && next.lineId != null) next = { ...next, lineId: null };
       return next;
     });
 
@@ -663,9 +727,12 @@ export async function savePageToFolder(input) {
     let transcript = existing.transcript || { lastTranscribed: null, lines: [] };
     let linesAdded = 0;
     let transcriptChanged = false;
+    let textlessIds = new Set();
+    let unlinkedIds = new Set();
 
-    if (pageTranscription && Array.isArray(pageTranscription.lines) && pageTranscription.lines.length > 0) {
-      const frameStrokes = strokesInTranscriptionFrame(merged, pageTranscription.rotation);
+    if (hasTranscriptToPlan(pageTranscription)) {
+      // Textless ink is never matched to a line (it was left out on purpose).
+      const frameStrokes = strokesInTranscriptionFrame(merged.filter(s => !s.textless), pageTranscription.rotation);
       const plan = planTranscript(
         transcript.lines || [],
         pageTranscription,
@@ -674,10 +741,15 @@ export async function savePageToFolder(input) {
       );
       linesAdded = plan.linesAdded;
       transcriptChanged = plan.changed;
+      textlessIds = plan.textlessIds;
+      unlinkedIds = new Set([...plan.deletedInkIds].filter(id => !textlessIds.has(id)));
 
-      if (plan.changed || plan.lineIdAssignments.size > 0) {
+      if (plan.changed || plan.lineIdAssignments.size > 0 || textlessIds.size > 0) {
         const planIds = new Set(plan.lines.map(l => l.id));
         merged = merged.map(s => {
+          // Ink of a line deleted in the dialog, left out as Not text.
+          if (textlessIds.has(s.id)) return withTextless(s, true);
+          if (s.textless) return s;
           // A re-transcription relinks the whole page from this run: its old
           // links are what was wrong (a drawing in the batch, 3017/182), even
           // where the text came out the same. The page was loaded whole
@@ -741,6 +813,10 @@ export async function savePageToFolder(input) {
       lineCount: doc.transcript.lines.length,
       linesAdded,
       transcriptChanged,
+      // The ink of lines deleted in the dialog, for the canvas copy
+      // (stores/canvas-save.js): flagged textless, or only unlinked.
+      textlessIds: [...textlessIds],
+      unlinkedIds: [...unlinkedIds],
       path: result.path
     };
   } catch (err) {

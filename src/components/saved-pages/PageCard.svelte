@@ -11,6 +11,7 @@
   import { getPage } from '$lib/storage/local-store.js';
   import { markerField } from '$lib/tasks.js';
   import { buildEditedTranscript } from '$lib/editor-lines.js';
+  import { relinkAfterEdit } from '$lib/deleted-ink.js';
   import { refreshAfterSave } from '$lib/storage/refresh.js';
   import TranscriptionPreview from './TranscriptionPreview.svelte';
   import TranscriptionEditorModal from '../dialog/TranscriptionEditorModal.svelte';
@@ -178,7 +179,7 @@
   }
 
   async function handleSaveEditor(event) {
-    const { lines: editedLines } = event.detail;
+    const { lines: editedLines, deletedLineIds, deletedInk } = event.detail;
     // A Library draft on this page would write its own copy over this one.
     if (isViewerPageDirty(String(page.book), String(pageRef))) {
       alert(`B${page.book}/P${pageRef} has unsaved transcript edits in the Library. Save or cancel them first.`);
@@ -199,14 +200,9 @@
         editedLines, editorBase, doc.transcript?.lines || [], randomId
       );
 
-      // Apply lineId remap + scrub references to lines that no longer exist
-      const liveIds = new Set(newLines.map(l => l.id));
-      const updatedStrokes = (doc.strokes || []).map(s => {
-        let lineId = s.lineId;
-        if (lineId && lineIdRemap.has(lineId)) lineId = lineIdRemap.get(lineId);
-        if (lineId && !liveIds.has(lineId)) lineId = null;
-        return lineId === s.lineId ? s : { ...s, lineId };
-      });
+      // lineId remap, the deleted lines' ink (Not text or unlinked), other dead links scrubbed
+      const { strokes: updatedStrokes } = relinkAfterEdit(doc.strokes,
+        { liveIds: new Set(newLines.map(l => l.id)), remap: lineIdRemap, deletedLineIds, deletedInk });
 
       const nextDoc = {
         ...doc,

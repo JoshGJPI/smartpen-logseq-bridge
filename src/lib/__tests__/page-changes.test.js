@@ -357,3 +357,34 @@ describe('computePageChangesFolder — retimes (v3.6.0)', () => {
     expect(r.strokeTotal).toBe(2);
   });
 });
+
+describe('computePageChangesFolder — textless ("Not text", v3.20.0)', () => {
+  // Same cases as pending-changes.test.js "textless modifications": the two must agree.
+  it('counts Leave out of transcripts on a stored stroke as a modification', async () => {
+    getPage.mockResolvedValue(pageDoc([storedStroke('s1000')]));
+    const out = await computePageChangesFolder(1, 5, [canvasStroke(1000, { textless: true })], null);
+    expect(out.strokeModifications).toBe(1);
+    expect(out.strokeAdditions).toBe(0);
+    expect(out.strokeDeletions).toBe(0);
+    expect(out.strokeTotal).toBe(1);
+  });
+
+  it('counts Include in transcripts on a stored textless stroke as a modification', async () => {
+    getPage.mockResolvedValue(pageDoc([storedStroke('s1000', { textless: true })]));
+    const out = await computePageChangesFolder(1, 5, [canvasStroke(1000, { textless: false })], null);
+    expect(out.strokeModifications).toBe(1);
+  });
+
+  it('a canvas copy without the key has no say: no change either way', async () => {
+    getPage.mockResolvedValue(pageDoc([storedStroke('s1000', { textless: true }), storedStroke('s2000')]));
+    const out = await computePageChangesFolder(1, 5, [canvasStroke(1000), canvasStroke(2000)], null);
+    expect(out.strokeModifications).toBe(0);
+  });
+
+  it('no change when the flag matches the disk; a new textless stroke is an addition only', async () => {
+    getPage.mockResolvedValue(pageDoc([storedStroke('s1000', { textless: true })]));
+    const out = await computePageChangesFolder(1, 5, [canvasStroke(1000, { textless: true }), canvasStroke(3000, { textless: true })], null);
+    expect(out.strokeModifications).toBe(0);
+    expect(out.strokeAdditions).toBe(1);
+  });
+});

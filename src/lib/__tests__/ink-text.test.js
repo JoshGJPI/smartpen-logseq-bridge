@@ -90,6 +90,13 @@ describe('isTrustworthyTranscript', () => {
 });
 
 describe('strokesByLine', () => {
+  it('textless ink ("Not text", v3.20.0) is in no line: drawn like other unlinked ink', () => {
+    const lines = fixedPage().transcript.lines;
+    const m = strokesByLine([s('t1', 20, 24, null), { ...s('t2', 20, 24, null), textless: true }, s('k', 20, 24, 'L1')], lines);
+    expect([...m.keys()]).toEqual(['L1']);
+    expect(m.get('L1').map((x) => x.id)).toEqual(['k']);
+  });
+
   it('groups strokes by their stored lineId', () => {
     const m = strokesByLine(fixedPage().strokes, fixedPage().transcript.lines);
     expect(m.size).toBe(6);

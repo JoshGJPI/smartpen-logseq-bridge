@@ -111,7 +111,8 @@ export function describePageSave(label, result, { retimed = 0, movedAway = 0 } =
 
 /**
  * The canvas grouped by page for MyScript. Every stroke counts toward the
- * page; only strokes not yet linked to a line (no `blockUuid`) are sent.
+ * page; only strokes not yet linked to a line (no `blockUuid`) are sent, and
+ * never a textless one ("Not text", v3.20.0: left out on purpose).
  * The key is the transcription store's `S{section}/O{owner}/B{book}/P{page}`.
  *
  * @param {Array} strokes  the strokes to transcribe (selection or all)
@@ -132,7 +133,7 @@ export function groupStrokesForTranscription(strokes) {
     if (!byPage.has(key)) byPage.set(key, { allStrokes: [], untranscribedStrokes: [], pageInfo });
     const entry = byPage.get(key);
     entry.allStrokes.push(stroke);
-    if (!stroke.blockUuid) entry.untranscribedStrokes.push(stroke);
+    if (!stroke.blockUuid && stroke.textless !== true) entry.untranscribedStrokes.push(stroke);
   }
   return byPage;
 }

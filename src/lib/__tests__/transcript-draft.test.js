@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  blankLine, cloneLines, indentAt, outdentAt, swapAt, siblingSlot, insertAt, removeAt, mergeIndices, tickedIndices
+  blankLine, cloneLines, indentAt, outdentAt, swapAt, siblingSlot, insertAt, removeAt, mergeIndices, tickedIndices, deletedBaseIds
 } from '$lib/viewer/transcript-draft.js';
+import { deleteLines, deletePrompt } from '$lib/delete-lines.js';
 
 const line = (id, indentLevel = 0, extra = {}) => ({ id, text: id, indentLevel, ...extra });
 const ids = (lines) => lines.map((l) => l.id);
@@ -110,5 +111,50 @@ describe('mergeIndices / tickedIndices', () => {
     expect(mergeIndices(draft, new Set(['b']), 1)).toEqual([1, 2]);
     expect(mergeIndices(draft, new Set(), 3)).toEqual([]);
     expect(mergeIndices(draft, new Set(), -1)).toEqual([]);
+  });
+});
+
+describe('deletedBaseIds (Library Edit, v3.20.0)', () => {
+  const base = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }];
+
+  it('the saved lines the draft deleted: gone, and not merged into a kept line', () => {
+    const draft = [{ id: 'a', mergedIds: ['c'] }, { id: 'new' }];
+    expect(deletedBaseIds(draft, base)).toEqual(['b', 'd']);
+  });
+
+  it('nothing deleted, or nothing saved to begin with', () => {
+    expect(deletedBaseIds(base, base)).toEqual([]);
+    expect(deletedBaseIds([{ id: 'x' }], [])).toEqual([]);
+    expect(deletedBaseIds([], null)).toEqual([]);
+  });
+});
+
+describe('Library Edit delete: line, block and ink (delete-lines on a draft)', () => {
+  // The pane runs deletePrompt / deleteLines on its draft, then deletedBaseIds for the ink choice.
+  const draft = () => [
+    { id: 'm', text: 'Meeting', indentLevel: 0, checked: null },
+    { id: 't', text: 'Tom', indentLevel: 1, checked: null },
+    { id: 'x', text: 'call back', indentLevel: 2, checked: false },
+    { id: 'n', text: 'Next', indentLevel: 0, checked: null },
+  ];
+
+  it('a line with children asks; Delete line keeps the children one level up', () => {
+    const ask = deletePrompt(draft(), [0]);
+    expect(ask.askBlock).toBe(true);
+    const r = deleteLines(draft(), ask.indices);
+    expect(r.lines.map((l) => [l.id, l.indentLevel])).toEqual([['t', 0], ['x', 1], ['n', 0]]);
+    expect(deletedBaseIds(r.lines, draft())).toEqual(['m']);
+  });
+
+  it('Delete block takes the task under it, which the prompt named', () => {
+    const ask = deletePrompt(draft(), [1]);
+    expect(ask.blockTasks).toEqual(['call back']);
+    const r = deleteLines(draft(), ask.indices, { block: true });
+    expect(deletedBaseIds(r.lines, draft())).toEqual(['t', 'x']);
+  });
+
+  it('a task line alone asks first; a plain leaf deletes straight away', () => {
+    expect(deletePrompt(draft(), [2])).toMatchObject({ askBlock: false, lineTasks: ['call back'] });
+    expect(deletePrompt(draft(), [3])).toBeNull();
   });
 });

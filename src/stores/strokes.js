@@ -616,12 +616,14 @@ export function updateStrokeBlockUuids(strokeToBlockMap) {
 }
 
 /**
- * Get strokes that haven't been transcribed yet (no blockUuid)
+ * Get strokes that haven't been transcribed yet (no blockUuid), not counting
+ * strokes left out of transcripts ("Not text", v3.20.0), which Transcribe never
+ * sends (lib/canvas-save-plan.js groupStrokesForTranscription).
  * @param {Array} strokeList - Array of strokes to filter
  * @returns {Array} Strokes without blockUuid
  */
 export function getUntranscribedStrokes(strokeList) {
-  return strokeList.filter(stroke => !stroke.blockUuid);
+  return strokeList.filter(stroke => !stroke.blockUuid && stroke.textless !== true);
 }
 
 /**

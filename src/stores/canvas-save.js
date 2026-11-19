@@ -24,6 +24,7 @@ import { filteredStrokes } from './filtered-strokes.js';
 import { pageTranscriptions, clearPageTranscription } from './transcription.js';
 import { forgetReset } from './transcript-reset.js';
 import { recordRetimesFor } from './retimed.js';
+import { applySavedDeletedInk } from './textless.js';
 import { carryTagsForMoves } from './tags.js';
 import { dataRoot, dataFolderReady } from './settings.js';
 import {
@@ -134,6 +135,9 @@ export async function saveCanvasPages(selectedPageKeys, { leftUnsaved = [] } = {
         // The old ids are gone from disk; a marker left behind would make a
         // later save delete an id that may belong to another stroke by then.
         clearRetimedMarkers(book, page);
+        // Ink of lines deleted in Edit Transcription: the canvas copies follow
+        // the disk (flagged textless, or unlinked so Transcribe sends it again).
+        applySavedDeletedInk(book, page, result);
         if (pageTranscription) {
           // In the file now; left in the store, the save dialog would list the
           // page as a transcript change and Review would keep it pending.

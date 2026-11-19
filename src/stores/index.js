@@ -30,6 +30,9 @@ export {
   clearPointEditMarkers
 } from './strokes.js';
 
+// "Not text": strokes left out of transcripts (v3.20.0)
+export { setStrokesTextless, countTextless, applySavedDeletedInk } from './textless.js';
+
 // Context Ink (the halftoned remainder of a partially-loaded page)
 export {
   contextInk,

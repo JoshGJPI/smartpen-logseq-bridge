@@ -7,7 +7,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   mergeEditorLines, splitEditorLine, keepDiskTaskState, taskFieldsOf, buildEditedTranscript, mergeTranscriptLines,
-  editorLineStatus, detectMergeSuggestions
+  editorLineStatus, detectMergeSuggestions, deleteEditorLines, deletedLinesForSave,
+  startHistory, pushHistory, stepHistory, savedLinesForEditor, mergeExistingAndNewLines
 } from '../editor-lines.js';
 
 const el = (i, text, extra = {}) => ({
@@ -181,5 +182,95 @@ describe('detectMergeSuggestions', () => {
     expect(detectMergeSuggestions([el(0, 'One'), { yBounds: { minY: 6, maxY: 9 } }])).toEqual([]);
     expect(detectMergeSuggestions([])).toEqual([]);
     expect(detectMergeSuggestions(null)).toEqual([]);
+  });
+});
+
+describe("deleteEditorLines (the dialog's Delete, v3.20.0)", () => {
+  // Meeting / ··Tom / ····call back / Next
+  const dialog = () => [
+    el(0, 'Meeting'), el(1, 'Tom', { indentLevel: 1 }), el(2, 'call back', { indentLevel: 2 }), el(3, 'Next')
+  ];
+
+  it('Delete line: its children move up one level and read as modified', () => {
+    const r = deleteEditorLines(dialog(), [0]);
+    expect(r.lines.map((l) => [l.text, l.indentLevel])).toEqual([['Tom', 0], ['call back', 1], ['Next', 0]]);
+    expect(r.lines.slice(0, 2).map(editorLineStatus)).toEqual(['modified', 'modified']);
+    expect(editorLineStatus(r.lines[2])).toBe('synced');
+    expect(r.removed.map((l) => l.blockUuid)).toEqual(['L0']);
+  });
+
+  it('Delete block: the children go too', () => {
+    const r = deleteEditorLines(dialog(), [0], { block: true });
+    expect(r.lines.map((l) => l.text)).toEqual(['Next']);
+    expect(r.removed.map((l) => l.blockUuid)).toEqual(['L0', 'L1', 'L2']);
+  });
+
+  it('a line of the run not saved yet: removed, and reported by its bounds, not an id', () => {
+    const fresh = el(4, 'scribble', { blockUuid: undefined, syncStatus: 'new', fromBatch: true, yBounds: { minY: 40, maxY: 45 } });
+    const typed = el(5, 'typed', { blockUuid: undefined, syncStatus: 'new', yBounds: { minY: 0, maxY: 0 } });
+    const r = deleteEditorLines([...dialog(), fresh, typed], [4, 5]);
+    expect(r.lines).toHaveLength(4);
+    expect(deletedLinesForSave(r.removed)).toEqual({
+      deletedLineIds: [],
+      deletedLines: [{ yBounds: { minY: 40, maxY: 45 }, fromBatch: true }]
+    });
+  });
+
+  it('a deleted merged line reports the saved lines merged into it too', () => {
+    const merged = mergeEditorLines([el(0, 'a'), el(1, 'b')]);
+    expect(deletedLinesForSave([merged]).deletedLineIds).toEqual(['L0', 'L1']);
+    expect(deletedLinesForSave([])).toEqual({ deletedLineIds: [], deletedLines: [] });
+  });
+});
+
+describe("the dialog's undo history", () => {
+  it('undo brings a deleted line back, redo deletes it again', () => {
+    const lines = [el(0, 'Meeting'), el(1, 'Tom', { indentLevel: 1 })];
+    let h = startHistory({ lines, deleted: [] });
+    const r = deleteEditorLines(lines, [0]);
+    h = pushHistory(h, { lines: r.lines, deleted: r.removed });
+    expect(h.at).toBe(1);
+
+    const back = stepHistory(h, -1);
+    expect(back.state.lines.map((l) => [l.text, l.indentLevel])).toEqual([['Meeting', 0], ['Tom', 1]]);
+    expect(back.state.deleted).toEqual([]);
+    h = back.history;
+
+    const again = stepHistory(h, 1);
+    expect(again.state.lines.map((l) => l.text)).toEqual(['Tom']);
+    expect(again.state.deleted.map((l) => l.blockUuid)).toEqual(['L0']);
+  });
+
+  it('a step equal to the current one adds nothing; a new step drops the redo steps', () => {
+    const lines = [el(0, 'a')];
+    let h = startHistory({ lines, deleted: [] });
+    expect(pushHistory(h, { lines, deleted: [] })).toBe(h);
+    h = pushHistory(h, { lines: [], deleted: lines });
+    h = stepHistory(h, -1).history;
+    h = pushHistory(h, { lines: [el(0, 'b')], deleted: [] });
+    expect(h.steps).toHaveLength(2);
+    expect(stepHistory(h, 1)).toBeNull();
+    expect(stepHistory(startHistory({ lines: [], deleted: [] }), -1)).toBeNull();
+  });
+
+  it('steps are copies: editing the shown state does not change the history', () => {
+    const h = startHistory({ lines: [el(0, 'a')], deleted: [] });
+    const shown = stepHistory(pushHistory(h, { lines: [el(0, 'b')], deleted: [] }), -1).state;
+    shown.lines[0].text = 'changed';
+    expect(h.steps[0].lines[0].text).toBe('a');
+  });
+});
+
+describe('savedLinesForEditor / mergeExistingAndNewLines (moved from TranscriptionView)', () => {
+  it('saved lines carry their id as blockUuid and their task state', () => {
+    const [l] = savedLinesForEditor([{ id: 'A', text: 'Call', indentLevel: 1, checked: false, marker: 'WAITING', yBounds: null }]);
+    expect(l).toMatchObject({ blockUuid: 'A', canonical: 'call', checked: false, marker: 'WAITING', syncStatus: 'synced', yBounds: { minY: 0, maxY: 0 } });
+  });
+
+  it('a run line already saved (same text, overlapping) is not listed twice; the rest come in as new', () => {
+    const existing = savedLinesForEditor([{ id: 'A', text: 'Call', yBounds: { minY: 1, maxY: 5 } }]);
+    const out = mergeExistingAndNewLines(existing, [{ text: 'call', yBounds: { minY: 2, maxY: 6 } }, { text: 'more', yBounds: { minY: 9, maxY: 12 } }]);
+    expect(out.map((l) => [l.text, l.syncStatus, !!l.fromBatch])).toEqual([['Call', 'synced', false], ['more', 'new', true]]);
+    expect(mergeExistingAndNewLines([], [{ text: 'x' }])[0]).toMatchObject({ syncStatus: 'new', fromBatch: true });
   });
 });

@@ -1,6 +1,6 @@
 /**
  * editor-lines — the Edit Transcription dialog's line operations (merge,
- * split; the Library reader's merge) and the rule for task state when an
+ * split, delete and its undo history; the Library reader's merge) and the rule for task state when an
  * edited transcript is written back. Pure; TranscriptionEditorModal, PageCard,
  * TranscriptPane and save-transcript use it.
  *
@@ -13,6 +13,8 @@
  */
 
 import { markerField, taskStateOf } from '$lib/tasks.js';
+import { deleteLines } from '$lib/delete-lines.js';
+import { lineHasInk } from '$lib/deleted-ink.js';
 
 /**
  * `{ checked, marker? }` of the first task among `lines`, else `{}`.
@@ -232,4 +234,132 @@ export function detectMergeSuggestions(lines) {
     if (sameLine) suggestions.push({ indices: [i, i + 1], confidence: 0.8 });
   }
   return suggestions;
+}
+
+/**
+ * The dialog's Delete (v3.20.0): the lines at `indices` deleted
+ * (lib/delete-lines.js: children move up a level, or with `block` go too).
+ * A line whose indent changed is marked edited, like the dialog's Indent.
+ *
+ * @param {Array<object>} lines  the dialog's lines
+ * @param {number[]} indices
+ * @param {{ block?: boolean }} [opts]
+ * @returns {{ lines: Array<object>, removed: Array<object> }}
+ */
+export function deleteEditorLines(lines, indices, opts = {}) {
+  const r = deleteLines(lines, indices, opts);
+  const moved = new Set(r.outdented);
+  return {
+    lines: r.lines.map((l, i) => (moved.has(i)
+      ? { ...l, userModified: true, ...(l.blockUuid && l.syncStatus === 'synced' ? { syncStatus: 'modified' } : {}) }
+      : l)),
+    removed: r.removed
+  };
+}
+
+/**
+ * What the save needs to know about the lines deleted in the dialog: the saved
+ * line ids (a deleted merged line's absorbed lines too) and, for lines of the
+ * run not saved yet that have ink, their yBounds (the save matches their
+ * strokes as it matches a new line's). Lines typed in the dialog have no ink
+ * and are left out.
+ *
+ * @param {Array<object>} deleted  dialog lines removed by Delete
+ * @returns {{ deletedLineIds: string[], deletedLines: Array<{yBounds: {minY: number, maxY: number}, fromBatch: true}> }}
+ */
+export function deletedLinesForSave(deleted) {
+  const ids = new Set();
+  const batch = [];
+  for (const l of deleted || []) {
+    if (!l) continue;
+    for (const id of [l.blockUuid, ...(l.blocksToDelete || [])]) if (id) ids.add(id);
+    if (!l.blockUuid && lineHasInk(l)) {
+      batch.push({ yBounds: { minY: l.yBounds.minY, maxY: l.yBounds.maxY }, fromBatch: true });
+    }
+  }
+  return { deletedLineIds: [...ids], deletedLines: batch };
+}
+
+/**
+ * Undo history of the dialog, as plain data so it can be tested: `steps` are
+ * JSON copies of `{ lines, deleted }`, `at` the current one.
+ * @typedef {{ steps: Array<{lines: Array<object>, deleted: Array<object>}>, at: number }} EditorHistory
+ */
+
+/** A history holding only `state`. @returns {EditorHistory} */
+export function startHistory(state) {
+  return { steps: [JSON.parse(JSON.stringify(state))], at: 0 };
+}
+
+/**
+ * Record `state` as the next step (drops any redo steps). A state equal to the
+ * current step adds nothing, so one Undo is one change.
+ * @param {EditorHistory} h
+ * @returns {EditorHistory}
+ */
+export function pushHistory(h, state) {
+  const snapshot = JSON.stringify(state);
+  if (h.at >= 0 && JSON.stringify(h.steps[h.at]) === snapshot) return h;
+  return { steps: [...h.steps.slice(0, h.at + 1), JSON.parse(snapshot)], at: h.at + 1 };
+}
+
+/**
+ * One step back (-1) or forward (+1): the new history and a copy of the state
+ * to show, or null when there is no such step.
+ * @param {EditorHistory} h
+ * @returns {{ history: EditorHistory, state: {lines: Array<object>, deleted: Array<object>} } | null}
+ */
+export function stepHistory(h, delta) {
+  const at = h.at + delta;
+  if (at < 0 || at >= h.steps.length) return null;
+  return { history: { ...h, at }, state: JSON.parse(JSON.stringify(h.steps[at])) };
+}
+
+/**
+ * A saved transcript's lines in the dialog's shape (the Review tab's Edit
+ * Structure): the line id is the dialog's `blockUuid`, task state rides along
+ * so a merge or split carries it.
+ * @param {Array<object>} savedLines  transcript.lines on disk
+ * @returns {Array<object>}
+ */
+export function savedLinesForEditor(savedLines) {
+  return (savedLines || []).map((l) => ({
+    text: l.text || '',
+    canonical: (l.text || '').trim().toLowerCase(),
+    yBounds: l.yBounds || { minY: 0, maxY: 0 },
+    indentLevel: l.indentLevel || 0,
+    blockUuid: l.id,
+    checked: l.checked ?? null,
+    ...markerField(l),
+    syncStatus: 'synced'
+  }));
+}
+
+/**
+ * The dialog's opening lines for a run: the saved lines, then the run's lines
+ * that aren't already among them (text + Y-overlap), marked new.
+ *
+ * `fromBatch` marks the lines whose yBounds came from the transcription run
+ * being confirmed, so the stroke preview knows which origin to undo. It is not
+ * the same as `syncStatus: 'new'`, which only means "has no block yet" and is
+ * also set on the second half of a split.
+ * @param {Array<object>} existing  savedLinesForEditor()
+ * @param {Array<object>} fresh  the run's lines
+ * @returns {Array<object>}
+ */
+export function mergeExistingAndNewLines(existing, fresh) {
+  const asNew = (l) => ({ ...l, syncStatus: 'new', fromBatch: true });
+  if (!existing || existing.length === 0) return (fresh || []).map(asNew);
+  const out = [...existing];
+  for (const newLine of fresh || []) {
+    const newText = (newLine.text || '').trim().toLowerCase();
+    const dup = existing.some((e) => {
+      if ((e.canonical || '') !== newText) return false;
+      const eY = e.yBounds, nY = newLine.yBounds;
+      if (!eY || !nY) return false;
+      return !(eY.maxY + 3 < nY.minY || nY.maxY + 3 < eY.minY);
+    });
+    if (!dup) out.push(asNew(newLine));
+  }
+  return out;
 }

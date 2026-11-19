@@ -1,17 +1,24 @@
 <!--
   TranscriptionEditorModal.svelte - The Edit Transcription dialog: one column
-  of editable lines (TranscriptEditorLine), its toolbar
-  (TranscriptEditorToolbar) and, beside it, the page's handwriting
-  (TranscriptStrokePreview). Existing lines are edited in place by id; Confirm
-  hands the lines back to the caller and writes nothing itself. Ticked lines
-  (else the focused line) move up / down / to the top or bottom as a group
-  (lib/move-lines.js; Alt+↑ / Alt+↓).
+  of editable lines (TranscriptEditorLine), its header, toolbar and footer
+  (TranscriptEditorHeader / Toolbar / Footer) and, beside it, the page's
+  handwriting (TranscriptStrokePreview). Existing lines are edited in place by
+  id; Confirm hands the lines back to the caller and writes nothing itself.
+  Ticked lines (else the focused line) move up / down / to the top or bottom as
+  a group (lib/move-lines.js; Alt+↑ / Alt+↓), and are deleted (v3.20.0,
+  lib/delete-lines.js; Ctrl+Shift+K, or Backspace on an empty line): a line
+  with children asks Delete line or Delete block, a task asks first. While a
+  deleted line had ink, the footer asks what happens to it (lib/deleted-ink.js),
+  and Confirm hands that choice and the deleted lines to the caller.
 -->
 <script>
   import { debug } from '$lib/debug.js';
   import {
-    mergeEditorLines, splitEditorLine, editorLineStatus, detectMergeSuggestions
+    mergeEditorLines, splitEditorLine, editorLineStatus, detectMergeSuggestions,
+    deleteEditorLines, deletedLinesForSave, startHistory, pushHistory, stepHistory
   } from '$lib/editor-lines.js';
+  import { deletePrompt } from '$lib/delete-lines.js';
+  import { INK_TEXTLESS, lineHasInk } from '$lib/deleted-ink.js';
   import { moveLines, moveLinesToEdge } from '$lib/move-lines.js';
   import { isTypingTarget } from '$lib/left-panel.js';
   import { createEventDispatcher } from 'svelte';
@@ -19,7 +26,9 @@
   import TranscriptStrokePreview from './TranscriptStrokePreview.svelte';
   import TranscriptEditorLine from './TranscriptEditorLine.svelte';
   import TranscriptEditorToolbar from './TranscriptEditorToolbar.svelte';
-  import PageTagsInline from '../tags/PageTagsInline.svelte';
+  import TranscriptEditorHeader from './TranscriptEditorHeader.svelte';
+  import TranscriptEditorFooter from './TranscriptEditorFooter.svelte';
+  import DeleteLinesPrompt from './DeleteLinesPrompt.svelte';
 
   export let book;
   export let page;
@@ -37,14 +46,22 @@
    */
   export let batchOriginY = null;
   export let visible = false;
+  /** The ink choice to start on (a reopened run keeps its earlier one). */
+  export let deletedInk = INK_TEXTLESS;
+  /** Lines with ink deleted when this run was confirmed before (the choice covers them too). */
+  export let priorInkCount = 0;
 
   const dispatch = createEventDispatcher();
 
   // Local state for editing
   let editedLines = [];
+  /** Lines removed by Delete, in the order deleted (part of the undo history). */
+  let deleted = [];
   let selectedIndices = new Set();
-  let history = [];
-  let historyIndex = -1;
+  let history = startHistory({ lines: [], deleted: [] });
+  /** What Delete is asking (DeleteLinesPrompt), or null. */
+  let pendingDelete = null;
+  let inkChoice = deletedInk;
 
   // Which line the stroke preview is showing. Set by clicking or focusing a row;
   // never by editing, so typing doesn't make the preview jump.
@@ -77,7 +94,7 @@
   }
 
   // Initialize edited lines when modal opens
-  $: if (visible && lines.length > 0) {
+  $: if (visible && lines) {
     initializeEditor();
   }
 
@@ -88,11 +105,13 @@
       originalIndex: index,
       userModified: false
     }));
+    deleted = [];
+    pendingDelete = null;
+    inkChoice = deletedInk;
     selectedIndices = new Set();
     focusedIndex = -1;
     previewReloadKey++;
-    history = [JSON.parse(JSON.stringify(editedLines))];
-    historyIndex = 0;
+    history = startHistory({ lines: editedLines, deleted });
   }
 
   /**
@@ -100,11 +119,7 @@
    * (leaving a line without typing) adds no step, so one Undo is one change.
    */
   function addToHistory() {
-    const snapshot = JSON.stringify(editedLines);
-    if (historyIndex >= 0 && JSON.stringify(history[historyIndex]) === snapshot) return;
-    history = history.slice(0, historyIndex + 1);
-    history.push(JSON.parse(snapshot));
-    historyIndex++;
+    history = pushHistory(history, { lines: editedLines, deleted });
   }
 
   // Merge the ticked lines (two or more), else `startIndex` with the next line.
@@ -141,6 +156,30 @@
     addToHistory();
   }
 
+  /**
+   * Delete the ticked lines, else `index` (the focused line when not given).
+   * Asks first when deletePrompt says so (a line with children, a task).
+   */
+  function requestDelete(index = null) {
+    const ticked = index == null && selectedIndices.size > 0;
+    const at = index ?? focusedIndex;
+    const indices = ticked ? [...selectedIndices] : at >= 0 && at < editedLines.length ? [at] : [];
+    if (indices.length === 0) return;
+    const ask = deletePrompt(editedLines, indices, { ticked });
+    if (ask) pendingDelete = ask;
+    else applyDelete(indices, false);
+  }
+
+  function applyDelete(indices, block) {
+    const r = deleteEditorLines(editedLines, indices, { block });
+    editedLines = r.lines;
+    deleted = [...deleted, ...r.removed];
+    pendingDelete = null;
+    selectedIndices = new Set();
+    focusedIndex = -1;   // indices shifted
+    addToHistory();
+  }
+
   /** Change the indent of the lines at `indices` by `delta`, within 0..5. */
   function shiftIndent(indices, delta) {
     if (indices.size === 0) return;
@@ -167,16 +206,17 @@
   $: canMove = selectedIndices.size > 0 || focusedIndex >= 0;
 
   /** Step through the undo history (-1 undo, +1 redo). */
-  function stepHistory(delta) {
-    const next = historyIndex + delta;
-    if (next < 0 || next >= history.length) return;
-    historyIndex = next;
-    editedLines = JSON.parse(JSON.stringify(history[historyIndex]));
+  function step(delta) {
+    const r = stepHistory(history, delta);
+    if (!r) return;
+    history = r.history;
+    editedLines = r.state.lines;
+    deleted = r.state.deleted;
     selectedIndices = new Set();
     focusedIndex = -1;
   }
-  const undo = () => stepHistory(-1);
-  const redo = () => stepHistory(1);
+  const undo = () => step(-1);
+  const redo = () => step(1);
 
   function toggleSelection(index) {
     if (selectedIndices.has(index)) selectedIndices.delete(index);
@@ -235,7 +275,11 @@
       if (count > 0) debug(`Reassigned ${count} strokes from ${deletedBlockUuid} to ${survivingBlockUuid}`);
     }
 
-    dispatch('save', { lines: editedLines, book, page, mergedBlockPairs });
+    // Deleted lines and the ink choice; the caller's save settles their strokes.
+    dispatch('save', {
+      lines: editedLines, book, page, mergedBlockPairs,
+      ...deletedLinesForSave(deleted), deletedInk: inkChoice
+    });
     handleClose();
   }
 
@@ -248,13 +292,13 @@
   // A stray backdrop click or Escape asks first once there are edits to lose;
   // Cancel is an explicit choice and closes at once.
   function requestClose() {
-    if (historyIndex > 0 && !confirm('Discard your edits to this transcription?')) return;
+    if (history.at > 0 && !confirm('Discard your edits to this transcription?')) return;
     handleClose();
   }
 
   // Handle keyboard shortcuts
   function handleKeydown(event) {
-    if (!visible || event.defaultPrevented) return;
+    if (!visible || event.defaultPrevented || pendingDelete) return;
     // The page-tags field (footer) keeps its own Tab, Ctrl+A / Z and Escape.
     if (event.target?.closest?.('[data-own-keys]')) return;
     // In a line's text field, select-all and undo/redo are the field's own.
@@ -268,6 +312,9 @@
       } else if ((key === 'z' && event.shiftKey) || key === 'y') {
         event.preventDefault();
         redo();
+      } else if (key === 'k' && event.shiftKey) {
+        event.preventDefault();
+        requestDelete();
       } else if (key === 'a') {
         event.preventDefault();
         selectAll();
@@ -303,6 +350,7 @@
     synced: statusLabels.filter(l => l === 'synced').length,
     newLines: statusLabels.filter(l => l === 'new').length
   };
+  $: inkCount = priorInkCount + deleted.filter(lineHasInk).length;
 
   $: mergeSuggestions = detectMergeSuggestions(editedLines);
 </script>
@@ -314,37 +362,11 @@
 <div class="modal-backdrop" on:click={requestClose}>
   <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
   <div class="modal-container" role="dialog" aria-modal="true" aria-label="Edit transcription" on:click|stopPropagation>
-    <div class="modal-header">
-      <h2>Edit Transcription &mdash; B{book}/P{page}</h2>
-      <div class="header-stats">
-        {stats.totalLines} {stats.totalLines === 1 ? 'line' : 'lines'}
-        {#if stats.synced > 0}<span class="stat-badge synced">{stats.synced} saved</span>{/if}
-        {#if stats.newLines > 0}<span class="stat-badge new">{stats.newLines} new</span>{/if}
-        {#if stats.modified > 0}<span class="stat-badge modified">{stats.modified} modified</span>{/if}
-      </div>
-      <button
-        class="preview-toggle"
-        class:active={showPreview}
-        on:click={togglePreview}
-        aria-pressed={showPreview}
-        title={showPreview ? 'Hide the stroke preview' : 'Show the handwriting alongside the transcript'}
-      >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M3 17c3-6 6-9 9-9s4 3 3 6-3 4-4 2 1-6 4-8 4-1 6 1"/>
-        </svg>
-        {showPreview ? 'Hide strokes' : 'Show strokes'}
-      </button>
-      <button class="close-btn" on:click={handleClose} title="Close (Esc)" aria-label="Close">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <line x1="18" y1="6" x2="6" y2="18"></line>
-          <line x1="6" y1="6" x2="18" y2="18"></line>
-        </svg>
-      </button>
-    </div>
+    <TranscriptEditorHeader {book} {page} {stats} {showPreview} onTogglePreview={togglePreview} onClose={handleClose} />
 
     <TranscriptEditorToolbar
-      canUndo={historyIndex > 0}
-      canRedo={historyIndex < history.length - 1}
+      canUndo={history.at > 0}
+      canRedo={history.at < history.steps.length - 1}
       selectedCount={selectedIndices.size}
       {canMove}
       suggestionCount={mergeSuggestions.length}
@@ -352,6 +374,7 @@
       on:redo={redo}
       on:selectAll={selectAll}
       on:merge={() => mergeLines(Array.from(selectedIndices)[0])}
+      on:delete={() => requestDelete()}
       on:outdent={outdentLines}
       on:indent={indentLines}
       on:move={(e) => moveSelected(e.detail)}
@@ -374,6 +397,7 @@
             on:split={(e) => splitLine(index, e.detail.text1, e.detail.text2)}
             on:outdent={() => shiftIndent(new Set([index]), -1)}
             on:indent={() => shiftIndent(new Set([index]), 1)}
+            on:delete={() => requestDelete(index)}
           />
         {/each}
       </div>
@@ -389,25 +413,15 @@
       {/if}
     </div>
 
-    <div class="modal-footer">
-      <div class="footer-tags">
-        <PageTagsInline {book} pageId={previewPageId} lines={editedLines} dropUp />
-      </div>
-      <div class="footer-info">
-        {#if stats.selected > 0}
-          <span class="selection-info">{stats.selected} selected</span>
-        {/if}
-        {#if stats.modified > 0}
-          <span class="modified-warning">{stats.modified} line{stats.modified !== 1 ? 's' : ''} modified</span>
-        {/if}
-      </div>
-      <div class="footer-actions">
-        <button class="btn btn-cancel" on:click={handleClose}>Cancel</button>
-        <button class="btn btn-primary" on:click={handleSave}>Confirm</button>
-      </div>
-    </div>
+    <TranscriptEditorFooter {book} pageId={previewPageId} lines={editedLines} {stats} {inkCount}
+      bind:deletedInk={inkChoice} onCancel={handleClose} onConfirm={handleSave} />
   </div>
 </div>
+{#if pendingDelete}
+  <DeleteLinesPrompt prompt={pendingDelete}
+    onChoose={(block) => applyDelete(pendingDelete.indices, block)}
+    onCancel={() => (pendingDelete = null)} />
+{/if}
 {/if}
 
 <style>
@@ -437,85 +451,6 @@
     border: 1px solid var(--border);
   }
 
-  /* Header */
-  .modal-header {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 16px 24px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .modal-header h2 {
-    margin: 0;
-    font-size: 1.15rem;
-    color: var(--text-primary);
-    white-space: nowrap;
-  }
-
-  .header-stats {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-    flex: 1;
-  }
-
-  .stat-badge {
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-size: 0.7rem;
-    font-weight: 600;
-  }
-
-  .stat-badge.synced { background: rgba(107, 114, 128, 0.2); color: #9ca3af; }
-  .stat-badge.new { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
-  .stat-badge.modified { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
-
-  .preview-toggle {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 10px;
-    background: var(--bg-tertiary);
-    color: var(--text-secondary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    font-size: 0.75rem;
-    font-weight: 500;
-    cursor: pointer;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  .preview-toggle:hover {
-    color: var(--text-primary);
-    border-color: var(--accent);
-  }
-
-  .preview-toggle.active {
-    color: var(--text-primary);
-    border-color: var(--accent);
-    background: rgba(59, 130, 246, 0.12);
-  }
-
-  .close-btn {
-    background: none;
-    border: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-    padding: 4px;
-    border-radius: 4px;
-    transition: all 0.2s;
-    flex-shrink: 0;
-  }
-
-  .close-btn:hover {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-  }
-
   /* Body — transcript column, optionally beside the stroke preview */
   .modal-body {
     flex: 1;
@@ -535,72 +470,6 @@
     min-width: 0;
     overflow-y: auto;
     padding: 12px 16px;
-  }
-
-  /* Footer */
-  .modal-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 14px 24px;
-    background: var(--bg-secondary);
-    border-top: 1px solid var(--border);
-  }
-
-  .footer-tags {
-    flex: 1;
-    min-width: 0;
-    margin-right: 20px;
-  }
-
-  .footer-info {
-    display: flex;
-    gap: 16px;
-    font-size: 0.8rem;
-  }
-
-  .selection-info {
-    color: var(--accent);
-    font-weight: 500;
-  }
-
-  .modified-warning {
-    color: #f59e0b;
-    font-weight: 500;
-  }
-
-  .footer-actions {
-    display: flex;
-    gap: 10px;
-  }
-
-  .btn {
-    padding: 8px 20px;
-    border: none;
-    border-radius: 6px;
-    font-size: 0.85rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .btn-cancel {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-  }
-
-  .btn-cancel:hover {
-    background: var(--bg-primary);
-  }
-
-  .btn-primary {
-    background: var(--accent);
-    color: white;
-  }
-
-  .btn-primary:hover {
-    opacity: 0.9;
   }
 
   /* Scrollbar */

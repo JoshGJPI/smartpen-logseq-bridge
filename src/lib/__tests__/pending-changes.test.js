@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { computePendingChangesMap } from '$stores/pending-changes.js';
+import { get } from 'svelte/store';
+import { computePendingChangesMap, noteOnDiskStrokeIds, onDiskStrokeIds } from '$stores/pending-changes.js';
 
 /**
  * computePendingChangesMap is the pure core of the dirty-state diff. It used to
@@ -471,5 +472,42 @@ describe('deleteSelectedStrokes (Delete button and Delete key)', () => {
     selectedIndices.set(new Set());
     expect(deleteSelectedStrokes()).toBe(0);
     expect(get(deletedIndices).size).toBe(0);
+  });
+});
+
+describe('computePendingChangesMap — textless modifications (v3.20.0)', () => {
+  // Same cases as page-changes.test.js "textless": the two must agree.
+  const disk = (entries) => new Map([['B1/P5', new Map(entries.map(([id, textless]) => [id, { sketch: false, textless, points: null }]))]]);
+
+  it('reports Leave out of transcripts on a stored stroke as a modification', () => {
+    const m = computePendingChangesMap([stroke(1, 5, 1000, { textless: true })], new Set(), disk([[idOf(1000), false]]), new Set());
+    expect(m.get('B1/P5').modifications).toEqual([0]);
+    expect(m.get('B1/P5').additions).toEqual([]);
+    expect(m.get('B1/P5').deletions).toEqual([]);
+  });
+
+  it('reports Include in transcripts on a stored textless stroke as a modification', () => {
+    const m = computePendingChangesMap([stroke(1, 5, 1000, { textless: false })], new Set(), disk([[idOf(1000), true]]), new Set());
+    expect(m.get('B1/P5').modifications).toEqual([0]);
+  });
+
+  it('a canvas copy without the key has no say: no change either way', () => {
+    const m = computePendingChangesMap([stroke(1, 5, 1000), stroke(1, 5, 2000)], new Set(),
+      disk([[idOf(1000), true], [idOf(2000), false]]), new Set());
+    expect(m.has('B1/P5')).toBe(false);
+  });
+
+  it('no change when the flag matches; a new textless stroke is an addition only', () => {
+    const m = computePendingChangesMap([stroke(1, 5, 1000, { textless: true }), stroke(1, 5, 3000, { textless: true })],
+      new Set(), disk([[idOf(1000), true]]), new Set());
+    expect(m.get('B1/P5').modifications).toEqual([]);
+    expect(m.get('B1/P5').additions).toEqual([1]);
+  });
+
+  it('the on-disk state records the flag (noteOnDiskStrokeIds after a save)', () => {
+    noteOnDiskStrokeIds(1, 5, [{ id: 's1000', textless: true, points: [] }, { id: 's2000', points: [] }]);
+    const states = get(onDiskStrokeIds).get('B1/P5');
+    expect(states.get('s1000').textless).toBe(true);
+    expect(states.get('s2000').textless).toBe(false);
   });
 });

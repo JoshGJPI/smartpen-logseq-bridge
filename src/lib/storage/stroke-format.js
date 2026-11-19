@@ -18,7 +18,10 @@ export function round2(n) {
  * regardless of whether the stroke is flagged as a sketch: see the StoredStroke
  * typedef for why that has to be unconditional.
  *
- * @param {Object} stroke - { startTime, endTime, blockUuid?, sketch?, dotArray: [{x,y,f?,timestamp?}] }
+ * `textless` (v3.20.0, "Not text": never sent to MyScript) is written only when
+ * true, like `sketch`, and a textless stroke is never linked to a line.
+ *
+ * @param {Object} stroke - { startTime, endTime, blockUuid?, sketch?, textless?, dotArray: [{x,y,f?,timestamp?}] }
  * @returns {import('./page-doc.js').StoredStroke}
  */
 export function strokeToStored(stroke) {
@@ -43,11 +46,12 @@ export function strokeToStored(stroke) {
     id: `s${stroke.startTime}`,
     startTime: stroke.startTime,
     endTime: stroke.endTime,
-    lineId: stroke.blockUuid || stroke.lineId || null
+    lineId: stroke.textless === true ? null : (stroke.blockUuid || stroke.lineId || null)
   };
   // Omitted when false so handwriting pages serialize exactly as they did before
   // sketch strokes existed.
   if (stroke.sketch) stored.sketch = true;
+  if (stroke.textless === true) stored.textless = true;
   stored.points = points;
   return stored;
 }

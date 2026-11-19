@@ -1,7 +1,8 @@
 <!--
   TranscriptEditorLine.svelte - One row of the Edit Transcription dialog
   (TranscriptionEditorModal): tick box, indent guides, the editable text and the
-  row's merge / split / indent buttons. Owns no state; every change is an event
+  row's merge / split / indent buttons (Backspace on an empty line asks to
+  delete it). Owns no state; every change is an event
   the dialog applies (and records for its undo).
 -->
 <script>
@@ -26,6 +27,15 @@
 
   $: status = editorLineStatus(line);
   $: indent = line.indentLevel || 0;
+
+  // Enter is not a newline; Backspace on an empty line deletes it (v3.20.0).
+  function onKey(e) {
+    if (e.key === 'Enter') e.preventDefault();
+    else if (e.key === 'Backspace' && !e.isComposing && (line.text || '') === '') {
+      e.preventDefault();
+      dispatch('delete');
+    }
+  }
 
   function split() {
     const text = line.text || '';
@@ -75,7 +85,7 @@
       use:autosize={line.text}
       aria-label="Line text"
       on:input={(e) => dispatch('input', oneLine(e.target.value))}
-      on:keydown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
+      on:keydown={onKey}
       on:blur={() => dispatch('commit')}
       placeholder="Empty line…"
     ></textarea>

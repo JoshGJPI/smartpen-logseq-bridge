@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createTools } from '../core/tools.js';
-import { inkRows, formatRows, parseReference, alignLines, movedPairs, diffTranscript, formatDiff, swollenLines, partlyTranscribedNote, linkedStrokeCount, COLUMN_MM } from '../core/transcript-check.js';
+import { inkRows, formatRows, parseReference, alignLines, movedPairs, diffTranscript, formatDiff, swollenLines, partlyTranscribedNote, linkedStrokeCount, textlessStrokeCount, COLUMN_MM } from '../core/transcript-check.js';
 
 // Synthetic data only: check_transcript's ink rows and transcript diff.
 const MM = 2.371;
@@ -222,5 +222,39 @@ describe('check_transcript tool', () => {
     expect(tools.check_transcript({ book: '3017', page: '2', reference: '- x' }).isError).toBe(true);
     expect(tools.check_transcript({ book: '3017', page: '2' }).content[0].text).toMatch(/not transcribed/);
     expect(tools.check_transcript({ book: '3017', page: '9' }).isError).toBe(true);
+  });
+});
+
+describe('ink left out as Not text (textless, v3.20.0)', () => {
+  // Row b (59 strokes) left out on purpose: unlinked, `textless: true`.
+  const leftOut = () => {
+    const doc = page();
+    doc.strokes = doc.strokes.map((s) => (s.lineId === 'b' ? { ...s, lineId: null, textless: true } : s));
+    return doc;
+  };
+  beforeAll(() => {
+    fs.writeFileSync(path.join(root, 'pages', 'B3017', 'P3.json'), JSON.stringify(leftOut()));
+  });
+
+  it('is counted on its own, not as ink in no line', () => {
+    expect(textlessStrokeCount(leftOut())).toBe(59);
+    expect(textlessStrokeCount(page())).toBe(0);
+    const d = diffTranscript(leftOut(), '- 9999-110 NSSA Cont.');
+    expect(d.unlinked).toBe(1);   // the stray letter only
+    expect(d.textless).toBe(59);
+    expect(formatDiff(d)).toMatch(/1 stroke\(s\) linked to no line \(not counting 59 left out as Not text\)\./);
+    expect(formatDiff(diffTranscript(page(), '- x'))).toMatch(/1 stroke\(s\) linked to no line\./);
+  });
+
+  it('its rows are not "not transcribed"', () => {
+    const rows = inkRows(leftOut());
+    expect(rows.every((r) => r.linked > 0)).toBe(true);
+    expect(formatRows(rows, { links: true })).not.toMatch(/not transcribed/);
+  });
+
+  it('check_transcript: no PARTLY TRANSCRIBED warning for ink left out on purpose, and says how much', () => {
+    const out = createTools(root).check_transcript({ book: '3017', page: '3' }).content[0].text;
+    expect(out).toMatch(/80 strokes \(59 left out as Not text\)/);
+    expect(out).not.toMatch(/PARTLY TRANSCRIBED/);
   });
 });
