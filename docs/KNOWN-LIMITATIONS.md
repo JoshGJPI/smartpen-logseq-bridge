@@ -64,7 +64,12 @@ Reasons and history for each feature are in [CHANGELOG.md](CHANGELOG.md).
   Joins take at most 3 consecutive MyScript lines. Word fixes are offered for one word
   read as another only (not for added or missing words), and only when the two are plausibly the same word. The review queue is session-only; the MyScript runs behind it
   are cached in `<userData>/relink-cache/` (never pruned, one small file per page) and a second Run costs nothing.
-  Make sketch for leftover ink waits for Phase E. A letter-suffixed page (P151b) is refused while its page number is
+  Make sketch for leftover ink waits for Phase E. **Ink is matched to a line by height (Y) only**, here and in
+  Transcribe (`strokesIntersectingLine`): a sketch drawn beside or among text lines is sent with them, MyScript
+  folds it into tall line boxes, and one or two lines take the whole drawing plus the notes written beside it
+  (3017/124: lines 11-12 took 891 strokes, lines 13-32 none). Until Phase E's sketch lines, mark the drawing
+  Not text first (select it in the Editor → ⋯ → Leave out of transcripts, save), then Relink the page or Relink
+  selection on the text; X-aware matching (MyScript's word boxes) is an open idea. A letter-suffixed page (P151b) is refused while its page number is
   loaded in the Editor (the canvas can't tell P151b from P151); Library Edit and the Pages tab's canvas sync have the
   same blind spot for suffixed pages. The spec counted 100 unreliable pages; the data folder has 99 now
   (84 in JPI Dotted). Decorative ink is held back by Deselect Decorative's detector as it stands: what it misses (a
