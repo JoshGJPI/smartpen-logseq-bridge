@@ -93,18 +93,35 @@ export function lineHasInk(line) {
  * @param {Array<{id: string, lineId?: string|null}>} strokes
  * @param {{ liveIds: Set<string>, remap?: Map<string, string>,
  *   deletedLineIds?: Iterable<string>, deletedInk?: string|null }} opts
- * @returns {{ strokes: Array, textless: string[] }}
+ * @returns {{ strokes: Array, textless: string[], unlinked: string[] }}
+ *   `textless` / `unlinked`: ids of strokes this edit flagged / only unlinked
+ *   (for the canvas copies, stores/textless.js syncCanvasAfterPageWrite)
  */
 export function relinkAfterEdit(strokes, { liveIds, remap = new Map(), deletedLineIds = [], deletedInk = null }) {
   const dead = [...deletedLineIds].filter((id) => id && !liveIds.has(id) && !remap.has(id));
   const settled = deletedInk === INK_TEXTLESS
     ? settleDeletedInk(strokes || [], { lineIds: dead, mode: INK_TEXTLESS })
     : { strokes: strokes || [], textless: [] };
+  const unlinked = [];
   const out = settled.strokes.map((s) => {
     let lineId = s.lineId;
     if (lineId && remap.has(lineId)) lineId = remap.get(lineId);
     if (lineId && !liveIds.has(lineId)) lineId = null;
-    return lineId === s.lineId ? s : { ...s, lineId };
+    if (lineId === s.lineId) return s;
+    if (lineId === null) unlinked.push(s.id);
+    return { ...s, lineId };
   });
-  return { strokes: out, textless: settled.textless };
+  return { strokes: out, textless: settled.textless, unlinked };
+}
+
+/**
+ * Ids of the lines that have ink linked to them, from a page's stored strokes
+ * (Library Edit's ink choice counts only deleted lines that had ink).
+ * @param {Array<{lineId?: string|null}>} strokes
+ * @returns {Set<string>}
+ */
+export function linkedLineIds(strokes) {
+  const out = new Set();
+  for (const s of strokes || []) if (s && s.lineId) out.add(s.lineId);
+  return out;
 }

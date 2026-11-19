@@ -13,6 +13,8 @@
 -->
 <script>
   import { linesToLogseqMarkdown, subtreeLines, reviewLinesForCopy } from '$lib/viewer/transcript-markdown.js';
+  import { copyMarkdown } from '$lib/clipboard.js';
+  import { log } from '$stores';
   import TranscriptLines from './TranscriptLines.svelte';
 
   /** Lines of one page's pending transcription (pageData.lines). */
@@ -27,25 +29,7 @@
     const branch = subtreeLines(shown, i);
     const n = branch.filter((l) => (l.text || '').trim() !== '').length;
     copyMarkdown(linesToLogseqMarkdown(branch),
-      `"${(shown[i].text || '').trim()}" (${n} line${n === 1 ? '' : 's'}) from ${label}`);
-  }
-</script>
-
-<script context="module">
-  import { log as logMessage } from '$stores';
-
-  /** Clipboard write with the log line the reader's copy writes too. */
-  export async function copyMarkdown(md, what) {
-    if (!md) {
-      logMessage('Nothing to copy — transcript is empty', 'warning');
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(md);
-      logMessage(`Copied ${what} to clipboard (LogSeq format)`, 'success');
-    } catch {
-      logMessage('Failed to copy to clipboard', 'error');
-    }
+      `"${(shown[i].text || '').trim()}" (${n} line${n === 1 ? '' : 's'}) from ${label}`, log);
   }
 </script>
 

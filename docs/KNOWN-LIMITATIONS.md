@@ -31,13 +31,12 @@ Reasons and history for each feature are in [CHANGELOG.md](CHANGELOG.md).
   retimed page adds the new-time copy beside the old one in the graph. Offline-import dropping is unit-tested only (no
   pen in the Oct 2026 check). Undo before save is the dialog's Reset or shifting back; no separate undo.
 - **Delete lines and Not text (v3.20.0).** Emptying a line's text in Edit Transcription still deletes it on save
-  without the ink choice (its strokes are only unlinked), as before. Library Edit's ink choice shows for any saved
-  line it deleted, whether or not strokes are linked to it (the draft doesn't read strokes). A line split off a saved
+  without the ink choice (its strokes are only unlinked), as before. A line split off a saved
   line and then deleted has no ink to settle (its strokes stay with the first half). The Editor draws textless
-  strokes like any other; only the ⋯ menu's counts tell. A page loaded into the Editor before a Library delete flagged
-  its ink keeps the old in-memory copies until it is reloaded (the flag on disk is safe: a canvas copy without it
-  never clears it). Claude's `delete` op only unlinks. The Pages tab's Edit structure writes the page
-  directly, so a page also on the canvas keeps its in-memory links until reloaded (as before). Unverified with a real
+  strokes like any other; only the ⋯ menu's counts tell. Claude's `delete` op only unlinks, and its edits don't update a page also loaded on the canvas (the
+  Editor's save never writes a stale link back, but that page's Transcribe skips the unlinked ink until it is
+  reloaded). A deleted line of an unsaved run whose batch is unknown (a result from before v3.20.0 in memory) only
+  unlinks its ink. Unverified with a real
   MyScript run: deleting a line of a run not saved yet (unit-tested only).
 - **Tasks (v3.4.0).** A task's date is its page's capture days (no per-line date; stored `lineId`s are unreliable
   before Aug 2026). Its project is the project number nearest it in the transcript (`projectHint`, v3.6.1: its own

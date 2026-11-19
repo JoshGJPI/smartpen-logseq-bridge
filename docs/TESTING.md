@@ -3,7 +3,7 @@
 ## Automated unit tests
 
 Run with `npm test` (single pass) or `npm run test:watch` (watch mode).
-Framework: **Vitest 4.1.1**, environment: **happy-dom**. Last counted run (2026-11-19, v3.20.0): 93 files, 1,970 tests, all passing (`npx vitest run --exclude '**/.claude/**' --exclude '**/node_modules/**'`). 85 files are in `src/lib/__tests__/` and 8 in `mcp/__tests__/`.
+Framework: **Vitest 4.1.1**, environment: **happy-dom**. Last counted run (2026-11-19, v3.20.0): 94 files, 1,986 tests, all passing (`npx vitest run --exclude '**/.claude/**' --exclude '**/node_modules/**'`). 86 files are in `src/lib/__tests__/` and 8 in `mcp/__tests__/`.
 
 Existing test files (all in `src/lib/__tests__/`):
 
@@ -80,6 +80,7 @@ Existing test files (all in `src/lib/__tests__/`):
 | `canvas-save-plan.test.js` | `lib/canvas-save-plan.js` (15) — `groupPagesToSave` (selected pages only, a move source force-included), `settledDeletionIndices` (only marks on pages that were written, highest first; every mark kept when none was), `describePageSave`, `groupStrokesForTranscription`, `countPartlyLoadedPages` A textless stroke is never sent, but counts toward the page. |
 | `canvas-text-view.test.js` | `lib/canvas-text-view.js` (12) — `pageKeyMatches` (volume 1 never matches volume 2), `findPageKey`, `collectVisibleTranscriptions` (unsaved run beats saved text, suffixed ids kept, volume keys ordered by book key with no NaN sort) |
 | `transcript-draft.test.js` | `lib/viewer/transcript-draft.js` (15) — Library Edit's line maths: `blankLine` / `cloneLines`, `indentAt` / `outdentAt`, `swapAt`, `siblingSlot`, `insertAt` / `removeAt`, `mergeIndices` / `tickedIndices`; inputs never mutated `deletedBaseIds` (merged lines are not deleted); Library Edit's delete through `deletePrompt` / `deleteLines` (line, block with its task named, a task alone asks, a plain leaf doesn't). |
+| `clipboard.test.js` | `lib/clipboard.js` — copy and log, nothing to copy (warning, no write), a clipboard failure logged |
 | `delete-lines.test.js` | `lib/delete-lines.js` (v3.20.0) — `hasChildren` / `blockEnd`; `deleteLines` (Delete line: children up one level per deleted ancestor; Delete block; ticked lines alone; bad indices, no mutation); `taskTexts` / `taskConfirmText` (every task state, one named, several counted, long names shortened); `deletePrompt` (nothing for a plain leaf, line or block with each choice's tasks, a task named, ticked lines never asked line or block) |
 | `deleted-ink.test.js` | `lib/deleted-ink.js` (v3.20.0) — `normalizeDeletedInk` (Not text by default), `withTextless` (set unlinks, clear removes the key, same object when unchanged), `settleDeletedInk` (Not text vs Transcribe again, a kept line's stroke never touched, empty input), `relinkAfterEdit` (merge remap, deleted ink, dead links; no choice only unlinks), `lineHasInk` |
 | `textless-store.test.js` | `stores/textless.js` (v3.20.0) — Leave out (flag, unlink, unsaved) / Include (explicit false), no-op not unsaved, `countTextless`, `getUntranscribedStrokes` skips textless, `applySavedDeletedInk` (only that page, not an unsaved edit) |

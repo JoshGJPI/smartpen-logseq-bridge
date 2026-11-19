@@ -25,6 +25,7 @@
     canvasPageKeys,
     isViewerPageDirty,
     transcriptEditorHold,
+    syncCanvasAfterPageWrite,
     log
   } from '$stores';
   import { onDestroy } from 'svelte';
@@ -201,7 +202,7 @@
       );
 
       // lineId remap, the deleted lines' ink (Not text or unlinked), other dead links scrubbed
-      const { strokes: updatedStrokes } = relinkAfterEdit(doc.strokes,
+      const relinked = relinkAfterEdit(doc.strokes,
         { liveIds: new Set(newLines.map(l => l.id)), remap: lineIdRemap, deletedLineIds, deletedInk });
 
       const nextDoc = {
@@ -214,7 +215,7 @@
           lastTranscribed: new Date().toISOString(),
           lines: newLines
         },
-        strokes: updatedStrokes
+        strokes: relinked.strokes
       };
 
       // Editor edits already produced the final PageDoc shape, so we write
@@ -223,6 +224,8 @@
       // transcript.
       const { savePage } = await import('$lib/storage/local-store.js');
       await savePage(page.book, pageRef, nextDoc);
+      // This page on the canvas follows the deleted lines' ink (Transcribe sends "Transcribe again" ink).
+      syncCanvasAfterPageWrite(page.book, pageRef, { strokes: relinked.strokes, textlessIds: relinked.textless, unlinkedIds: relinked.unlinked });
       // The Library, Tasks and the reader's cache hold copies of this page.
       refreshAfterSave([{ book: page.book, pageId: pageRef }])
         .catch((e) => log(`Could not refresh the Library after the save: ${e.message}`, 'warning'));

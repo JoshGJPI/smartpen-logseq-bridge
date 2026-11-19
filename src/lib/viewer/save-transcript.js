@@ -92,8 +92,10 @@ export function parseTypedTasks(lines, base) {
  *   `deletedInk`: 'textless' flags the ink of base lines the edit deleted (not
  *   merged) as Not text; anything else (Claude's edits pass nothing) only
  *   unlinks it, as before v3.20.0.
- * @returns {Promise<import('$lib/storage/page-doc.js').SaveResult & { lines: Array<Object>, textlessIds: string[] }>}
- *   `lines` as written, `textlessIds` the strokes flagged
+ * @returns {Promise<import('$lib/storage/page-doc.js').SaveResult & { lines: Array<Object>, strokes: Array<Object>,
+ *   textlessIds: string[], unlinkedIds: string[] }>}
+ *   `lines` and `strokes` as written, `textlessIds` / `unlinkedIds` the strokes flagged / only unlinked (for the
+ *   canvas copies of a page also loaded in the Editor)
  */
 export async function saveTranscriptLines(book, page, lines, { base = null, deletedInk = null } = {}) {
   const doc = await getPage(book, page);
@@ -134,5 +136,5 @@ export async function saveTranscriptLines(book, page, lines, { base = null, dele
   };
 
   const result = await savePage(book, page, next);
-  return result && typeof result === 'object' ? { ...result, lines: normalised, textlessIds: settled.textless } : result;
+  return result && typeof result === 'object' ? { ...result, lines: normalised, strokes, textlessIds: settled.textless, unlinkedIds: settled.unlinked } : result;
 }

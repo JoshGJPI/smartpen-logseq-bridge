@@ -244,10 +244,13 @@ describe('saveTranscriptLines — the ink of deleted lines (Library Edit, v3.20.
     // A link that was already dangling before this edit is only scrubbed: not this edit's delete.
     expect(byId.get('s4')).toEqual({ id: 's4', lineId: null, points: [] });
     expect(result.textlessIds).toEqual(['s2']);
+    expect(result.unlinkedIds).toEqual(['s4']);
+    expect(result.strokes).toBe(written().strokes);
   });
 
   it('Transcribe again: unlinked, not flagged', async () => {
-    await saveTranscriptLines(1, 5, draft(), { base: base(), deletedInk: 'retry' });
+    const result = await saveTranscriptLines(1, 5, draft(), { base: base(), deletedInk: 'retry' });
+    expect(result.unlinkedIds).toEqual(['s2', 's4']);
     expect(written().strokes.find((s) => s.id === 's2')).toEqual({ id: 's2', lineId: null, points: [] });
     expect(written().strokes.some((s) => s.textless)).toBe(false);
   });

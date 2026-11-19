@@ -24,7 +24,8 @@
 
   import TranscriptionEditorModal from '$components/dialog/TranscriptionEditorModal.svelte';
   import PageTagsInline from '$components/tags/PageTagsInline.svelte';
-  import ReviewTranscriptLines, { copyMarkdown } from './ReviewTranscriptLines.svelte';
+  import ReviewTranscriptLines from './ReviewTranscriptLines.svelte';
+  import { copyMarkdown } from '$lib/clipboard.js';
   import RetranscribePages from './RetranscribePages.svelte';
   import { linesToLogseqMarkdown, reviewLinesForCopy } from '$lib/viewer/transcript-markdown.js';
 
@@ -33,7 +34,7 @@
   // The whole run as LogSeq markdown, task boxes read as the save reads them.
   function copyPage(pageData) {
     copyMarkdown(linesToLogseqMarkdown(reviewLinesForCopy(pageData.lines)),
-      `transcript ${pageLabel(pageData.pageInfo)}`);
+      `transcript ${pageLabel(pageData.pageInfo)}`, log);
   }
 
   let isSending = false;

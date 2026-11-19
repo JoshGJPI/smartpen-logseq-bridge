@@ -408,11 +408,17 @@ function applyEditorLines(existingLines, pageTranscription, storedStrokes, origi
 
   // Lines of the run deleted in the dialog keep the strokes they cover from
   // the kept lines (most overlap wins, a tie stays with the kept line): that
-  // ink was the deleted line's, so it must not end up in a neighbour.
+  // ink was the deleted line's, so it must not end up in a neighbour. Only
+  // strokes that were in the batch count: the match is by Y alone, and a
+  // sketch beside the line or ink left out of a partial selection is not its
+  // ink. With the batch unknown (an older in-memory result) its ink is only
+  // kept unlinked, never flagged.
+  const sent = sentStrokeIds(pageTranscription);
   const deletedWins = new Set();
   for (const del of pageTranscription.deletedLines || []) {
     if (!del || del.fromBatch === false) continue;
     for (const { id, overlap } of strokesIntersectingLine(del, storedStrokes, originNcodeY)) {
+      if (sent && !sent.has(id)) continue;
       const held = bestOverlap.get(id);
       if (held === undefined || overlap > held) {
         bestOverlap.set(id, overlap);
@@ -452,10 +458,25 @@ function applyEditorLines(existingLines, pageTranscription, storedStrokes, origi
   const deletedSaved = new Set((pageTranscription.deletedLineIds || [])
     .filter((id) => id && !live.has(id) && !lineIdRemap.has(id)));
   const deletedInkIds = new Set();
+  const unflaggable = new Set();
   for (const s of storedStrokes || []) {
     if (s.lineId ? deletedSaved.has(s.lineId) : deletedWins.has(s.id)) deletedInkIds.add(s.id);
+    if (!s.lineId && !sent && deletedWins.has(s.id)) unflaggable.add(s.id);
   }
-  return { lines, lineIdAssignments, lineIdRemap, deletedInkIds };
+  return { lines, lineIdAssignments, lineIdRemap, deletedInkIds, unflaggable };
+}
+
+/**
+ * The stroke ids a transcription run sent (`s{startTime}`), from the in-memory
+ * `transcribedStrokeIds` setPageTranscription records (never on disk), or null
+ * when the result doesn't say.
+ * @param {Object|null} pageTranscription
+ * @returns {Set<string>|null}
+ */
+export function sentStrokeIds(pageTranscription) {
+  const raw = pageTranscription?.transcribedStrokeIds;
+  if (!Array.isArray(raw)) return null;
+  return new Set(raw.map((id) => (String(id).startsWith('s') ? String(id) : `s${id}`)));
 }
 
 /**
@@ -487,7 +508,7 @@ export function planTranscript(existingLines, pageTranscription, storedStrokes =
   // the old one) and the old lines go; the dialog path drops them because the
   // Review tab adds their ids to editorBaseIds. Task state follows the text.
   const replace = pageTranscription.replace === true;
-  let { lines, lineIdAssignments, lineIdRemap = new Map(), deletedInkIds = new Set() } = fromEditor
+  let { lines, lineIdAssignments, lineIdRemap = new Map(), deletedInkIds = new Set(), unflaggable = new Set() } = fromEditor
     ? applyEditorLines(existing, pageTranscription, storedStrokes, originNcodeY)
     : mergeTranscript(replace ? [] : existing, pageTranscription.lines, storedStrokes, originNcodeY);
   if (replace) {
@@ -510,7 +531,9 @@ export function planTranscript(existingLines, pageTranscription, storedStrokes =
     lineIdAssignments,
     lineIdRemap,
     deletedInkIds,
-    textlessIds: normalizeDeletedInk(pageTranscription.deletedInk) === INK_TEXTLESS ? deletedInkIds : new Set()
+    textlessIds: normalizeDeletedInk(pageTranscription.deletedInk) === INK_TEXTLESS
+      ? new Set([...deletedInkIds].filter((id) => !unflaggable.has(id)))
+      : new Set()
   };
 }
 
@@ -662,12 +685,17 @@ export async function savePageToFolder(input) {
     // Sync mutable per-stroke state from the canvas onto strokes already on disk:
     // lineId and the sketch and textless flags are annotations the user changes after the fact,
     // and points are rewritten only for explicitly edited strokes.
+    // The disk's link of each stroke whose link the canvas changed: a canvas
+    // link that turns out not to be a line of the transcript written (a stale
+    // copy still pointing at a line deleted or merged elsewhere) gives way to it.
+    const diskLinkBeforeSync = new Map();
     merged = merged.map(s => {
       const fresh = newById.get(s.id);
       if (!fresh) return s;
 
       let next = s;
       if (fresh.lineId && fresh.lineId !== s.lineId) {
+        diskLinkBeforeSync.set(s.id, s.lineId ?? null);
         next = { ...next, lineId: fresh.lineId };
       }
       // Two-way: marking and unmarking both have to persist, and `sketch` is
@@ -777,10 +805,16 @@ export async function savePageToFolder(input) {
       }
     }
 
-    // Scrub any dangling lineIds (defensive — e.g. after editor-driven deletes)
+    // Scrub any dangling lineIds (defensive — e.g. after editor-driven deletes).
+    // A dead link the canvas synced in never replaces a live one on disk.
     {
       const liveLineIds = new Set(transcript.lines.map(l => l.id));
-      merged = merged.map(s => (s.lineId && !liveLineIds.has(s.lineId)) ? { ...s, lineId: null } : s);
+      merged = merged.map(s => {
+        if (!s.lineId || liveLineIds.has(s.lineId)) return s;
+        const before = diskLinkBeforeSync.get(s.id);
+        const keep = !s.textless && before && liveLineIds.has(before) ? before : null;
+        return { ...s, lineId: keep };
+      });
     }
 
     const doc = {

@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  INK_TEXTLESS, INK_RETRY, normalizeDeletedInk, withTextless, settleDeletedInk, lineHasInk, relinkAfterEdit
+  INK_TEXTLESS, INK_RETRY, normalizeDeletedInk, withTextless, settleDeletedInk, lineHasInk, relinkAfterEdit, linkedLineIds
 } from '../deleted-ink.js';
 
 const s = (id, lineId = null, extra = {}) => ({ id, startTime: 1, lineId, points: [[0, 0]], ...extra });
@@ -79,6 +79,14 @@ describe('relinkAfterEdit', () => {
       [null, true], ['SURV', false], ['KEEP', false], [null, false]
     ]);
     expect(r.textless).toEqual(['s1']);
+    // Merged ink is relinked, not unlinked; the old dangling link is unlinked too (the canvas copy follows).
+    expect(r.unlinked).toEqual(['s4']);
+  });
+
+  it('reports the strokes it only unlinked, for the canvas copies', () => {
+    const r = relinkAfterEdit(strokes(), { liveIds, remap, deletedLineIds: ['DEL'], deletedInk: INK_RETRY });
+    expect(r.unlinked).toEqual(['s1', 's4']);
+    expect(r.textless).toEqual([]);
   });
 
   it('without the Not text choice (Claude\'s edits pass none) it only unlinks, as before', () => {
@@ -97,5 +105,12 @@ describe('lineHasInk', () => {
     expect(lineHasInk({ fromBatch: false, yBounds: { minY: 1, maxY: 5 } })).toBe(false);
     expect(lineHasInk({})).toBe(false);
     expect(lineHasInk(null)).toBe(false);
+  });
+});
+
+describe('linkedLineIds', () => {
+  it('the lines with ink linked to them', () => {
+    expect([...linkedLineIds([s('a', 'L1'), s('b', 'L1'), s('c'), s('d', 'L2')])]).toEqual(['L1', 'L2']);
+    expect(linkedLineIds(null).size).toBe(0);
   });
 });

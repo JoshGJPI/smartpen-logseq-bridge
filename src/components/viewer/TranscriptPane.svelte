@@ -32,11 +32,12 @@
 <script>
   import { TASK_DRAFT_LOCK } from '$lib/tasks.js';
   import { tick, onDestroy } from 'svelte';
-  import { log, markViewerDirtyPage, clearViewerDirtyPage, viewerDirtyPages, transcriptEditorHold } from '$stores';
+  import { log, markViewerDirtyPage, clearViewerDirtyPage, viewerDirtyPages, transcriptEditorHold, syncCanvasAfterPageWrite } from '$stores';
   import { linesToLogseqMarkdown, subtreeLines } from '$lib/viewer/transcript-markdown.js';
-  import { copyMarkdown as writeClipboard } from '../transcription/ReviewTranscriptLines.svelte';
+  import { copyMarkdown } from '$lib/clipboard.js';
   import { deleteLines, deletePrompt } from '$lib/delete-lines.js';
-  import { INK_TEXTLESS } from '$lib/deleted-ink.js';
+  import { INK_TEXTLESS, linkedLineIds } from '$lib/deleted-ink.js';
+  import { getCachedPage } from '$lib/viewer/page-cache.js';
   import { saveTranscriptLines } from '$lib/viewer/save-transcript.js';
   import { mergeTranscriptLines } from '$lib/editor-lines.js';
   import { moveLines, moveLinesToEdge } from '$lib/move-lines.js';
@@ -87,7 +88,9 @@
   /** What Delete is asking (DeleteLinesPrompt), or null; and the deleted lines' ink. */
   let pendingDelete = null;
   let deletedInk = INK_TEXTLESS;
-  $: inkCount = editing ? deletedBaseIds(draft, base).length : 0;
+  /** Lines with linked ink when Edit opened (the reader's cached doc); null until read, or if it can't be. */
+  let inkedLines = null;
+  $: inkCount = editing ? deletedBaseIds(draft, base).filter((id) => !inkedLines || inkedLines.has(id)).length : 0;
 
   function setDirty(v) {
     dirty = v;
@@ -104,6 +107,10 @@
     selectedIds = new Set();
     pendingDelete = null;
     deletedInk = INK_TEXTLESS;
+    inkedLines = null;
+    const opened = pageKey;
+    getCachedPage(book, page).then((doc) => { if (editing && pageKey === opened) inkedLines = linkedLineIds(doc?.strokes); })
+      .catch(() => {});   // unknown: every deleted saved line counts
     setDirty(false);
     onEditingChange(true);
   }
@@ -124,6 +131,8 @@
       if (!result || result.success === false) {
         throw new Error((result && result.error) || 'save failed');
       }
+      // The same page loaded in the Editor follows the deleted lines' ink.
+      syncCanvasAfterPageWrite(book, page, result);
       // As written: a task change made since Edit opened is kept, not the draft's copy.
       const saved = cloneLines(result.lines || draft);
       editing = false;
@@ -140,14 +149,14 @@
   }
 
   function copy() {
-    writeClipboard(linesToLogseqMarkdown(editing ? draft : lines), `transcript B${book}/P${page}`);
+    copyMarkdown(linesToLogseqMarkdown(editing ? draft : lines), `transcript B${book}/P${page}`, log);
   }
 
   // One node and its children, e.g. a meeting's notes at the foot of a page.
   function copyBranch(i) {
     const branch = subtreeLines(lines, i);
     const n = branch.filter((l) => (l.text || '').trim() !== '').length;
-    writeClipboard(linesToLogseqMarkdown(branch), `"${(lines[i].text || '').trim()}" (${n} line${n === 1 ? '' : 's'}) from B${book}/P${page}`);
+    copyMarkdown(linesToLogseqMarkdown(branch), `"${(lines[i].text || '').trim()}" (${n} line${n === 1 ? '' : 's'}) from B${book}/P${page}`, log);
   }
 
   /* ---- edit operations (the line maths is lib/viewer/transcript-draft.js) ---- */

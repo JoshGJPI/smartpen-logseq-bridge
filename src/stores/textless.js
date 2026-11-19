@@ -13,11 +13,16 @@
 import { get } from 'svelte/store';
 import { strokes } from './strokes.js';
 import { markUnsavedChanges } from './storage.js';
+import { noteOnDiskStrokeIds } from './pending-changes.js';
 
 /**
  * Leave strokes out of transcripts (`on`), or take them back in. Leaving out
  * also drops the stroke's line link (`blockUuid`): a textless stroke is in no
- * line. Taking back in leaves it unlinked, so the next Transcribe sends it.
+ * line. The link is kept in memory as `textlessFrom` (never on disk:
+ * strokeToStored's fixed key list) until a save writes the flag
+ * (clearTextlessMarkers), so taking it back in before then restores it and the
+ * canvas still agrees with the disk; taken back in after a save, it stays
+ * unlinked, so the next Transcribe sends it.
  * Marks the session dirty when anything changed (the flag lives in the PageDoc).
  *
  * @param {number[]|Set<number>} indices  positions in the strokes store
@@ -32,10 +37,35 @@ export function setStrokesTextless(indices, on) {
     if (!target.has(index)) return stroke;
     if ((stroke.textless === true) === !!on) return stroke;
     changed++;
-    return on ? { ...stroke, textless: true, blockUuid: null } : { ...stroke, textless: false };
+    if (on) {
+      const from = 'textlessFrom' in stroke ? stroke.textlessFrom : (stroke.blockUuid ?? null);
+      return { ...stroke, textless: true, blockUuid: null, textlessFrom: from };
+    }
+    const { textlessFrom, ...rest } = stroke;
+    return { ...rest, textless: false, ...('textlessFrom' in stroke ? { blockUuid: textlessFrom } : {}) };
   }));
   if (changed > 0) markUnsavedChanges();
   return changed;
+}
+
+/**
+ * After a page's save: the flag is on disk, so the links kept for a quick
+ * Include (`textlessFrom`) are spent. Not an edit; never marks unsaved.
+ * @param {string|number} book
+ * @param {string|number} page
+ * @returns {number} how many strokes were cleared
+ */
+export function clearTextlessMarkers(book, page) {
+  let n = 0;
+  const next = get(strokes).map((s) => {
+    const pi = s.pageInfo;
+    if (!('textlessFrom' in s) || !pi || String(pi.book) !== String(book) || String(pi.page) !== String(page)) return s;
+    n++;
+    const { textlessFrom, ...rest } = s;
+    return rest;
+  });
+  if (n > 0) strokes.set(next);
+  return n;
 }
 
 /**
@@ -91,4 +121,26 @@ export function applySavedDeletedInk(book, page, { textlessIds = [], unlinkedIds
   });
   if (changed > 0) strokes.set(next);
   return changed;
+}
+
+/**
+ * After a write that bypasses the Editor's save (Library Edit, the Pages tab's
+ * Edit structure), bring a page also loaded on the canvas in line with what was
+ * written: the deleted lines' ink flagged or unlinked there too (so Transcribe
+ * sends "Transcribe again" ink, and skips Not text), and the on-disk state
+ * index refreshed, so a flag the disk now has doesn't read as a canvas change.
+ * Does nothing for a page that isn't on the canvas.
+ *
+ * @param {string|number} book
+ * @param {string|number} page
+ * @param {{ strokes?: Array, textlessIds?: string[], unlinkedIds?: string[] }} written
+ * @returns {number} how many canvas strokes changed
+ */
+export function syncCanvasAfterPageWrite(book, page, written = {}) {
+  const onCanvas = get(strokes).some((s) => s.pageInfo
+    && String(s.pageInfo.book) === String(book) && String(s.pageInfo.page) === String(page));
+  if (!onCanvas) return 0;
+  const n = applySavedDeletedInk(book, page, written);
+  if (Array.isArray(written.strokes)) noteOnDiskStrokeIds(book, page, written.strokes);
+  return n;
 }

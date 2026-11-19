@@ -146,7 +146,7 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   fewer points than disk". An edit must keep `startTime`/`endTime` (so the id), each surviving point's force, and the
   sketch flag, and may never leave fewer than 2 points. A snap keeps the count, so the dirty diff reads the marker
   too (`computePendingChangesMap`) and the save dialog compares coordinates (`page-changes.js` `isPointEdited`).
-- **In-memory markers never reach disk** (`pointsEdited`, `movedFrom`): `strokeToStored()` builds from a fixed
+- **In-memory markers never reach disk** (`pointsEdited`, `movedFrom`, `textlessFrom`): `strokeToStored()` builds from a fixed
   key list. Keep it that way. `textless` is on that list on purpose: it is a stored field.
 - **One write path.** Every PageDoc write goes through `local-store.js` `savePage()`, atomic (random `.tmp` + fsync +
   rename) in main (`electron/page-store.cjs` `writeFileAtomic`, one write per path at a time). The renderer never touches
@@ -212,7 +212,9 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   its deletes on its result (`deletedLineIds`, `deletedLines` for lines of an unsaved run, `deletedInk`);
   `planTranscript()` returns `textlessIds` and the save applies them beside `lineIdAssignments` in the same write.
   Library Edit and the Pages tab's Edit structure go through `lib/deleted-ink.js` `relinkAfterEdit()`. Only lines the
-  user deleted count: a Reset's replaced lines and merged-away lines never become Not text.
+  user deleted count: a Reset's replaced lines and merged-away lines never become Not text. A deleted line of an
+  unsaved run owns only strokes that were in its batch (the in-memory `transcribedStrokeIds`, never on disk; the match
+  is by Y alone); with the batch unknown its ink is only unlinked, never flagged.
 - **A textless stroke is in no line.** The save drops a link on any textless stroke (a stale canvas link
   included), leaves textless strokes out of new-line matching (Reset's replace too), and Transcribe never sends them
   (`groupStrokesForTranscription`, `getUntranscribedStrokes`).
@@ -220,7 +222,12 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   (`stores/textless.js` `setStrokesTextless`) set `true` / `false`. Only an explicit `true` / `false` is synced by the
   save and counted as a **modification**, in both `pendingChanges` and `computePageChangesFolder()` (change both). A
   stroke without the key has no say, so a page loaded before Library Edit flagged its ink can't clear the flag.
-- After a save, `applySavedDeletedInk()` brings the canvas copies in line with the disk (not an unsaved edit).
+- After a save, `applySavedDeletedInk()` brings the canvas copies in line with the disk (not an unsaved edit), and
+  `clearTextlessMarkers()` spends the `textlessFrom` links Leave out keeps so an Include before the save restores
+  the link. Library Edit and the Pages tab call `syncCanvasAfterPageWrite()` after their direct writes (the deleted
+  lines' ink and the on-disk state index of a page also on the canvas).
+- **A canvas link never replaces a live disk link with a dead one.** The save syncs a canvas `lineId` only if it is a
+  line of the transcript written; otherwise the disk's link stands (`diskLinkBeforeSync`).
 - **Claude's edits never set it.** `saveTranscriptLines()` flags only when passed `deletedInk: 'textless'` (Library
   Edit's choice); `edit_transcript` passes nothing, so its deletes only unlink.
 

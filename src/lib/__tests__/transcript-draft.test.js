@@ -3,6 +3,7 @@ import {
   blankLine, cloneLines, indentAt, outdentAt, swapAt, siblingSlot, insertAt, removeAt, mergeIndices, tickedIndices, deletedBaseIds
 } from '$lib/viewer/transcript-draft.js';
 import { deleteLines, deletePrompt } from '$lib/delete-lines.js';
+import { linkedLineIds } from '$lib/deleted-ink.js';
 
 const line = (id, indentLevel = 0, extra = {}) => ({ id, text: id, indentLevel, ...extra });
 const ids = (lines) => lines.map((l) => l.id);
@@ -156,5 +157,15 @@ describe('Library Edit delete: line, block and ink (delete-lines on a draft)', (
   it('a task line alone asks first; a plain leaf deletes straight away', () => {
     expect(deletePrompt(draft(), [2])).toMatchObject({ askBlock: false, lineTasks: ['call back'] });
     expect(deletePrompt(draft(), [3])).toBeNull();
+  });
+});
+
+describe("Library Edit's ink choice counts only deleted lines that had ink (QA fix)", () => {
+  it('a deleted saved line with no linked strokes does not count', () => {
+    const base = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+    const inked = linkedLineIds([{ id: 's1', lineId: 'a' }, { id: 's2', lineId: 'c' }, { id: 's3', lineId: null }]);
+    const deleted = deletedBaseIds([{ id: 'c' }], base);
+    expect(deleted).toEqual(['a', 'b']);
+    expect(deleted.filter((id) => inked.has(id))).toEqual(['a']);
   });
 });

@@ -54,6 +54,16 @@ link, so the next Transcribe sent the same ink again and the deleted line came b
   shared DeleteLinesPrompt and DeletedInkChoice), TranscriptPane 353 → 319 (TranscriptEditList), StrokeCanvas
   2,882 → 2,810 (SketchActions), TranscriptionView 755 → 720 (its line merge helpers moved to `lib/editor-lines.js`).
 
+- **Review fixes** (coordinator QA): a deleted line of an unsaved run flags only strokes that were in its batch
+  (`sentStrokeIds()`, from the in-memory `transcribedStrokeIds`; the match is by Y alone, so a sketch beside the line
+  was flagged too), and only unlinks when the batch is unknown. Library Edit and the Pages tab bring a page loaded on
+  the canvas in line after their writes (`syncCanvasAfterPageWrite`; `relinkAfterEdit` reports the strokes it
+  unlinked), and the Editor's save never syncs a canvas link that isn't a line of the transcript written (a stale copy
+  pointing at a deleted or merged line used to write it back, or wipe the live link). Leave out keeps the link in
+  memory (`textlessFrom`) so Include before a save restores it (it used to stay null while the disk had it, and
+  Transcribe sent the ink again). Library Edit's ink choice counts only deleted lines with linked ink (from the
+  reader's cached doc). `copyMarkdown` moved to `lib/clipboard.js`.
+
 Not in this release (later phases): Relink (B) skips textless strokes when it is built. Emptying a line's text still
 deletes it on save without the ink choice (its strokes are only unlinked), as before. The Editor does not draw
 textless strokes differently.

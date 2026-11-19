@@ -71,3 +71,69 @@ describe('textless on the strokes store', () => {
     expect(textless.applySavedDeletedInk('3017', 42, {})).toBe(0);
   });
 });
+
+describe('QA fixes: Include before a save, and writes outside the Editor', () => {
+  let strokesMod;
+  let storageMod;
+  let pending;
+  let textless;
+  const stroke = (startTime, extra = {}) => ({
+    pageInfo: { section: 3, owner: 1012, book: '3017', page: 42 }, startTime, endTime: startTime + 100,
+    dotArray: [{ x: 1, y: 2, f: 300 }, { x: 3, y: 4, f: 500 }], ...extra,
+  });
+
+  beforeEach(async () => {
+    localStorage.clear();
+    vi.resetModules();
+    strokesMod = await import('$stores/strokes.js');
+    storageMod = await import('$stores/storage.js');
+    pending = await import('$stores/pending-changes.js');
+    textless = await import('$stores/textless.js');
+    strokesMod.strokes.set([stroke(1000, { blockUuid: 'L1' }), stroke(2000)]);
+    storageMod.clearUnsavedChanges();
+  });
+
+  it('Leave out then Include before saving puts the link back (the disk still has it)', () => {
+    textless.setStrokesTextless([0, 1], true);
+    expect(get(strokesMod.strokes)[0]).toMatchObject({ textless: true, blockUuid: null, textlessFrom: 'L1' });
+    textless.setStrokesTextless([0, 1], false);
+    const [a, b] = get(strokesMod.strokes);
+    expect(a.blockUuid).toBe('L1');
+    expect(b.blockUuid).toBeNull();
+    expect('textlessFrom' in a).toBe(false);
+    // Transcribe does not resend the linked stroke.
+    expect(strokesMod.getUntranscribedStrokes(get(strokesMod.strokes)).map((s) => s.startTime)).toEqual([2000]);
+  });
+
+  it('leaving out twice keeps the first link', () => {
+    textless.setStrokesTextless([0], true);
+    textless.setStrokesTextless([0], false);
+    textless.setStrokesTextless([0], true);
+    expect(get(strokesMod.strokes)[0].textlessFrom).toBe('L1');
+  });
+
+  it('after a save the kept link is spent: Include then leaves the stroke unlinked', () => {
+    textless.setStrokesTextless([0], true);
+    expect(textless.clearTextlessMarkers('3017', 42)).toBe(1);
+    expect(textless.clearTextlessMarkers('3017', 42)).toBe(0);
+    textless.setStrokesTextless([0], false);
+    expect(get(strokesMod.strokes)[0]).toMatchObject({ textless: false, blockUuid: null });
+  });
+
+  it('a Library Edit / Pages tab write reaches the page on the canvas, and its flags are not a canvas change', () => {
+    const written = [{ id: 's1000', lineId: null, textless: true, points: [] }, { id: 's2000', lineId: null, points: [] }];
+    strokesMod.strokes.update((all) => [all[0], { ...all[1], blockUuid: 'L2' }]);
+    const n = textless.syncCanvasAfterPageWrite('3017', '42', { strokes: written, textlessIds: ['s1000'], unlinkedIds: ['s2000'] });
+    expect(n).toBe(2);
+    const [a, b] = get(strokesMod.strokes);
+    expect(a).toMatchObject({ textless: true, blockUuid: null });
+    expect(b.blockUuid).toBeNull();
+    expect(get(pending.onDiskStrokeIds).get('B3017/P42').get('s1000').textless).toBe(true);
+    expect(get(storageMod.unsavedChanges)).toBe(false);
+  });
+
+  it('a page not on the canvas: nothing to do', () => {
+    expect(textless.syncCanvasAfterPageWrite('3017', '99', { textlessIds: ['s1000'] })).toBe(0);
+    expect(get(strokesMod.strokes)[0].blockUuid).toBe('L1');
+  });
+});

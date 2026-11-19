@@ -36,7 +36,7 @@ vi.mock('$stores/pending-changes.js', () => ({
 
 import { getPage, savePage, deletePage } from '../storage/local-store.js';
 import {
-  strokeToStored, savePageToFolder, planPageMove, finalizePageMoves, transcriptionOriginY
+  strokeToStored, savePageToFolder, planPageMove, finalizePageMoves, transcriptionOriginY, sentStrokeIds
 } from '../storage/save-page.js';
 import { NCODE_TO_MM, MYSCRIPT_INK_ORIGIN_MM } from '../myscript-api.js';
 
@@ -1010,6 +1010,9 @@ describe('textless ("Not text", v3.20.0)', () => {
     expect(off.lineId).toBe('L1');
     // A fixed key list: an in-memory marker never reaches disk.
     expect(Object.keys(on)).toEqual(['id', 'startTime', 'endTime', 'lineId', 'textless', 'points']);
+    // textlessFrom (the link kept for a quick Include) is in-memory only.
+    const kept = strokeToStored(canvasStroke(1000, [[1, 2, 300]], { textless: true, textlessFrom: 'L1' }));
+    expect('textlessFrom' in kept).toBe(false);
   });
 
   it('a canvas toggle syncs both ways; a canvas copy without the key leaves the disk alone', async () => {
@@ -1105,6 +1108,7 @@ describe('textless ("Not text", v3.20.0)', () => {
         activeStrokes: [strokeAtY(1000, 40, 43), strokeAtY(2000, 50, 53)],
         pageTranscription: {
           originNcodeY: 40,
+          transcribedStrokeIds: ['1000', '2000'],
           lines: [{ text: 'top', yBounds: mmBounds(40, 43, 40), fromBatch: true }],
           editorBaseIds: [], deletedLineIds: [],
           deletedLines: [{ yBounds: mmBounds(50, 53, 40), fromBatch: true }],
@@ -1116,5 +1120,86 @@ describe('textless ("Not text", v3.20.0)', () => {
       expect(strokeById('s2000')).toMatchObject({ lineId: null, textless: true });
       expect(result.textlessIds).toEqual(['s2000']);
     });
+  });
+});
+
+describe('QA fixes (v3.20.0): sent strokes only, stale canvas links', () => {
+  const writtenDoc = () => savePage.mock.calls[0][2];
+  const strokeById = (id) => writtenDoc().strokes.find((s) => s.id === id);
+  const doc = (strokes, lines = []) => ({
+    version: '2.0', pageInfo: PAGE_INFO, metadata: { lastUpdated: 'x', totalStrokes: strokes.length, bounds: {} },
+    transcript: { lastTranscribed: '2026-11-01T00:00:00.000Z', lines }, strokes
+  });
+  const textLine = (id, text) => ({ id, text, indentLevel: 0, parentId: null, checked: null, yBounds: null });
+  // A run that sent s2000 only; its line at y 50-53 was deleted in the dialog. s3000 sits in the same band
+  // (a sketch beside it, or ink left out of a partial selection), s4000 too but linked to a saved line.
+  const run = (extra) => ({
+    originNcodeY: 40,
+    lines: [{ text: 'keep', blockUuid: 'L1', indentLevel: 0 }],
+    editorBaseIds: ['L1'], deletedLineIds: [],
+    deletedLines: [{ yBounds: mmBounds(50, 53, 50), fromBatch: true }],
+    ...extra,
+  });
+  const page = () => doc([
+    { ...storedAtY(1000, 40, 43), lineId: 'L1' }, storedAtY(2000, 50, 53), storedAtY(3000, 50, 53),
+    { ...storedAtY(4000, 50, 53), lineId: 'L1' },
+  ], [textLine('L1', 'keep')]);
+  const canvas = () => [
+    { ...strokeAtY(1000, 40, 43), blockUuid: 'L1' }, strokeAtY(2000, 50, 53), strokeAtY(3000, 50, 53),
+    { ...strokeAtY(4000, 50, 53), blockUuid: 'L1' },
+  ];
+
+  beforeEach(() => {
+    getPage.mockReset();
+    savePage.mockReset();
+    savePage.mockResolvedValue({ path: '/tmp/P42.json' });
+  });
+
+  it('a deleted run line flags only the strokes that were in its batch', async () => {
+    getPage.mockResolvedValue(page());
+    const result = await savePageToFolder({
+      book: 3017, page: 42, activeStrokes: canvas(),
+      pageTranscription: run({ originNcodeY: 50, transcribedStrokeIds: ['2000'] }),
+    });
+    expect(strokeById('s2000')).toMatchObject({ textless: true, lineId: null });
+    // In the band, not in the batch: neither flagged nor unlinked.
+    expect('textless' in strokeById('s3000')).toBe(false);
+    expect('textless' in strokeById('s4000')).toBe(false);
+    expect(strokeById('s4000').lineId).toBe('L1');
+    expect(result.textlessIds).toEqual(['s2000']);
+    expect(result.unlinkedIds).toEqual([]);
+  });
+
+  it('with the batch unknown (an older in-memory result) its ink is only unlinked, never flagged', async () => {
+    getPage.mockResolvedValue(page());
+    const result = await savePageToFolder({
+      book: 3017, page: 42, activeStrokes: canvas(), pageTranscription: run({ originNcodeY: 50 }),
+    });
+    expect(writtenDoc().strokes.some((s) => s.textless)).toBe(false);
+    expect(result.textlessIds).toEqual([]);
+    expect(strokeById('s4000').lineId).toBe('L1');
+  });
+
+  it('sentStrokeIds reads the in-memory ids in either form, else null', () => {
+    expect([...sentStrokeIds({ transcribedStrokeIds: ['1000', 's2000'] })]).toEqual(['s1000', 's2000']);
+    expect(sentStrokeIds({})).toBeNull();
+    expect(sentStrokeIds(null)).toBeNull();
+  });
+
+  it('a stale canvas link to a line that is gone never replaces the live link on disk', async () => {
+    // Library Edit merged line C into A: disk says A, the Editor's copy still says C.
+    getPage.mockResolvedValue(doc([{ ...storedAtY(1000, 40, 43), lineId: 'A' }, storedAtY(2000, 50, 53)], [textLine('A', 'merged')]));
+    await savePageToFolder({
+      book: 3017, page: 42,
+      activeStrokes: [{ ...strokeAtY(1000, 40, 43), blockUuid: 'C' }, { ...strokeAtY(2000, 50, 53), blockUuid: 'DEAD' }],
+    });
+    expect(strokeById('s1000').lineId).toBe('A');
+    expect(strokeById('s2000').lineId).toBeNull();
+  });
+
+  it('a canvas link to a live line still syncs', async () => {
+    getPage.mockResolvedValue(doc([storedAtY(1000, 40, 43)], [textLine('A', 'a')]));
+    await savePageToFolder({ book: 3017, page: 42, activeStrokes: [{ ...strokeAtY(1000, 40, 43), blockUuid: 'A' }] });
+    expect(strokeById('s1000').lineId).toBe('A');
   });
 });
