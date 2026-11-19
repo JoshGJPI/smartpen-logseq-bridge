@@ -4,6 +4,11 @@
   openAt): Leave out of transcripts / Include in transcripts, the "Not text"
   flag (stores/textless.js, docs/TRANSCRIPT-STRUCTURE-SPEC.md A.3).
 
+  Relink selection… (v3.21.0, stores/relink.js openRelinkSelection) relinks the
+  selected strokes of one page through the Relink dialog: refused, with the
+  reason in the log, for a selection over several pages or a page with unsaved
+  changes.
+
   Left-out strokes are never sent to MyScript and are in no line; the flag is
   in the PageDoc, so it is an unsaved change until Save (a modification in the
   save dialog). Taking strokes back in leaves them unlinked, so the next
@@ -17,6 +22,7 @@
   import { selectedIndices } from '$stores/selection.js';
   import { log } from '$stores/ui.js';
   import { setStrokesTextless, countTextless } from '$stores/textless.js';
+  import { openRelinkSelection } from '$stores/relink.js';
   import { plural } from '$lib/plural.js';
 
   let btnEl;
@@ -39,9 +45,14 @@
     at = place(r.left, r.bottom + 4);
   }
 
-  // Kept on screen: the menu is ~240 × 80 px.
+  // Kept on screen: the menu is ~240 × 115 px.
   function place(x, y) {
-    return { x: Math.max(8, Math.min(x, window.innerWidth - 248)), y: Math.max(8, Math.min(y, window.innerHeight - 96)) };
+    return { x: Math.max(8, Math.min(x, window.innerWidth - 248)), y: Math.max(8, Math.min(y, window.innerHeight - 130)) };
+  }
+
+  function relink() {
+    at = null;
+    openRelinkSelection();
   }
 
   function apply(on) {
@@ -78,7 +89,7 @@
   bind:this={btnEl}
   on:click|stopPropagation={toggle}
   disabled={!hasSelection}
-  title={hasSelection ? 'More for the selected strokes: leave them out of transcripts, or take them back in (also right-click the canvas)' : 'Select strokes first'}
+  title={hasSelection ? 'More for the selected strokes: leave them out of transcripts, take them back in, or relink them (also right-click the canvas)' : 'Select strokes first'}
   aria-haspopup="menu"
   aria-expanded={!!at}
 >⋯</button>
@@ -95,6 +106,11 @@
     <button class="stm-item" role="menuitem" on:click={() => apply(false)} disabled={counts.textless === 0}
       title="Send these strokes to MyScript again on the next Transcribe">
       Include in transcripts{#if counts.textless > 0}<span class="stm-n">{counts.textless}</span>{/if}
+    </button>
+    <div class="stm-sep"></div>
+    <button class="stm-item" role="menuitem" on:click={relink} disabled={counts.other === 0}
+      title="Send only these strokes (one page) to MyScript and link them to the stored lines they belong to; the text and task state are kept. Save the page first.">
+      Relink selection…
     </button>
   </div>
 {/if}
@@ -152,4 +168,5 @@
   .stm-item:hover:not(:disabled) { background: var(--bg-tertiary); }
   .stm-item:disabled { opacity: 0.45; cursor: not-allowed; }
   .stm-n { color: var(--text-secondary); }
+  .stm-sep { height: 1px; margin: 4px 2px; background: var(--border); }
 </style>

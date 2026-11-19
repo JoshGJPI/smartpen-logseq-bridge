@@ -4,7 +4,12 @@
   page the bulk run queued for review).
 
   Opened with `again` (the page's ⋯ → Relink again… on a page already linked) it
-  asks first; every other guard still applies. Opening it reads the page and the
+  asks first; every other guard still applies. Opened with `ids` (the Editor's
+  selection ⋯ → Relink selection…) it sends only those strokes, never from the
+  cache; on a page already linked, lines this pass doesn't link read "not in this
+  selection" (they keep their ink).
+  Decorative ink the run held back (underlines, boxes, circles) is listed with
+  "Mark them Not text", ticked by default; either way it is saved unlinked. Opening it reads the page and the
   cached MyScript run. Without one it asks
   before sending (one request of the free tier's 2,000 a month). The review
   shows the counts and RelinkRows; Save writes yBounds, stroke links, the word
@@ -18,7 +23,8 @@
   import { onDestroy } from 'svelte';
   import { relinkTarget, closeRelink, getRelinkRun, trySaveRelink } from '$stores/relink.js';
   import { transcriptEditorHold } from '$stores/viewer.js';
-  import { classifyRelink, defaultDecisions, buildRelinkSpec, linkedCount, NO_LINKS, afterRelinkSave } from '$lib/relink.js';
+  import { classifyRelink, defaultDecisions, buildRelinkSpec, linkedCount, NO_LINKS, afterRelinkSave, heldBackLabel } from '$lib/relink.js';
+  import { isTrustworthyTranscript } from '$lib/viewer/ink-text.js';
   import RelinkRows from './RelinkRows.svelte';
 
   /** 'again' | 'loading' | 'ask' | 'sending' | 'review' | 'saving' | 'done' | 'error' */
@@ -31,6 +37,8 @@
   let cached = false;
   let opened = null;
   let staleNote = '';
+  /** The page was already linked (a selection pass then keeps the ink it doesn't send). */
+  let trusted = false;
 
   // Opening the dialog must not count as an editor on the page for its own guards,
   // so the hold is taken only once the run is loaded (relinkRefusal ran by then).
@@ -45,6 +53,7 @@
     opened = k;
     hold.set(null, false);
     run = model = decisions = null;
+    trusted = false;
     error = staleNote = '';
     if (!k) return;
     // A page already linked: ask first (the reader's "Relink again…").
@@ -59,7 +68,7 @@
     phase = send ? 'sending' : 'loading';
     let got;
     try {
-      got = await getRelinkRun(book, pageId, { send, again: !!target.again });
+      got = await getRelinkRun(book, pageId, { send, again: !!target.again, ids: target.ids || null });
     } catch (e) {
       got = { ok: false, error: `MyScript failed: ${e.message}` };
     }
@@ -71,6 +80,7 @@
     }
     run = got.run;
     cached = got.cached;
+    trusted = isTrustworthyTranscript(got.doc);
     model = classifyRelink(got.doc.transcript.lines, run.lines);
     decisions = defaultDecisions(model);
     hold.set(k, true);
@@ -84,7 +94,7 @@
     hold.set(null, false);
     let next = afterRelinkSave(null);
     try {
-      next = afterRelinkSave(await trySaveRelink(book, pageId, buildRelinkSpec(run, model, decisions), { again: !!target.again }));
+      next = afterRelinkSave(await trySaveRelink(book, pageId, buildRelinkSpec(run, model, decisions), { again: !!target.again, ids: target.ids || null }));
     } finally {
       // Never left on 'saving' (close() refuses while saving): done, ask again, or back to review.
       phase = next.phase;
@@ -112,6 +122,10 @@
   $: changes = decisions && model ? summarize(model, decisions) : '';
   // Save links nothing to ink → refused (it would mark the page linked with all ink unlinked).
   $: nLinked = decisions && model ? linkedCount(model, decisions) : 0;
+  $: selection = !!(target && target.ids);
+  // On a page already linked, a selection pass leaves the other lines (and their ink) as they are.
+  $: noinkLabel = selection && trusted ? 'not in this selection' : 'no ink';
+  $: held = run && run.heldBack ? run.heldBack.length : 0;
 
   function summarize(m, d) {
     const fixes = Object.values(d.fixes).reduce((n, list) => n + list.length, 0);
@@ -128,7 +142,7 @@
   <div class="backdrop" on:click={close} role="presentation"></div>
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="relink-title">
     <div class="head">
-      <h2 id="relink-title">Relink B{target.book}/P{target.pageId}</h2>
+      <h2 id="relink-title">Relink {selection ? 'selection on ' : ''}B{target.book}/P{target.pageId}</h2>
       <button class="x" on:click={close} aria-label="Close">✕</button>
     </div>
 
@@ -139,12 +153,21 @@
         <p class="note">Reading the page…</p>
       {:else if phase === 'ask' || phase === 'sending'}
         {#if staleNote}<p class="note warn">{staleNote}</p>{/if}
+        {#if selection}
+          <p class="note">
+            Relink sends the {target.ids.length} selected stroke{target.ids.length === 1 ? '' : 's'} to MyScript and uses the
+            reading only to find which stored line each belongs to. The stored text, order, indents and task states are
+            kept; you review the result before anything is saved. Only the selected ink gets new links{trusted
+              ? '; the rest of the page keeps its links' : '; the rest of this page\'s ink is unlinked, since its old links are wrong'}.
+          </p>
+        {:else}
         <p class="note">
           This page's transcript was saved before lines were matched to ink reliably, so its lines can't light their ink.
           Relink sends the page's ink to MyScript once and uses the reading only to find which ink belongs to each
           stored line. The stored text, order, indents and task states are kept; you review the result before anything
-          is saved.
+          is saved. Underlines, boxes and circles are held back, so they don't garble the reading.
         </p>
+        {/if}
         <p class="note">It uses one MyScript request (the free tier allows 2,000 a month).</p>
       {:else if phase === 'error'}
         <p class="note warn">{error}</p>
@@ -152,13 +175,21 @@
         <p class="counts">
           <span class="ok">{c.matched} matched</span> ·
           <span class:attn={c.confirm}>{c.confirm} to confirm{c.moved ? ` (${c.moved} moved)` : ''}</span> ·
-          <span>{c.noink} no ink (kept)</span> ·
+          <span>{c.noink} {noinkLabel} (kept)</span> ·
           <span class:attn={c.leftover}>{c.leftover} ink left over</span> ·
           <span>{c.tasks} task{c.tasks === 1 ? '' : 's'} unchanged</span>
           {#if cached}<span class="dim"> · MyScript result from the cache</span>{/if}
         </p>
+        {#if held}
+          <label class="held">
+            <span>{heldBackLabel(run.heldBackStats, held)} not sent.</span>
+            <input type="checkbox" bind:checked={decisions.heldBackTextless} disabled={phase === 'saving'} />
+            Mark them Not text
+            <span class="dim">(otherwise left unlinked)</span>
+          </label>
+        {/if}
         {#if error}<p class="note warn">{error}</p>{/if}
-        <div class="table"><RelinkRows {model} bind:decisions disabled={phase === 'saving'} /></div>
+        <div class="table"><RelinkRows {model} {noinkLabel} bind:decisions disabled={phase === 'saving'} /></div>
       {/if}
     </div>
 
@@ -200,6 +231,8 @@
   .counts .ok { color: var(--success); }
   .counts .attn { color: var(--warning); }
   .dim { opacity: 0.7; }
+  .held { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; font-size: 0.82rem; color: var(--text-secondary); }
+  .held span:first-child { color: var(--text-primary); margin-right: 6px; }
   .sum { margin-right: auto; color: var(--text-secondary); font-size: 0.8rem; }
   .btn { padding: 8px 16px; border: none; border-radius: 6px; font-size: 0.875rem; font-weight: 500; cursor: pointer; }
   .btn:disabled { opacity: 0.5; cursor: not-allowed; }

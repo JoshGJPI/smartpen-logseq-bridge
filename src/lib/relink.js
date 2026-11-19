@@ -24,6 +24,7 @@ import { alignLinesJoined, movedPairs, similarity, norm, sameLetters, editDistan
 import { stripTaskMarker } from './task-markers.js';
 import { taskStateOf, stateLabel } from './tasks.js';
 import { isTrustworthyTranscript } from './viewer/ink-text.js';
+import { detectDecorativeIndices } from './stroke-filter.js';
 
 /** Similarity at or above which a pair links without asking. */
 export const MATCH_AT = 0.85;
@@ -48,14 +49,79 @@ export function textLines(lines) {
 /**
  * The stored strokes Relink sends: every stroke with ink, minus textless ones
  * ("Not text", left out on purpose) and minus strokes linked to a kind line
- * (a sketch's ink is its own, never text).
+ * (a sketch's ink is its own, never text). With `ids` (Relink selection), only those.
  * @param {{ transcript?: {lines?: Array}, strokes?: Array }} doc
+ * @param {string[]|null} [ids]
  * @returns {Array} stored strokes, in page order
  */
-export function relinkSendStrokes(doc) {
+export function relinkSendStrokes(doc, ids = null) {
+  const want = ids ? new Set(ids) : null;
   const kindIds = new Set(((doc && doc.transcript && doc.transcript.lines) || []).filter(isKindLine).map((l) => l.id));
   return ((doc && doc.strokes) || []).filter((s) => s && Array.isArray(s.points) && s.points.length > 0
-    && s.textless !== true && !(s.lineId && kindIds.has(s.lineId)));
+    && s.textless !== true && !(s.lineId && kindIds.has(s.lineId)) && (!want || want.has(s.id)));
+}
+
+/**
+ * Hold back decorative ink before a Relink run (2026-11-19, Josh's run on
+ * 3017/125: underlines and a table's rules made MyScript misread whole lines).
+ * Runs lib/stroke-filter.js on the strokes AS SENT (turned upright, so an
+ * underline is horizontal), with its own rules: never a task box, never a
+ * strike-through. Held-back strokes are not sent; the save unlinks them, and
+ * flags them Not text unless the review unticks "Mark them Not text".
+ *
+ * @param {Array} sendCanvas  the turned canvas copies, in the order of `ids`
+ * @param {string[]} ids      their stored ids
+ * @returns {{ send: Array, sent: string[], heldBack: string[], stats: { underlines: number, boxes: number, circles: number } }}
+ */
+export function holdBackDecorative(sendCanvas, ids) {
+  const list = sendCanvas || [];
+  const none = { underlines: 0, boxes: 0, circles: 0 };
+  const { indices, stats } = detectDecorativeIndices(list);
+  const held = new Set(indices);
+  // Never hold back every stroke: with nothing left to send there is nothing to relink.
+  if (!held.size || held.size >= list.length) return { send: list, sent: [...ids], heldBack: [], stats: none };
+  return {
+    send: list.filter((_, i) => !held.has(i)),
+    sent: ids.filter((_, i) => !held.has(i)),
+    heldBack: ids.filter((_, i) => held.has(i)),
+    stats: { underlines: stats.underlines || 0, boxes: stats.boxes || 0, circles: stats.circles || 0 }
+  };
+}
+
+/** "3 underlines, 1 box": what a run held back, for the review. */
+export function heldBackLabel(stats, n) {
+  const st = stats || {};
+  const parts = [[st.underlines, 'underline', 'underlines'], [st.boxes, 'box', 'boxes'], [st.circles, 'circle', 'circles']]
+    .filter(([k]) => k > 0).map(([k, one, many]) => `${k} ${k === 1 ? one : many}`);
+  return parts.length ? parts.join(', ') : `${n} decorative stroke${n === 1 ? '' : 's'}`;
+}
+
+/**
+ * The Editor's "Relink selection…" (v3.21.0): which page and strokes the
+ * selection names, or why it can't run. One page only (a selection over several
+ * pages is refused: select one page's strokes). Refused while the page has
+ * unsaved canvas changes: Relink writes from the disk, and the canvas would then
+ * disagree with it. A partly loaded page is fine: only the selected strokes are
+ * sent, and the save treats every other stroke on disk the same way, loaded or not.
+ *
+ * @param {Array} all          the strokes store's value
+ * @param {Iterable<number>} indices  the selection
+ * @param {Map} pending        pendingChanges' value (`B{book}/P{page}` → buckets)
+ * @returns {{ ok: true, book: string, pageId: string, ids: string[] } | { ok: false, error: string }}
+ */
+export function selectionRelinkTarget(all, indices, pending = new Map()) {
+  const picked = [...(indices || [])].map((i) => all && all[i]).filter((s) => s && s.pageInfo && !s.deleted);
+  if (!picked.length) return { ok: false, error: 'Select the strokes to relink first' };
+  const pages = new Set(picked.map((s) => `B${s.pageInfo.book}/P${s.pageInfo.page}`));
+  if (pages.size > 1) {
+    return { ok: false, error: `The selection covers ${pages.size} pages; Relink selection works on one page at a time, so select one page's strokes` };
+  }
+  const { book, page } = picked[0].pageInfo;
+  const key = `B${book}/P${page}`;
+  const c = pending && pending.get ? pending.get(key) : null;
+  const dirty = !!c && ['additions', 'edits', 'modifications', 'deletions', 'retimes', 'moves'].some((b) => (c[b] || []).length > 0);
+  if (dirty) return { ok: false, error: `${key} has unsaved changes in the Editor; Relink works from the saved page, so save first` };
+  return { ok: true, book: String(book), pageId: String(page), ids: [...new Set(picked.map((s) => `s${s.startTime}`))] };
 }
 
 const usableYBounds = (yb) => !!yb && Number.isFinite(yb.minY) && Number.isFinite(yb.maxY) && !(yb.minY === 0 && yb.maxY === 0);
@@ -312,8 +378,9 @@ export function relinkNeedsNoReview(model) {
 
 /**
  * The review's starting decisions: confirm rows link, leftover ink stays
- * unlinked, no word fix taken.
- * @returns {{ link: Object<string, boolean>, leftover: Object<number, string>, fixes: Object<string, number[]> }}
+ * unlinked, no word fix taken, held-back decorative ink marked Not text.
+ * @returns {{ link: Object<string, boolean>, leftover: Object<number, string>, fixes: Object<string, number[]>,
+ *   heldBackTextless: boolean }}
  */
 export function defaultDecisions(model) {
   const link = {}, leftover = {};
@@ -321,7 +388,7 @@ export function defaultDecisions(model) {
     if (r.type === 'confirm') link[r.lineId] = true;
     if (r.type === 'leftover') leftover[r.ms] = LEFTOVER_LEAVE;
   }
-  return { link, leftover, fixes: {} };
+  return { link, leftover, fixes: {}, heldBackTextless: true };
 }
 
 /**
@@ -329,7 +396,10 @@ export function defaultDecisions(model) {
  * the MyScript run plus what the review decided. Each link names every MyScript
  * line its stored line takes (`ms: [..]`: joined lines, and leftovers added to it).
  *
- * @param {Object} run  `{ revision, rotation, originNcodeY, sent: string[], lines: [{text, yBounds}] }`
+ * Held-back decorative ink (`run.heldBack`) goes with it: the save unlinks those
+ * strokes, and flags them Not text while `decisions.heldBackTextless` (the default).
+ *
+ * @param {Object} run  `{ revision, rotation, originNcodeY, sent: string[], heldBack?: string[], lines: [{text, yBounds}] }`
  * @param {Object} model classifyRelink's result
  * @param {Object} decisions defaultDecisions' shape, as changed by the review
  */
@@ -361,6 +431,9 @@ export function buildRelinkSpec(run, model, decisions = defaultDecisions(model))
     rotation: run.rotation || 0,
     originNcodeY: run.originNcodeY,
     sent: [...(run.sent || [])],
+    heldBack: [...(run.heldBack || [])],
+    heldBackTextless: decisions.heldBackTextless !== false,
+    ...(run.selection ? { selection: true } : {}),
     myscriptLines: (run.lines || []).map((l) => ({ text: String(l.text || ''), yBounds: l.yBounds || null })),
     links, texts, add, textless
   };
@@ -381,11 +454,12 @@ export function buildRelinkSpec(run, model, decisions = defaultDecisions(model))
  * @param {{ label: string, draft: boolean, editorOpen: boolean, reset: boolean, pendingTranscription: boolean,
  *           suffixOnCanvas?: boolean }} s  suffixOnCanvas: a letter-suffixed page whose page number is on the canvas
  * @param {Object|null} doc  the page as on disk
- * @param {{ again?: boolean }} [opts]  again: Relink a page already linked (the reader's "Relink again…",
- *   after Josh confirms); every other refusal still applies
+ * @param {{ again?: boolean, ids?: string[]|null }} [opts]  again: Relink a page already linked (the reader's
+ *   "Relink again…", after Josh confirms); every other refusal still applies. ids: the Editor's "Relink
+ *   selection…" sends only these strokes (a deliberate pass, so a linked page is not refused either)
  * @returns {string|null}
  */
-export function relinkRefusal(s, doc, { again = false } = {}) {
+export function relinkRefusal(s, doc, { again = false, ids = null } = {}) {
   if (s.draft) return `${s.label} has unsaved transcript edits in the Library; save or cancel them first`;
   if (s.editorOpen) return `${s.label} is open in a transcript editor; close it first`;
   if (s.reset) return `${s.label} is reset for re-transcription in the Editor; transcribe and save it (or undo the reset) first`;
@@ -395,15 +469,24 @@ export function relinkRefusal(s, doc, { again = false } = {}) {
   }
   if (!doc) return `${s.label} was not found`;
   if (!textLines(doc.transcript && doc.transcript.lines).length) return `${s.label} has no transcript lines to relink`;
-  if (!again && isTrustworthyTranscript(doc)) return `${s.label} is already linked to its ink; nothing to relink`;
-  if (!relinkSendStrokes(doc).length) return `${s.label} has no ink to send`;
+  if (!again && !ids && isTrustworthyTranscript(doc)) return `${s.label} is already linked to its ink; nothing to relink`;
+  if (ids) {
+    const want = new Set(ids);
+    if (!(doc.strokes || []).some((st) => st && want.has(st.id))) return `The selected strokes are not saved on ${s.label}; save first`;
+    if (!relinkSendStrokes(doc, ids).length) return 'None of the selected strokes can be sent (they are Not text, or a sketch\'s ink)';
+  } else if (!relinkSendStrokes(doc).length) return `${s.label} has no ink to send`;
   return null;
 }
 
-/** Does a cached MyScript run still belong to the page as it is on disk? */
+/**
+ * Does a cached MyScript run still belong to the page as it is on disk? An entry
+ * without `heldBack` predates the decorative filter (it sent the underlines too),
+ * so it is invalid and the page is sent again.
+ */
 export function cachedRunValid(entry, revision) {
   return !!entry && typeof entry === 'object' && !!revision && entry.revision === revision
-    && Array.isArray(entry.lines) && Array.isArray(entry.sent) && Number.isFinite(entry.originNcodeY);
+    && Array.isArray(entry.lines) && Array.isArray(entry.sent) && Number.isFinite(entry.originNcodeY)
+    && Array.isArray(entry.heldBack);
 }
 
 /** The run as cached: only what Relink needs back (no raw response). */
@@ -414,6 +497,8 @@ export function runForCache(run) {
     rotation: run.rotation || 0,
     originNcodeY: run.originNcodeY,
     sent: [...run.sent],
+    heldBack: [...(run.heldBack || [])],
+    heldBackStats: { underlines: 0, boxes: 0, circles: 0, ...(run.heldBackStats || {}) },
     lines: (run.lines || []).map((l) => ({ text: String(l.text || ''), yBounds: l.yBounds || null, indentLevel: l.indentLevel || 0 }))
   };
 }

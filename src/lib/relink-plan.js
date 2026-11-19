@@ -18,9 +18,25 @@
  *     `textlessIds`; "Add as new line": a new line (MyScript's text, a new id,
  *     a typed task box read as on transcription), placed by y.
  *
+ *   - decorative ink the run held back (`relink.heldBack`, lib/relink.js
+ *     holdBackDecorative): unlinked always, and flagged Not text (`textlessIds`)
+ *     while `relink.heldBackTextless`. Never left with an old link: the old
+ *     links on these pages are wrong, and the page reads as trustworthy after.
+ *
+ * Strokes not sent and not held back (Relink selection, v3.21.0, the Editor's
+ * pass over the selected strokes) depend on the page as it was (`trusted`,
+ * isTrustworthyTranscript of the page on disk before this save):
+ *   - untrustworthy: unlinked (their links are the pre-fix ones), and a text line
+ *     this pass doesn't link gets `yBounds: null` as above;
+ *   - trustworthy (a second pass, e.g. a table's other column): they keep their
+ *     links, and a line this pass doesn't link keeps its `yBounds` while some of
+ *     that kept ink still links to it (otherwise null, as above).
+ * The reader's Relink sends every stroke but textless, kind-line and held-back
+ * ones, so this changes nothing there.
+ *
  * Never: line ids, text other than a taken fix, order, indent, parentId,
- * checked, marker, kind lines, strokes not sent (textless ones, a kind line's
- * ink), points, the sketch flag. So no task state needs carrying.
+ * checked, marker, kind lines, a kind line's ink, textless strokes, points, the
+ * sketch flag. So no task state needs carrying.
  *
  * Pure. Tested in `src/lib/__tests__/relink-plan.test.js` and save-page.test.js.
  */
@@ -44,12 +60,12 @@ const sameLineFields = (a, b) => a.id === b.id && a.text === b.text && (a.indent
  * @param {Object} relink        lib/relink.js buildRelinkSpec()
  * @param {Array} storedStrokes  strokes in the run's frame (turned upright like the batch), `{ id, lineId, points }`
  * @param {number} originNcodeY  the run's batch origin (min Y of the sent, turned strokes)
- * @param {{ newId?: () => string }} [opts]
+ * @param {{ newId?: () => string, trusted?: boolean }} [opts]  trusted: the page was trustworthy before this save
  * @returns {{ lines: Array, relink: true, changed: boolean, linesAdded: number,
  *   lineIdAssignments: Map<string, string|null>, lineIdRemap: Map, deletedInkIds: Set, textlessIds: Set<string>,
  *   linked: number }}
  */
-export function planRelink(existingLines, relink, storedStrokes = [], originNcodeY = null, { newId = newLineId } = {}) {
+export function planRelink(existingLines, relink, storedStrokes = [], originNcodeY = null, { newId = newLineId, trusted = false } = {}) {
   const existing = Array.isArray(existingLines) ? existingLines : [];
   const ms = (relink && relink.myscriptLines) || [];
   const byId = new Map(existing.map((l) => [l.id, l]));
@@ -102,14 +118,28 @@ export function planRelink(existingLines, relink, storedStrokes = [], originNcod
       lineIdAssignments.set(s.id, o && o.type === 'line' ? o.lineId : null);
     }
   }
+  // Ink not sent: held back (never keeps a link), or outside a selection pass.
+  const held = new Set((relink && relink.heldBack) || []);
+  const flagHeld = !!(relink && relink.heldBackTextless);
+  const keptOwners = new Set(); // lines that keep ink from an earlier pass (trusted pages only)
+  for (const s of storedStrokes || []) {
+    if (!s || sent.has(s.id) || (s.lineId && kindIds.has(s.lineId))) continue;
+    if (held.has(s.id)) {
+      lineIdAssignments.set(s.id, null);
+      if (flagHeld) textlessIds.add(s.id);
+    } else if (!trusted) {
+      if (s.lineId) lineIdAssignments.set(s.id, null);
+    } else if (s.lineId) keptOwners.add(s.lineId);
+  }
 
   // Lines: the linked ones take MyScript's yBounds (and a taken fix). A text line
   // left unlinked loses its yBounds: they came from the pre-fix batch, and on a page
   // that now reads as trustworthy they would look like a measured position (the
-  // merge's duplicate check compares them). Kind lines stay as they are.
+  // merge's duplicate check compares them). Kind lines stay as they are, and so
+  // does a line keeping ink from an earlier pass on a trustworthy page.
   const texts = (relink && relink.texts) || {};
   let lines = existing.map((l) => {
-    if (!linkOf.has(l.id)) return l.kind || l.yBounds == null ? l : { ...l, yBounds: null };
+    if (!linkOf.has(l.id)) return l.kind || l.yBounds == null || keptOwners.has(l.id) ? l : { ...l, yBounds: null };
     // The union of its MyScript lines' bounds.
     const bs = linkOf.get(l.id).map((j) => ms[j].yBounds);
     const next = { ...l, yBounds: { minY: Math.min(...bs.map((b) => b.minY)), maxY: Math.max(...bs.map((b) => b.maxY)) } };

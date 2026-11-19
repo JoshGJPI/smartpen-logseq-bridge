@@ -6,7 +6,11 @@
  *       cache (`<userData>/relink-cache/`, main's relink-cache.cjs) while the
  *       page is unchanged, else, only with `send`, one MyScript request. The
  *       page is read from disk (no canvas needed); its ink minus textless
- *       strokes and a kind line's strokes is sent turned upright like Transcribe.
+ *       strokes and a kind line's strokes is sent turned upright like Transcribe,
+ *       minus the decorative ink lib/relink.js holdBackDecorative finds on those
+ *       turned copies (`heldBack`, cached with the run).
+ *       With `ids` (the Editor's "Relink selection…", openRelinkSelection) only
+ *       those strokes are sent, nothing is held back and nothing is cached.
  *   saveRelink(book, pageId, spec)  re-checks the guards, saves through
  *       `savePageToFolder({ relink })` (which re-checks the revision), then
  *       drops the cache entry, brings a copy of the page on the canvas in line
@@ -19,6 +23,8 @@
  */
 import { writable, get } from 'svelte/store';
 import { strokes } from './strokes.js';
+import { selectedIndices } from './selection.js';
+import { pendingChanges } from './pending-changes.js';
 import { syncCanvasAfterPageWrite } from './textless.js';
 import { pageOrientations } from './orientation.js';
 import { hasMyScriptCredentials, getMyScriptCredentials } from './settings.js';
@@ -32,7 +38,7 @@ import { transcribeStrokes, batchOriginY } from '$lib/myscript-api.js';
 import { rotationFor, rotateCanvasStrokes } from '$lib/page-orientation.js';
 import {
   relinkRefusal, relinkSendStrokes, cachedRunValid, runForCache, classifyRelink,
-  relinkNeedsNoReview, buildRelinkSpec, NO_LINKS
+  relinkNeedsNoReview, buildRelinkSpec, NO_LINKS, holdBackDecorative, selectionRelinkTarget
 } from '$lib/relink.js';
 
 /** The page the Relink dialog is open on: `{ book, pageId }` or null. */
@@ -41,9 +47,38 @@ export const relinkTarget = writable(null);
 /** Pages a bulk run left for review, newest first: `{ book, pageId, counts, written }`. Session-only (the runs are cached). */
 export const relinkQueue = writable([]);
 
-/** @param {{ again?: boolean }} [opts]  again: a page already linked (asks first, v3.21.0) */
-export function openRelink(book, pageId, { again = false } = {}) {
-  relinkTarget.set({ book: String(book), pageId: String(pageId), ...(again ? { again: true } : {}) });
+/**
+ * @param {{ again?: boolean, ids?: string[] }} [opts]  again: a page already linked (asks first, v3.21.0);
+ *   ids: only these strokes (the Editor's Relink selection)
+ */
+export function openRelink(book, pageId, { again = false, ids = null } = {}) {
+  relinkTarget.set({
+    book: String(book), pageId: String(pageId), ...(again ? { again: true } : {}), ...(ids ? { ids: [...ids] } : {})
+  });
+}
+
+/**
+ * The Editor's "Relink selection…": the selected strokes of one page, through
+ * the same dialog. Refused (logged, returned) for a selection over several pages
+ * or a page with unsaved canvas changes (lib/relink.js selectionRelinkTarget).
+ * @returns {string|null} why it was refused, or null when the dialog opened
+ */
+export function openRelinkSelection() {
+  const t = selectionRelinkTarget(get(strokes), get(selectedIndices), get(pendingChanges));
+  if (!t.ok) {
+    log(`Relink selection: ${t.error}`, 'warning');
+    return t.error;
+  }
+  openRelink(t.book, t.pageId, { ids: t.ids });
+  return null;
+}
+
+/** The selection route's extra guard: unsaved canvas changes on the page (re-checked at save). */
+function unsavedRefusal(book, pageId) {
+  const key = `B${book}/P${parseInt(String(pageId), 10)}`;
+  const c = get(pendingChanges).get(key);
+  const dirty = !!c && ['additions', 'edits', 'modifications', 'deletions', 'retimes', 'moves'].some((b) => (c[b] || []).length > 0);
+  return dirty ? `${label(book, pageId)} has unsaved changes in the Editor; Relink works from the saved page, so save first` : null;
 }
 
 export function closeRelink() {
@@ -78,44 +113,60 @@ function relinkGuardState(book, pageId) {
 /** Why Relink is refused on this page now (the page read from disk), or null. */
 export async function relinkRefusalFor(book, pageId, doc, opts = {}) {
   const d = doc === undefined ? await getPage(String(book), String(pageId)) : doc;
-  return relinkRefusal(relinkGuardState(book, pageId), d, opts);
+  return refusal(book, pageId, d, opts);
+}
+
+function refusal(book, pageId, doc, { again = false, ids = null } = {}) {
+  return (ids && unsavedRefusal(book, pageId)) || relinkRefusal(relinkGuardState(book, pageId), doc, { again, ids });
 }
 
 /**
  * The page's MyScript run for Relink.
- * @param {{ send?: boolean, again?: boolean }} [opts]  send: allowed to make a MyScript request when the cache has
- *   nothing usable; again: the page may already be linked (Relink again, confirmed in the dialog)
+ * @param {{ send?: boolean, again?: boolean, ids?: string[]|null }} [opts]  send: allowed to make a MyScript request
+ *   when the cache has nothing usable; again: the page may already be linked (Relink again, confirmed in the
+ *   dialog); ids: the Editor's selection (never cached, always needs `send`)
  * @returns {Promise<{ ok: true, doc: Object, run: Object, cached: boolean } | { ok: false, error: string, needsSend?: boolean }>}
  */
-export async function getRelinkRun(book, pageId, { send = false, again = false } = {}) {
+export async function getRelinkRun(book, pageId, { send = false, again = false, ids = null } = {}) {
   const doc = await getPage(String(book), String(pageId));
-  const why = relinkRefusal(relinkGuardState(book, pageId), doc, { again });
+  const why = refusal(book, pageId, doc, { again, ids });
   if (why) return { ok: false, error: why };
   const revision = (doc.metadata && doc.metadata.lastUpdated) || '';
 
   let entry = null;
-  try {
-    entry = await cacheCall('get', book, pageId);
-  } catch (e) {
-    log(`Relink: could not read the cache for ${label(book, pageId)}: ${e.message}`, 'warning');
+  if (!ids) {
+    try {
+      entry = await cacheCall('get', book, pageId);
+    } catch (e) {
+      log(`Relink: could not read the cache for ${label(book, pageId)}: ${e.message}`, 'warning');
+    }
   }
   if (cachedRunValid(entry, revision)) return { ok: true, doc, run: entry, cached: true };
   if (!send) return { ok: false, needsSend: true, error: `${label(book, pageId)} has not been sent to MyScript yet` };
   if (!get(hasMyScriptCredentials)) return { ok: false, error: 'MyScript keys are not set (Settings → Handwriting recognition)' };
 
-  const stored = relinkSendStrokes(doc);
+  const stored = relinkSendStrokes(doc, ids);
   const rotation = rotationFor(get(pageOrientations), String(book), String(pageId));
-  // Turned upright as Transcribe sends it; the origin is measured on the turned copies.
-  const sentStrokes = rotateCanvasStrokes(storedStrokesToCanvas(stored, doc.pageInfo), rotation);
+  // Turned upright as Transcribe sends it; the decorative filter and the origin
+  // are measured on the turned copies (an underline is horizontal there). A
+  // selection is sent as chosen: nothing held back.
+  const turned = rotateCanvasStrokes(storedStrokesToCanvas(stored, doc.pageInfo), rotation);
+  const ids0 = stored.map((s) => s.id);
+  const pick = ids
+    ? { send: turned, sent: ids0, heldBack: [], stats: { underlines: 0, boxes: 0, circles: 0 } }
+    : holdBackDecorative(turned, ids0);
   const { appKey, hmacKey } = getMyScriptCredentials();
-  const result = await transcribeStrokes(sentStrokes, appKey, hmacKey);
+  const result = await transcribeStrokes(pick.send, appKey, hmacKey);
   const run = runForCache({
     revision,
     rotation,
-    originNcodeY: batchOriginY(sentStrokes),
-    sent: stored.map((s) => s.id),
+    originNcodeY: batchOriginY(pick.send),
+    sent: pick.sent,
+    heldBack: pick.heldBack,
+    heldBackStats: pick.stats,
     lines: result.lines || []
   });
+  if (ids) return { ok: true, doc, run: { ...run, selection: true }, cached: false };
   try {
     await cacheCall('put', book, pageId, run);
   } catch (e) {
@@ -128,8 +179,8 @@ export async function getRelinkRun(book, pageId, { send = false, again = false }
  * Write a relink.
  * @returns {Promise<{ ok: boolean, error?: string, stale?: boolean, result?: Object }>}
  */
-export async function saveRelink(book, pageId, spec, { again = false } = {}) {
-  const why = relinkRefusal(relinkGuardState(book, pageId), await getPage(String(book), String(pageId)), { again });
+export async function saveRelink(book, pageId, spec, { again = false, ids = null } = {}) {
+  const why = refusal(book, pageId, await getPage(String(book), String(pageId)), { again, ids });
   if (why) return { ok: false, error: why };
   // A relink that links no line would only bump lastTranscribed and make the page
   // read as trustworthy with all its ink unlinked.

@@ -69,7 +69,10 @@
  *       take the run's yBounds, every stroke that was sent takes the line whose
  *       MyScript line covers it (or none), taken word fixes and lines added
  *       from leftover ink land in the same write, and `lastTranscribed` is
- *       bumped; a text line left unlinked gets `yBounds: null`. Refused when
+ *       bumped; a text line left unlinked gets `yBounds: null`. Decorative ink
+ *       the run held back is unlinked (and flagged Not text by default); ink a
+ *       selection pass didn't send is unlinked on a page that was not
+ *       trustworthy, kept on one that was (lib/relink-plan.js). Refused when
  *       the page changed since the run (`stale`) or when no line would be
  *       linked (`noLinks`: the page would read as trustworthy, all ink unlinked).
  *
@@ -93,6 +96,7 @@ import { round2, strokeToStored } from './stroke-format.js';
 import { sameInk, shiftStoredStroke } from './duplicate-strokes.js';
 import { INK_TEXTLESS, normalizeDeletedInk, withTextless } from '$lib/deleted-ink.js';
 import { planRelink } from '$lib/relink-plan.js';
+import { isTrustworthyTranscript } from '$lib/viewer/ink-text.js';
 
 /* -----------------------------------------------------------------
  *  Stroke shape conversion
@@ -449,19 +453,20 @@ export function sentStrokeIds(pageTranscription) {
  *
  * With `{ relink }` (a lib/relink.js buildRelinkSpec() result, v3.21.0) the plan
  * is Relink's instead (lib/relink-plan.js): `pageTranscription` is ignored,
- * `lineIdAssignments` covers every sent stroke (null = unlinked) and
- * `textlessIds` the leftover ink marked Not text.
+ * `lineIdAssignments` covers every sent stroke (null = unlinked) and every
+ * stroke it unlinks, and `textlessIds` the ink marked Not text. `relinkTrusted`:
+ * the page was trustworthy before (ink outside a selection pass keeps its links).
  *
  * @returns {{ lines: Array, changed: boolean, linesAdded: number,
  *   lineIdAssignments: Map<string,string>, lineIdRemap: Map<string,string>,
  *   deletedInkIds: Set<string>, textlessIds: Set<string> }}
  */
-export function planTranscript(existingLines, pageTranscription, storedStrokes = [], originNcodeY = null, { relink = null } = {}) {
+export function planTranscript(existingLines, pageTranscription, storedStrokes = [], originNcodeY = null, { relink = null, relinkTrusted = false } = {}) {
   const existing = Array.isArray(existingLines) ? existingLines : [];
   // Relink (v3.21.0): a plan kind of its own. The stored lines stay (ids, text,
   // order, structure, task state); only yBounds, stroke links, taken word fixes
   // and lines added from leftover ink change (lib/relink-plan.js).
-  if (relink) return planRelink(existing, relink, storedStrokes, originNcodeY);
+  if (relink) return planRelink(existing, relink, storedStrokes, originNcodeY, { trusted: relinkTrusted });
   const none = {
     lines: existing, changed: false, linesAdded: 0, lineIdAssignments: new Map(), lineIdRemap: new Map(),
     deletedInkIds: new Set(), textlessIds: new Set()
@@ -785,7 +790,10 @@ export async function savePageToFolder(input) {
     let relinkLinks = null;
     if (relink) {
       const frameStrokes = strokesInTranscriptionFrame(merged.filter(s => !s.textless), relink.rotation);
-      const plan = planTranscript(transcript.lines || [], null, frameStrokes, relink.originNcodeY, { relink });
+      // Was the page trustworthy before this save? Then ink a selection pass didn't
+      // send keeps its links (lib/relink-plan.js); otherwise those links are pre-fix.
+      const relinkTrusted = isTrustworthyTranscript(onDisk);
+      const plan = planTranscript(transcript.lines || [], null, frameStrokes, relink.originNcodeY, { relink, relinkTrusted });
       // Linking no line would only bump lastTranscribed: the page would read as
       // trustworthy with all its ink unlinked, and drop off Relink's list.
       if (!plan.linked) {

@@ -6,7 +6,8 @@
               with Use (decision 2: nothing changes unless clicked)
     confirm   Link / Don't link (word fixes as for matched, while linked); "moved" when the
               reading is elsewhere on the page (stored out of place; linking keeps its place)
-    no ink    the stored line is kept, with no ink
+    no ink    the stored line is kept, with no ink ("not in this selection" on a
+              selection pass over a page already linked: it keeps its ink)
     leftover  ink MyScript read that no stored line matches: Leave unlinked
               (default), Add to #N (the linked line above takes its ink, text
               unchanged), Add as new line, Not text. Make sketch joins in Phase E.
@@ -24,6 +25,8 @@
   export let model;
   export let decisions;
   export let disabled = false;
+  /** What a stored line with no MyScript partner reads as */
+  export let noinkLabel = 'no ink';
 
   const pct = (s) => `${Math.round((s || 0) * 100)}%`;
 
@@ -121,7 +124,7 @@
               <button class:on={!linked(r)} {disabled} on:click={() => setLink(r, false)}>Don't link</button>
             </span>
           {:else if r.type === 'noink'}
-            <span class="dim">no ink</span>
+            <span class="dim">{noinkLabel}</span>
           {:else}
             <select value={leftoverValue(r)} {disabled}
               on:change={(e) => setLeftover(r, e.currentTarget.value)} aria-label="Ink left over">
