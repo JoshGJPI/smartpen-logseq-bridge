@@ -16,12 +16,12 @@
 -->
 <script>
   import { onDestroy } from 'svelte';
-  import { relinkTarget, closeRelink, getRelinkRun, saveRelink } from '$stores/relink.js';
+  import { relinkTarget, closeRelink, getRelinkRun, trySaveRelink } from '$stores/relink.js';
   import { transcriptEditorHold } from '$stores/viewer.js';
-  import { classifyRelink, defaultDecisions, buildRelinkSpec, linkedCount, NO_LINKS } from '$lib/relink.js';
+  import { classifyRelink, defaultDecisions, buildRelinkSpec, linkedCount, NO_LINKS, afterRelinkSave } from '$lib/relink.js';
   import RelinkRows from './RelinkRows.svelte';
 
-  /** 'again' | 'loading' | 'ask' | 'sending' | 'review' | 'saving' | 'error' */
+  /** 'again' | 'loading' | 'ask' | 'sending' | 'review' | 'saving' | 'done' | 'error' */
   let phase = 'loading';
   let error = '';
   let target = null;
@@ -82,16 +82,17 @@
     phase = 'saving';
     // Our own hold would refuse the save; nothing else can take the page while we're saving.
     hold.set(null, false);
-    const r = await saveRelink(book, pageId, buildRelinkSpec(run, model, decisions), { again: !!target.again });
-    if (r.ok) { close(); return; }
-    if (r.stale) {
-      staleNote = 'The page changed since it was sent to MyScript, so these links may not fit. Send it again to review fresh ones.';
-      phase = 'ask';
-      return;
+    let next = afterRelinkSave(null);
+    try {
+      next = afterRelinkSave(await trySaveRelink(book, pageId, buildRelinkSpec(run, model, decisions), { again: !!target.again }));
+    } finally {
+      // Never left on 'saving' (close() refuses while saving): done, ask again, or back to review.
+      phase = next.phase;
+      error = next.error;
+      staleNote = next.staleNote;
     }
-    hold.set(opened, true);
-    error = r.error;
-    phase = 'review';
+    if (next.close) { close(); return; }
+    if (next.phase === 'review') hold.set(opened, true);
   }
 
   function close() {

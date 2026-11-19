@@ -20,7 +20,7 @@
  *
  * Tested in `src/lib/__tests__/relink.test.js`.
  */
-import { alignLinesJoined, movedPairs, similarity, norm, sameLetters } from './line-align.js';
+import { alignLinesJoined, movedPairs, similarity, norm, sameLetters, editDistance } from './line-align.js';
 import { stripTaskMarker } from './task-markers.js';
 import { taskStateOf, stateLabel } from './tasks.js';
 import { isTrustworthyTranscript } from './viewer/ink-text.js';
@@ -80,9 +80,23 @@ function splitPunct(word) {
 }
 
 /**
+ * Is `to` plausibly `from` misread? Lengths within 2× and at most half the longer
+ * word's letters different, rounded up so `teh` → `the` counts (2026-11-19:
+ * MyScript glued a neighbouring line's ink onto "We'll" and offered a 55-letter
+ * run-on as its fix).
+ */
+export function plausibleMisreading(from, to) {
+  const x = norm(from).replace(/ /g, ''), y = norm(to).replace(/ /g, '');
+  if (!x || !y) return false;
+  const long = Math.max(x.length, y.length), short = Math.min(x.length, y.length);
+  return long <= 2 * short && editDistance(x, y) <= Math.ceil(long / 2);
+}
+
+/**
  * Where MyScript's reading of a line differs from the stored text in a word:
- * one fix per substituted word (case and punctuation aside; added or missing
- * words are not offered). Each fix replaces the stored word's letters only, so
+ * one fix per substituted word that is plausibly the same word misread
+ * (`plausibleMisreading`; case and punctuation aside; added or missing words
+ * are not offered). Each fix replaces the stored word's letters only, so
  * its punctuation stays (`boing,` → `boring,`).
  *
  * @param {string} stored  the stored line's text
@@ -109,7 +123,7 @@ export function wordFixes(stored, reading) {
       if (!same && !sameLetters(a[i - 1].word, b[j - 1].word)) {
         const s = splitPunct(a[i - 1].word);
         const to = splitPunct(b[j - 1].word).core;
-        if (s.core && to) {
+        if (s.core && to && plausibleMisreading(s.core, to)) {
           const start = a[i - 1].start + s.pre.length;
           fixes.push({ at: i - 1, msAt: j - 1, from: s.core, to, start, end: start + s.core.length });
         }
@@ -271,6 +285,23 @@ export const NO_LINKS = 'No stored line would be linked to ink, so there is noth
 export function linkedCount(model, decisions = defaultDecisions(model)) {
   return ((model && model.rows) || []).filter((r) => r.type === 'matched'
     || (r.type === 'confirm' && decisions.link[r.lineId] !== false)).length;
+}
+
+/** Shown when a page changed between its MyScript run and the save. */
+export const STALE_NOTE = 'The page changed since it was sent to MyScript, so these links may not fit. Send it again to review fresh ones.';
+
+/**
+ * What the Relink dialog does after a save (pure, so it is tested without
+ * mounting the dialog). Never 'saving': whatever happened, the dialog leaves the
+ * saving phase, so it can close (2026-11-19: it stayed on "Saving…" after a
+ * successful save, because close() refuses while saving).
+ * @param {{ ok: boolean, stale?: boolean, error?: string }|null|undefined} r  saveRelink's result
+ * @returns {{ phase: 'done'|'ask'|'review', close: boolean, error: string, staleNote: string }}
+ */
+export function afterRelinkSave(r) {
+  if (r && r.ok) return { phase: 'done', close: true, error: '', staleNote: '' };
+  if (r && r.stale) return { phase: 'ask', close: false, error: '', staleNote: STALE_NOTE };
+  return { phase: 'review', close: false, error: (r && r.error) || 'Save failed', staleNote: '' };
 }
 
 /** Saved at once in a bulk run: every stored line matched in order, nothing to confirm (moved lines included), no ink left over. */

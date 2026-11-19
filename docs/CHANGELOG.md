@@ -67,6 +67,12 @@ task state by text only. Relink keeps the transcript and takes only geometry fro
 - **Relink again**: a page already linked (a saved relink makes it trustworthy) can be relinked from the reader's ⋯
   next to the header's print menu, after a confirm ("This page's ink is already linked. Relink it again? Lines and
   task state are kept."). Every other guard still applies; the bulk run still lists untrustworthy pages only.
+- **Fixes from Josh's run on B3017/P123**: the dialog stayed on "Saving…" after a successful save (close() refused
+  while saving). The save's outcome is now decided by `afterRelinkSave()` (pure: done / ask again / back to review,
+  never saving), set in a `finally`, and `trySaveRelink()` turns a save that throws into `ok: false`. Word fixes are
+  offered only for a plausible misreading (`plausibleMisreading`: lengths within 2×, at most half the longer word's
+  letters different, rounded up); MyScript had glued line 26's ink onto line 27 and offered a 55-letter run-on as
+  the fix for "We'll".
 - **Split while touching**: SettingsDropdown 395 → 303 lines (`settings/MaintenanceSettings`, dialogs in
   `settings/MaintenanceDialogs`). New components stay under 300 (RelinkDialog, RelinkRows, RelinkOldDialog).
 - Not run against real pages or in the running app yet (MyScript requests wait for Josh's OK); unit tests mock

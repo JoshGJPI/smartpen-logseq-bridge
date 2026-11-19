@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import {
   relinkSendStrokes, textLines, classifyRelink, wordFixes, applyWordFixes, defaultDecisions, buildRelinkSpec,
   relinkNeedsNoReview, relinkRefusal, cachedRunValid, linkedCount, NO_LINKS, runForCache, relinkCandidates, groupCandidates,
-  MATCH_AT, CONFIRM_AT, LEFTOVER_ADD, LEFTOVER_TEXTLESS, LEFTOVER_LEAVE, LEFTOVER_JOIN, rowLinked
+  afterRelinkSave, plausibleMisreading, STALE_NOTE, MATCH_AT, CONFIRM_AT, LEFTOVER_ADD, LEFTOVER_TEXTLESS, LEFTOVER_LEAVE, LEFTOVER_JOIN, rowLinked
 } from '../relink.js';
 import { editRefusal } from '../mcp-edits.js';
 import { makeOldPage, makeRun, makeMovedPage, makeMergedPage, mm, rowY } from './fixtures/relink-page.js';
@@ -209,6 +209,18 @@ describe('wordFixes / applyWordFixes', () => {
     expect(wordFixes('order steel', 'order the steel')).toEqual([]);
   });
 
+  it('offers a fix only for a plausible misreading (P123: a glued run-on is not a fix for "We’ll")', () => {
+    const glued = 'mprvetmosqtoinfestatoncimpactofchhrmeonenvironment.ve’ll';
+    expect(plausibleMisreading('We’ll', glued)).toBe(false);
+    expect(wordFixes('We’ll need to provide a coating', `${glued} need to provide a coating`)).toEqual([]);
+    expect(plausibleMisreading('boing', 'boring')).toBe(true);
+    expect(wordFixes('boing plate', 'boring plate').map((f) => f.to)).toEqual(['boring']);
+    expect(plausibleMisreading('teh', 'the')).toBe(true);
+    expect(plausibleMisreading('beam', 'concrete')).toBe(false);   // 2x length but mostly different
+    expect(plausibleMisreading('at', 'attachment')).toBe(false);    // lengths over 2x apart
+    expect(plausibleMisreading('', 'x')).toBe(false);
+  });
+
   it('applies several fixes from the right so offsets stay valid', () => {
     const text = 'teh beem is ok';
     const fixes = wordFixes(text, 'the beam is ok');
@@ -312,6 +324,19 @@ describe('relinkRefusal (B.6)', () => {
     const inkless = makeOldPage();
     inkless.strokes.forEach((s) => { s.textless = true; s.lineId = null; });
     expect(relinkRefusal(clear, inkless)).toMatch(/no ink/);
+  });
+});
+
+describe('afterRelinkSave: the dialog never stays on Saving…', () => {
+  it('a saved relink closes the dialog (phase done)', () => {
+    expect(afterRelinkSave({ ok: true })).toEqual({ phase: 'done', close: true, error: '', staleNote: '' });
+  });
+
+  it('a stale page asks to send again; a refusal or a thrown save goes back to the review with the reason', () => {
+    expect(afterRelinkSave({ ok: false, stale: true })).toMatchObject({ phase: 'ask', close: false, staleNote: STALE_NOTE });
+    expect(afterRelinkSave({ ok: false, error: 'nope' })).toMatchObject({ phase: 'review', close: false, error: 'nope' });
+    expect(afterRelinkSave(null)).toMatchObject({ phase: 'review', error: 'Save failed' });
+    for (const r of [{ ok: true }, { ok: false, stale: true }, { ok: false }, undefined]) expect(afterRelinkSave(r).phase).not.toBe('saving');
   });
 });
 

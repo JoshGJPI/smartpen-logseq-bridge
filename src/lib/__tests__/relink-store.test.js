@@ -31,7 +31,7 @@ vi.mock('$lib/myscript-api.js', async (orig) => ({ ...(await orig()), transcribe
 import { savePage } from '$lib/storage/local-store.js';
 import { refreshAfterSave } from '$lib/storage/refresh.js';
 import { transcribeStrokes } from '$lib/myscript-api.js';
-import { getRelinkRun, saveRelink, runBulkRelink, relinkQueue, openRelink, relinkTarget, closeRelink } from '$stores/relink.js';
+import { getRelinkRun, saveRelink, trySaveRelink, runBulkRelink, relinkQueue, openRelink, relinkTarget, closeRelink } from '$stores/relink.js';
 import { myscriptAppKey, myscriptHmacKey } from '$stores/settings.js';
 import { markViewerDirtyPage, clearViewerDirtyPage, transcriptEditorHold } from '$stores/viewer.js';
 import { pageTranscriptions } from '$stores/transcription.js';
@@ -39,7 +39,7 @@ import { resetPages } from '$stores/transcript-reset.js';
 import { pageOrientations } from '$stores/orientation.js';
 import { strokes } from '$stores/strokes.js';
 import { isTrustworthyTranscript } from '$lib/viewer/ink-text.js';
-import { classifyRelink, buildRelinkSpec, defaultDecisions, NO_LINKS } from '$lib/relink.js';
+import { classifyRelink, buildRelinkSpec, defaultDecisions, NO_LINKS, afterRelinkSave } from '$lib/relink.js';
 import { noteOnDiskStrokeIds, hasPendingChanges, onDiskStrokeIds } from '$stores/pending-changes.js';
 import { makeOldPage, makeRun, makeMovedPage, rowY } from './fixtures/relink-page.js';
 
@@ -226,6 +226,19 @@ describe('saveRelink', () => {
     const last = get(strokes).at(-1);
     expect(last).toMatchObject({ textless: true, blockUuid: null });
     expect(get(hasPendingChanges)).toBe(false);
+  });
+
+  it('trySaveRelink, the dialog save: a success is ok, a throwing save comes back as ok: false', async () => {
+    const got = await getRelinkRun('3017', '123', { send: true });
+    const model = classifyRelink(got.doc.transcript.lines, got.run.lines);
+    const spec = buildRelinkSpec(got.run, model);
+    vi.mocked(savePage).mockRejectedValueOnce(new Error('disk full'));
+    const failed = await trySaveRelink('3017', '123', spec);
+    expect(failed).toMatchObject({ ok: false, error: expect.stringMatching(/disk full/) });
+    expect(afterRelinkSave(failed)).toMatchObject({ phase: 'review', close: false });
+    const ok = await trySaveRelink('3017', '123', spec);
+    expect(ok.ok).toBe(true);
+    expect(afterRelinkSave(ok)).toMatchObject({ phase: 'done', close: true });
   });
 
   it('refuses a relink that links no line, writing nothing', async () => {

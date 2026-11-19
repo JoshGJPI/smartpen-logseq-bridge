@@ -62,7 +62,7 @@ Reasons and history for each feature are in [CHANGELOG.md](CHANGELOG.md).
   stays no ink plus ink left over, where "Add as new line" would duplicate it. Confirm rows start on Link. One MyScript line covering
   two stored lines (the reverse of a line merged by hand) stays a confirm row for one of them; the other is no ink.
   Joins take at most 3 consecutive MyScript lines. Word fixes are offered for one word
-  read as another only (not for added or missing words). The review queue is session-only; the MyScript runs behind it
+  read as another only (not for added or missing words), and only when the two are plausibly the same word. The review queue is session-only; the MyScript runs behind it
   are cached in `<userData>/relink-cache/` (never pruned, one small file per page) and a second Run costs nothing.
   Make sketch for leftover ink waits for Phase E. A letter-suffixed page (P151b) is refused while its page number is
   loaded in the Editor (the canvas can't tell P151b from P151); Library Edit and the Pages tab's canvas sync have the

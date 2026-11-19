@@ -153,6 +153,19 @@ export async function saveRelink(book, pageId, spec, { again = false } = {}) {
 }
 
 /**
+ * saveRelink for the dialog: a save that throws comes back as `{ ok: false, error }`,
+ * so the dialog always leaves its saving phase (lib/relink.js afterRelinkSave).
+ */
+export async function trySaveRelink(book, pageId, spec, opts = {}) {
+  try {
+    return await saveRelink(book, pageId, spec, opts);
+  } catch (e) {
+    log(`Relink: saving B${book}/P${pageId} failed: ${e.message}`, 'error');
+    return { ok: false, error: `Save failed: ${e.message}` };
+  }
+}
+
+/**
  * The bulk run (B.5). Pages one by one; a page whose run is cached costs no
  * request. Refused pages are skipped with their reason.
  *
