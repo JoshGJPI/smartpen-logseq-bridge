@@ -66,14 +66,18 @@ reg('list_tags',
   { tag: z.string().optional().describe('A tag (or its label or an alias): list its pages instead of all tags'),
     type: z.enum(['project', 'person', 'topic']).optional().describe('Only tags of this type') }, 'List tags');
 reg('get_transcript',
-  'Handwriting-recognition transcript of one page (text, indentation, TODO/DONE/WAITING/CANCELLED), each line numbered #n (the stored line number). Cheap; prefer this over an image when the text is enough. Many pages are untranscribed: use render_page for those.',
+  'Handwriting-recognition transcript of one page (text, indentation, TODO/DONE/WAITING/CANCELLED), each line numbered #n (the stored line number). '
+  + 'A sketch line (a drawing Josh labelled in the app) reads `#17 [sketch] Floor plan (412 strokes)`; see it with render_page { line }. '
+  + 'Cheap; prefer this over an image when the text is enough. Many pages are untranscribed: use render_page for those.',
   { book, page }, 'Get transcript');
 reg('render_page',
   `See a page: its ink as a PNG, in the stored orientation, laid out on the printed page. Default ${LIMITS.page.width}px wide. `
   + 'Costs image tokens: try get_transcript first when the page is transcribed. '
   + 'To check a transcription against the ink, pass color_by_line (each line\'s ink in its own colour, with a text key of line, colour, stroke count and text) '
-  + 'and/or show_decorative (strokes the app\'s Deselect Decorative would leave out, in red).',
+  + 'and/or show_decorative (strokes the app\'s Deselect Decorative would leave out, in red). '
+  + 'With `line` (#n from get_transcript), only that line\'s ink, cropped to it: a sketch line\'s drawing.',
   { book, page, width: width(LIMITS.page.width), fit,
+    line: z.union([z.number().int(), z.string()]).optional().describe('A stored line number (17 or "#17"): crop to that line\'s ink, e.g. a sketch'),
     color_by_line: z.boolean().optional().describe('Colour ink by transcript line; the reply lists each line\'s colour. Plain ink where the page\'s line links are unreliable'),
     show_decorative: z.boolean().optional().describe('Draw in red the strokes Deselect Decorative would take (boxes, underlines, circles)') },
   'Render page');
@@ -114,9 +118,20 @@ reg('list_tasks',
     group_by: z.enum([...TASK_GROUP_ARGS, 'none']).optional(),
     limit: limit(LIMITS.tasks.limit, LIMITS.tasks.maxLimit), offset },
   'List tasks');
+reg('list_sketches',
+  'Sketch lines: drawings Josh marked in the app and labelled ("Floor plan"), each with its page, line #n, label, stroke count, when written, '
+  + 'and its tags: the page\'s Project and Person tags whose block holds the sketch (a tag named nowhere on the page covers all of it), and the page\'s topics. '
+  + 'Filter by project, tag, person, notebook and days written. See one with render_page { book, page, line }. Read-only: sketches are made in the app.',
+  { project: z.string().optional().describe('A project tag, e.g. 6226-001 or P2026-141: sketches in its blocks'),
+    tag: z.string().optional().describe('Any tag: sketches carrying it'),
+    person: z.string().optional().describe('A Person tag by key, display name or alias: sketches in that person\'s blocks'),
+    book: book.optional(), from: day.optional(), to: day.optional(),
+    limit: limit(LIMITS.sketches.limit, LIMITS.sketches.maxLimit), offset },
+  'List sketches');
 reg('search',
-  'The app\'s global search: words in transcripts, dates ("Oct 14", "10/14", "2026-10-14", "yesterday"), notebook names or keys ("Study Notes", "390v2") and tags ("P2026-141"), with tag facets person:tom, topic:framing, project:5444-006, type:person|project|topic, is:job, is:proposal (pages carrying such a tag). '
-  + 'Returns pages with snippets plus matching notebooks, days and tags. Transcribed text only.',
+  'The app\'s global search: words in transcripts, dates ("Oct 14", "10/14", "2026-10-14", "yesterday"), notebook names or keys ("Study Notes", "390v2") and tags ("P2026-141"), with tag facets person:tom, topic:framing, project:5444-006, type:person|project|topic, is:job, is:proposal (pages carrying such a tag), '
+  + 'and has:sketch (pages with a sketch line; with other words, the sketches whose label or tags answer to them). '
+  + 'Returns sketches, pages with snippets, and matching notebooks, days and tags. Transcribed text only.',
   { query: z.string().describe('Words, a date, a notebook name or key, or a tag') }, 'Search');
 
 // ===== Writes (v3.18.0): only with SMARTPEN_MCP_WRITES=1, and only through the running app =====

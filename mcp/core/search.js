@@ -33,7 +33,7 @@ export function createSearch() {
   let built = null;
   return function search(scan, input, { now = new Date() } = {}) {
     const k = scan.pages.map((p) => `${p.book}/${p.pageId}:${p.mtimeMs}:${p.size}`).join('|')
-      + `#${JSON.stringify(scan.aliases)}#${JSON.stringify(scan.tags)}#${JSON.stringify(scan.tagInfo || {})}`;
+      + `#${JSON.stringify(scan.aliases)}#${JSON.stringify(scan.tags)}#${JSON.stringify(scan.tagInfo || {})}#${JSON.stringify(scan.tagBlocks || {})}`;
     if (k !== key) {
       built = {
         index: buildSearchIndex(scan.pages),
@@ -43,7 +43,10 @@ export function createSearch() {
         records: recordsByKey(scan.pages),
         tags: tagStats(scan.tags),
         pageTags: scan.tags,
-        info: scan.tagInfo || {}
+        info: scan.tagInfo || {},
+        // Sketch tags by block scope (v3.24.0), as the app's search field passes them.
+        blocks: scan.tagBlocks || {},
+        scopeLines: scan.scopeLines || null
       };
       key = k;
     }

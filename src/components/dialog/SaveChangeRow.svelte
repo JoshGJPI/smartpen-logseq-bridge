@@ -48,7 +48,7 @@
       </span>
     {/if}
     {#if item.strokeModifications > 0}
-      <span class="stat modifications" title="Sketch flag changed on strokes already saved">
+      <span class="stat modifications" title="Pressure ink or Not text flag changed on strokes already saved">
         ✏️ {item.strokeModifications} restyled
       </span>
     {/if}

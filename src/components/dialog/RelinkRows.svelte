@@ -10,7 +10,8 @@
               selection pass over a page already linked: it keeps its ink)
     leftover  ink MyScript read that no stored line matches: Leave unlinked
               (default), Add to #N (the linked line above takes its ink, text
-              unchanged), Add as new line, Not text. Make sketch joins in Phase E.
+              unchanged), Add as new line, Not text, Make sketch (v3.24.0: every row
+              marked so becomes one sketch line, in the same write).
   A stored line merged by hand from several written rows takes several MyScript
   lines; its reading shows them joined, a ⏎ where the next one starts.
 
@@ -18,7 +19,7 @@
   (bind:decisions). Pure presentation; the dialog saves.
 -->
 <script>
-  import { applyWordFixes, rowLinked, LEFTOVER_LEAVE, LEFTOVER_ADD, LEFTOVER_TEXTLESS, LEFTOVER_JOIN } from '$lib/relink.js';
+  import { applyWordFixes, rowLinked, LEFTOVER_LEAVE, LEFTOVER_ADD, LEFTOVER_TEXTLESS, LEFTOVER_JOIN, LEFTOVER_SKETCH } from '$lib/relink.js';
   import { stripTaskMarker } from '$lib/task-markers.js';
 
   /** classifyRelink() result */
@@ -132,6 +133,7 @@
               {#if canJoin(r)}<option value={LEFTOVER_JOIN}>Add to #{r.joinToN}</option>{/if}
               <option value={LEFTOVER_ADD}>Add as new line</option>
               <option value={LEFTOVER_TEXTLESS}>Not text</option>
+              <option value={LEFTOVER_SKETCH} title="A drawing: every row marked so becomes one sketch line, labelled Sketch (rename it in the reader)">Make sketch</option>
             </select>
           {/if}
         </td>

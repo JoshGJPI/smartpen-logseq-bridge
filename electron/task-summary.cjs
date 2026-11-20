@@ -11,6 +11,13 @@
  *   { id, text, checked, marker: 'WAITING'|'CANCELLED'|null, parentText: string|null,
  *     projectHint: string|null, heads: [{ id, text }] }   (heads: v3.23.0, nearest 3 ancestors, outermost first)
  * Scalar-small on purpose (text clipped); never strokes.
+ *
+ * Lines with a `kind` (v3.24.0, a sketch, spec E.4 / E.7) are skipped
+ * altogether: never a task, never a head, and their label never gives a task a
+ * project.
+ *
+ * Also the scan's sketch summary and a line's scan text (v3.24.0), MIRRORING
+ * `buildSketchSummary()` / `lineScanText()` in src/lib/line-kinds.js.
  */
 'use strict';
 
@@ -49,7 +56,7 @@ function buildTaskSummary(lines) {
   const stack = [];
   let lastProject = null;
   for (const l of lines) {
-    if (!l || typeof l !== 'object') continue;
+    if (!l || typeof l !== 'object' || isKindLine(l)) continue;
     const level = Math.max(0, Number(l.indentLevel) || 0);
     while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
     const own = projectsIn(l.text);
@@ -75,4 +82,38 @@ function buildTaskSummary(lines) {
   return out;
 }
 
-module.exports = { buildTaskSummary };
+const SKETCH = 'sketch';
+const SKETCH_DEFAULT_LABEL = 'Sketch';
+const SKETCH_SUMMARY_MAX = 20;
+const SKETCH_LABEL_MAX = 80;
+
+function isKindLine(l) {
+  return !!(l && typeof l === 'object' && typeof l.kind === 'string' && l.kind);
+}
+
+function sketchLabel(raw) {
+  const t = typeof raw === 'string' ? raw.replace(/\s*[\r\n]+\s*/g, ' ').trim() : '';
+  return t || SKETCH_DEFAULT_LABEL;
+}
+
+/** A line as `transcriptionText` writes it: `[sketch] label`, `[kind] text`, or the text (line-kinds.js lineScanText). */
+function lineScanText(l) {
+  const text = String((l && l.text) || '').replace(/^ +/, '');
+  if (!isKindLine(l)) return text;
+  return `[${l.kind}] ${l.kind === SKETCH ? sketchLabel(text) : text}`;
+}
+
+/** The scan's `sketches`: `[{ id, label, lineIndex }]`, at most 20 (line-kinds.js buildSketchSummary). */
+function buildSketchSummary(lines) {
+  const out = [];
+  if (!Array.isArray(lines)) return out;
+  for (let i = 0; i < lines.length && out.length < SKETCH_SUMMARY_MAX; i++) {
+    const l = lines[i];
+    if (!isKindLine(l) || l.kind !== SKETCH || typeof l.id !== 'string' || !l.id) continue;
+    const label = sketchLabel(l.text);
+    out.push({ id: l.id, label: label.length > SKETCH_LABEL_MAX ? `${label.slice(0, SKETCH_LABEL_MAX - 1)}…` : label, lineIndex: i });
+  }
+  return out;
+}
+
+module.exports = { buildTaskSummary, buildSketchSummary, lineScanText };

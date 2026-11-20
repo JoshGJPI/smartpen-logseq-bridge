@@ -92,7 +92,7 @@ describe('write tools', () => {
           readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false,
         });
       }
-      expect(tools).toHaveLength(12);
+      expect(tools).toHaveLength(13);
 
       const edits = [{ op: 'set_text', line: 1, expect: 'Brad Russell, AlA', text: 'Brad Russell, AIA' }];
       const dry = await client.callTool({ name: 'edit_transcript', arguments: { book: '3017', page: '180', edits } });

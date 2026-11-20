@@ -230,7 +230,7 @@
           ✎ {totals.strokeEdits} {plural(totals.strokeEdits, 'stroke')} had points deleted or snapped.
           Saving <strong>rewrites their stored point data</strong> — the old points are gone for
           good. Every other save only adds or removes whole strokes; this is the one case where
-          captured geometry is overwritten. Stroke IDs, transcript links and sketch pressure are
+          captured geometry is overwritten. Stroke IDs, transcript links and Pressure ink flags are
           preserved.
         </div>
       {/if}

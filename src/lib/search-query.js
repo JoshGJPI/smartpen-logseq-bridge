@@ -9,6 +9,7 @@
  *   "beam", "p2026-141"                                    → tags (v3.1.0)
  *   "person:tom", "topic:framing", "project:5444-006",
  *   "type:person|project|topic", "is:job", "is:proposal"   → tag facets (v3.22.0)
+ *   "has:sketch"                                            → pages with a sketch line (v3.24.0)
  *   everything else                                         → transcript words
  *
  * A facet keeps the pages carrying a tag it names (several facets: a page must
@@ -31,17 +32,25 @@ import { normalizeTag, isProjectTag, tagTypeOf, tagAnswersTo, tagNames, projectK
 /** `key:value` or `key:"two words"`, at a word start. */
 const FACET_RE = /(^|\s)(person|topic|project|type|is):(?:"([^"]*)"|(\S+))/gi;
 const IS_VALUES = ['job', 'proposal'];
+/** `has:sketch` (or `has:sketches`), at a word start (v3.24.0). */
+const HAS_RE = /(^|\s)has:sketch(?:es)?(?=\s|$)/gi;
 
 /**
  * Take the tag facets out of a query (v3.22.0).
  * @param {string} text
- * @returns {{text: string, facets: Array<{key: string, value: string}>}}
+ * @returns {{text: string, facets: Array<{key: string, value: string}>, has: string[]}}
  *   `text` with the facets removed; facets in query order, keys lowercase
  *   (`type` and `is` values lowercase too)
  */
 export function extractFacets(text) {
   const facets = [];
-  const rest = String(text || '').replace(FACET_RE, (m, lead, k, quoted, bare) => {
+  const has = [];
+  // has:sketch (v3.24.0): pages with a sketch line, and the Sketches group first.
+  const noHas = String(text || '').replace(HAS_RE, (m, lead) => {
+    if (!has.includes('sketch')) has.push('sketch');
+    return `${lead} `;
+  });
+  const rest = noHas.replace(FACET_RE, (m, lead, k, quoted, bare) => {
     const key = k.toLowerCase();
     let value = (quoted != null ? quoted : bare).replace(/\s+/g, ' ').trim();
     if (key === 'type' || key === 'is') value = value.toLowerCase();
@@ -51,7 +60,7 @@ export function extractFacets(text) {
     facets.push({ key, value });
     return `${lead} `;
   });
-  return { text: rest, facets };
+  return { text: rest, facets, has };
 }
 
 /** Does one facet take this tag? */
@@ -143,14 +152,14 @@ function resolveYear(m, d, now) {
  *
  * @param {string} input
  * @param {{now?: Date}} [opts]
- * @returns {{raw: string, text: string, tokens: string[], days: string[], facets: Array<{key: string, value: string}>}}
+ * @returns {{raw: string, text: string, tokens: string[], days: string[], facets: Array<{key: string, value: string}>, has: string[]}}
  *   `text` is the query with the facets and dates taken out; `tokens` are its
  *   search words (same tokenizer as Transcripts → Search); `days` are unique,
  *   in query order; `facets` from extractFacets (v3.22.0).
  */
 export function parseSearchQuery(input, { now = new Date() } = {}) {
   const raw = typeof input === 'string' ? input : '';
-  const { text: noFacets, facets } = extractFacets(raw);
+  const { text: noFacets, facets, has } = extractFacets(raw);
   let text = noFacets;
   const days = [];
   const add = (k) => { if (k && !days.includes(k)) days.push(k); };
@@ -173,7 +182,7 @@ export function parseSearchQuery(input, { now = new Date() } = {}) {
   });
 
   text = text.replace(/\s+/g, ' ').trim();
-  return { raw, text, tokens: [...tokenize(text)], days, facets };
+  return { raw, text, tokens: [...tokenize(text)], days, facets, has };
 }
 
 /**

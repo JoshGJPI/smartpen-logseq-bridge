@@ -36,7 +36,7 @@ describe('stdio server', () => {
   it('registers every tool read-only', async () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
-      'check_transcript', 'days_summary', 'get_transcript', 'list_notebooks', 'list_pages', 'list_tags', 'list_tasks', 'render_days', 'render_page', 'search'
+      'check_transcript', 'days_summary', 'get_transcript', 'list_notebooks', 'list_pages', 'list_sketches', 'list_tags', 'list_tasks', 'render_days', 'render_page', 'search'
     ]);
     for (const t of tools) expect(t.annotations?.readOnlyHint).toBe(true);
   });

@@ -24,9 +24,10 @@ export function mainFunctions(names) {
     const end = src.indexOf('\n}', start + 1);
     return src.slice(start, end + 2);
   }).join('\n');
-  const { buildTaskSummary } = createRequire(import.meta.url)('../../electron/task-summary.cjs');
+  const { buildTaskSummary, buildSketchSummary, lineScanText } = createRequire(import.meta.url)('../../electron/task-summary.cjs');
   // eslint-disable-next-line no-new-func
-  return new Function('buildTaskSummary', `${body}\nreturn { ${names.join(', ')} };`)(buildTaskSummary);
+  return new Function('buildTaskSummary', 'buildSketchSummary', 'lineScanText', `${body}\nreturn { ${names.join(', ')} };`)(
+    buildTaskSummary, buildSketchSummary, lineScanText);
 }
 
 const main = mainFunctions(['buildTranscriptionText', 'countStrokeLines', 'extractPageMeta', 'dayKeyLocal', 'extractCaptureDays']);

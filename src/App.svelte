@@ -15,6 +15,7 @@
   import PrintDialog from './components/dialog/PrintDialog.svelte';
   import RelinkDialog from './components/dialog/RelinkDialog.svelte';
   import TagBlockDialog from './components/tags/TagBlockDialog.svelte';
+  import MakeSketchDialog from './components/dialog/MakeSketchDialog.svelte';
   import McpEditToast from './components/layout/McpEditToast.svelte';
   import { initMcpEdits } from '$stores/mcp-edits.js';
 
@@ -288,6 +289,7 @@
   <PrintDialog />
   <RelinkDialog />
   <TagBlockDialog />
+  <MakeSketchDialog />
   <McpEditToast />
 </div>
 

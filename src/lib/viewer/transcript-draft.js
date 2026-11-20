@@ -9,6 +9,7 @@
  */
 
 import { markerField } from '$lib/tasks.js';
+import { kindFields, isKindLine } from '$lib/line-kinds.js';
 
 export function makeLineId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -29,6 +30,8 @@ export function cloneLines(src) {
     checked: l.checked === true || l.checked === false ? l.checked : null,
     ...markerField(l),
     yBounds: l.yBounds ?? null,
+    // A sketch line (v3.24.0) stays one: its kind and box ride along.
+    ...kindFields(l),
   }));
 }
 
@@ -94,8 +97,10 @@ export function removeAt(draft, i) {
  * @param {number} activeIndex
  */
 export function mergeIndices(draft, selectedIds, activeIndex) {
-  if (selectedIds.size >= 2) return tickedIndices(draft, selectedIds);
-  return activeIndex >= 0 && activeIndex < draft.length - 1 ? [activeIndex, activeIndex + 1] : [];
+  const idx = selectedIds.size >= 2 ? tickedIndices(draft, selectedIds)
+    : activeIndex >= 0 && activeIndex < draft.length - 1 ? [activeIndex, activeIndex + 1] : [];
+  // A sketch (any kind, v3.24.0) is never merged with text.
+  return idx.some((i) => isKindLine(draft[i])) ? [] : idx;
 }
 
 /** Indices of the ticked lines, in draft order. */
@@ -118,5 +123,6 @@ export function deletedBaseIds(draft, base) {
     kept.add(l.id);
     for (const id of l.mergedIds || []) kept.add(id);
   }
-  return (base || []).map((l) => l && l.id).filter((id) => id && !kept.has(id));
+  // A deleted sketch's ink is only unlinked (v3.24.0): not the ink choice's business.
+  return (base || []).filter((l) => l && !isKindLine(l)).map((l) => l.id).filter((id) => id && !kept.has(id));
 }

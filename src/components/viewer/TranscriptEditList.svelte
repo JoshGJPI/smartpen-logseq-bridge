@@ -32,6 +32,9 @@
   /** (indices, block) */
   export let onChooseDelete = () => {};
   export let onCancelDelete = () => {};
+  /** The page, for sketch rows' thumbnails (v3.24.0). */
+  export let book = null;
+  export let pageId = null;
 
   /** @type {Array<TranscriptEditRow>} */
   let rows = [];
@@ -79,6 +82,7 @@
     onMoveDown={() => onMove(i, 1)}
     onOutdent={() => onOutdent(i)}
     onIndent={() => onIndent(i)}
+    sketch={line.kind && book != null ? { book, pageId, lineId: line.id } : null}
   />
 {/each}
 {#if pendingDelete}

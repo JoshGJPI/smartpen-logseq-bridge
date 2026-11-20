@@ -11,7 +11,7 @@ vi.mock('$stores/pending-changes.js', () => ({ noteOnDiskStrokeIds: vi.fn() }));
 
 import { planTranscript } from '../storage/save-page.js';
 import { planRelink } from '../relink-plan.js';
-import { classifyRelink, buildRelinkSpec, defaultDecisions, LEFTOVER_ADD, LEFTOVER_TEXTLESS, LEFTOVER_JOIN } from '../relink.js';
+import { classifyRelink, buildRelinkSpec, defaultDecisions, LEFTOVER_ADD, LEFTOVER_TEXTLESS, LEFTOVER_JOIN, LEFTOVER_SKETCH } from '../relink.js';
 import { makeOldPage, makeRun, makeMovedPage, makeMergedPage, rowY, mm, ORIGIN } from './fixtures/relink-page.js';
 
 const keyFields = (l) => ({ id: l.id, text: l.text, indentLevel: l.indentLevel, parentId: l.parentId, checked: l.checked, marker: l.marker });
@@ -211,5 +211,38 @@ describe('planTranscript(…, { relink })', () => {
     }, [], ORIGIN, { newId: () => 'n0' });
     expect(out.lines.map((l) => l.id)).toEqual(['n0', 'a']);
     expect(out.lines[0]).toMatchObject({ indentLevel: 1, parentId: 'p' });
+  });
+});
+
+describe('Make sketch on ink left over (v3.24.0, spec B.4 / E.3)', () => {
+  it('every leftover row marked Make sketch becomes ONE sketch line, its ink linked, placed by y', () => {
+    const doc = makeOldPage();
+    // Two rows of a drawing under line 9 (between 9 and 10).
+    const y = rowY(9) + 2.5;
+    doc.strokes.push({ id: 's91', startTime: 91, endTime: 92, lineId: null, points: [[60, y + 0.2], [70, y + 0.4]] });
+    doc.strokes.push({ id: 's92', startTime: 93, endTime: 94, lineId: null, points: [[60, y + 1.2], [70, y + 1.4]] });
+    const run = makeRun(doc, { extra: [{ text: 'garble', y: y + 0.2 }, { text: 'more garble', y: y + 1.2 }] });
+    const { out, spec } = plan(doc, run, (d, m) => {
+      for (const r of m.rows.filter((x) => x.type === 'leftover')) d.leftover[r.ms] = LEFTOVER_SKETCH;
+    });
+    expect(spec.sketch).toHaveLength(2);
+    const sketches = out.lines.filter((l) => l.kind === 'sketch');
+    expect(sketches).toHaveLength(1);
+    expect(sketches[0]).toMatchObject({ text: 'Sketch', checked: null, yBounds: null });
+    expect(out.lineIdAssignments.get('s91')).toBe(sketches[0].id);
+    expect(out.lineIdAssignments.get('s92')).toBe(sketches[0].id);
+    const at = out.lines.indexOf(sketches[0]);
+    expect(out.lines[at - 1].id === 'L09' || out.lines[at].parentId != null).toBe(true);
+    expect(out.linesAdded).toBe(1);
+    expect(out.linked).toBe(28);   // the sketch is no text link: the noLinks rule is unchanged
+    // Every stored text line kept as it was.
+    expect(out.lines.filter((l) => !l.kind).map(keyFields)).toEqual(doc.transcript.lines.map(keyFields));
+  });
+
+  it('nothing marked: no sketch line', () => {
+    const doc = makeOldPage();
+    const { out, spec } = plan(doc, makeRun(doc));
+    expect(spec.sketch).toEqual([]);
+    expect(out.lines.some((l) => l.kind)).toBe(false);
   });
 });

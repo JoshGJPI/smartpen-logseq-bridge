@@ -13,6 +13,7 @@
  */
 
 import { taskStateOf } from '$lib/tasks.js';
+import { isSketchLine, sketchLabel } from '$lib/line-kinds.js';
 
 const level = (l) => Math.max(0, Number(l && l.indentLevel) || 0);
 
@@ -82,6 +83,24 @@ export function taskTexts(lines) {
   return (lines || []).filter((l) => l && taskStateOf(l)).map((l) => (l.text || '').trim());
 }
 
+/** The labels of the sketch lines among `lines` (v3.24.0). */
+export function sketchTexts(lines) {
+  return (lines || []).filter(isSketchLine).map((l) => sketchLabel(l.text));
+}
+
+/**
+ * The confirm naming the sketches a delete takes (v3.24.0: deleting a sketch asks
+ * first; its strokes are unlinked, never deleted), or ''.
+ * @param {string[]} labels
+ */
+export function sketchConfirmText(labels) {
+  const t = labels || [];
+  if (t.length === 0) return '';
+  if (t.length === 1) return `Delete the sketch ${quote(t[0])}?`;
+  const shown = t.slice(0, 3).map(quote).join(', ');
+  return `Delete ${t.length} sketches (${shown}${t.length > 3 ? ', …' : ''})?`;
+}
+
 const quote = (t) => `'${t.length > 60 ? t.slice(0, 57) + '…' : t}'`;
 
 /**
@@ -118,13 +137,18 @@ export function deletePrompt(lines, indices, { ticked = false } = {}) {
   const askBlock = !ticked && idx.length === 1 && hasChildren(lines, idx[0]);
   const lineTasks = taskTexts(idx.map((i) => lines[i]));
   const blockTasks = askBlock ? taskTexts(lines.slice(idx[0], blockEnd(lines, idx[0]))) : lineTasks;
-  if (!askBlock && lineTasks.length === 0) return null;
+  // A sketch line asks first too (v3.24.0).
+  const lineSketches = sketchTexts(idx.map((i) => lines[i]));
+  const blockSketches = askBlock ? sketchTexts(lines.slice(idx[0], blockEnd(lines, idx[0]))) : lineSketches;
+  if (!askBlock && lineTasks.length === 0 && lineSketches.length === 0) return null;
   return {
     indices: idx,
     askBlock,
     text: idx.length === 1 ? (lines[idx[0]].text || '').trim() : `${idx.length} lines`,
     childCount: askBlock ? blockEnd(lines, idx[0]) - idx[0] - 1 : 0,
     lineTasks,
-    blockTasks
+    blockTasks,
+    lineSketches,
+    blockSketches
   };
 }

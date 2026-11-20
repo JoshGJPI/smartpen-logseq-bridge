@@ -76,6 +76,14 @@
  *       the page changed since the run (`stale`) or when no line would be
  *       linked (`noLinks`: the page would read as trustworthy, all ink unlinked).
  *
+ *   Sketch lines (v3.24.0, lib/line-kinds.js; any line with a `kind`):
+ *     - kept by the merge like any line, their ink never matched to a new line;
+ *     - in an Edit Transcription result a sketch row keeps its kind and bounds,
+ *       its label may change but a cleared label reads "Sketch" (never a
+ *       delete); a deleted sketch's ink is only unlinked, never flagged;
+ *     - a Reset + replace keeps them, re-placed by y, their ink still linked;
+ *     - `bounds` is recomputed from the linked strokes on every save.
+ *
  *   planTranscript() is the one place that decides the written transcript,
  *   and the save dialog (page-changes.js) asks it too, so "will this save
  *   change the transcript?" has the same answer as the save.
@@ -97,6 +105,9 @@ import { sameInk, shiftStoredStroke } from './duplicate-strokes.js';
 import { INK_TEXTLESS, normalizeDeletedInk, withTextless } from '$lib/deleted-ink.js';
 import { planRelink } from '$lib/relink-plan.js';
 import { isTrustworthyTranscript } from '$lib/viewer/ink-text.js';
+import {
+  KIND_SKETCH, isKindLine, kindLineIds, sketchLabel, normalizeKindLine, reinsertKindLines, withKindBounds
+} from '$lib/line-kinds.js';
 
 /* -----------------------------------------------------------------
  *  Stroke shape conversion
@@ -303,7 +314,7 @@ export function transcriptLinesEqual(a, b) {
  * @param {Object} pageTranscription  `{ lines, editorBaseIds, mergedBlockPairs, ... }`
  * @returns {{ lines: Array, lineIdAssignments: Map<string,string>, lineIdRemap: Map<string,string> }}
  */
-function applyEditorLines(existingLines, pageTranscription, storedStrokes, originNcodeY) {
+function applyEditorLines(existingLines, pageTranscription, storedStrokes, originNcodeY, matchStrokes = storedStrokes) {
   const byId = new Map(existingLines.map((l) => [l.id, l]));
   const base = new Set(pageTranscription.editorBaseIds || []);
   const unseen = existingLines.filter((l) => !base.has(l.id));
@@ -317,6 +328,17 @@ function applyEditorLines(existingLines, pageTranscription, storedStrokes, origi
     const raw = (el.text || '').trim();
     const indentLevel = Math.max(0, Number(el.indentLevel) || 0);
     const ex = el.blockUuid ? byId.get(el.blockUuid) : null;
+    if (ex && !used.has(ex.id) && isKindLine(ex)) {
+      // A sketch row (v3.24.0, E.4): its label edits, it moves and indents, but
+      // it is never "emptied" into a delete (a cleared label reads "Sketch"),
+      // never a task, and another kind's text is never edited.
+      used.add(ex.id);
+      const text = ex.kind === KIND_SKETCH ? sketchLabel(raw) : ex.text;
+      if (text === ex.text && indentLevel === (ex.indentLevel || 0)) { out.push(ex); continue; }
+      if (indentLevel !== (ex.indentLevel || 0)) reparent.add(ex.id);
+      out.push(normalizeKindLine({ ...ex, text, indentLevel }));
+      continue;
+    }
     if (ex && !used.has(ex.id)) {
       used.add(ex.id);
       if (!raw) continue; // emptied in the dialog: removed
@@ -358,7 +380,7 @@ function applyEditorLines(existingLines, pageTranscription, storedStrokes, origi
     // Only lines from this transcription run are in its batch's coordinate
     // space; a merge that mixed in a saved line's bounds is not.
     if (el.fromBatch === false) continue;
-    for (const { id, overlap } of strokesIntersectingLine(rec, storedStrokes, originNcodeY)) {
+    for (const { id, overlap } of strokesIntersectingLine(rec, matchStrokes, originNcodeY)) {
       const held = bestOverlap.get(id);
       if (held === undefined || overlap > held) {
         bestOverlap.set(id, overlap);
@@ -378,7 +400,7 @@ function applyEditorLines(existingLines, pageTranscription, storedStrokes, origi
   const deletedWins = new Set();
   for (const del of pageTranscription.deletedLines || []) {
     if (!del || del.fromBatch === false) continue;
-    for (const { id, overlap } of strokesIntersectingLine(del, storedStrokes, originNcodeY)) {
+    for (const { id, overlap } of strokesIntersectingLine(del, matchStrokes, originNcodeY)) {
       if (sent && !sent.has(id)) continue;
       const held = bestOverlap.get(id);
       if (held === undefined || overlap > held) {
@@ -420,9 +442,12 @@ function applyEditorLines(existingLines, pageTranscription, storedStrokes, origi
     .filter((id) => id && !live.has(id) && !lineIdRemap.has(id)));
   const deletedInkIds = new Set();
   const unflaggable = new Set();
+  // A deleted sketch's ink is only unlinked, as Remove sketch does (v3.24.0): it was never text.
+  const kindIds = kindLineIds(existingLines);
   for (const s of storedStrokes || []) {
     if (s.lineId ? deletedSaved.has(s.lineId) : deletedWins.has(s.id)) deletedInkIds.add(s.id);
     if (!s.lineId && !sent && deletedWins.has(s.id)) unflaggable.add(s.id);
+    if (s.lineId && deletedSaved.has(s.lineId) && kindIds.has(s.lineId)) unflaggable.add(s.id);
   }
   return { lines, lineIdAssignments, lineIdRemap, deletedInkIds, unflaggable };
 }
@@ -479,11 +504,24 @@ export function planTranscript(existingLines, pageTranscription, storedStrokes =
   // the old one) and the old lines go; the dialog path drops them because the
   // Review tab adds their ids to editorBaseIds. Task state follows the text.
   const replace = pageTranscription.replace === true;
+  // Ink linked to a sketch line (any kind, v3.24.0) is never matched to a new
+  // line: it was never sent, and a match by Y alone would take a drawing.
+  const kindIds = kindLineIds(existing);
+  const matchable = kindIds.size
+    ? (storedStrokes || []).filter((s) => !(s && s.lineId && kindIds.has(s.lineId)))
+    : storedStrokes;
   let { lines, lineIdAssignments, lineIdRemap = new Map(), deletedInkIds = new Set(), unflaggable = new Set() } = fromEditor
-    ? applyEditorLines(existing, pageTranscription, storedStrokes, originNcodeY)
-    : mergeTranscript(replace ? [] : existing, pageTranscription.lines, storedStrokes, originNcodeY);
+    ? applyEditorLines(existing, pageTranscription, storedStrokes, originNcodeY, matchable)
+    : mergeTranscript(replace ? [] : existing, pageTranscription.lines, matchable, originNcodeY);
   if (replace) {
     lines = carryTaskState(existing, lines);
+    // The replacing transcript keeps the sketch lines (E.4), re-placed by y
+    // under the new lines their ink now sits below; their ink keeps its link.
+    if (kindIds.size) {
+      const assigned = lineIdAssignments;
+      lines = reinsertKindLines(existing, lines, storedStrokes,
+        (s) => (s.lineId && kindIds.has(s.lineId) ? s.lineId : assigned.get(s.id) || null));
+    }
     // The run already saved (the save dialog asking again): the same lines, kept.
     const same = (a, b) => a.text === b.text && (a.indentLevel || 0) === (b.indentLevel || 0)
       && (a.checked ?? null) === (b.checked ?? null) && (a.marker ?? null) === (b.marker ?? null);
@@ -754,6 +792,7 @@ export async function savePageToFolder(input) {
 
       if (plan.changed || plan.lineIdAssignments.size > 0 || textlessIds.size > 0) {
         const planIds = new Set(plan.lines.map(l => l.id));
+        const keptKindIds = kindLineIds(plan.lines);
         merged = merged.map(s => {
           // Ink of a line deleted in the dialog, left out as Not text.
           if (textlessIds.has(s.id)) return withTextless(s, true);
@@ -762,7 +801,9 @@ export async function savePageToFolder(input) {
           // links are what was wrong (a drawing in the batch, 3017/182), even
           // where the text came out the same. The page was loaded whole
           // (stores/transcript-reset.js refuses a partial load).
+          // A sketch line's ink is not text and keeps its link (v3.24.0, E.4).
           if (plan.replace) {
+            if (s.lineId && planIds.has(s.lineId) && keptKindIds.has(s.lineId)) return s;
             const id = plan.lineIdAssignments.get(s.id) || null;
             return (s.lineId || null) === id ? s : { ...s, lineId: id };
           }
@@ -825,6 +866,12 @@ export async function savePageToFolder(input) {
         const keep = !s.textless && before && liveLineIds.has(before) ? before : null;
         return { ...s, lineId: keep };
       });
+    }
+    // A sketch line's box follows its strokes (v3.24.0, E.2): a stroke deleted,
+    // edited or unlinked here changes it.
+    {
+      const lines = withKindBounds(transcript.lines, merged);
+      if (lines !== transcript.lines) transcript = { ...transcript, lines };
     }
 
     const doc = {

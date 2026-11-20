@@ -4,17 +4,26 @@
   row's merge / split / indent buttons (Backspace on an empty line asks to
   delete it). Owns no state; every change is an event
   the dialog applies (and records for its undo).
+
+  A sketch row (v3.24.0, `sketch`): a small thumbnail of its ink and a SKETCH
+  badge instead of the bullet; its label edits (a cleared label is saved as
+  "Sketch"), it moves and indents, and merge / split are off.
 -->
 <script>
   import { createEventDispatcher } from 'svelte';
   import { autosize, oneLine } from '$lib/autosize.js';
   import { editorLineStatus } from '$lib/editor-lines.js';
+  import PageThumb from '../viewer/PageThumb.svelte';
 
   export let line;
   export let selected = false;
   export let focused = false;
   /** The last row has nothing to merge with. */
   export let isLast = false;
+  /** The next row is a sketch: nothing to merge with (v3.24.0). */
+  export let nextIsKind = false;
+  /** A sketch row: `{ book, pageId, lineId }` for its thumbnail, else null. */
+  export let sketch = null;
 
   const dispatch = createEventDispatcher();
 
@@ -73,7 +82,14 @@
       </span>
     {/if}
 
-    <span class="bullet">&#8226;</span>
+    {#if line.kind}
+      <span class="sk" title="A sketch: its label is searchable; its ink stays linked to it">
+        {#if sketch}<PageThumb book={sketch.book} pageId={sketch.pageId} lineId={sketch.lineId} height="34px" />{/if}
+        <span class="sk-badge">SKETCH</span>
+      </span>
+    {:else}
+      <span class="bullet">&#8226;</span>
+    {/if}
 
     <!-- Wraps instead of scrolling: a one-row textarea that grows
          (lib/autosize.js). The line stays one line: Enter is not a
@@ -87,7 +103,7 @@
       on:input={(e) => dispatch('input', oneLine(e.target.value))}
       on:keydown={onKey}
       on:blur={() => dispatch('commit')}
-      placeholder="Empty line…"
+      placeholder={line.kind ? 'Sketch' : 'Empty line…'}
     ></textarea>
 
     <!-- Trailing cluster: actions then status. The status slot is a fixed
@@ -95,9 +111,9 @@
          out from under the cursor mid-click. -->
     <div class="line-trailing">
       <div class="line-actions">
-        <button class="action-btn" on:click={() => dispatch('merge')} disabled={isLast}
+        <button class="action-btn" on:click={() => dispatch('merge')} disabled={isLast || !!line.kind || nextIsKind}
           title="Merge with next line" aria-label="Merge with next line">&#8595;</button>
-        <button class="action-btn" on:click={split}
+        <button class="action-btn" on:click={split} disabled={!!line.kind}
           title="Split line in half" aria-label="Split line in half">&#8596;</button>
         <button class="action-btn" on:click={() => dispatch('outdent')} disabled={indent <= 0}
           title="Outdent" aria-label="Outdent">&#8592;</button>
@@ -119,6 +135,10 @@
 </div>
 
 <style>
+  .sk { flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px; }
+  .sk :global(.thumb) { width: 44px; padding: 1px; border-radius: 3px; }
+  .sk-badge { padding: 0 4px; border-radius: 3px; background: #f5b942; color: #1c1f2b; font-size: 9px; font-weight: 700; letter-spacing: 0.04em; }
+
   /* Rendered like text, not like a form */
   .line-item {
     border-radius: 6px;

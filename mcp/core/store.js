@@ -26,12 +26,22 @@ import { mightHaveTaskBoxes } from '../../src/lib/storage/convert-task-boxes.js'
 import { isTrustworthyTranscript } from '../../src/lib/viewer/ink-text.js';
 import { linkedStrokeCount, textlessStrokeCount } from './transcript-check.js';
 import { scopeLinesOf, buildTranscriptionText } from '../../src/lib/tag-scope.js';
+import { buildSketchSummary } from '../../src/lib/line-kinds.js';
 
 const PAGE_FILE_RE = /^P(\d+)([a-zA-Z]?)\.json$/;
 
 /** main.cjs buildTranscriptionText(): the text the app's records carry for search. */
 function transcriptText(lines) {
   return buildTranscriptionText(lines);
+}
+
+/** buildSketchSummary() (main's `sketches`), each with `strokes`: how many strokes are linked to it. */
+function sketchSummaryWithCounts(lines, strokes) {
+  const list = buildSketchSummary(lines);
+  if (!list.length) return list;
+  const n = new Map(list.map((s) => [s.id, 0]));
+  for (const s of strokes) if (s && n.has(s.lineId)) n.set(s.lineId, n.get(s.lineId) + 1);
+  return list.map((s) => ({ ...s, strokes: n.get(s.id) }));
 }
 
 function summarize(doc, f, st) {
@@ -61,6 +71,8 @@ function summarize(doc, f, st) {
     transcribed: lines.length > 0,
     transcriptionText: text,
     tasks: normalizeTaskSummary(buildTaskSummary(lines)),
+    // Sketch lines (v3.24.0): the app's scan summary, plus each one's stroke count (the MCP has the doc in hand).
+    sketches: sketchSummaryWithCounts(lines, strokes),
     taskBoxesInText: mightHaveTaskBoxes(text),  // not converted to tasks yet (the app's Convert task boxes… step)
     // Strokes linked to a transcript line, where the links can be trusted (else null): a page with most of its ink
     // in no line is only partly transcribed (list_pages' `partly`).

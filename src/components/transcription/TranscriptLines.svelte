@@ -22,6 +22,11 @@
   a Person or Project tag is picked in the page's tag strip (scopeTagShown), a
   faint bar in the tag's colour marks the lines it covers (lib/tag-scope.js).
 
+  Sketch lines (v3.24.0, Phase E) are SketchRows: thumbnail, label, stroke count
+  (`sketchInk`) and the block they sit in; hovering one lights its ink on any page
+  (`onHoverSketch`: a sketch's links are exact). Another line `kind` (E.7) shows
+  as `[kind] text`, read only.
+
   Empty state: "Transcribe in Editor" only when MyScript is configured
   (transcribing is an Editor action: the button loads the page there, and the
   capture bar's Transcribe does the rest); otherwise it says where to add a key.
@@ -35,7 +40,9 @@
   import { pageTags, tagInfo, tagBlocks, untagBlock } from '$stores/tags.js';
   import { scopeTagShown, openTagBlockDialog } from '$stores/tag-scope.js';
   import { tagKey, tagTypeOf, tagLabel } from '$lib/tags.js';
-  import { coveredLineIds, rootsOnLine } from '$lib/tag-scope.js';
+  import { coveredLineIds, rootsOnLine, pageScopes } from '$lib/tag-scope.js';
+  import { isKindLine, isSketchLine, lineScanText } from '$lib/line-kinds.js';
+  import SketchRow from './SketchRow.svelte';
 
   export let lines = [];
   /** (index) => void: copy that line and its children; null hides the buttons. */
@@ -56,6 +63,10 @@
   export let taskPageId = null;
   /** Why task markers can't be clicked now, or ''. */
   export let taskLock = '';
+  /** Sketch line id → its stroke count (v3.24.0), or null. */
+  export let sketchInk = null;
+  /** (line|null) => void: a sketch row hovered (lights its ink on any page), or null. */
+  export let onHoverSketch = null;
 
   $: interactive = taskBook != null && taskPageId != null;
 
@@ -74,6 +85,21 @@
       onSelect: () => untagBlock(taskBook, taskPageId, r.tag, line.id, { byText: r.byText })
     }))
   ];
+  // Where a sketch sits: the Project / Person block holding it, else the line above it.
+  $: sketchScopes = interactive && lines.some(isSketchLine) ? pageScopes(lines, onPage, $tagInfo, corrections) : {};
+  function contextOf(i) {
+    const tags = Object.values(sketchScopes).filter((s) => !s.wholePage && s.covered.has(i)).map((s) => tagLabel(s.tag, $tagInfo));
+    if (tags.length) return `in the ${tags.join(' / ')} block`;
+    const lvl = lines[i].indentLevel || 0;
+    for (let j = i - 1; lvl > 0 && j >= 0; j--) {
+      if ((lines[j].indentLevel || 0) < lvl) {
+        const t = String(lines[j].text || '');
+        return `under #${j + 1} ${t.length > 32 ? `${t.slice(0, 31)}…` : t}`;
+      }
+    }
+    return '';
+  }
+
   // An override of Not a task shows the line plain while the write runs.
   $: stateOf = (line) => {
     const over = interactive && $taskOverrides.get(taskKey(taskBook, taskPageId, line.id));
@@ -111,6 +137,15 @@
 {#if hasContent}
   <div class="tl" class:linked={!!onHoverLine} role="list" on:mouseleave={() => hover(null)}>
     {#each lines as line, i (line.id)}
+      {#if isSketchLine(line)}
+        <SketchRow {line} n={i + 1} book={taskBook} pageId={taskPageId} count={sketchInk ? sketchInk.get(line.id) || 0 : null}
+          context={contextOf(i)} {interactive} lock={taskLock} boxable={!!onHoverSketch} hot={hotId === line.id} focus={focusId === line.id}
+          onHover={onHoverSketch ? (l) => { hotId = l ? l.id : null; onHoverSketch(l); } : null} />
+      {:else if isKindLine(line)}
+        <div role="listitem" class="tl-line" style="padding-left: {(line.indentLevel || 0) * 1.5}rem">
+          <span class="tl-marker">▣</span><span class="tl-text tl-kind">{lineScanText(line)}</span>
+        </div>
+      {:else}
       <div
         role="listitem"
         class="tl-line"
@@ -150,6 +185,7 @@
           </button>
         {/if}
       </div>
+      {/if}
     {/each}
     {#if linkNote}
       <p class="tl-note">{linkNote}</p>
@@ -206,6 +242,7 @@
   .tl-line:hover .tl-task-menu,
   .tl-task-menu:focus-within { opacity: 1; }
   .tl-text { min-width: 0; }
+  .tl-kind { color: #888; font-style: italic; }
   .tl-text.done { color: #999; text-decoration: line-through; }
   /* Per-node copy: out of the way until the line is hovered or the button focused. */
   .tl-copy {

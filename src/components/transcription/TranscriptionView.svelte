@@ -167,9 +167,9 @@
    * next run replaces the saved transcript on Save (v3.17.0; it used to be
    * appended beside it).
    */
-  function handleResetTranscript(pageData) {
+  async function handleResetTranscript(pageData) {
     const { book, page } = pageData.pageInfo;
-    const n = resetPageTranscript(book, page);
+    const n = await resetPageTranscript(book, page);
     if (n < 0) {
       log(`B${book}/P${page} is only partly loaded: load the whole page (Pages tab) before re-transcribing it`, 'warning');
       return;

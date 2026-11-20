@@ -63,10 +63,11 @@ New pages show up without a restart: each call re-stats the folder and re-reads 
 | `list_tags` | Tags with `type` (project / person / topic), `label`, aliases, page, notebook and open-task counts, untagged count; `type` filters (v3.22.0). With `tag` (key, label or alias), that tag's details and pages. Read-only: no tool sets a type | text |
 | `list_tasks` | Task lines (TODO / DONE / WAITING / CANCELLED): the app's Tasks view rows, filtered by state, project, `person` (v3.23.0: key, display name or alias; the Person tags whose blocks hold the task), tags, notebook, days, text; grouped (project, person, date, book); each row lists its `people`; paged | text, ~350 chars a row |
 | `check_transcript` | Without `reference`: the page's written rows from the ink (height, left margin, indent column, possible wraps), no transcript text. With `reference` (Claude's reading as markdown bullets): the stored transcript diffed against it (wording, indent, task state, missing lines, strokes per line). See "Checking a transcription" | text |
-| `get_transcript` | One page's lines, numbered `#n` (the stored line number `edit_transcript` takes), with indent and TODO / DONE / WAITING / CANCELLED; flags pages whose stroke-to-line links are unreliable | text, few KB |
-| `search` | The app's header search: words, dates, notebook names / keys, tags, tag facets `person:` `topic:` `project:` `type:` `is:job` / `is:proposal` (same code, same limits) | text |
+| `get_transcript` | One page's lines, numbered `#n` (the stored line number `edit_transcript` takes), with indent and TODO / DONE / WAITING / CANCELLED; a sketch line (v3.24.0) as `#17 [sketch] Floor plan (412 strokes)`; flags pages whose stroke-to-line links are unreliable | text, few KB |
+| `list_sketches` | Sketch lines (v3.24.0): page, line `#n`, label, stroke count, days written and tags (the page's Project / Person tags whose block holds the sketch, a tag named nowhere covering the page, topics always). Filters: `project`, `tag`, `person`, `book`, `from` / `to`; paged | text |
+| `search` | The app's header search: words, dates, notebook names / keys, tags, tag facets `person:` `topic:` `project:` `type:` `is:job` / `is:proposal`, and `has:sketch` (v3.24.0: sketches first, by label or their tags) (same code, same limits) | text |
 | `days_summary` | Per local day: strokes and pages touched | text |
-| `render_page` | One page as a PNG, stored rotation, on the printed page (`fit: "ink"` crops to the ink). `color_by_line` / `show_decorative` for checking a transcription (see "Checking a transcription") | ~1,700 visual tokens at 1000 px |
+| `render_page` | One page as a PNG, stored rotation, on the printed page (`fit: "ink"` crops to the ink). `color_by_line` / `show_decorative` for checking a transcription (see "Checking a transcription"). `line` (v3.24.0, `17` or `"#17"`): only that line's ink, cropped to it, the rest grey: a sketch | ~1,700 visual tokens at 1000 px |
 | `render_days` | One PNG per page written on in the range: that range's ink dark, the rest of the page grey; `transcript: true` adds each page's text | 4 images, ~3,500 visual tokens at 700 px |
 
 Text tools are cheap; the tool descriptions point Claude at them first (`get_transcript` before `render_page`,
@@ -81,6 +82,7 @@ its file size, and Claude Code warns above 10,000 tokens per tool result (hard c
 | Images per call | 1 (`render_page`), 4 (`render_days`) | 4 |
 | Width | 1000 px (`render_page`), 700 px (`render_days`) | long edge 1,500 px and 2,000 visual tokens per image |
 | `list_tasks` rows | 50 | 200 |
+| `list_sketches` rows | 50 | 200 |
 
 A caller may raise `width` up to the cap; past it the width is lowered, never refused. Worst case 4 × 2,000 = 8,000
 visual tokens plus the text block, under the warning. Pages left out are named in the reply with the `offset` to ask
@@ -152,6 +154,15 @@ including how Claude writes its blind reading, is the project skill
   counts of boxes, underlines and circles. Same detector (`detectDecorativeIndices`) on every stroke of the page in raw
   Ncode, as the Editor runs it. A red task box (☐ / ☑) would be left out of the transcription and lose its TODO / DONE.
 
+## Sketch lines (v3.24.0)
+
+A sketch line is a drawing Josh marked in the app and labelled (`kind: "sketch"`, its label as text, its strokes linked
+by `lineId`, a `bounds` box). `get_transcript` prints it as `[sketch] label (k strokes)`; `check_transcript` leaves it
+out of the comparison (its label is no reading of handwriting); `list_sketches` finds them by project, person or tag
+(block scope, as the app's search); `render_page { line }` shows one. Claude may rename one (`edit_transcript` set_text on
+its line; `expect` may be copied with the `[sketch]` and stroke count) and move or indent it, never delete or insert
+one: sketches are made and removed in the app (they stand for ink).
+
 ## Editing a transcript through the app (v3.18.0)
 
 `edit_transcript` and `undo_transcript_edit` exist only when the server is started with `SMARTPEN_MCP_WRITES=1`, and
@@ -217,7 +228,7 @@ helpers, tags, tasks, convert-task-boxes (detection only), global-search, search
 Tests (`mcp/__tests__/`, synthetic data built in a temp folder): `mcp.test.js` (guard, sidecars, scan, bounds and
 outliers, PNG decode, pixel caps and paging, stored rotation, every tool), `search-parity.test.js` (MCP search vs the app's search
 pipeline, with main.cjs's own metadata functions), `tasks.test.js` (`list_tasks` filters, groups, paging, and parity
-with the app's Tasks view rows), `server.test.js` (stdio start-up, exactly the ten tools, all read-only), `write-tools.test.js` (the write tools only
+with the app's Tasks view rows), `server.test.js` (stdio start-up, exactly the eleven tools, all read-only), `sketches.test.js` (v3.24.0: sketch lines in `get_transcript`, `list_sketches`, `render_page { line }`, `check_transcript`, `search`), `write-tools.test.js` (the write tools only
 with `SMARTPEN_MCP_WRITES=1`, their annotations, dry run / apply / stale revision / undo against a fake app behind the
 real endpoint, "app not running"), `dst.test.js` (fall-back /
 spring-forward days, local midnight). `__fixtures__/app-side.js` builds the synthetic folders and reads them back the

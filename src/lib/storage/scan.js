@@ -25,6 +25,7 @@ import { loadTags } from '$stores/tags.js';
 import { loadBookTypes } from '$stores/book-types.js';
 import { loadRetimed } from '$stores/retimed.js';
 import { normalizeTaskSummary } from '$lib/tasks.js';
+import { normalizeSketchSummary } from '$lib/line-kinds.js';
 
 /**
  * Convert a lightweight PageMeta → record shape consumed by PageCard / BookViewer.
@@ -67,6 +68,9 @@ export function metaToRecord(meta) {
     // Task lines (v3.4.0): built in main (electron/task-summary.cjs, mirroring
     // lib/tasks.js buildTaskSummary). Small: text and parent line, no strokes.
     tasks: normalizeTaskSummary(meta.tasks),
+    // Sketch lines (v3.24.0): `{ id, label, lineIndex }`, at most 20, built in
+    // main (electron/task-summary.cjs, mirroring lib/line-kinds.js).
+    sketches: normalizeSketchSummary(meta.sketches),
     syncStatus: 'clean'
   };
 }

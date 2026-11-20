@@ -39,7 +39,7 @@
     const noun = `stroke${changed !== 1 ? 's' : ''}`;
     log(
       sketch
-        ? `Marked ${changed} ${noun} as sketch (${$sketchProfileSummary})`
+        ? `Marked ${changed} ${noun} as Pressure ink (${$sketchProfileSummary})`
         : `Unmarked ${changed} ${noun} — back to uniform width`,
       'success'
     );
@@ -47,27 +47,29 @@
   }
 </script>
 
-<!-- Sketch rendering: mark strokes, then tune how marked strokes are drawn.
+<!-- Pressure ink (the stroke flag stored as `sketch: true`; its UI name since
+     v3.24.0, spec E.9, so it isn't confused with sketch lines): mark strokes,
+     then tune how marked strokes are drawn.
      Grouped here rather than in the top bar so the style popover opens
      beside the controls that produce the strokes it restyles. -->
-<div class="sketch-actions" role="group" aria-label="Sketch rendering">
+<div class="sketch-actions" role="group" aria-label="Pressure ink">
   <button
     class="btn btn-secondary small tone-sketch"
     on:click={() => applySketchFlag(true)}
     disabled={selectedPlainCount === 0}
     title={selectedPlainCount > 0
       ? `Render ${selectedPlainCount} selected stroke${selectedPlainCount !== 1 ? 's' : ''} with pressure-varying thickness (${$sketchProfileSummary})`
-      : 'Select strokes that are not already sketches'}
+      : 'Select strokes that are not already Pressure ink'}
   >
-    ✏️ Sketch{#if selectedPlainCount > 0} ({selectedPlainCount}){/if}
+    ✏️ Pressure ink{#if selectedPlainCount > 0} ({selectedPlainCount}){/if}
   </button>
   <button
     class="btn btn-secondary small tone-sketch"
     on:click={() => applySketchFlag(false)}
     disabled={selectedSketchCount === 0}
     title={selectedSketchCount > 0
-      ? `Return ${selectedSketchCount} selected sketch stroke${selectedSketchCount !== 1 ? 's' : ''} to a uniform width`
-      : 'Select sketch strokes to return them to a uniform width'}
+      ? `Return ${selectedSketchCount} selected Pressure ink stroke${selectedSketchCount !== 1 ? 's' : ''} to a uniform width`
+      : 'Select Pressure ink strokes to return them to a uniform width'}
   >
     ✒️ Unmark{#if selectedSketchCount > 0} ({selectedSketchCount}){/if}
   </button>

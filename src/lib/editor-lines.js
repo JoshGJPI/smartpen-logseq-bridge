@@ -15,6 +15,7 @@
 import { markerField, taskStateOf } from '$lib/tasks.js';
 import { deleteLines } from '$lib/delete-lines.js';
 import { lineHasInk } from '$lib/deleted-ink.js';
+import { isKindLine, kindFields, normalizeKindLine } from '$lib/line-kinds.js';
 
 /**
  * `{ checked, marker? }` of the first task among `lines`, else `{}`.
@@ -70,7 +71,8 @@ export function mergeEditorLines(parts) {
  */
 export function mergeTranscriptLines(lines, indices) {
   const idx = [...new Set(indices)].filter((i) => i >= 0 && i < lines.length).sort((a, b) => a - b);
-  if (idx.length < 2) return lines;
+  // A sketch (any kind, v3.24.0) is never merged with text.
+  if (idx.length < 2 || idx.some((i) => isKindLine(lines[i]))) return lines;
   const parts = idx.map((i) => lines[i]);
   const bounds = parts.map((l) => l.yBounds).filter(Boolean);
   const { checked, marker, ...first } = parts[0];
@@ -163,17 +165,20 @@ export function keepDiskTaskState(lines, base, disk) {
  * @returns {{ lines: Array<object>, lineIdRemap: Map<string, string> }}
  */
 export function buildEditedTranscript(editedLines, base, disk, newId) {
-  const built = (editedLines || []).map((l) => ({
-    id: l.blockUuid || newId(),
-    text: (l.text || '').trim(),
-    indentLevel: l.indentLevel || 0,
-    parentId: null,
-    checked: l.checked ?? null,
-    ...markerField(l),
-    yBounds: l.yBounds && (l.yBounds.minY !== 0 || l.yBounds.maxY !== 0)
-      ? { minY: l.yBounds.minY, maxY: l.yBounds.maxY }
-      : null
-  }));
+  const built = (editedLines || []).map((l) => (isKindLine(l)
+    // A sketch row (v3.24.0): kind and box kept, never a task, a cleared label reads "Sketch".
+    ? normalizeKindLine({ id: l.blockUuid || newId(), text: (l.text || '').trim(), indentLevel: l.indentLevel || 0, parentId: null, ...kindFields(l) })
+    : {
+      id: l.blockUuid || newId(),
+      text: (l.text || '').trim(),
+      indentLevel: l.indentLevel || 0,
+      parentId: null,
+      checked: l.checked ?? null,
+      ...markerField(l),
+      yBounds: l.yBounds && (l.yBounds.minY !== 0 || l.yBounds.maxY !== 0)
+        ? { minY: l.yBounds.minY, maxY: l.yBounds.maxY }
+        : null
+    }));
   // parent = nearest preceding line with a lower indentLevel
   for (let i = 0; i < built.length; i++) {
     const lvl = built[i].indentLevel;
@@ -225,7 +230,7 @@ export function detectMergeSuggestions(lines) {
   for (let i = 0; i < (lines || []).length - 1; i++) {
     const current = lines[i];
     const next = lines[i + 1];
-    if (!current?.yBounds || !next?.yBounds) continue;
+    if (!current?.yBounds || !next?.yBounds || isKindLine(current) || isKindLine(next)) continue;
     const sameLine =
       (current.indentLevel || 0) === (next.indentLevel || 0) &&
       !/[.!?]$/.test(current.text || '') &&
@@ -331,6 +336,8 @@ export function savedLinesForEditor(savedLines) {
     blockUuid: l.id,
     checked: l.checked ?? null,
     ...markerField(l),
+    // A sketch row (v3.24.0): shown with its thumbnail, label editable, never merged or split.
+    ...kindFields(l),
     syncStatus: 'synced'
   }));
 }
@@ -377,7 +384,8 @@ export function mergeExistingAndNewLines(existing, fresh) {
 export function emptiedLines(lines, opened) {
   const indices = [];
   const named = (lines || []).map((l, i) => {
-    if ((l.text || '').trim() !== '') return l;
+    // A sketch's cleared label is not a delete (it reads "Sketch", v3.24.0).
+    if ((l.text || '').trim() !== '' || isKindLine(l)) return l;
     indices.push(i);
     const was = (opened || [])[l.originalIndex];
     return { ...l, text: (was && was.text) || '' };

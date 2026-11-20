@@ -16,6 +16,10 @@
  *   insert      { after, expect?, level, text }      after: 0 = first line
  *   delete      { line, expect, task_ok? }           children kept, outdented one level
  *
+ * Sketch lines (v3.24.0, any `kind`): a sketch may be renamed (set_text on its
+ * label) and moved or indented; it is never deleted or inserted by an edit (it
+ * stands for ink), never made a task, and another kind's text is never edited.
+ *
  * What never changes: task state (a typed box in front of a PLAIN line's new
  * text makes it a task, as Library Edit does; on a task line it stays text),
  * ink links (an inserted line has none; a deleted line's strokes are unlinked
@@ -24,6 +28,7 @@
  */
 import { taskStateOf, stateLabel, markerOf } from './tasks.js';
 import { parseTaskMarker } from './task-markers.js';
+import { isKindLine, isSketchLine, lineScanText } from './line-kinds.js';
 
 export const MAX_OPS = 60;
 export const MAX_LEVEL = 8;
@@ -33,7 +38,7 @@ export const OPS = ['set_text', 'set_indent', 'move', 'insert', 'delete'];
 const STATE_WORD = /^(WAITING|CANCELLED|CANCELED|DOING|NOW|LATER)(?=$|[\s:])/;
 
 /** The fields a line is compared on (parentId is re-derived from indents on save). */
-const LINE_FIELDS = ['id', 'text', 'indentLevel', 'checked', 'marker', 'yBounds'];
+const LINE_FIELDS = ['id', 'text', 'indentLevel', 'checked', 'marker', 'yBounds', 'kind'];
 
 const levelOf = (l) => Math.max(0, l.indentLevel || 0);
 
@@ -67,7 +72,7 @@ function lineAt(original, n, expect, where, { needExpect = true } = {}) {
   const line = original[n - 1];
   if (expect == null) {
     if (needExpect) fail(`${where}: expect (the text now on #${n}) is required`);
-  } else if (typeof expect !== 'string' || withoutOwnLabel(line, expect).trim() !== (line.text || '').trim()) {
+  } else if (typeof expect !== 'string' || withoutOwnLabel(line, withoutKindLabel(line, expect)).trim() !== (line.text || '').trim()) {
     fail(`${where}: #${n} reads "${line.text}", not "${expect}"; the transcript changed, read it again`);
   }
   return line;
@@ -85,6 +90,16 @@ function withoutOwnLabel(line, raw) {
   if (!state || typeof raw !== 'string') return raw;
   const m = new RegExp(`^\\s*${stateLabel(state)}\\s+`).exec(raw);
   return m ? raw.slice(m[0].length) : raw;
+}
+
+/**
+ * `raw` without the `[sketch] ` in front and the ` (412 strokes)` after it, on a
+ * kind line (v3.24.0): get_transcript prints a sketch that way, so text copied
+ * from it compares equal to the label.
+ */
+function withoutKindLabel(line, raw) {
+  if (!isKindLine(line) || typeof raw !== 'string') return raw;
+  return raw.replace(new RegExp(`^\\s*\\[${line.kind}\\]\\s*`), '').replace(/\s*\(\d+ strokes?\)\s*$/, '');
 }
 
 /**
@@ -130,7 +145,9 @@ function plan(original, edits, newId) {
     switch (op) {
       case 'set_text': {
         const line = lineAt(original, e.line, e.expect, where);
-        return { op, where, id: line.id, text: cleanText(withoutOwnLabel(line, e.text), where) };
+        // A sketch's label may be renamed (v3.24.0); another kind is not text to edit (E.7).
+        if (isKindLine(line) && !isSketchLine(line)) fail(`${where}: #${e.line} is a ${line.kind} line, not text; it can be moved, not edited`);
+        return { op, where, id: line.id, kind: isKindLine(line), text: cleanText(withoutOwnLabel(line, withoutKindLabel(line, e.text)), where) };
       }
       case 'set_indent':
         return {
@@ -159,6 +176,8 @@ function plan(original, edits, newId) {
       }
       case 'delete': {
         const line = lineAt(original, e.line, e.expect, where);
+        // A sketch line stands for ink: only Josh removes one, in the app (v3.24.0).
+        if (isKindLine(line)) fail(`${where}: #${e.line} is a ${line.kind} line (it stands for ink); remove it in the app, not by an edit`);
         if (taskStateOf(line) && e.task_ok !== true) {
           fail(`${where}: #${e.line} is a ${stateLabel(taskStateOf(line))} task; pass task_ok: true to delete it`);
         }
@@ -193,7 +212,7 @@ function plan(original, edits, newId) {
       let patch = { text: r.text };
       // A box typed in front of a plain line makes it a task (as Library Edit's
       // save does); on a task line the text is just text.
-      if (taskStateOf(line) == null) {
+      if (taskStateOf(line) == null && !r.kind) {
         const parsed = parseTaskMarker(r.text);
         if (parsed.checked != null) patch = { text: cleanText(parsed.text, r.where), checked: parsed.checked };
       }
@@ -297,6 +316,7 @@ function fingerprint(l) {
     checked: l.checked === true || l.checked === false ? l.checked : null,
     marker: markerOf(l),
     yBounds: l.yBounds ?? null,
+    kind: isKindLine(l) ? l.kind : null,
   };
   return JSON.stringify(LINE_FIELDS.map((k) => read[k]));
 }
@@ -328,6 +348,7 @@ export function untouchedChanged(before, after, touched) {
 export function formatEditListing({ lines, marks, deleted }) {
   const bullet = (l) => {
     const state = taskStateOf(l);
+    if (isKindLine(l)) return `${'  '.repeat(levelOf(l))}- ${lineScanText(l)}`;
     return `${'  '.repeat(levelOf(l))}- ${state ? `${stateLabel(state)} ` : ''}${l.text}`;
   };
   const out = lines.map((l, i) => `${(marks.get(l.id) || '').padEnd(3)}#${String(i + 1).padEnd(3)} ${bullet(l)}`);

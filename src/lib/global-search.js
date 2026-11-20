@@ -23,8 +23,9 @@ import { isTypingTarget } from './left-panel.js';
 import { matchNotebooks, matchTags, facetPages } from './search-query.js';
 import { pageKeyOf } from './library-home.js';
 import { pagesOnDay } from './timeline.js';
+import { sketchEntries, matchSketches } from './sketch-search.js';
 
-export const LIMITS = { pages: 30, notebooks: 6, days: 6, tags: 6 };
+export const LIMITS = { pages: 30, notebooks: 6, days: 6, tags: 6, sketches: 12 };
 
 const idOf = (r) => (r.pageId != null ? String(r.pageId) : String(r.page));
 
@@ -140,6 +141,11 @@ export function recordsByKey(records) {
  *   tags lead the Tags group. Facets with no words list the pages themselves,
  *   most recently written first.
  *
+ * - **Sketches** (v3.24.0, lib/sketch-search.js): with `has:sketch`, every
+ *   sketch the words and facets name (by label, or by its tags from block
+ *   scope), and Pages keeps only pages with a sketch; without it, sketches
+ *   whose label holds every word. Always the first group.
+ *
  * `order` puts the group the query is most clearly about first: Days for a
  * date-only query, Notebooks when a notebook is named exactly, else Pages.
  *
@@ -153,10 +159,11 @@ export function recordsByKey(records) {
  *   `pageTags` and `info` are the tags sidecar (facets, label / alias matches)
  * @returns {{pages: Array, notebooks: Array, days: Array, tags: Array, order: string[], total: number}}
  */
-export function runSearch(q, { index, notebooks, timeline = null, dates = null, records = null, tags = [], pageTags = {}, info = {} }) {
-  const empty = { pages: [], notebooks: [], days: [], tags: [], order: ['tags', 'pages', 'notebooks', 'days'], total: 0 };
+export function runSearch(q, { index, notebooks, timeline = null, dates = null, records = null, tags = [], pageTags = {}, info = {}, blocks = {}, scopeLines = null }) {
+  const empty = { pages: [], notebooks: [], days: [], tags: [], sketches: [], order: ['tags', 'pages', 'notebooks', 'days'], total: 0 };
   const facets = (q && q.facets) || [];
-  if (!q || (!facets.length && !q.tokens.length && !q.days.length && q.text.length < 2)) return empty;
+  const hasSketch = !!(q && (q.has || []).includes('sketch'));
+  if (!q || (!facets.length && !hasSketch && !q.tokens.length && !q.days.length && q.text.length < 2)) return empty;
   const fac = facetPages(facets, pageTags, info);
 
   // Days, and which pages they hold.
@@ -177,9 +184,15 @@ export function runSearch(q, { index, notebooks, timeline = null, dates = null, 
     }
   }
 
-  // Pages: words, then days, then facets narrow them.
+  // Pages: words, then days, then facets narrow them; has:sketch keeps pages with a sketch.
   let only = onDays ? new Set(onDays.keys()) : null;
   if (fac.keys) only = only ? new Set([...only].filter((k) => fac.keys.has(k))) : fac.keys;
+  const allRecords = records ? [...records.values()] : (index || []).map((e) => e.record);
+  if (hasSketch) {
+    const withSketch = new Set(allRecords.filter((r) => r && Array.isArray(r.sketches) && r.sketches.length)
+      .map((r) => pageKeyOf(r.book, idOf(r))));
+    only = only ? new Set([...only].filter((k) => withSketch.has(k))) : withSketch;
+  }
   let pages;
   if (q.tokens.length) {
     pages = searchIndex(index, q.tokens, { dates, only }).map((h) => ({
@@ -196,10 +209,10 @@ export function runSearch(q, { index, notebooks, timeline = null, dates = null, 
       .sort((a, b) => b[1] - a[1])
       .map(([key]) => ({ key, record: (records && records.get(key)) || null, score: 0, snippet: entries.get(key)?.lines[0] || '' }))
       .filter((p) => p.record);
-  } else if (fac.keys) {
+  } else if (fac.keys || hasSketch) {
     const entries = new Map((index || []).map((e) => [e.key, e]));
     const last = (k) => (dates && dates.get(k)?.lastMs) || 0;
-    pages = [...fac.keys]
+    pages = [...only]
       .sort((a, b) => last(b) - last(a) || (a < b ? -1 : a > b ? 1 : 0))
       .map((key) => ({ key, record: (records && records.get(key)) || null, score: 0, snippet: entries.get(key)?.lines[0] || '' }))
       .filter((p) => p.record);
@@ -215,19 +228,28 @@ export function runSearch(q, { index, notebooks, timeline = null, dates = null, 
   const textHits = matchTags(q.text, tags, info).filter((t) => !fac.tags.includes(t.tag));
   const tagHits = [...facetHits, ...textHits];
 
+  // Sketches (v3.24.0): with has:sketch, or words found in a label; always first.
+  const sketches = (hasSketch || q.tokens.length)
+    ? matchSketches(sketchEntries(allRecords, { pageTags, info, blocks, scopeLines }), q, {
+      info, dates, onDays: onDays ? new Set(onDays.keys()) : null
+    })
+    : [];
+
   let order = ['pages', 'notebooks', 'days'];
-  if (q.days.length && !q.tokens.length) order = ['days', 'pages', 'notebooks'];
+  if (q.days.length && !q.tokens.length && !hasSketch) order = ['days', 'pages', 'notebooks'];
   else if (nbs.some((n) => n.exact)) order = ['notebooks', 'pages', 'days'];
   order.splice(order.indexOf('pages'), 0, 'tags');
+  if (sketches.length) order.unshift('sketches');
 
   const res = {
     pages: pages.slice(0, LIMITS.pages),
     notebooks: nbs.slice(0, LIMITS.notebooks),
     days: days.slice(0, LIMITS.days),
     tags: tagHits.slice(0, LIMITS.tags),
+    sketches: sketches.slice(0, LIMITS.sketches),
     order
   };
-  res.total = res.pages.length + res.notebooks.length + res.days.length + res.tags.length;
+  res.total = res.pages.length + res.notebooks.length + res.days.length + res.tags.length + res.sketches.length;
   return res;
 }
 

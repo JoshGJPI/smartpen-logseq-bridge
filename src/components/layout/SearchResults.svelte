@@ -7,6 +7,10 @@
   Page rows: lazy thumbnail (PageThumb), notebook and page, when written, and
   the best-matching line with the query words marked (escaped HTML from
   snippetHtml). Rows take the mouse on mousedown so the field keeps focus.
+
+  Sketches (v3.24.0, first when there are any: `has:sketch`, or words in a
+  label): a crop thumbnail of the sketch's ink (PageThumb with its line id),
+  its label, page, when written, line number and its tags from block scope.
 -->
 <script>
   import { bookAliases, searchDates } from '$stores';
@@ -31,7 +35,7 @@
   /** Offer the footer link (the Editor only). */
   export let browseAll = true;
 
-  const TITLES = { tags: 'Tags', pages: 'Pages', notebooks: 'Notebooks', days: 'Days' };
+  const TITLES = { sketches: 'Sketches', tags: 'Tags', pages: 'Pages', notebooks: 'Notebooks', days: 'Days' };
   const idOf = (r) => (r.pageId != null ? String(r.pageId) : String(r.page));
   const nameOf = (book) => formatBookName(book, $bookAliases, 'alias-only');
 
@@ -58,7 +62,7 @@
 <div class="sr" role="listbox" tabindex="-1" aria-label="Search results" on:mousedown|preventDefault>
   {#if !typed}
     <p class="sr-hint">
-      Search transcribed text, a date (<b>Oct 14</b>, <b>2026-10-14</b>, <b>yesterday</b>), a notebook name or a tag.
+      Search transcribed text, a date (<b>Oct 14</b>, <b>2026-10-14</b>, <b>yesterday</b>), a notebook name, a tag, or <b>has:sketch</b> for sketches.
       <br />↑ ↓ to choose · <b>Enter</b> opens · <b>Shift+Enter</b> loads a page into the Editor · <b>Esc</b> closes
     </p>
   {:else if !groups.length}
@@ -68,7 +72,7 @@
   {:else}
     {#each groups as g (g.id)}
       <div class="sr-group">{TITLES[g.id]} <span>{g.items.length}</span></div>
-      {#each g.items as item, j (g.id + (item.key || item.tag || item.book || item.day))}
+      {#each g.items as item, j (g.id + (g.id === 'sketches' ? `${item.key}#${item.id}` : (item.key || item.tag || item.book || item.day)))}
         {@const i = g.start + j}
         <button
           type="button"
@@ -79,7 +83,16 @@
           on:mousemove={() => i !== active && onHover(i)}
           on:click={(e) => pick(e, i)}
         >
-          {#if g.id === 'pages'}
+          {#if g.id === 'sketches'}
+            <div class="sr-thumb sk"><PageThumb book={item.record.book} pageId={idOf(item.record)} lineId={item.id} height="54px" /></div>
+            <div class="sr-main">
+              <div class="sr-title"><span class="sr-badge">SKETCH</span>{item.label}</div>
+              <div class="sr-snip">
+                {nameOf(item.record.book)} p.{idOf(item.record)}{#if written(item.record)} · {written(item.record)}{/if} · #{item.lineIndex + 1}
+                {#each item.tags as t (t)}<span class="sr-tag"><TagChip tag={t} /></span>{/each}
+              </div>
+            </div>
+          {:else if g.id === 'pages'}
             <div class="sr-thumb"><PageThumb book={item.record.book} pageId={idOf(item.record)} height="54px" /></div>
             <div class="sr-main">
               <div class="sr-title">
@@ -156,6 +169,9 @@
   .sr-row.active { background: var(--selected-bg, rgba(255, 255, 255, 0.08)); box-shadow: inset 2px 0 0 var(--selected-line, #4a7cf7); }
   .sr-thumb { flex: 0 0 44px; border-radius: 3px; overflow: hidden; }
   .sr-thumb :global(.thumb) { padding: 2px; }
+  .sr-thumb.sk { flex-basis: 64px; }
+  .sr-badge { flex-shrink: 0; padding: 0 5px; border-radius: 3px; background: #f5b942; color: #1c1f2b; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.04em; }
+  .sr-tag { margin-left: 6px; }
   .sr-main { flex: 1; min-width: 0; }
   .sr-title { display: flex; align-items: baseline; gap: 8px; font-size: 0.85rem; font-weight: 600; }
   .sr-when { font-size: 0.75rem; font-weight: 400; color: var(--text-secondary); white-space: nowrap; }

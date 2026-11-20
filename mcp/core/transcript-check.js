@@ -142,9 +142,11 @@ export function diffTranscript(doc, referenceMd) {
     else if (s && s.lineId && ids.has(s.lineId)) counts.set(s.lineId, (counts.get(s.lineId) || 0) + 1);
     else unlinked++;
   }
+  // Sketch lines (v3.24.0, any `kind`) stand for drawings, not text: kept out of the comparison, numbers kept.
   const stored = lines.map((l, i) => ({
-    n: i + 1, level: l.indentLevel || 0, text: l.text || '', state: stateOf(l), strokes: counts.get(l.id) || 0
-  }));
+    n: i + 1, level: l.indentLevel || 0, text: l.text || '', state: stateOf(l), strokes: counts.get(l.id) || 0, kind: l.kind || null
+  })).filter((l) => !l.kind);
+  const sketchLines = lines.length - stored.length;
   const ref = parseReference(referenceMd);
   const pairs = movedPairs(alignLines(stored, ref), stored, ref);
   const rows = [];
@@ -181,7 +183,7 @@ export function diffTranscript(doc, referenceMd) {
     }
   }
   return {
-    rows, tally, unlinked, textless, totalStrokes: ((doc && doc.strokes) || []).length,
+    rows, tally, unlinked, textless, sketchLines, totalStrokes: ((doc && doc.strokes) || []).length,
     storedLines: stored.length, refLines: ref.length, swollen: swollenLines(stored)
   };
 }
@@ -239,6 +241,9 @@ export function swollenLines(stored) {
     .map(({ l, i }) => ({ n: l.n, strokes: l.strokes, median, emptyAfter: stored.slice(i + 1).filter((x) => x.strokes === 0).length }));
 }
 
+/** check_transcript's answer to ink in no line that is a drawing (v3.24.0). */
+export const SKETCH_HINT = 'Ink in no line that is a drawing can be made a sketch line in the app (Editor: select it, ⋯ → Make sketch…; Library reader, Ink + text: Mark sketch), so it is searchable and never sent to MyScript.';
+
 const show = (l) => `L${l.level} ${l.state ? `${l.state} ` : ''}${l.text}`;
 
 /** The diff as text for the tool reply. */
@@ -252,7 +257,9 @@ export function formatDiff(d) {
     + (moved ? `, out of order ${moved}` : '') + '; '
     + `${t.missing} stored line(s) not in the reference, ${t.extra} reference line(s) not stored. `
     + `${d.unlinked} stroke(s) linked to no line`
-    + (d.textless ? ` (not counting ${d.textless} left out as Not text).` : '.'),
+    + (d.textless ? ` (not counting ${d.textless} left out as Not text).` : '.')
+    + (d.sketchLines ? ` ${d.sketchLines} sketch line(s) not compared (they stand for drawings).` : '')
+    + (d.unlinked ? ` ${SKETCH_HINT}` : ''),
     ...(moved ? [`OUT OF ORDER: ${moved} stored line(s) sit somewhere else than on the page (marked MOVED below, with the line they follow `
       + 'in the reference). Usually ink transcribed later and appended at the end; reorder them in the app (tick them, then Move).'] : []),
     ...(d.swollen || []).map((s) => `LINKS BROKEN? #${s.n} has ${s.strokes} strokes (median line ${s.median})`
@@ -292,7 +299,7 @@ export function formatRows(rows, { links = false } = {}) {
   const head = `${rows.length} written row(s), top to bottom. column = indent column from the left margin (one step ≈ ${COLUMN_MM} mm); `
     + 'wrap? = starts deeper under a row that reached the right edge: a wrapped sentence OR a sub-item, the text decides.'
     + (days.length > 1 ? ` Rows were written on ${days.length} days (${days.join(', ')}).` : '')
-    + (bare ? ` not transcribed = no stroke of the row is in any transcript line (${bare} of ${rows.length} rows).` : '');
+    + (bare ? ` not transcribed = no stroke of the row is in any transcript line (${bare} of ${rows.length} rows). ${SKETCH_HINT}` : '');
   const body = rows.map((r) => `y ${String(r.y).padStart(3)} mm  column ${r.column}  left ${r.left.toFixed(1).padStart(5)}  right ${String(r.right).padStart(3)}  `
     + `${String(r.letters).padStart(3)} strokes${days.length > 1 ? `  ${r.day}` : ''}${r.wrap ? '  wrap?' : ''}`
     + (links && !r.linked ? '  not transcribed' : ''));

@@ -22,6 +22,7 @@ import { markerField } from '$lib/tasks.js';
 import { keepDiskTaskState } from '$lib/editor-lines.js';
 import { parseTaskMarker } from '$lib/task-markers.js';
 import { relinkAfterEdit } from '$lib/deleted-ink.js';
+import { isKindLine, kindFields, kindLineIds, normalizeKindLine, withKindBounds } from '$lib/line-kinds.js';
 
 /**
  * Recompute each line's parentId from its indentLevel: the parent is the
@@ -48,6 +49,17 @@ export function recomputeParentIds(lines) {
  * @returns {import('$lib/storage/page-doc.js').TranscriptLine}
  */
 function normaliseLine(line) {
+  // A sketch line (v3.24.0) keeps its kind and bounds, is never a task, and a
+  // cleared label reads "Sketch" (lib/line-kinds.js).
+  if (isKindLine(line)) {
+    return normalizeKindLine({
+      id: line.id,
+      text: typeof line.text === 'string' ? line.text : '',
+      indentLevel: Math.max(0, line.indentLevel || 0),
+      parentId: line.parentId ?? null,
+      ...kindFields(line),
+    });
+  }
   return {
     id: line.id,
     text: typeof line.text === 'string' ? line.text : '',
@@ -74,7 +86,7 @@ function normaliseLine(line) {
 export function parseTypedTasks(lines, base) {
   const baseText = new Map((base || []).filter((l) => l && l.id).map((l) => [l.id, l.text || '']));
   return lines.map((l) => {
-    if (l.checked != null) return l;
+    if (l.checked != null || isKindLine(l)) return l;
     if (baseText.has(l.id) && baseText.get(l.id) === l.text) return l;
     const parsed = parseTaskMarker(l.text);
     return parsed.checked == null ? l : { ...l, text: parsed.text, checked: parsed.checked };
@@ -114,11 +126,14 @@ export async function saveTranscriptLines(book, page, lines, { base = null, dele
   for (const l of lines) {
     for (const dead of l.mergedIds || []) if (dead !== l.id && !keptIds.has(dead)) remap.set(dead, l.id);
   }
-  // The base lines this edit deleted are the ones gone and not merged away.
+  // The base lines this edit deleted are the ones gone and not merged away. A
+  // deleted sketch's ink is only unlinked, never flagged Not text (v3.24.0).
+  const kinds = kindLineIds(doc.transcript?.lines || []);
   const settled = relinkAfterEdit(doc.strokes || [], {
-    liveIds: keptIds, remap, deletedLineIds: (base || []).map((l) => l && l.id), deletedInk
+    liveIds: keptIds, remap, deletedLineIds: (base || []).map((l) => l && l.id).filter((id) => !kinds.has(id)), deletedInk
   });
   const strokes = settled.strokes;
+  normalised = withKindBounds(normalised, strokes);
 
   const now = new Date().toISOString();
   const next = {

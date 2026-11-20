@@ -3,9 +3,14 @@
   box (for Merge), the text, which wraps (a one-row textarea that grows,
   lib/autosize.js), and the reorder / indent buttons revealed on hover or focus.
   Keys and edits are the pane's (onKey, onEdit); this row only lays them out.
+
+  A sketch line (v3.24.0, `sketch`) shows a small thumbnail of its ink and a
+  SKETCH badge before its label; the label edits like text (a cleared one is
+  saved as "Sketch"), and the row moves and indents like any line.
 -->
 <script>
   import { autosize, oneLine } from '$lib/autosize.js';
+  import PageThumb from './PageThumb.svelte';
 
   export let text = '';
   export let indentLevel = 0;
@@ -23,6 +28,8 @@
   export let onMoveDown = () => {};
   export let onIndent = () => {};
   export let onOutdent = () => {};
+  /** A sketch row: `{ book, pageId, lineId }` for its thumbnail, else null. */
+  export let sketch = null;
 
   /** @type {HTMLTextAreaElement} */
   let field;
@@ -46,6 +53,12 @@
     title="Select for Merge"
     aria-label="Select line for Merge"
   />
+  {#if sketch}
+    <div class="tp-sk" title="A sketch: its label is searchable; its ink stays linked to it">
+      <PageThumb book={sketch.book} pageId={sketch.pageId} lineId={sketch.lineId} height="40px" />
+      <span class="tp-sk-badge">SKETCH</span>
+    </div>
+  {/if}
   <textarea
     class="tp-input"
     rows="1"
@@ -56,7 +69,8 @@
     on:keydown={onKey}
     on:focus={onFocus}
     on:blur={onBlur}
-    placeholder="(empty line)"
+    placeholder={sketch ? 'Sketch' : '(empty line)'}
+    aria-label={sketch ? 'Sketch label' : null}
   ></textarea>
   <div class="tp-row-actions">
     <button class="tp-icon" on:click={onMoveUp} disabled={isFirst} title="Move up (Alt+↑)">↑</button>
@@ -101,6 +115,9 @@
     box-sizing: border-box;
   }
   .tp-input:focus { outline: none; border-color: #4a7cf7; }
+  .tp-sk { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; width: 50px; }
+  .tp-sk :global(.thumb) { width: 50px; padding: 2px; border: 1px solid #eee; border-radius: 4px; box-sizing: border-box; }
+  .tp-sk-badge { padding: 0 4px; border-radius: 3px; background: #f5b942; color: #1c1f2b; font-size: 9px; font-weight: 700; letter-spacing: 0.04em; }
   .tp-edit-row.selected .tp-input { background: #f3f7ff; border-color: #b9ccfb; }
   /* The action group floats over the top right of the (full-width) text,
      revealed on hover / keyboard focus. Its white background + feathered shadow

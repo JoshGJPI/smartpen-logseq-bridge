@@ -7,7 +7,7 @@
 -->
 <script>
   import { onMount } from 'svelte';
-  import { taskConfirmText } from '$lib/delete-lines.js';
+  import { taskConfirmText, sketchConfirmText } from '$lib/delete-lines.js';
 
   /** deletePrompt()'s result */
   export let prompt;
@@ -20,6 +20,10 @@
 
   $: lineAsk = taskConfirmText(prompt.lineTasks);
   $: blockAsk = taskConfirmText(prompt.blockTasks);
+  // Sketch lines (v3.24.0): their strokes are unlinked, never deleted.
+  $: lineSketch = sketchConfirmText(prompt.lineSketches);
+  $: blockSketch = sketchConfirmText(prompt.blockSketches);
+  const inkNote = (n) => (n === 1 ? 'Its strokes stay on the page, unlinked.' : 'Their strokes stay on the page, unlinked.');
   const stateNote = (n) => (n === 1 ? 'Its state goes with it.' : 'Their state goes with them.');
   $: label = prompt.text.length > 70 ? prompt.text.slice(0, 67) + '…' : prompt.text;
 
@@ -44,16 +48,18 @@
         <strong>Delete line</strong>
         <span>Its {prompt.childCount === 1 ? 'line moves' : 'lines move'} up one level.</span>
         {#if lineAsk}<span class="dlp-task">{lineAsk.replace(/\?$/, '.')} {stateNote(prompt.lineTasks.length)}</span>{/if}
+        {#if lineSketch}<span class="dlp-task">{lineSketch.replace(/\?$/, '.')} {inkNote((prompt.lineSketches || []).length)}</span>{/if}
       </button>
       <button class="dlp-choice" on:click={() => onChoose(true)}>
         <strong>Delete block</strong>
         <span>The line and the {prompt.childCount} under it go.</span>
         {#if blockAsk}<span class="dlp-task">{blockAsk.replace(/\?$/, '.')} {stateNote(prompt.blockTasks.length)}</span>{/if}
+        {#if blockSketch}<span class="dlp-task">{blockSketch.replace(/\?$/, '.')} {inkNote((prompt.blockSketches || []).length)}</span>{/if}
       </button>
       <div class="dlp-actions"><button class="dlp-btn" on:click={onCancel}>Cancel</button></div>
     {:else}
-      <p class="dlp-title">{lineAsk}</p>
-      <p class="dlp-sub">{stateNote(prompt.lineTasks.length)}</p>
+      <p class="dlp-title">{lineAsk || lineSketch}</p>
+      <p class="dlp-sub">{#if lineAsk}{stateNote(prompt.lineTasks.length)}{/if}{#if lineAsk && lineSketch} {lineSketch}{/if}{#if lineSketch} {inkNote((prompt.lineSketches || []).length)}{/if}</p>
       <div class="dlp-actions">
         <button class="dlp-btn" on:click={onCancel}>Cancel</button>
         <button class="dlp-btn danger" bind:this={firstBtn} on:click={() => onChoose(false)}>Delete</button>

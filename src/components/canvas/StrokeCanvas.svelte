@@ -1911,7 +1911,7 @@
         <span class="pasted-indicator">{$pastedCount} pasted</span> •
       {/if}
       {#if $sketchStrokeCount > 0}
-        <span class="sketch-indicator">✏️ {$sketchStrokeCount} sketch</span> •
+        <span class="sketch-indicator" title="Strokes drawn with pen pressure (Pressure ink)">✏️ {$sketchStrokeCount} pressure ink</span> •
       {/if}
       {#if $selectionCount > 0}
         <span class="selection-indicator">{$selectionCount} of {$strokeCount} selected</span>

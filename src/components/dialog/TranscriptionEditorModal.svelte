@@ -135,6 +135,8 @@
       indices = [startIndex, startIndex + 1];
     }
 
+    // A sketch row (v3.24.0) is never merged with text.
+    if (indices.some(i => editedLines[i]?.kind)) return;
     const mergedLine = mergeEditorLines(indices.map(i => editedLines[i]));
     const drop = new Set(indices.slice(1));
     editedLines = editedLines.flatMap((line, index) =>
@@ -146,6 +148,7 @@
 
   // Split a line at cursor position
   function splitLine(index, splitText1, splitText2) {
+    if (editedLines[index]?.kind) return;   // a sketch's label is not split (v3.24.0)
     const [line1, line2] = splitEditorLine(editedLines[index], splitText1, splitText2);
     editedLines = [
       ...editedLines.slice(0, index),
@@ -404,6 +407,8 @@
             selected={selectedIndices.has(index)}
             focused={focusedIndex === index}
             isLast={index >= editedLines.length - 1}
+            nextIsKind={!!editedLines[index + 1]?.kind}
+            sketch={line.kind && line.blockUuid ? { book, pageId: previewPageId, lineId: line.blockUuid } : null}
             on:focus={() => (focusedIndex = index)}
             on:toggle={() => toggleSelection(index)}
             on:input={(e) => handleLineInput(index, e.detail)}

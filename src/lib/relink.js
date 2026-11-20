@@ -37,6 +37,12 @@ export const LEFTOVER_ADD = 'add';
 export const LEFTOVER_TEXTLESS = 'textless';
 /** "Add to #N": the leftover ink goes to the linked stored line above it (its text unchanged). */
 export const LEFTOVER_JOIN = 'join';
+/**
+ * "Make sketch" (v3.24.0, spec B.4 / E.3): the leftover ink becomes a sketch line.
+ * Every row the review marks so goes into ONE sketch (a drawing is usually read
+ * as several MyScript lines), labelled "Sketch", placed by y, in the same write.
+ */
+export const LEFTOVER_SKETCH = 'sketch';
 
 /** A line that is not plain text (a `kind`, spec E.7): kept, never matched to MyScript. */
 export const isKindLine = (l) => !!(l && l.kind);
@@ -404,7 +410,7 @@ export function defaultDecisions(model) {
  * @param {Object} decisions defaultDecisions' shape, as changed by the review
  */
 export function buildRelinkSpec(run, model, decisions = defaultDecisions(model)) {
-  const links = [], texts = {}, add = [], textless = [];
+  const links = [], texts = {}, add = [], textless = [], sketch = [];
   const linkFor = new Map();
   for (const r of model.rows) {
     if (r.type === 'matched' || (r.type === 'confirm' && decisions.link[r.lineId] !== false)) {
@@ -423,6 +429,7 @@ export function buildRelinkSpec(run, model, decisions = defaultDecisions(model))
     const choice = decisions.leftover[r.ms] || LEFTOVER_LEAVE;
     if (choice === LEFTOVER_ADD && stripTaskMarker(r.reading)) add.push(r.ms);
     else if (choice === LEFTOVER_TEXTLESS) textless.push(r.ms);
+    else if (choice === LEFTOVER_SKETCH) sketch.push(r.ms);
     // "Add to #N": only while that line is linked; otherwise the ink stays unlinked.
     else if (choice === LEFTOVER_JOIN && r.joinTo && linkFor.has(r.joinTo)) linkFor.get(r.joinTo).ms.push(r.ms);
   }
@@ -435,7 +442,7 @@ export function buildRelinkSpec(run, model, decisions = defaultDecisions(model))
     heldBackTextless: decisions.heldBackTextless !== false,
     ...(run.selection ? { selection: true } : {}),
     myscriptLines: (run.lines || []).map((l) => ({ text: String(l.text || ''), yBounds: l.yBounds || null })),
-    links, texts, add, textless
+    links, texts, add, textless, sketch
   };
 }
 

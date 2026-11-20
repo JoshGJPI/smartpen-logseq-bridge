@@ -16,7 +16,9 @@
  *     neighbour through the tolerance;
  *   - ink left over the review chose "Not text" for: those strokes' ids in
  *     `textlessIds`; "Add as new line": a new line (MyScript's text, a new id,
- *     a typed task box read as on transcription), placed by y.
+ *     a typed task box read as on transcription), placed by y; "Make sketch"
+ *     (v3.24.0): one sketch line for every row marked so (`relink.sketch`), its
+ *     ink linked to it, placed by y under the line above (lib/line-kinds.js).
  *
  *   - decorative ink the run held back (`relink.heldBack`, lib/relink.js
  *     holdBackDecorative): unlinked always, and flagged Not text (`textlessIds`)
@@ -35,13 +37,14 @@
  * ones, so this changes nothing there.
  *
  * Never: line ids, text other than a taken fix, order, indent, parentId,
- * checked, marker, kind lines, a kind line's ink, textless strokes, points, the
- * sketch flag. So no task state needs carrying.
+ * checked, marker, existing kind lines, a kind line's ink, textless strokes,
+ * points, the sketch flag. So no task state needs carrying.
  *
  * Pure. Tested in `src/lib/__tests__/relink-plan.test.js` and save-page.test.js.
  */
 import { strokesIntersectingLine } from './storage/line-match.js';
 import { parseTaskMarker } from './task-markers.js';
+import { KIND_SKETCH, SKETCH_DEFAULT_LABEL, insertKindLine } from './line-kinds.js';
 
 function newLineId() {
   return globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function'
@@ -94,6 +97,12 @@ export function planRelink(existingLines, relink, storedStrokes = [], originNcod
   for (const j of (relink && relink.textless) || []) {
     if (ms[j] && owner[j].type === 'leave') owner[j] = { type: 'textless' };
   }
+  // Make sketch (v3.24.0): one sketch line takes every MyScript line marked so.
+  const sketchJs = ((relink && relink.sketch) || []).filter((j) => ms[j] && owner[j].type === 'leave');
+  const sketchLine = sketchJs.length ? {
+    id: newId(), kind: KIND_SKETCH, text: SKETCH_DEFAULT_LABEL, indentLevel: 0, parentId: null, checked: null, yBounds: null, bounds: null
+  } : null;
+  for (const j of sketchJs) owner[j] = { type: 'line', lineId: sketchLine.id };
 
   // Strokes: only those sent, never one linked to a kind line.
   const sent = new Set((relink && relink.sent) || []);
@@ -148,6 +157,13 @@ export function planRelink(existingLines, relink, storedStrokes = [], originNcod
     return next;
   });
   lines = placeNewLines(lines, added, linkOf, ms.length);
+  if (sketchLine) {
+    const inkIds = new Set([...lineIdAssignments].filter(([, id]) => id === sketchLine.id).map(([s]) => s));
+    if (inkIds.size) {
+      const lineIdOf = (s) => (lineIdAssignments.has(s.id) ? lineIdAssignments.get(s.id) : s.lineId || null);
+      lines = insertKindLine(lines, sketchLine, storedStrokes, { inkIds, trusted: true, lineIdOf }).lines;
+    }
+  }
 
   const before = new Set(existing.map((l) => l.id));
   return {

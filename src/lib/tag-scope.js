@@ -35,6 +35,7 @@
  */
 
 import { findProjectNumbers, isProjectTag, tagTypeOf, infoOf } from './tags.js';
+import { isKindLine, lineScanText } from './line-kinds.js';
 
 /* ============================================================
  *  Lines
@@ -68,14 +69,19 @@ export function linesFromText(text) {
  */
 export function buildTranscriptionText(lines) {
   if (!Array.isArray(lines) || lines.length === 0) return null;
-  return lines.map((l) => '  '.repeat((l && l.indentLevel) || 0) + String((l && l.text) || '').replace(/^ +/, '')).join('\n');
+  // A sketch line (v3.24.0) reads `[sketch] label` (line-kinds.js lineScanText).
+  return lines.map((l) => '  '.repeat((l && l.indentLevel) || 0) + lineScanText(l)).join('\n');
 }
 
-/** Just what scope needs from transcript lines: `{ id, text, indentLevel }` (small, for caching). */
+/**
+ * Just what scope needs from transcript lines: `{ id, text, indentLevel }` (small, for caching).
+ * A kind line's text is its scan text (`[sketch] label`), so scope from lines and
+ * from `transcriptionText` agree (v3.24.0).
+ */
 export function scopeLinesOf(lines) {
   return (Array.isArray(lines) ? lines : []).filter(Boolean).map((l) => ({
     id: typeof l.id === 'string' ? l.id : null,
-    text: textOf(l),
+    text: isKindLine(l) ? lineScanText(l) : textOf(l),
     indentLevel: levelOf(l)
   }));
 }

@@ -46,7 +46,7 @@
     class="style-btn"
     class:active={isOpen}
     on:click|stopPropagation={toggle}
-    title={`Sketch line thickness — ${$sketchProfileSummary}`}
+    title={`Pressure ink line thickness — ${$sketchProfileSummary}`}
     aria-haspopup="dialog"
     aria-expanded={isOpen}
   >
@@ -56,19 +56,19 @@
   {#if isOpen}
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions a11y-no-noninteractive-element-interactions -->
-    <div class="popover" on:click|stopPropagation role="dialog" aria-label="Sketch style">
+    <div class="popover" on:click|stopPropagation role="dialog" aria-label="Pressure ink style">
       <div class="popover-head">
-        <span class="popover-title">Sketch Style</span>
+        <span class="popover-title">Pressure ink style</span>
         <button class="close-btn" on:click={close} aria-label="Close">✕</button>
       </div>
 
       <SketchStyleSettings />
 
       <p class="popover-note">
-        Affects how every sketch stroke is drawn — a display setting, never saved
+        Affects how every Pressure ink stroke is drawn — a display setting, never saved
         into your pages.
         {#if $sketchStrokeCount === 0}
-          Mark some strokes as sketches to see it on the canvas.
+          Mark some strokes as Pressure ink to see it on the canvas.
         {/if}
       </p>
     </div>

@@ -20,6 +20,7 @@
  */
 
 import { parseTaskMarker } from '../task-markers.js';
+import { isKindLine, kindMarkdownText } from '../line-kinds.js';
 
 /** Matches a LogSeq property line, e.g. `id:: abc`, `collapsed:: true`. */
 const PROPERTY_RE = /^\s*[A-Za-z0-9_-]+::/;
@@ -39,6 +40,8 @@ export function isPropertyLine(text) {
  */
 export function lineToMarkdown(line) {
   const indent = '\t'.repeat(Math.max(0, line.indentLevel || 0));
+  // A sketch line (v3.24.0): `- [sketch: Floor plan]`, never a task.
+  if (isKindLine(line)) return `${indent}- ${kindMarkdownText(line)}`;
   let marker = '';
   if (line.checked === false) marker = line.marker === 'WAITING' ? 'WAITING ' : 'TODO ';
   else if (line.checked === true) marker = line.marker === 'CANCELLED' ? 'CANCELLED ' : 'DONE ';
@@ -108,7 +111,7 @@ export function reviewLinesForCopy(lines) {
   if (!Array.isArray(lines)) return [];
   return lines.filter(Boolean).map((l, i) => {
     const id = l.id ?? l.blockUuid ?? `review-${i}`;
-    if (l.checked === true || l.checked === false) return { ...l, id };
+    if (l.checked === true || l.checked === false || isKindLine(l)) return { ...l, id };
     const { checked, text } = parseTaskMarker(typeof l.text === 'string' ? l.text : '');
     if (checked == null) return { ...l, id, checked: null };
     return { ...l, id, text: text.trim(), checked };

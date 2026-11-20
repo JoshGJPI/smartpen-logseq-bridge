@@ -14,6 +14,9 @@
 
   Rotation is display-only and ONE transform per page: the content group's
   `transform`, inside which paper, ink and SittingInk all sit.
+
+  Box mode (v3.24.0, `boxMode`): BoxSelect covers the canvas and a drag hands
+  back a box in Ncode (`onBox`), for Mark sketch and a sketch's Add / Remove strokes.
 -->
 <script>
   import { onMount, onDestroy, tick } from 'svelte';
@@ -25,6 +28,7 @@
   import SittingHover from './SittingHover.svelte';
   import SittingInk from './SittingInk.svelte';
   import OrientationControl from './OrientationControl.svelte';
+  import BoxSelect from './BoxSelect.svelte';
 
   export let book;
   export let pageId;
@@ -38,6 +42,19 @@
   export let onOpenDay = () => {};
   /** Out: current zoom factor. */
   export let zoom = 1;
+  /** Drag a box instead of panning (v3.24.0): `{ hint }`, or null. */
+  export let boxMode = null;
+  /** ({ minX, maxX, minY, maxY } in Ncode) => void */
+  export let onBox = () => {};
+  export let onBoxCancel = () => {};
+
+  /** A screen point in Ncode, through the page's zoom, pan and rotation (null before layout). */
+  function toNcode(clientX, clientY) {
+    const m = contentEl && contentEl.getScreenCTM && contentEl.getScreenCTM();
+    if (!m || !viewBounds) return null;
+    const u = new DOMPoint(clientX, clientY).matrixTransform(m.inverse());
+    return { x: u.x / NCODE_SCALE + viewBounds.minX, y: u.y / NCODE_SCALE + viewBounds.minY };
+  }
 
   let containerEl;
   let svgEl;
@@ -199,6 +216,7 @@
           </g>
         </svg>
       </div>
+      {#if boxMode}<BoxSelect {toNcode} {onBox} onCancel={onBoxCancel} hint={boxMode.hint} />{/if}
       <SittingHover {svgEl} frameEl={contentEl} {strokes} {dayModel} {viewBounds} view="{zoom},{panX},{panY}" paused={isPanning} bind:hot={hotSitting} on:open={(e) => onOpenDay(e.detail.day)} />
     </div>
     <!-- One small ⟳ until the page is hovered (v3.14.0); the full control then.

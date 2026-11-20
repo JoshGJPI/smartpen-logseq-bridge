@@ -98,6 +98,20 @@ export function selectionItems(canvasStrokes) {
 }
 
 /**
+ * One sketch line (v3.24.0, the sketch row's "Print this sketch") as a print
+ * item, the same shape as a selection page: its linked stored strokes on its
+ * page's paper, ink only. The key names the page and the line, so the item is
+ * one per sketch. Null when the sketch has no ink.
+ * @param {{book: string, pageId: string, lineId: string, strokes: Array}} sketch  `strokes`: the page's stored strokes
+ * @returns {{book: string, pageId: string, selection: true, key: string, strokes: Array}|null}
+ */
+export function sketchPrintItem({ book, pageId, lineId, strokes }) {
+  const mine = (strokes || []).filter((s) => s && s.lineId === lineId && Array.isArray(s.points) && s.points.length);
+  if (!mine.length || !isBookKey(String(book))) return null;
+  return { book: String(book), pageId: String(pageId), selection: true, key: `${book}/${pageId}#sketch:${lineId}`, strokes: mine };
+}
+
+/**
  * One selection page as print-html.js wants it. `inkOnly`: whatever the
  * Strokes / Transcript / Both choice, it prints its ink and no transcript.
  * @param {{book: string, pageId: string, strokes: Array}} group  from groupSelectionByPage

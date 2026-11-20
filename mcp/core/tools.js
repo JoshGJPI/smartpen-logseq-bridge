@@ -25,6 +25,8 @@ import { rotationFor } from '../../src/lib/page-orientation.js';
 import { isTrustworthyTranscript } from '../../src/lib/viewer/ink-text.js';
 import { buildTagIndex, tagStats, normalizeTag, tagTypeOf, tagLabel, tagAnswersTo, infoOf, TAG_TYPES } from '../../src/lib/tags.js';
 import { taskStateOf, stateLabel, groupTaskRows } from '../../src/lib/tasks.js';
+import { isKindLine, lineScanText } from '../../src/lib/line-kinds.js';
+import { sketchEntries } from '../../src/lib/sketch-search.js';
 import {
   allTaskRows, personTags, rowsInState, countsOf, filterTasks, orderTasks, taskOut, openTasksByPage, unconvertedPages,
   TASK_GROUP_ARGS
@@ -37,6 +39,7 @@ export const LIMITS = Object.freeze({
   images: 4,               // per call: render_days' default and maximum `limit`
   maxEdge: MAX_EDGE,
   tasks: { limit: 50, maxLimit: 200 },
+  sketches: { limit: 50, maxLimit: 200 },
   minWidth: 200
 });
 
@@ -132,6 +135,27 @@ export function createTools(root) {
       : '  (page not transcribed)';
   };
 
+  /**
+   * render_page { line } (v3.24.0): one line's linked ink, cropped to it, the rest of
+   * the page grey around it. Meant for a sketch line (#17 [sketch] Floor plan); a text
+   * line's ink works too where the page's links can be trusted.
+   */
+  function renderLine(scan, args, book, page, doc) {
+    const lines = (doc.transcript && doc.transcript.lines) || [];
+    const n = Number(String(args.line).replace(/^#/, ''));
+    if (!Number.isInteger(n) || n < 1 || n > lines.length) return fail(`No line #${args.line} on ${book}/${page} (it has ${lines.length})`);
+    const line = lines[n - 1];
+    const h = { book, pageId: page };
+    const r = renderSubset(scan, { ...args, fit: 'ink' }, h, doc, (s) => s.lineId === line.id);
+    if (!r) return { content: [text(`#${n} on ${book}/${page} has no ink linked to it.`)] };
+    const what = isKindLine(line) ? lineScanText(line) : `"${line.text}"`;
+    const warn = !isKindLine(line) && !isTrustworthyTranscript(doc)
+      ? ' (the stroke-to-line links on this page are unreliable, so this may not be all of the line\'s ink)' : '';
+    const meta = `${r.label} #${n} ${what}: ${r.mine} strokes, cropped to them; the rest of the page grey${warn}`;
+    const { blocks, notes } = emitImages([r], { width: widthFor(args, LIMITS.page), describe: () => meta });
+    return { content: [text(notes.join('\n')), ...blocks] };
+  }
+
   const tools = {
     list_notebooks() {
       const scan = store.scan();
@@ -189,7 +213,14 @@ export function createTools(root) {
       if (!lines.length) return { content: [text(`Page ${book}/${page} has no transcript (${(doc.strokes || []).length} strokes).`)] };
       const when = doc.transcript.lastTranscribed || '';
       // #n = the stored line number edit_transcript and check_transcript use.
+      // A sketch line (v3.24.0): `[sketch] label (412 strokes)`.
+      const inkOf = new Map();
+      for (const s of doc.strokes || []) if (s && s.lineId) inkOf.set(s.lineId, (inkOf.get(s.lineId) || 0) + 1);
       const body = lines.map((l, i) => {
+        if (isKindLine(l)) {
+          const n = inkOf.get(l.id) || 0;
+          return `#${String(i + 1).padEnd(3)} ${'  '.repeat(Math.max(0, l.indentLevel || 0))}- ${lineScanText(l)} (${n} ${n === 1 ? 'stroke' : 'strokes'})`;
+        }
         const state = taskStateOf(l);
         const mark = state ? `${stateLabel(state)} ` : '';
         return `#${String(i + 1).padEnd(3)} ${'  '.repeat(Math.max(0, l.indentLevel || 0))}- ${mark}${l.text}`;
@@ -205,6 +236,7 @@ export function createTools(root) {
       const scan = store.scan();
       const doc = store.getPage(book, page);
       if (!doc) return fail(`No page ${book}/${page}`);
+      if (args.line != null && args.line !== '') return renderLine(scan, args, book, page, doc);
       const strokes = doc.strokes || [];
       const fit = args.fit === 'ink' ? 'ink' : 'paper';
       const view = viewBounds({ strokes, frame: store.paperFrame(book, page), fit });
@@ -384,6 +416,47 @@ export function createTools(root) {
 ${JSON.stringify(body)}`)] };
     },
 
+    list_sketches(args) {
+      const scan = store.scan();
+      const info = scan.tagInfo || {};
+      let range = null;
+      if (args.from || args.to) {
+        try { range = dayRange(args.from || args.to, args.to); } catch (e) { return fail(e.message); }
+      }
+      const book = args.book ? requireBookKey(args.book) : null;
+      let people = null;
+      if (args.person != null && String(args.person).trim()) {
+        try { people = personTags(scan, String(args.person)); } catch (e) { return fail(e.message); }
+      }
+      const norm = (t) => normalizeTag(t) || String(t).toLowerCase();
+      const project = args.project ? norm(args.project) : null;
+      const tag = args.tag ? norm(args.tag) : null;
+      const pages = scan.pages.filter((p) => (!book || p.book === book)
+        && (!range || Object.keys(p.days).some((d) => inRange(d, range.from, range.to))));
+      const all = sketchEntries(pages, { pageTags: scan.tags, info, blocks: scan.tagBlocks || {}, scopeLines: scan.scopeLines || null })
+        .filter((e) => (!project || e.tags.includes(project)) && (!tag || e.tags.includes(tag))
+          && (!people || e.tags.some((t) => people.includes(t))));
+      const limit = clampInt(args.limit, LIMITS.sketches.limit, 1, LIMITS.sketches.maxLimit);
+      const offset = clampInt(args.offset, 0, 0, 1e9);
+      const rows = all.slice(offset, offset + limit).map((e) => {
+        const p = e.record;
+        const s = (p.sketches || []).find((x) => x.id === e.id) || {};
+        const days = Object.keys(p.days).sort();
+        return {
+          page: `${p.book}/${p.pageId}`, notebook: bookName(scan.aliases, p.book), line: `#${e.lineIndex + 1}`,
+          label: e.label, strokes: s.strokes, tags: e.tags, written: days.length ? (days[0] === days.at(-1) ? days[0] : `${days[0]} to ${days.at(-1)}`) : null
+        };
+      });
+      const scope = [book && `book ${book}`, project && `project ${project}`, tag && `tag ${tag}`, people && `person ${people.join(' / ')}`,
+        range && rangeText(range)].filter(Boolean).join(', ');
+      const left = all.length - offset - rows.length;
+      const head = `${all.length} sketch(es)${scope ? ` (${scope})` : ''}; showing ${rows.length} from offset ${offset}`
+        + (left > 0 ? `; ${left} more, call again with offset=${offset + rows.length}` : '')
+        + '. A sketch\'s tags are the page tags whose block holds it (a project or person named nowhere on the page covers all of it; topics always). '
+        + 'See one with render_page { book, page, line }. Read-only: sketches are made in the app.';
+      return { content: [text(`${head}\n${JSON.stringify(rows)}`)] };
+    },
+
     search(args) {
       const input = String(args.query || '').trim();
       if (!input) return fail('Empty query');
@@ -402,9 +475,11 @@ ${JSON.stringify(body)}`)] };
         }),
         notebooks: res.notebooks.map((n) => ({ book: n.book, name: n.name, exact: n.exact })),
         days: res.days,
-        tags: res.tags.map((t) => ({ tag: t.tag, type: tagTypeOf(t.tag, scan.tagInfo || {}), label: tagLabel(t.tag, scan.tagInfo || {}), pages: t.pages, exact: t.exact }))
+        tags: res.tags.map((t) => ({ tag: t.tag, type: tagTypeOf(t.tag, scan.tagInfo || {}), label: tagLabel(t.tag, scan.tagInfo || {}), pages: t.pages, exact: t.exact })),
+        // v3.24.0: has:sketch, or words in a sketch's label.
+        sketches: (res.sketches || []).map((s) => ({ page: s.key, line: `#${s.lineIndex + 1}`, label: s.label, tags: s.tags }))
       };
-      const head = `${res.total} result(s): ${out.pages.length} page(s), ${out.notebooks.length} notebook(s), ${out.days.length} day(s), ${out.tags.length} tag(s)`
+      const head = `${res.total} result(s): ${out.sketches.length ? `${out.sketches.length} sketch(es), ` : ''}${out.pages.length} page(s), ${out.notebooks.length} notebook(s), ${out.days.length} day(s), ${out.tags.length} tag(s)`
         + ' (app global-search semantics and limits; transcribed text only, so untranscribed pages are found by date, notebook or tag)';
       return { content: [text(`${head}\n${JSON.stringify(out)}`)] };
     }

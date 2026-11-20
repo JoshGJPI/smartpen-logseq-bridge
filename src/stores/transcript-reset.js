@@ -16,6 +16,8 @@
 import { writable, get } from 'svelte/store';
 import { strokes, clearStrokeBlockUuids, updateStrokeBlockUuids } from './strokes.js';
 import { savedPages } from './saved-pages.js';
+import { getPage } from '../lib/storage/local-store.js';
+import { kindLineIds } from '../lib/line-kinds.js';
 
 /** `B{book}/P{page}` (the canvasPageKeys form) → { links: Map<startTime, blockUuid>, strokes, at } */
 export const resetPages = writable(new Map());
@@ -35,14 +37,28 @@ export function strokesOnDisk(book, page) {
  * Unlink a loaded page's strokes for re-transcription. Refused while only part
  * of the page is loaded (a load by date): the replacing transcript would have no
  * lines for the ink left out, and the save would drop them.
- * @returns {number} strokes unlinked; 0 when the page has no ink on the canvas,
+ *
+ * Only ink of text lines is unlinked (v3.24.0, E.4): a sketch line's ink keeps
+ * its link, so Transcribe doesn't send the drawing and the save keeps the
+ * sketch (re-placed by y). Which lines are sketches is read from the page.
+ * @param {{ readPage?: (book: string, page: string) => Promise<object|null> }} [deps]
+ * @returns {Promise<number>} strokes unlinked; 0 when the page has no ink on the canvas,
  *   -1 when refused as partly loaded
  */
-export function resetPageTranscript(book, page) {
-  const mine = get(strokes).filter(onPage(book, page));
-  if (!mine.length) return 0;
+export async function resetPageTranscript(book, page, { readPage = getPage } = {}) {
+  if (!get(strokes).some(onPage(book, page))) return 0;
+  let kinds = new Set();
+  try {
+    const doc = await readPage(String(book), String(page));
+    kinds = kindLineIds(doc && doc.transcript && doc.transcript.lines);
+  } catch {
+    // unreadable: every link goes, as before sketches
+  }
+  const all = get(strokes).filter(onPage(book, page));
+  if (!all.length) return 0;
   const total = strokesOnDisk(book, page);
-  if (total != null && mine.length < total) return -1;
+  if (total != null && all.length < total) return -1;
+  const mine = all.filter((s) => !(s.blockUuid && kinds.has(s.blockUuid)));
   const key = resetKey(book, page);
   resetPages.update((m) => {
     const next = new Map(m);

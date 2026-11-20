@@ -155,3 +155,56 @@ describe('QA fixes: Include before a save, and writes outside the Editor', () =>
     expect(get(strokesMod.strokes)[0].blockUuid).toBe('L1');
   });
 });
+
+describe('a sketch write brings a page loaded in the Editor in step (v3.24.0, syncCanvasAfterPageWrite)', () => {
+  let strokesMod;
+  let storageMod;
+  let textless;
+  let pending;
+  const stroke = (startTime, extra = {}) => ({
+    pageInfo: { section: 3, owner: 1012, book: '3017', page: 124 },
+    startTime, endTime: startTime + 100, dotArray: [{ x: 1, y: 2, f: 300 }, { x: 3, y: 4, f: 500 }], ...extra
+  });
+
+  beforeEach(async () => {
+    localStorage.clear();
+    vi.resetModules();
+    strokesMod = await import('$stores/strokes.js');
+    storageMod = await import('$stores/storage.js');
+    textless = await import('$stores/textless.js');
+    pending = await import('$stores/pending-changes.js');
+    strokesMod.strokes.set([stroke(1000), stroke(2000, { textless: true, textlessFrom: null }), stroke(3000, { blockUuid: 'L1' }), stroke(4000)]);
+    storageMod.clearUnsavedChanges();
+  });
+
+  it('links, Pressure ink and a cleared Not text land on the canvas copies; the on-disk index follows; nothing is unsaved', () => {
+    const disk = [
+      { id: 's1000', lineId: 'SK', sketch: true, points: [[1, 2], [3, 4]] },
+      { id: 's2000', lineId: 'SK', points: [[1, 2], [3, 4]] },
+      { id: 's3000', lineId: 'L1', points: [[1, 2], [3, 4]] },
+      { id: 's4000', lineId: null, points: [[1, 2], [3, 4]] },
+    ];
+    const n = textless.syncCanvasAfterPageWrite('3017', '124', {
+      strokes: disk, links: { s1000: 'SK', s2000: 'SK' }, sketchIds: ['s1000'], textlessCleared: ['s2000']
+    });
+    expect(n).toBe(4);
+    const [a, b, c, d] = get(strokesMod.strokes);
+    expect(a).toMatchObject({ blockUuid: 'SK', sketch: true });
+    expect(b.blockUuid).toBe('SK');
+    expect('textless' in b || 'textlessFrom' in b).toBe(false);
+    expect(c.blockUuid).toBe('L1');
+    expect(d.blockUuid).toBeUndefined();
+    // Transcribe skips the sketch's ink now.
+    expect(strokesMod.getUntranscribedStrokes(get(strokesMod.strokes)).map((s) => s.startTime)).toEqual([4000]);
+    // The on-disk index has the new flags, so neither reads as a canvas change.
+    const states = get(pending.onDiskStrokeIds).get('B3017/P124');
+    expect(states.get('s1000')).toMatchObject({ sketch: true, textless: false });
+    expect(get(pending.pendingChanges).get('B3017/P124')?.modifications || []).toEqual([]);
+    expect(get(storageMod.unsavedChanges)).toBe(false);
+  });
+
+  it('does nothing for a page not on the canvas', () => {
+    expect(textless.syncCanvasAfterPageWrite('3017', '125', { links: { s1000: 'SK' }, sketchIds: ['s1000'] })).toBe(0);
+    expect(get(strokesMod.strokes)[0].blockUuid).toBeUndefined();
+  });
+});

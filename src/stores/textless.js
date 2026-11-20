@@ -101,17 +101,29 @@ export function countTextless(all, indices) {
  * @param {{ textlessIds?: string[], unlinkedIds?: string[], links?: Object<string, string|null> }} result
  * @returns {number} how many canvas strokes changed
  */
-export function applySavedDeletedInk(book, page, { textlessIds = [], unlinkedIds = [], links = null } = {}) {
+export function applySavedDeletedInk(book, page, { textlessIds = [], unlinkedIds = [], links = null, sketchIds = [], textlessCleared = [] } = {}) {
   const linkMap = links ? new Map(links instanceof Map ? links : Object.entries(links)) : null;
-  if (!textlessIds.length && !unlinkedIds.length && !(linkMap && linkMap.size)) return 0;
+  if (!textlessIds.length && !unlinkedIds.length && !(linkMap && linkMap.size) && !sketchIds.length && !textlessCleared.length) return 0;
   const flag = new Set(textlessIds);
   const unlink = new Set(unlinkedIds);
+  // A sketch write (v3.24.0): Pressure ink set on the disk, and Not text taken
+  // off ink the sketch took in. The canvas copy follows, so neither reads as a
+  // change: the pressure flag is set, the Not text key dropped (no say).
+  const pressure = new Set(sketchIds);
+  const unflag = new Set(textlessCleared);
   let changed = 0;
   const all = get(strokes);
-  const next = all.map((s) => {
-    const pi = s.pageInfo;
-    if (!pi || String(pi.book) !== String(book) || String(pi.page) !== String(page)) return s;
+  const next = all.map((s0) => {
+    const pi = s0.pageInfo;
+    if (!pi || String(pi.book) !== String(book) || String(pi.page) !== String(page)) return s0;
+    let s = s0;
     const id = `s${s.startTime}`;
+    if (pressure.has(id) && !s.sketch) { s = { ...s, sketch: true }; changed++; }
+    if (unflag.has(id) && ('textless' in s || 'textlessFrom' in s)) {
+      const { textless, textlessFrom, ...rest } = s;
+      s = rest;
+      changed++;
+    }
     if (flag.has(id)) {
       if (s.textless === true && !s.blockUuid) return s;
       changed++;
@@ -146,7 +158,12 @@ export function applySavedDeletedInk(book, page, { textlessIds = [], unlinkedIds
  *
  * @param {string|number} book
  * @param {string|number} page
- * @param {{ strokes?: Array, textlessIds?: string[], unlinkedIds?: string[], links?: Object }} written
+ * A sketch write (v3.24.0, lib/viewer/sketch-lines.js) passes `links` (the
+ * sketch's ink), `sketchIds` (Pressure ink set) and `textlessCleared` (Not text
+ * taken off).
+ *
+ * @param {{ strokes?: Array, textlessIds?: string[], unlinkedIds?: string[], links?: Object,
+ *   sketchIds?: string[], textlessCleared?: string[] }} written
  * @returns {number} how many canvas strokes changed
  */
 export function syncCanvasAfterPageWrite(book, page, written = {}) {

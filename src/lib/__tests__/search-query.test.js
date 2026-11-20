@@ -69,8 +69,8 @@ describe('parseSearchQuery: dates', () => {
   });
 
   it('empty and non-string input', () => {
-    expect(p('')).toEqual({ raw: '', text: '', tokens: [], days: [], facets: [] });
-    expect(parseSearchQuery(null, { now })).toEqual({ raw: '', text: '', tokens: [], days: [], facets: [] });
+    expect(p('')).toEqual({ raw: '', text: '', tokens: [], days: [], facets: [], has: [] });
+    expect(parseSearchQuery(null, { now })).toEqual({ raw: '', text: '', tokens: [], days: [], facets: [], has: [] });
   });
 
   it('tokens use the transcript tokenizer (hyphens kept, 1-char words dropped)', () => {

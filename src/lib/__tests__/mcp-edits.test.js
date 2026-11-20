@@ -243,3 +243,55 @@ describe('editRefusal', () => {
     expect(editRefusal({ ...ok, pendingTranscription: true })).toMatch(/unsaved transcription in the Editor/);
   });
 });
+
+describe('sketch lines (v3.24.0): renamed and moved, never deleted or inserted', () => {
+  const sk = (id, text, lvl = 1) => ({ id, kind: 'sketch', text, indentLevel: lvl, parentId: null, checked: null, yBounds: null, bounds: { minX: 1, maxX: 2, minY: 3, maxY: 4 } });
+  const withSketch = () => [...page().slice(0, 2), sk('s', 'Floor plan', 2), ...page().slice(2)];
+
+  it('set_text renames a sketch, with or without get_transcript\'s [sketch] and stroke count', () => {
+    const r = run([{ op: 'set_text', line: 3, expect: '[sketch] Floor plan (412 strokes)', text: '[sketch] Ground floor plan' }], withSketch());
+    expect(r.ok).toBe(true);
+    expect(r.lines[2]).toMatchObject({ id: 's', kind: 'sketch', text: 'Ground floor plan', checked: null });
+    expect(run([{ op: 'set_text', line: 3, expect: 'Floor plan', text: 'Plan' }], withSketch()).ok).toBe(true);
+  });
+
+  it('a box typed into a sketch\'s label never makes it a task', () => {
+    const r = run([{ op: 'set_text', line: 3, expect: 'Floor plan', text: 'TODO plan' }], withSketch());
+    expect(r.lines[2]).toMatchObject({ text: 'TODO plan', checked: null });
+  });
+
+  it('delete is refused, task_ok or not', () => {
+    for (const e of [{ op: 'delete', line: 3, expect: 'Floor plan' }, { op: 'delete', line: 3, expect: 'Floor plan', task_ok: true }]) {
+      const r = run([e], withSketch());
+      expect(r.ok).toBe(false);
+      expect(r.error).toMatch(/sketch line .*remove it in the app/);
+    }
+  });
+
+  it('move and set_indent are allowed', () => {
+    const r = run([{ op: 'move', lines: [3], expect_first: 'Floor plan', to: 'bottom' }, { op: 'set_indent', line: 3, expect: 'Floor plan', level: 1 }], withSketch());
+    expect(r.ok).toBe(true);
+    expect(r.lines.at(-1)).toMatchObject({ id: 's', kind: 'sketch', indentLevel: 1 });
+  });
+
+  it('insert can never make one: inserted lines are text', () => {
+    const r = run([{ op: 'insert', after: 3, expect: 'Floor plan', level: 3, text: '[sketch] fake' }], withSketch());
+    expect(r.ok).toBe(true);
+    expect(r.lines[3].kind).toBeUndefined();
+  });
+
+  it('another kind\'s text is never edited (E.7)', () => {
+    const lines = [...page(), { id: 't', kind: 'table', text: 'beam sizes', indentLevel: 0, checked: null, yBounds: null }];
+    const r = run([{ op: 'set_text', line: 8, expect: 'beam sizes', text: 'x' }], lines);
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/table line, not text/);
+  });
+
+  it('the listing shows [sketch] label; untouchedChanged catches a lost kind', () => {
+    const r = run([{ op: 'set_text', line: 1, expect: 'Prototyping Concrete Masonry Storm Shelters', text: 'Prototyping' }], withSketch());
+    expect(formatEditListing(r)).toMatch(/#3 +- \[sketch\] Floor plan/);
+    const before = withSketch();
+    const lost = before.map((l) => (l.id === 's' ? { ...l, kind: undefined } : l));
+    expect(untouchedChanged(before, lost, new Set())).toEqual(['s']);
+  });
+});

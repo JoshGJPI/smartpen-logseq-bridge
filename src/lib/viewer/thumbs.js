@@ -36,7 +36,10 @@ export function createThumbLoader({ read, peek = () => null, render, maxEntries 
   let running = 0;
   const stats = { reads: 0, peeks: 0, hits: 0 };
 
-  const keyOf = (book, pageId, rotation) => `${book}/${pageId}@${rotation || 0}`;
+  // A sketch's crop (v3.24.0) is keyed by page + line id, under the page's prefix,
+  // so invalidating the page drops it too.
+  const keyOf = (book, pageId, rotation, lineId = null) => `${book}/${pageId}@${rotation || 0}${lineId ? `#${lineId}` : ''}`;
+  const inkOf = (strokes, lineId) => (lineId ? (strokes || []).filter((s) => s && s.lineId === lineId) : strokes || []);
 
   function remember(key, svg) {
     svgs.set(key, svg);
@@ -54,9 +57,13 @@ export function createThumbLoader({ read, peek = () => null, render, maxEntries 
     }
   }
 
-  /** The SVG for a page, or '' when it cannot be read. Never throws. */
-  function get(book, pageId, rotation = 0) {
-    const key = keyOf(book, pageId, rotation);
+  /**
+   * The SVG for a page, or '' when it cannot be read. Never throws. With
+   * `lineId` (v3.24.0) only that line's ink, fitted to its own box: a sketch's
+   * crop thumbnail.
+   */
+  function get(book, pageId, rotation = 0, lineId = null) {
+    const key = keyOf(book, pageId, rotation, lineId);
     if (svgs.has(key)) {
       stats.hits++;
       const svg = svgs.get(key);
@@ -69,7 +76,7 @@ export function createThumbLoader({ read, peek = () => null, render, maxEntries 
     const cached = peek(book, pageId);
     if (cached) {
       stats.peeks++;
-      const svg = render(cached.strokes || [], rotation);
+      const svg = render(inkOf(cached.strokes, lineId), rotation);
       remember(key, svg);
       return Promise.resolve(svg);
     }
@@ -79,7 +86,7 @@ export function createThumbLoader({ read, peek = () => null, render, maxEntries 
         try {
           stats.reads++;
           const doc = await read(book, pageId);
-          const svg = render((doc && doc.strokes) || [], rotation);
+          const svg = render(inkOf(doc && doc.strokes, lineId), rotation);
           remember(key, svg);
           resolve(svg);
         } catch {
@@ -95,8 +102,8 @@ export function createThumbLoader({ read, peek = () => null, render, maxEntries 
   }
 
   /** The SVG if already built (no read), else null. */
-  function peekSvg(book, pageId, rotation = 0) {
-    return svgs.get(keyOf(book, pageId, rotation)) ?? null;
+  function peekSvg(book, pageId, rotation = 0, lineId = null) {
+    return svgs.get(keyOf(book, pageId, rotation, lineId)) ?? null;
   }
 
   /** Forget one page's thumbnails, every rotation (the page was re-saved). */

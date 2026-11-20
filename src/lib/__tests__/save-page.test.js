@@ -1275,7 +1275,9 @@ describe('savePageToFolder — Relink (v3.21.0, spec B.3 / B.7)', () => {
     const out = written();
     expect(out.strokes[0]).toEqual(doc.strokes[0]);
     expect(out.strokes[4]).toEqual(doc.strokes[4]);
-    expect(out.transcript.lines.at(-1)).toEqual(doc.transcript.lines.at(-1));
+    expect(out.transcript.lines.at(-1)).toMatchObject(doc.transcript.lines.at(-1));
+    // v3.24.0: the save recomputes a sketch's box from its strokes.
+    expect(out.transcript.lines.at(-1).bounds).toBeTruthy();
   });
 
   it('writes leftover ink chosen as Not text, and a taken word fix, in the same save', async () => {
@@ -1338,5 +1340,129 @@ describe('savePageToFolder — Relink (v3.21.0, spec B.3 / B.7)', () => {
     vi.mocked(getPage).mockResolvedValue(null);
     expect(await savePageToFolder({ book: '3017', page: '123', relink: spec })).toMatchObject({ success: false });
     expect(savePage).not.toHaveBeenCalled();
+  });
+});
+
+/* ===================================================================
+ *  Sketch lines (v3.24.0, docs/TRANSCRIPT-STRUCTURE-SPEC.md E.4 / E.6)
+ * =================================================================== */
+describe('savePageToFolder — sketch lines survive every transcript path', () => {
+  const written = () => savePage.mock.calls.at(-1)[2];
+  /** A stored stroke: a short tick from y0 to y1 at x. */
+  const st = (t, x, y0, y1, lineId = null) => ({ id: `s${t}`, startTime: t, endTime: t + 10, lineId, points: [[x, y0], [x + 1, y1]] });
+  const SK = { id: 'SK', kind: 'sketch', text: 'Floor plan', indentLevel: 1, parentId: 'A', checked: null, yBounds: null, bounds: { minX: 20, maxX: 31, minY: 50, maxY: 70 } };
+  /** Text line A at y 40–43 with ink, a sketch under it (ink y 50–70), text line B at y 80–83. */
+  const page = () => ({
+    version: '2.0', pageInfo: PAGE_INFO,
+    metadata: { lastUpdated: '2026-11-01T00:00:00Z', totalStrokes: 4 },
+    transcript: {
+      lastTranscribed: '2026-11-01T00:00:00Z',
+      lines: [
+        { id: 'A', text: 'site visit', indentLevel: 0, parentId: null, checked: null, yBounds: mmBounds(40, 43, 40) },
+        { ...SK },
+        { id: 'B', text: 'need heater', indentLevel: 0, parentId: null, checked: null, yBounds: mmBounds(80, 83, 40) },
+      ]
+    },
+    strokes: [st(1000, 10, 40, 43, 'A'), st(2000, 20, 50, 70, 'SK'), st(2001, 30, 55, 60, 'SK'), st(3000, 10, 80, 83, 'B')]
+  });
+
+  beforeEach(() => {
+    getPage.mockReset();
+    savePage.mockReset();
+    savePage.mockResolvedValue({ path: '/tmp/P42.json' });
+  });
+
+  it('a MyScript merge keeps the sketch line in place and never matches its ink to a new line', async () => {
+    const doc = page();
+    // New ink at y 52–58 (beside the sketch), transcribed as a line spanning the sketch's height.
+    doc.strokes.push(st(4000, 60, 52, 58));
+    getPage.mockResolvedValue(JSON.parse(JSON.stringify(doc)));
+    await savePageToFolder({
+      book: '3017', page: 42, activeStrokes: [],
+      pageTranscription: { originNcodeY: 50, transcribedStrokeIds: ['4000'], lines: [{ text: 'beside', yBounds: mmBounds(50, 70, 50) }] }
+    });
+    const out = written();
+    expect(out.transcript.lines.map((l) => l.id).slice(0, 3)).toEqual(['A', 'SK', 'B']);
+    expect(out.transcript.lines[1]).toMatchObject({ kind: 'sketch', text: 'Floor plan', yBounds: null, checked: null });
+    expect(out.strokes.find((s) => s.id === 's2000').lineId).toBe('SK');
+    expect(out.strokes.find((s) => s.id === 's2001').lineId).toBe('SK');
+    expect(out.strokes.find((s) => s.id === 's4000').lineId).toBe(out.transcript.lines[3].id);
+  });
+
+  it('an Edit Transcription result keeps the sketch row; a cleared label reads "Sketch", never a delete', async () => {
+    getPage.mockResolvedValue(page());
+    await savePageToFolder({
+      book: '3017', page: 42, activeStrokes: [],
+      pageTranscription: {
+        editorBaseIds: ['A', 'SK', 'B'],
+        lines: [
+          { text: 'site visit', indentLevel: 0, blockUuid: 'A' },
+          { text: '   ', indentLevel: 2, blockUuid: 'SK', kind: 'sketch' },
+          { text: 'need heater', indentLevel: 0, blockUuid: 'B' },
+        ]
+      }
+    });
+    const out = written();
+    expect(out.transcript.lines.map((l) => l.id)).toEqual(['A', 'SK', 'B']);
+    expect(out.transcript.lines[1]).toMatchObject({ kind: 'sketch', text: 'Sketch', indentLevel: 2, checked: null, yBounds: null });
+    expect(out.transcript.lines[1].bounds).toEqual({ minX: 20, maxX: 31, minY: 50, maxY: 70 });
+    expect(out.strokes.filter((s) => s.lineId === 'SK')).toHaveLength(2);
+  });
+
+  it('a sketch label typed with a task box stays a label, never a task', async () => {
+    getPage.mockResolvedValue(page());
+    await savePageToFolder({
+      book: '3017', page: 42, activeStrokes: [],
+      pageTranscription: { editorBaseIds: ['A', 'SK', 'B'], lines: [
+        { text: 'site visit', blockUuid: 'A' }, { text: 'TODO plan', indentLevel: 1, blockUuid: 'SK', kind: 'sketch' }, { text: 'need heater', blockUuid: 'B' }
+      ] }
+    });
+    expect(written().transcript.lines[1]).toMatchObject({ text: 'TODO plan', checked: null });
+  });
+
+  it('a sketch deleted in the dialog unlinks its ink and never flags it Not text, whatever the ink choice', async () => {
+    getPage.mockResolvedValue(page());
+    const r = await savePageToFolder({
+      book: '3017', page: 42, activeStrokes: [],
+      pageTranscription: {
+        editorBaseIds: ['A', 'SK', 'B'], deletedLineIds: ['SK'], deletedInk: 'textless',
+        lines: [{ text: 'site visit', blockUuid: 'A' }, { text: 'need heater', blockUuid: 'B' }]
+      }
+    });
+    const out = written();
+    expect(out.transcript.lines.map((l) => l.id)).toEqual(['A', 'B']);
+    expect(out.strokes).toHaveLength(4);   // no stroke is ever deleted
+    for (const id of ['s2000', 's2001']) {
+      const s = out.strokes.find((x) => x.id === id);
+      expect(s.lineId).toBeNull();
+      expect(s.textless).toBeUndefined();
+    }
+    expect(r.textlessIds).toEqual([]);
+    expect(r.unlinkedIds.sort()).toEqual(['s2000', 's2001']);
+  });
+
+  it('Reset + replace keeps the sketch, re-placed by y under the new line above its ink, its ink still linked', async () => {
+    getPage.mockResolvedValue(page());
+    await savePageToFolder({
+      book: '3017', page: 42, activeStrokes: [],
+      pageTranscription: {
+        replace: true, originNcodeY: 40, transcribedStrokeIds: ['1000', '3000'],
+        lines: [{ text: 'site visit, again', yBounds: mmBounds(40, 43, 40) }, { text: 'need heater', yBounds: mmBounds(80, 83, 40) }]
+      }
+    });
+    const out = written();
+    const lines = out.transcript.lines;
+    expect(lines.map((l) => l.text)).toEqual(['site visit, again', 'Floor plan', 'need heater']);
+    expect(lines[1]).toMatchObject({ id: 'SK', kind: 'sketch', indentLevel: 1, parentId: lines[0].id });
+    expect(out.strokes.find((s) => s.id === 's2000').lineId).toBe('SK');
+    expect(out.strokes.find((s) => s.id === 's2001').lineId).toBe('SK');
+    expect(out.strokes.find((s) => s.id === 's1000').lineId).toBe(lines[0].id);
+    expect(out.strokes.find((s) => s.id === 's3000').lineId).toBe(lines[2].id);
+  });
+
+  it('recomputes a sketch\'s bounds when one of its strokes is deleted', async () => {
+    getPage.mockResolvedValue(page());
+    await savePageToFolder({ book: '3017', page: 42, activeStrokes: [], deletedStrokeIds: new Set(['s2000']) });
+    expect(written().transcript.lines[1].bounds).toEqual({ minX: 30, maxX: 31, minY: 55, maxY: 60 });
   });
 });

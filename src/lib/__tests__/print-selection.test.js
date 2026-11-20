@@ -5,7 +5,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  selectionPageRef, groupSelectionByPage, selectionPrintPage, selectionItems
+  selectionPageRef, groupSelectionByPage, selectionPrintPage, selectionItems,
+  sketchPrintItem,
 } from '$lib/print/print-selection.js';
 import { inkSvg, buildPrintHtml } from '$lib/print/print-html.js';
 import { sheetFor, normalizePrintOptions } from '$lib/print/print-layout.js';
@@ -192,5 +193,27 @@ describe('selectionItems', () => {
     list = addRefs(list, selectionItems(sel).items);
     expect(list.length).toBe(3);
     expect(list[1].strokes.length).toBe(2);
+  });
+});
+
+
+describe('Print this sketch (v3.24.0): one sketch line as a print item', () => {
+  const strokes = [
+    { id: 's1', lineId: 'SK', points: [[1, 2], [3, 4]] },
+    { id: 's2', lineId: 'A', points: [[1, 2], [3, 4]] },
+    { id: 's3', lineId: 'SK', points: [[5, 6], [7, 8]] },
+    { id: 's4', lineId: 'SK', points: [] },
+  ];
+  it("takes only the sketch’s inked strokes, keyed by page and line, printed like a selection", () => {
+    const item = sketchPrintItem({ book: '3017', pageId: '124', lineId: 'SK', strokes });
+    expect(item).toMatchObject({ book: '3017', pageId: '124', selection: true, key: '3017/124#sketch:SK' });
+    expect(item.strokes.map((s) => s.id)).toEqual(['s1', 's3']);
+    // Added twice, kept once.
+    expect(addRefs([], [item, { ...item }])).toHaveLength(1);
+    expect(refKey(item)).toBe('sel:3017/124#sketch:SK');
+  });
+  it('null for a sketch with no ink, or a bad book', () => {
+    expect(sketchPrintItem({ book: '3017', pageId: '124', lineId: 'none', strokes })).toBeNull();
+    expect(sketchPrintItem({ book: 'x', pageId: '124', lineId: 'SK', strokes })).toBeNull();
   });
 });

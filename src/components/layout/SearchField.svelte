@@ -27,8 +27,9 @@
     globalSearchIndex, searchRecords, searchDates, notebookNames, transcriptEditing,
     ensureTimelineLoaded, openPageInLibrary, openNotebookInLibrary, focusReaderLine,
     navigateTo, setTimelineRange, setActiveTab, openTranscriptSearch, openLibraryView, tagStatsList, destination,
-    pageTags, tagInfo
+    pageTags, tagInfo, tagBlocks, focusReaderLineId
   } from '$stores';
+  import { scopeLines } from '$stores/tag-scope.js';
   import { timelineIndexFiltered } from '$stores/timeline.js';
   import { parseSearchQuery } from '$lib/search-query.js';
   import { runSearch, flattenResults, isSearchShortcut } from '$lib/global-search.js';
@@ -66,7 +67,9 @@
     records: $searchRecords,
     tags: $tagStatsList,
     pageTags: $pageTags,
-    info: $tagInfo
+    info: $tagInfo,
+    blocks: $tagBlocks,
+    scopeLines: $scopeLines
   });
 
   onDestroy(() => clearTimeout(timer));
@@ -85,7 +88,17 @@
   async function activate(entry, shift = false) {
     if (!entry) return;
     const { group, item } = entry;
-    if (group === 'pages') {
+    if (group === 'sketches') {
+      // A sketch (v3.24.0): its page in the reader, the sketch line marked.
+      const r = item.record;
+      const pageId = r.pageId != null ? String(r.pageId) : String(r.page);
+      if (shift) {
+        if ((await loadPageIntoEditor(r)) !== 'cancelled') close();
+        return;
+      }
+      if (openPageInLibrary(r.book, pageId) === 'cancelled') return;
+      focusReaderLineId(r.book, pageId, item.id);
+    } else if (group === 'pages') {
       const r = item.record;
       const pageId = r.pageId != null ? String(r.pageId) : String(r.page);
       if (shift) {

@@ -104,7 +104,7 @@
   <div class="summary-row">
     <span class="summary">{$sketchProfileSummary}</span>
     {#if $sketchStrokeCount > 0}
-      <span class="count">{$sketchStrokeCount} sketch stroke{$sketchStrokeCount !== 1 ? 's' : ''} loaded</span>
+      <span class="count">{$sketchStrokeCount} Pressure ink stroke{$sketchStrokeCount !== 1 ? 's' : ''} loaded</span>
     {/if}
   </div>
 
@@ -114,7 +114,7 @@
     width="100%"
     height={PREVIEW_H}
     role="img"
-    aria-label="Preview of the current sketch line thickness"
+    aria-label="Preview of the current Pressure ink line thickness"
   >
     <path d={previewPath} fill="currentColor" />
   </svg>
@@ -210,7 +210,7 @@
     <p class="control-hint">
       The force range your pen actually produces. Anything at or below the floor
       draws at the thinnest width, at or above the ceiling at the thickest. If your
-      sketches come out uniformly thin or uniformly fat, narrow this band around
+      Pressure ink comes out uniformly thin or uniformly fat, narrow this band around
       the range you really use.
     </p>
 
@@ -261,8 +261,8 @@
   <button class="btn btn-secondary" on:click={resetSketchProfile}>↺ Reset to defaults</button>
 
   <p class="hint">
-    Applies to strokes marked with <strong>✏️ Mark as Sketch</strong> in the canvas
-    header. Everything else renders as a uniform line.
+    Applies to strokes marked <strong>✏️ Pressure ink</strong> in the canvas
+    header (stored as the strokes' sketch flag). Everything else renders as a uniform line.
   </p>
 </div>
 

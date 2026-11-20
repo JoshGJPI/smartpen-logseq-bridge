@@ -28,7 +28,7 @@ import { pendingChanges } from './pending-changes.js';
 import { syncCanvasAfterPageWrite } from './textless.js';
 import { pageOrientations } from './orientation.js';
 import { hasMyScriptCredentials, getMyScriptCredentials } from './settings.js';
-import { pageGuardState } from './page-guards.js';
+import { pageGuardState, suffixOnCanvas } from './page-guards.js';
 import { log } from './ui.js';
 import { getPage } from '$lib/storage/local-store.js';
 import { savePageToFolder } from '$lib/storage/save-page.js';
@@ -103,11 +103,7 @@ function cacheCall(action, book, pageId, entry) {
  * copy couldn't take the new links; Relink waits until that page is off the canvas.
  */
 function relinkGuardState(book, pageId) {
-  const s = pageGuardState(book, pageId);
-  const m = /^(\d+)[a-zA-Z]$/.exec(String(pageId));
-  const suffixOnCanvas = !!m && get(strokes).some((st) => st && st.pageInfo
-    && String(st.pageInfo.book) === String(book) && String(st.pageInfo.page) === m[1]);
-  return { ...s, suffixOnCanvas };
+  return { ...pageGuardState(book, pageId), suffixOnCanvas: suffixOnCanvas(book, pageId) };
 }
 
 /** Why Relink is refused on this page now (the page read from disk), or null. */

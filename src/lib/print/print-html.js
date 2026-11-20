@@ -31,6 +31,7 @@ import {
 } from '../viewer/page-svg.js';
 import { rotateFrame, svgRotationTransform } from '../page-orientation.js';
 import { isPropertyLine } from '../viewer/transcript-markdown.js';
+import { isKindLine, isSketchLine, sketchLabel } from '../line-kinds.js';
 import { paperOf, inkScale, NCODE_INCH, LINE_WIDTH_MM } from './print-layout.js';
 
 /** Pen ink colour on paper. */
@@ -156,6 +157,12 @@ export function transcriptHtml(lines) {
     const text = line && typeof line.text === 'string' ? line.text : '';
     if (text.trim() === '' || isPropertyLine(text)) continue;
     const level = Math.max(0, Math.min(12, line.indentLevel || 0));
+    // A sketch line (v3.24.0) prints its label behind a SKETCH tag; never a task.
+    if (isKindLine(line)) {
+      out += `<div class="ln" style="padding-left:${level * 1.4}em"><span class="tag">${escapeHtml(line.kind.toUpperCase())}</span> `
+        + `<span class="tx">${escapeHtml(isSketchLine(line) ? sketchLabel(text) : text)}</span></div>`;
+      continue;
+    }
     const isTask = line.checked === true || line.checked === false;
     const cancelled = line.checked === true && line.marker === 'CANCELLED';
     const waiting = line.checked === false && line.marker === 'WAITING';

@@ -18,6 +18,9 @@
   (TagBlocksList) under the grid; a Person's page ends with the pages that name
   them without the tag (MentionedPages, Tag page by click only). Print… prints
   the tag's pages through the usual Print dialog (stores/print.js).
+
+  Sketches (v3.24.0): a tag's page shows a Sketches strip (TagSketches) above
+  the Blocks list.
 -->
 <script>
   import { onMount } from 'svelte';
@@ -35,6 +38,7 @@
   import PersonItems from './PersonItems.svelte';
   import TagBlocksList from './TagBlocksList.svelte';
   import MentionedPages from './MentionedPages.svelte';
+  import TagSketches from './TagSketches.svelte';
 
   /** `{ kind: 'tag', tag }` or `{ kind: 'untagged' }` */
   export let view;
@@ -92,6 +96,7 @@
   </div>
   {#if type === 'person'}<PersonItems tag={view.tag} />{:else if view.kind === 'tag'}<TagTasksPanel tag={view.tag} />{/if}
   </div>
+  {#if view.kind === 'tag'}<TagSketches tag={view.tag} {records} />{/if}
   {#if type === 'person' || type === 'project'}<TagBlocksList tag={view.tag} {records} />{/if}
   {#if type === 'person'}<MentionedPages tag={view.tag} {onOpen} />{/if}
 </div>

@@ -27,6 +27,7 @@ import { compareBookKeys } from './volumes.js';
 import { isProjectTag, findProjectNumbers, compareTags, tagAnswersTo, tagLabel, tagTypeOf } from './tags.js';
 import { linesFromText, peopleForTasks, personNames, textNamesAny } from './tag-scope.js';
 import { extractFacets } from './search-query.js';
+import { isKindLine } from './line-kinds.js';
 
 export const WAITING = 'WAITING';
 export const CANCELLED = 'CANCELLED';
@@ -180,7 +181,8 @@ export function buildTaskSummary(lines) {
   const stack = []; // [{ level, id, text, project }] of earlier lines with text
   let lastProject = null; // the last project number on any earlier line
   for (const l of lines) {
-    if (!l || typeof l !== 'object') continue;
+    // A sketch (any `kind`, v3.24.0) is never a task, never a head, and its label gives no project.
+    if (!l || typeof l !== 'object' || isKindLine(l)) continue;
     const level = Math.max(0, Number(l.indentLevel) || 0);
     while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
     const own = projectsIn(l.text);

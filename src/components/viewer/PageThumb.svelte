@@ -6,6 +6,9 @@
   Reads go through lib/viewer/thumbs.js, never the reader's page cache, so a
   screen of thumbnails cannot evict the spread you just left. Rotation follows
   the page's display rotation; a turned page redraws.
+
+  With `lineId` (v3.24.0) it shows only that line's ink, cropped to it: a
+  sketch's thumbnail (keyed by page + line id in thumbs.js).
 -->
 <script>
   import { onMount, onDestroy } from 'svelte';
@@ -17,6 +20,8 @@
   export let pageId;
   /** CSS height of the box; the SVG fits inside it. */
   export let height = '150px';
+  /** A sketch line's id: only its ink, cropped to it. */
+  export let lineId = null;
 
   let el;
   let visible = false;
@@ -25,15 +30,15 @@
   let wanted = '';
 
   $: rotation = rotationFor($pageOrientations, book, pageId);
-  $: key = `${book}/${pageId}@${rotation}`;
+  $: key = `${book}/${pageId}@${rotation}#${lineId || ''}`;
   $: if (key !== wanted) {
     wanted = key;
-    svg = thumbs.peekSvg(book, pageId, rotation);
+    svg = thumbs.peekSvg(book, pageId, rotation, lineId);
   }
   $: if (visible && svg === null) load(key);
 
   async function load(k) {
-    const out = await thumbs.get(book, pageId, rotation);
+    const out = await thumbs.get(book, pageId, rotation, lineId);
     if (k === wanted) svg = out;
   }
 

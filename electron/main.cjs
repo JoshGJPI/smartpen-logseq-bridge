@@ -9,7 +9,7 @@ const bookTypesSidecar = require('./book-types-sidecar.cjs');
 const retimedSidecar = require('./retimed-sidecar.cjs');
 const penMatch = require('./pen-match.cjs');
 const pageStore = require('./page-store.cjs');
-const { buildTaskSummary } = require('./task-summary.cjs');
+const { buildTaskSummary, buildSketchSummary, lineScanText } = require('./task-summary.cjs');
 const mcpEndpoint = require('./mcp-endpoint.cjs');
 const mcpEditLog = require('./mcp-edit-log.cjs');
 const relinkCache = require('./relink-cache.cjs');
@@ -318,7 +318,8 @@ function buildTranscriptionText(lines) {
   if (!Array.isArray(lines) || lines.length === 0) return null;
   // A line's own leading spaces are dropped (v3.23.0), so the text reads back at its stored indent
   // (lib/tag-scope.js buildTranscriptionText / linesFromText; parity-tested).
-  return lines.map(l => '  '.repeat((l && l.indentLevel) || 0) + String((l && l.text) || '').replace(/^ +/, '')).join('\n');
+  // A sketch line (v3.24.0) reads `[sketch] label`, so word search finds labels (lineScanText, task-summary.cjs).
+  return lines.map(l => '  '.repeat((l && l.indentLevel) || 0) + lineScanText(l)).join('\n');
 }
 
 /**
@@ -362,7 +363,8 @@ function extractPageMeta(raw) {
         hasTranscription: !!(lines && lines.length),
         transcriptLineCount: (lines && lines.length) || 0,
         transcriptionText: buildTranscriptionText(lines),
-        tasks: buildTaskSummary(lines)
+        tasks: buildTaskSummary(lines),
+        sketches: buildSketchSummary(lines)
       };
     } catch {
       // fall through to a full parse
@@ -376,7 +378,8 @@ function extractPageMeta(raw) {
     hasTranscription: !!(lines && lines.length),
     transcriptLineCount: (lines && lines.length) || 0,
     transcriptionText: buildTranscriptionText(lines),
-    tasks: buildTaskSummary(lines)
+    tasks: buildTaskSummary(lines),
+    sketches: buildSketchSummary(lines)
   };
 }
 
@@ -405,6 +408,8 @@ async function listAllPages(root) {
         // Task lines (v3.4.0): id, text, state and parent line only, for the
         // Tasks view. Mirrors src/lib/tasks.js buildTaskSummary().
         tasks: meta.tasks,
+        // Sketch lines (v3.24.0): id, label, line index, at most 20 (task-summary.cjs buildSketchSummary).
+        sketches: meta.sketches,
         path: f.path
       });
     } catch (err) {

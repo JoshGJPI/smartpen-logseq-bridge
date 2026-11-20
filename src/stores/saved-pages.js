@@ -13,6 +13,7 @@ import { compareBookKeys } from '../lib/volumes.js';
 import { invalidatePage } from '../lib/viewer/page-cache.js';
 import { buildTaskSummary, summaryWithState } from '../lib/tasks.js';
 import { buildTranscriptionText } from '../lib/tag-scope.js';
+import { buildSketchSummary } from '../lib/line-kinds.js';
 
 // Page metadata records, one per PageDoc file found by the scanner
 export const savedPages = writable([]);
@@ -92,7 +93,8 @@ export function applyTranscriptToRecord(book, pageId, lines) {
       if (p.book !== book || id !== String(pageId)) return p;
       return {
         ...p, transcriptionText, transcribed: !!transcriptionText, transcriptLineCount: lines.length,
-        tasks: buildTaskSummary(lines)
+        tasks: buildTaskSummary(lines),
+        sketches: buildSketchSummary(lines)
       };
     })
   );

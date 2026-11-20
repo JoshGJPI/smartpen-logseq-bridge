@@ -11,6 +11,19 @@ import { get } from 'svelte/store';
 import { isViewerPageDirty, isTranscriptEditorOpen } from './viewer.js';
 import { pageTranscriptions } from './transcription.js';
 import { isPageReset } from './transcript-reset.js';
+import { strokes } from './strokes.js';
+
+/**
+ * Is this a letter-suffixed page (P151b) whose page number is loaded in the
+ * Editor? The canvas keys strokes by the integer NCode page, so it can't tell
+ * the two apart and its copy couldn't take a direct write's links. Relink
+ * (v3.21.0) and sketch writes (v3.24.0) wait until it is off the canvas.
+ */
+export function suffixOnCanvas(book, page) {
+  const m = /^(\d+)[a-zA-Z]$/.exec(String(page));
+  return !!m && get(strokes).some((st) => st && st.pageInfo
+    && String(st.pageInfo.book) === String(book) && String(st.pageInfo.page) === m[1]);
+}
 
 /**
  * @param {string|number} book  book key
