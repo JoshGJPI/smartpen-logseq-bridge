@@ -11,7 +11,7 @@ import {
   suggestProjectNumbers, splitSuggestionLine, buildTagIndex, recordsForKeys, untaggedRecords,
   tagCards, untaggedCard, sortTagCards, tagStats, filterByTags, filterChoices, rankFilterChoices, tagOptions, tagEnterChoice, backspaceRemovesTag,
   parseTagSort, parseGroupBy, planTagCarry, MAX_TAG_LENGTH,
-  withBlockRoot, withoutBlockRoot, renameTagBlocks, deleteTagBlocks, diffTagBlocks, rollbackBlocksPatch, blockCorrection,
+  withBlockRoot, withoutBlockRoot, dropBlocksForUntagged, renameTagBlocks, deleteTagBlocks, diffTagBlocks, rollbackBlocksPatch, blockCorrection,
   parseTagView, parseCollapsedGroups, parseTagPageSort, sortTagPageTiles,
   normalizeTagInfo, tagTypeOf, tagLabel, projectKind, tagNames, tagAnswersTo, withTagInfo, withTagType,
   renameTagInfo, deleteTagInfo, diffTagInfo, rollbackInfoPatch, groupByTagType, createRows, sortTagStats,
@@ -883,5 +883,17 @@ describe('block corrections (v3.23.0)', () => {
     expect(out.blocks).toEqual({ '390v2/12': { tom: { add: ['l1'] } } });
     const kept = { '390/12': { tom: { add: ['l1'] } }, '390v2/12': { rich: { add: ['x'] } } };
     expect(planTagCarry({ pages: {}, dismissed: {}, blocks: kept }, [move]).blocks).toEqual(kept);
+  });
+});
+
+describe('dropBlocksForUntagged (v3.23.0)', () => {
+  it('drops a page’s entry only for tags that left that page', () => {
+    const b = { '3017/170': { rich: { add: ['a'] }, tom: { add: ['c'] } }, '3017/171': { rich: { add: ['b'] } } };
+    const prev = { '3017/170': ['rich', 'tom'], '3017/171': ['rich'] };
+    expect(dropBlocksForUntagged(b, prev, { '3017/170': ['tom'], '3017/171': ['rich'] }))
+      .toEqual({ '3017/170': { tom: { add: ['c'] } }, '3017/171': { rich: { add: ['b'] } } });
+    expect(dropBlocksForUntagged(b, prev, prev)).toBe(b);
+    // an entry for a tag that was not on the page before is not this change's to drop
+    expect(dropBlocksForUntagged({ '3017/172': { rich: { add: ['x'] } } }, {}, {})).toEqual({ '3017/172': { rich: { add: ['x'] } } });
   });
 });

@@ -58,6 +58,19 @@ export function linesFromText(text) {
   });
 }
 
+/**
+ * A scan record's `transcriptionText` from transcript lines: two spaces per
+ * indent level, then the line's text with its own leading spaces dropped
+ * (v3.23.0), so `linesFromText()` reads every line back at its stored indent.
+ * MIRRORED by main.cjs buildTranscriptionText(); the MCP store and
+ * stores/saved-pages.js call this one.
+ * @returns {string|null}
+ */
+export function buildTranscriptionText(lines) {
+  if (!Array.isArray(lines) || lines.length === 0) return null;
+  return lines.map((l) => '  '.repeat((l && l.indentLevel) || 0) + String((l && l.text) || '').replace(/^ +/, '')).join('\n');
+}
+
 /** Just what scope needs from transcript lines: `{ id, text, indentLevel }` (small, for caching). */
 export function scopeLinesOf(lines) {
   return (Array.isArray(lines) ? lines : []).filter(Boolean).map((l) => ({

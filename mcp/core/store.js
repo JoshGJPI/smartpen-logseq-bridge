@@ -25,14 +25,13 @@ import { buildTaskSummary, normalizeTaskSummary } from '../../src/lib/tasks.js';
 import { mightHaveTaskBoxes } from '../../src/lib/storage/convert-task-boxes.js';
 import { isTrustworthyTranscript } from '../../src/lib/viewer/ink-text.js';
 import { linkedStrokeCount, textlessStrokeCount } from './transcript-check.js';
-import { scopeLinesOf } from '../../src/lib/tag-scope.js';
+import { scopeLinesOf, buildTranscriptionText } from '../../src/lib/tag-scope.js';
 
 const PAGE_FILE_RE = /^P(\d+)([a-zA-Z]?)\.json$/;
 
 /** main.cjs buildTranscriptionText(): the text the app's records carry for search. */
 function transcriptText(lines) {
-  if (!Array.isArray(lines) || !lines.length) return null;
-  return lines.map((l) => `${'  '.repeat(l.indentLevel || 0)}${l.text || ''}`).join('\n');
+  return buildTranscriptionText(lines);
 }
 
 function summarize(doc, f, st) {

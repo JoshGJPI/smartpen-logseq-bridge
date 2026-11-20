@@ -7,10 +7,11 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  linesFromText, scopeLinesOf, personNames, nameFromKey, textNamesAny, rootMatcher, hasBlockScope, blockEnd, tagScope,
+  linesFromText, buildTranscriptionText, scopeLinesOf, personNames, nameFromKey, textNamesAny, rootMatcher, hasBlockScope, blockEnd, tagScope,
   pageScopes, coveredLineIds, taskInScope, peopleForTasks, blocksOf, tagBlockEntries, mentionedNotTagged, rootsOnLine
 } from '../tag-scope.js';
 import { buildTaskSummary } from '../tasks.js';
+import { mainFunctions } from '../../../mcp/__fixtures__/app-side.js';
 
 const info = {
   rich: { type: 'person', label: 'Rich' },
@@ -256,5 +257,26 @@ describe('blocks for a tag page (D.2)', () => {
     ]);
     expect(rootsOnLine(page, 'b0', ['loren'], info, { loren: { add: ['b0'] } })).toEqual([{ tag: 'loren', byText: false }]);
     expect(rootsOnLine(page, 'nope', ['rich'], info)).toEqual([]);
+  });
+});
+
+describe('transcriptionText: a line’s own leading spaces (v3.23.0)', () => {
+  const main = mainFunctions(['buildTranscriptionText']);
+  const lines = [
+    L('r', 'Rich update', 0), L('k1', '  typed with spaces', 1), L('k2', '   three', 1), L('x', 'next', 0), L('e', '', 1)
+  ];
+
+  it('main and the renderer build the same text, without a line’s own leading spaces', () => {
+    expect(main.buildTranscriptionText(lines)).toBe(buildTranscriptionText(lines));
+    expect(buildTranscriptionText(lines)).toBe(['Rich update', '  typed with spaces', '  three', 'next', '  '].join('\n'));
+    for (const input of [null, [], undefined]) expect(main.buildTranscriptionText(input)).toBe(buildTranscriptionText(input));
+  });
+
+  it('so every line reads back at its stored indent and the scope matches the lines', () => {
+    const back = linesFromText(buildTranscriptionText(lines));
+    expect(back.map((l) => l.indentLevel)).toEqual(lines.map((l) => l.indentLevel));
+    const a = tagScope(lines, 'rich', { info });
+    const b = tagScope(back, 'rich', { info });
+    expect([...b.covered]).toEqual([...a.covered]);
   });
 });

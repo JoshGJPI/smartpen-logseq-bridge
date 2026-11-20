@@ -38,7 +38,8 @@ import {
   normalizeTag, normalizeTagsFile, renameIsMerge, tagKey, withPageList, addTagToKeys, removeTagFromKeys,
   renameTagInMap, deleteTagFromMap, diffTagMaps, rollbackPatch, buildTagIndex, tagStats, planTagCarry,
   withTagInfo, withTagType, renameTagInfo, deleteTagInfo, diffTagInfo, rollbackInfoPatch,
-  renameTagBlocks, deleteTagBlocks, diffTagBlocks, rollbackBlocksPatch, withBlockRoot, withoutBlockRoot
+  renameTagBlocks, deleteTagBlocks, diffTagBlocks, rollbackBlocksPatch, withBlockRoot, withoutBlockRoot,
+  dropBlocksForUntagged
 } from '../lib/tags.js';
 import { getTags, patchTags } from '../lib/storage/local-store.js';
 import { debug } from '../lib/debug.js';
@@ -121,7 +122,8 @@ async function commit(next, what, undoLabel = null) {
   const nextPages = next.pages || prevPages;
   const nextDismissed = next.dismissed || prevDismissed;
   const nextInfo = next.info || prevInfo;
-  const nextBlocks = next.blocks || prevBlocks;
+  // A tag leaving a page takes its block corrections there with it, in this same write (v3.23.0).
+  const nextBlocks = dropBlocksForUntagged(next.blocks || prevBlocks, prevPages, nextPages);
   const pages = diffTagMaps(prevPages, nextPages);
   const dismissed = diffTagMaps(prevDismissed, nextDismissed);
   const info = diffTagInfo(prevInfo, nextInfo);
@@ -190,7 +192,26 @@ export function setPageTagList(book, pageId, tags, { typeAs = null } = {}) {
     return Promise.resolve(false);
   }
   const pages = withPageList(get(pageTags), key, tags);
-  return commit({ pages, info: infoForAdd(pages, typeAs) }, 'the page’s tags');
+  return commit({ pages, info: infoForAdd(pages, typeAs) }, 'the page’s tags', untagLabel(pages));
+}
+
+/**
+ * An Undo label when a change drops block corrections (a tag leaving a page
+ * that had them, v3.23.0), so Undo can bring them back; else null (a plain
+ * untag stays not undoable, as before).
+ */
+function untagLabel(pages) {
+  const blocks = get(tagBlocks);
+  if (dropBlocksForUntagged(blocks, get(pageTags), pages) === blocks) return null;
+  const prev = get(pageTags);
+  const gone = new Set();
+  let n = 0;
+  for (const key of Object.keys(blocks)) {
+    const lost = Object.keys(blocks[key]).filter((t) => (prev[key] || []).includes(t) && !(pages[key] || []).includes(t));
+    if (lost.length) n++;
+    for (const t of lost) gone.add(t);
+  }
+  return `Removed ${[...gone].map((t) => `“${t}”`).join(', ')} and its block corrections from ${n} ${n === 1 ? 'page' : 'pages'}`;
 }
 
 /**
@@ -205,7 +226,8 @@ export function addTagToPages(keys, tag, { typeAs = null } = {}) {
 
 /** Remove a tag from many pages in one write. */
 export function removeTagFromPages(keys, tag) {
-  return commit({ pages: removeTagFromKeys(get(pageTags), keysOf(keys), tag) }, 'tags');
+  const pages = removeTagFromKeys(get(pageTags), keysOf(keys), tag);
+  return commit({ pages }, 'tags', untagLabel(pages));
 }
 
 /**

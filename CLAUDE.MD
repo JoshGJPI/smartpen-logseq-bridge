@@ -123,6 +123,9 @@ each launch opens the Library on its home. Left panel tabs, Library views, the r
   tag although its name isn't written there, *remove* drops a root that matched by accident; an id is in one list at
   most (an id in both stays an add). Only Person and Project tags have block scope. Ids no longer on the page are
   ignored, never cleaned. `lib/tags.js` owns it (`normalizeBlocksMap`, `withBlockRoot`, `withoutBlockRoot`, …).
+- **`transcriptionText`** (scan records): two spaces per indent level, then the line's text without its own leading
+  spaces (v3.23.0), so it reads back at the stored indent. Built by main `buildTranscriptionText` and its mirror
+  `lib/tag-scope.js` `buildTranscriptionText()` (the record refresh and the MCP use it); change both.
 - **Task summary `heads`** (v3.23.0): each scan `tasks` entry also has `heads: [{ id, text }]`, the task's ancestor
   lines by indent (earlier lines with text and a smaller indent that no line in between closed), the nearest 3,
   outermost first, each text clipped to 80. Built in both `lib/tasks.js` and `electron/task-summary.cjs`.
@@ -267,7 +270,9 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   `commit()` diffs it with pages, dismissals and info, applies it optimistically and rolls back per page
   (`rollbackBlocksPatch`); Undo restores it. Rename / merge move a tag's entries (`renameTagBlocks`, lists joined on a
   merge), delete drops them (`deleteTagBlocks`), and a volume move carries them with the page (`planTagCarry`), each in
-  the same write as the pages. **Tag this block… is one write** (`tagBlock()`: the page's tag, a new person's type and
+  the same write as the pages. **A tag leaving a page drops its corrections there** (chip ×, `setPageTagList`,
+  `removeTagFromPages`): `commit()` applies `dropBlocksForUntagged` to every change, in the same patch, and such a removal
+  is undoable (`tagUndo`) so Undo brings both back. **Tag this block… is one write** (`tagBlock()`: the page's tag, a new person's type and
   the root together).
 - **No page reads for scope.** The Person page, the Tasks view and the strip read scope from the scan records'
   `transcriptionText` (`linesFromText()`; it must give the same scope as the lines, tested). Hand corrections need line

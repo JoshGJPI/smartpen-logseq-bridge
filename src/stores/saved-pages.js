@@ -12,6 +12,7 @@ import { writable, derived } from 'svelte/store';
 import { compareBookKeys } from '../lib/volumes.js';
 import { invalidatePage } from '../lib/viewer/page-cache.js';
 import { buildTaskSummary, summaryWithState } from '../lib/tasks.js';
+import { buildTranscriptionText } from '../lib/tag-scope.js';
 
 // Page metadata records, one per PageDoc file found by the scanner
 export const savedPages = writable([]);
@@ -84,9 +85,7 @@ export function clearSavedPages() {
  * @param {Array<{text?: string, indentLevel?: number}>} lines
  */
 export function applyTranscriptToRecord(book, pageId, lines) {
-  const transcriptionText = lines.length
-    ? lines.map((l) => '  '.repeat(l.indentLevel || 0) + (l.text || '')).join('\n')
-    : null;
+  const transcriptionText = buildTranscriptionText(lines);
   savedPages.update((pages) =>
     pages.map((p) => {
       const id = p.pageId != null ? String(p.pageId) : String(p.page);

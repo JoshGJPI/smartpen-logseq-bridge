@@ -41,6 +41,16 @@ running list of items, like a standing meeting.
   row lists its people. A task's `project` is unchanged.
 - **Reader**: the tag strip lists the page's Person and Project tags under **Block scope** with their block counts (or
   "named nowhere: whole page"); picking one marks the lines it covers with a faint bar in the tag's colour.
+- **A tag leaving a page drops its corrections there** (Josh, at review): the chip ×, `setPageTagList()` or a bulk
+  `removeTagFromPages()` that takes a tag off a page also drops that page's `blocks` entry for the tag, in the same patch
+  (`dropBlocksForUntagged`, applied by `commit()` to every change, so a rename or volume carry, whose entries have
+  already moved, loses nothing). Such a removal becomes the change Manage tags' Undo puts back (pages and corrections);
+  a removal with no corrections stays not undoable, as before. Rejected: keeping them for a later re-add (stale
+  corrections would come back on a page whose transcript has changed since).
+- **`transcriptionText` drops a line's own leading spaces** (main `buildTranscriptionText`, mirrored by
+  `lib/tag-scope.js` `buildTranscriptionText()`, which the renderer's record refresh and the MCP scan now call;
+  parity-tested): a line typed with leading spaces in Library Edit read back one level deeper, so a block could end
+  one line off between the Person page / Tasks and the reader. Search and snippets are unaffected.
 - A person with no display name answers to its key **capitalised** (`isaiah` → "Isaiah"): keys are lowercase, and a
   case-sensitive match on the key would miss the name as written. The one Person tag in the data folder today has no
   display name.

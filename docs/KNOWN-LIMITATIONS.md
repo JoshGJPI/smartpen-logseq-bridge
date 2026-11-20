@@ -33,14 +33,16 @@ Reasons and history for each feature are in [CHANGELOG.md](CHANGELOG.md).
   merge keeps the target's fields: the source's company, client or note are dropped (its names become aliases).
   Search facets look at page tags only. Name sort in Manage tags and the tag lists is by the stored key, not the
   label. No MCP tool sets a type (read-only by design).
-- **Block scope and people (v3.23.0).** A task's `heads` keep its nearest 3 ancestors and 80 characters of each, so on
-  a page with no hand corrections a root four levels up, or a name past the 80th character of a heading, doesn't put
-  the task under that person (the Blocks list and the reader's bar still show the block; corrected pages are read and
-  exact). Matching is case-sensitive and whole-word: "RICH" or a misread "Rlch" is not Rich (add an alias, or Tag this
+- **Block scope and people (v3.23.0).** **Deep nesting:** a task's `heads` keep its nearest 3 ancestors (and 80
+  characters of each), so a task 4 or more levels under the line that names a person gets no `people` on a page with no
+  hand corrections: Tasks → Group by Person and `person:` miss it (so do the Person page's Open items and MCP
+  `list_tasks person`), though it is inside that person's block in the Blocks list and the reader's bar. A name past
+  the 80th character of a heading misses the same way. Pages with hand corrections are read and exact. Matching is case-sensitive and whole-word: "RICH" or a misread "Rlch" is not Rich (add an alias, or Tag this
   block…). A person with no display name answers to its key capitalised ("isaiah" → "Isaiah"); one with a two-part
   key (`tom-b` → "Tom B") likely needs a display name. A hand correction names a line id: a line Relink or Library Edit
   keeps keeps its correction, but a re-transcribe Reset (new ids) drops it silently (ignored, left in `_tags.json`).
-  Corrections stay in `_tags.json` when the tag is removed from the page by hand (re-adding it brings them back). The
+  Removing the tag from the page (chip ×, bulk remove) drops its corrections there in the same write; re-adding the
+  tag does not bring them back (Undo in Manage tags does, until the next tag change). The
   first open of a tag page or the Tasks view after loading reads each corrected page once; until then those pages use
   the text alone. "Mentioned, not tagged" lists every page naming the person, including pages where the name is a
   different person (Not this person is per page, after tagging). The reader's scope bar shows only in the Library

@@ -593,3 +593,47 @@ describe('Mentioned, not tagged (v3.23.0, decision 5)', () => {
     }
   });
 });
+
+describe('a tag leaving a page drops its block corrections there (v3.23.0)', () => {
+  beforeEach(() => {
+    tagInfo.set({ rich: { type: 'person', label: 'Rich' } });
+    tagUndo.set(null);
+    pageTags.set({ '3017/170': ['beam', 'rich'], '3017/171': ['rich'] });
+    tagBlocks.set({ '3017/170': { rich: { add: ['a'] } }, '3017/171': { rich: { remove: ['b'] } } });
+  });
+
+  it('the chip × (setPageTagList) drops the entry in the same patch; Undo brings both back', async () => {
+    await setPageTagList('3017', '170', ['beam']);
+    expect(patchTags).toHaveBeenCalledTimes(1);
+    expect(patchTags).toHaveBeenCalledWith({
+      pages: { '3017/170': ['beam'] }, dismissed: {}, blocks: { '3017/170': null }
+    });
+    expect(get(tagBlocks)).toEqual({ '3017/171': { rich: { remove: ['b'] } } });
+    expect(get(tagUndo).label).toMatch(/Removed “rich” and its block corrections from 1 page/);
+    await undoTagChange();
+    expect(get(pageTags)['3017/170']).toEqual(['beam', 'rich']);
+    expect(get(tagBlocks)).toEqual({ '3017/170': { rich: { add: ['a'] } }, '3017/171': { rich: { remove: ['b'] } } });
+  });
+
+  it('a bulk remove (removeTagFromPages) drops every page’s entry in one patch; Undo restores', async () => {
+    await removeTagFromPages(['3017/170', '3017/171'], 'rich');
+    expect(patchTags).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(patchTags).mock.calls[0][0].blocks).toEqual({ '3017/170': null, '3017/171': null });
+    expect(get(tagBlocks)).toEqual({});
+    await undoTagChange();
+    expect(get(tagBlocks)).toEqual({ '3017/170': { rich: { add: ['a'] } }, '3017/171': { rich: { remove: ['b'] } } });
+  });
+
+  it('a failed untag rolls the corrections back with the page', async () => {
+    vi.mocked(patchTags).mockRejectedValueOnce(new Error('disk full'));
+    expect(await removeTagFromPages(['3017/170'], 'rich')).toBe(false);
+    expect(get(pageTags)['3017/170']).toEqual(['beam', 'rich']);
+    expect(get(tagBlocks)['3017/170']).toEqual({ rich: { add: ['a'] } });
+  });
+
+  it('removing another tag keeps them, and leaves no undo (as before)', async () => {
+    await setPageTagList('3017', '170', ['rich']);
+    expect('blocks' in vi.mocked(patchTags).mock.calls[0][0]).toBe(false);
+    expect(get(tagUndo)).toBeNull();
+  });
+});

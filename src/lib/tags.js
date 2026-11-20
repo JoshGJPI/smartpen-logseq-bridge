@@ -585,6 +585,25 @@ export function deleteTagBlocks(blocks, tag) {
   return next;
 }
 
+/**
+ * Blocks with each page's entry dropped for every tag that left that page
+ * between `prevPages` and `nextPages` (v3.23.0, Josh: a correction does not
+ * outlive its tag on the page). Applied by the store to every change, in the
+ * same write; a rename or carry has already moved its entries, so nothing it
+ * keeps is dropped. Returns `blocks` itself when nothing goes.
+ */
+export function dropBlocksForUntagged(blocks, prevPages, nextPages) {
+  let next = blocks || {};
+  for (const key of Object.keys(next)) {
+    const before = (prevPages || {})[key] || [];
+    const after = (nextPages || {})[key] || [];
+    for (const tag of Object.keys(next[key] || {})) {
+      if (before.includes(tag) && !after.includes(tag)) next = withBlockCorrection(next, key, tag, null);
+    }
+  }
+  return next;
+}
+
 /** The page entries that differ, as main applies them: `{ key: entry }` to set, `{ key: null }` to remove. */
 export function diffTagBlocks(prev, next) {
   const out = {};

@@ -316,7 +316,9 @@ function retimedPath(root) { return pageStore.sidecarPath(root, '_retimed.json')
  */
 function buildTranscriptionText(lines) {
   if (!Array.isArray(lines) || lines.length === 0) return null;
-  return lines.map(l => '  '.repeat(l.indentLevel || 0) + (l.text || '')).join('\n');
+  // A line's own leading spaces are dropped (v3.23.0), so the text reads back at its stored indent
+  // (lib/tag-scope.js buildTranscriptionText / linesFromText; parity-tested).
+  return lines.map(l => '  '.repeat((l && l.indentLevel) || 0) + String((l && l.text) || '').replace(/^ +/, '')).join('\n');
 }
 
 /**
