@@ -6,6 +6,66 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.24.0 — Sketch lines (November 2026)
+
+Phase E of [TRANSCRIPT-STRUCTURE-SPEC.md](TRANSCRIPT-STRUCTURE-SPEC.md), built to the mockup Josh approved on
+2026-11-20. A drawing becomes a **sketch line** in the transcript: a placeholder with a label, so a transcript shows
+that a page has a sketch, its ink is never sent to MyScript again, and sketches can be found by project, person or
+label. Behind it: on the 41 trustworthy JPI Dotted pages, 4,147 of 47,136 strokes were in no line, and because ink
+is matched to lines by height only, a drawing among notes ends up inside one or two text lines (3017/124: lines
+11-12 took 891 strokes).
+
+- **Format** (`lib/line-kinds.js`): a transcript line with `kind: "sketch"`, its label as `text` ("Sketch" when none),
+  `bounds` (the Ncode box of its linked strokes, recomputed on every save), `yBounds: null`, `checked: null`, no
+  `marker`; its strokes linked by `lineId`. `PAGE_DOC_VERSION` stays "2.0": an older build shows the label as a plain
+  line. Any other `kind` is treated the same way (E.7): shown, kept, never matched to MyScript, never edited as text.
+- **One write path**, `lib/viewer/sketch-lines.js` `saveSketchLine()`: make, rename, add / remove strokes, remove.
+  Immediate, like a task tick: the page is read, one line and the given strokes' links change, `savePage()`, the
+  Editor's copy of the page takes the links (`syncCanvasAfterPageWrite`, so Transcribe skips the ink and nothing reads
+  as unsaved), then `refreshAfterSave()`. `lastTranscribed` is never touched (a sketch is no MyScript match, and
+  `isTrustworthyTranscript` reads that date). Refused under Relink's guards plus the suffixed-page-on-canvas rule.
+- **Make**: the Editor's selection ⋯ (and right-click) → **Make sketch…**: a label, the page's tags as chips that fill
+  it, *Also draw with pen pressure* (sets `sketch: true`, off by default), a preview, and where the line will go.
+  Unsaved strokes say "Save first"; a selection over several pages makes one sketch per page. In the Library reader
+  (Ink + text) **Mark sketch** then drag a box: strokes wholly inside and in no text line are taken; strokes in a
+  text line (or another sketch) are offered with a warning naming the line: Leave them in #N / Take them. Relink's
+  review offers **Make sketch** for ink left over (every row marked so becomes ONE sketch line, in Relink's own write).
+- **Placement**: under the nearest text line above the ink (by that line's linked ink, in the page's reading frame),
+  one level deeper, after that line's deeper lines already above the sketch; on a page whose links can't be trusted,
+  at the end. Josh moves and indents it like any line.
+- **Show**: the reader's sketch row has a thumbnail cropped to the ink (`viewer/thumbs.js`, keyed by page + line id,
+  drawn only when on screen), a SKETCH badge, the label, its stroke count and the block it is in; hovering lights its
+  ink on any page (a sketch's links are exact). Its ⋯: Rename…, Add strokes…, Remove strokes… (the reader's box),
+  **Print this sketch** (approved with the mockup: its ink on its page's paper, through the Print dialog as a
+  selection item), Remove sketch… (asks; the line goes, its strokes are unlinked, never deleted). Library Edit and the
+  Edit Transcription dialog show a small thumbnail and an editable label; the row moves and indents, Merge and Split
+  never take it, Delete asks first, a cleared label is saved as "Sketch".
+- **Every existing path keeps sketch lines**: the transcript merge (kept in place; ink linked to a sketch is never
+  matched to a new line), the Edit Transcription result (a cleared label is never the emptied-line delete), Reset +
+  replace (Reset now unlinks only text-line ink, reading the page's sketch lines; the new transcript keeps the
+  sketches, re-placed by y under the new lines, their ink still linked), Relink (never aligned, never sent), Library
+  Edit, the Pages tab's Edit structure. Deleting a sketch only unlinks its ink, never Not text. A stroke taken into a
+  sketch loses Not text (a textless stroke is in no line).
+- **Exports**: markdown and copy write `- [sketch: Floor plan]`; JSON keeps the fields; print shows the label behind a
+  SKETCH tag in the transcript column. Not in the LogSeq graph export (E.8).
+- **Scan and search**: main's scan adds `sketches: [{ id, label, lineIndex }]` per page (at most 20) next to `tasks`,
+  and `transcriptionText` writes a sketch as `[sketch] label` (both mirrored in `electron/task-summary.cjs` and
+  `lib/line-kinds.js`). The header search takes **`has:sketch`**: pages with a sketch, and a **Sketches** group first
+  (crop thumbnail, label, page, date, line, tags); `has:sketch 6226-001`, `has:sketch person:isaiah` and
+  `has:sketch weld` work; words alone that match a label bring their sketches up too. A sketch's tags come from block
+  scope (Phase D) over the scan text, topics from the page (`lib/sketch-search.js`). Tag pages get a **Sketches**
+  strip above Blocks.
+- **Task summaries skip sketch lines** in both builders (never a task, a head or a project hint).
+- **Claude**: `get_transcript` prints `#17 [sketch] Floor plan (412 strokes)`; new **`list_sketches`** `{project, tag,
+  person, book, from, to}`; `render_page {line}` crops to one line's ink; `check_transcript` leaves sketch lines out
+  of the comparison and names Make sketch for ink in no line; `search` takes `has:sketch`. `edit_transcript` may
+  rename and move a sketch, never delete or insert one.
+- **Pressure ink** (E.9): the stroke flag stored as `sketch: true` is labelled Pressure ink in the canvas header, its
+  style popover, the save dialog and Settings, so it isn't confused with sketch lines. The stored name stays.
+- Rejected: a separate sketch store outside the PageDoc (the line must move and indent with the transcript and travel
+  with it); making Remove sketch flag the ink Not text (the mockup says "unlinked"; mark it Not text by hand when a
+  drawing should never be sent); one sketch per leftover row in Relink (a drawing is usually read as several lines).
+
 ## v3.23.0 — Block scope, Person pages, people on tasks (November 2026)
 
 Phase D of [TRANSCRIPT-STRUCTURE-SPEC.md](TRANSCRIPT-STRUCTURE-SPEC.md). A Person or Project tag added by hand to a

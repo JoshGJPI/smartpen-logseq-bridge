@@ -47,6 +47,20 @@ Reasons and history for each feature are in [CHANGELOG.md](CHANGELOG.md).
   the text alone. "Mentioned, not tagged" lists every page naming the person, including pages where the name is a
   different person (Not this person is per page, after tagging). The reader's scope bar shows only in the Library
   reader, not in the Editor. Copy agenda is clipboard only (no LogSeq write, by design).
+- **Sketch lines (v3.24.0).** Not in this phase (spec E.8): recognising sketches automatically (a cluster of long
+  strokes with no text), sketch-to-image export, and sketches in the LogSeq export (the graph export still strips
+  every transcript line). A sketch is placed under the nearest text line above its ink only where the page's links can
+  be trusted; elsewhere it goes at the end (move it in Library Edit). Ink is matched to lines by Y only (Relink, above),
+  so on a page transcribed with a drawing in the batch the drawing is already in one or two text lines: Make sketch
+  takes it out of them (the box offers it with a warning naming the line; the Editor's selection takes it without
+  asking). The scan keeps at most 20 sketches per page (search, tag strips and `list_sketches` miss the rest). A
+  letter-suffixed page can't take a sketch while its page number is loaded in the Editor. Make sketch refuses strokes
+  not saved yet (Save first), and under Relink's guards (a Library draft, a transcript editor open, a pending Editor
+  transcription, a Reset). Deleting a sketch only unlinks its ink (never Not text), so the next Transcribe sends the
+  drawing: mark it Not text if it shouldn't be. A sketch's tags come from block scope; a sketch whose label names a
+  project is a root of that project (it covers only itself). The reader's Mark sketch / Add / Remove strokes work in
+  Ink + text only. Search's word matching of tags inside `has:sketch` is a substring of the tag's key, label or alias
+  ("has:sketch 6226" finds 6226-001's sketches).
 - **Retime (v3.6.0).** Exported to LogSeq: `mergeGraphStrokes()` keeps the published copy by id, so re-exporting a
   retimed page adds the new-time copy beside the old one in the graph. Offline-import dropping is unit-tested only (no
   pen in the Oct 2026 check). Undo before save is the dialog's Reset or shifting back; no separate undo.
@@ -84,12 +98,13 @@ Reasons and history for each feature are in [CHANGELOG.md](CHANGELOG.md).
   Joins take at most 3 consecutive MyScript lines. Word fixes are offered for one word
   read as another only (not for added or missing words), and only when the two are plausibly the same word. The review queue is session-only; the MyScript runs behind it
   are cached in `<userData>/relink-cache/` (never pruned, one small file per page) and a second Run costs nothing.
-  Make sketch for leftover ink waits for Phase E. **Ink is matched to a line by height (Y) only**, here and in
-  Transcribe (`strokesIntersectingLine`): a sketch drawn beside or among text lines is sent with them, MyScript
-  folds it into tall line boxes, and one or two lines take the whole drawing plus the notes written beside it
-  (3017/124: lines 11-12 took 891 strokes, lines 13-32 none). Until Phase E's sketch lines, mark the drawing
-  Not text first (select it in the Editor → ⋯ → Leave out of transcripts, save), then Relink the page or Relink
-  selection on the text; X-aware matching (MyScript's word boxes) is an open idea. A letter-suffixed page (P151b) is refused while its page number is
+  Make sketch on leftover ink (v3.24.0) makes ONE sketch line, labelled "Sketch", from every row marked so. **Ink is
+  matched to a line by height (Y) only**, here and in Transcribe (`strokesIntersectingLine`): a sketch drawn beside or
+  among text lines is sent with them, MyScript folds it into tall line boxes, and one or two lines take the whole
+  drawing plus the notes written beside it (3017/124: lines 11-12 took 891 strokes, lines 13-32 none). Make the
+  drawing a sketch line first (v3.24.0: Editor, select it → ⋯ → Make sketch…, or the reader's Mark sketch): its ink is
+  then linked and never sent again; then Relink the page or Relink selection on the text. X-aware matching
+  (MyScript's word boxes) is an open idea. A letter-suffixed page (P151b) is refused while its page number is
   loaded in the Editor (the canvas can't tell P151b from P151); Library Edit and the Pages tab's canvas sync have the
   same blind spot for suffixed pages. The spec counted 100 unreliable pages; the data folder has 99 now
   (84 in JPI Dotted). Decorative ink is held back by Deselect Decorative's detector as it stands: what it misses (a

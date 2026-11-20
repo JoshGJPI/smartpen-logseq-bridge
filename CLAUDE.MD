@@ -25,7 +25,8 @@ node scripts/fetch-neo-backgrounds.mjs <data-root> 3_27_388   # cache Neo page i
 electron/main.cjs, preload.cjs   all disk IO + MyScript proxy, exposed as window.storageAPI
 electron/page-store.cjs   book keys, path guards, writeFileAtomic, createLock, PageDoc serializer, page IO (tested from Vitest)
 src/stores/        one store per concern (strokes, selection, pending-changes, viewer, timeline, volumes, tags, ...;
-                   tag-scope: lines read only for pages with block corrections, the reader's scope UI state);
+                   tag-scope: lines read only for pages with block corrections, the reader's scope UI state;
+                   sketch-lines: the Make sketch dialog and the reader's Mark sketch box, v3.24.0);
                    the Editor's Save and Transcribe run in canvas-save.js / canvas-transcribe.js (ActionBar only wires them)
 src/lib/           pure logic, no UI, testable without DOM (tags: also tag types and `info`, v3.22.0; tag-details: the
                    Manage tags Details form; tag-scope: block scope of a Person / Project tag (v3.23.0);
@@ -33,7 +34,8 @@ src/lib/           pure logic, no UI, testable without DOM (tags: also tag types
                    tasks: task state and list, retime, move-lines, canvas-page-targets: what the Editor's rotate and
                    🏷 Tags act on, book-types, canvas-save-plan: which pages a save writes and which deletion marks it
                    settles, canvas-text-view: the Editor's text view, delete-lines: Delete line / block and what it
-                   asks, deleted-ink: the deleted lines' ink and the `textless` flag; one line each in
+                   asks, deleted-ink: the deleted lines' ink and the `textless` flag, line-kinds: sketch lines' format,
+                   box, scan text and placement (v3.24.0), sketch-search: sketches by tag and label; one line each in
                    docs/ARCHITECTURE.md "Key Libraries")
 src/lib/storage/   PageDoc layer: local-store (IPC facade), save-page, load-page, load-range, scan, page-changes, graph-export,
                    convert-task-boxes (one-off conversion of old transcripts), line-match (stroke ↔ MyScript line, v3.21.0)
@@ -42,10 +44,10 @@ src/lib/relink.js, relink-plan.js, line-align.js   Relink old pages (v3.21.0, sp
                    it (MyScript, cache, save, bulk); electron/relink-cache.cjs keeps runs in <userData>/relink-cache/
 src/lib/viewer/    reader helpers: SVG render, page cache, thumbnails, transcript markdown/save, feed loader,
                    transcript-draft.js (the Library Edit's line operations),
-                   task-state.js (the one task write path, v3.4.0)
+                   task-state.js (the one task write path, v3.4.0), sketch-lines.js (the one sketch write path, v3.24.0)
 src/components/    grouped by feature (canvas, dialog, header, viewer, dates, books, tags, transcription, ...)
-mcp/               stdio MCP server over the data folder (10 read-only tools, PNG via @resvg/resvg-wasm, images capped
-                   by pixels; list_tasks takes `person`, v3.23.0), imports src/lib unchanged; registered from this
+mcp/               stdio MCP server over the data folder (11 read-only tools, PNG via @resvg/resvg-wasm, images capped
+                   by pixels; list_tasks takes `person`, v3.23.0; list_sketches and render_page `line`, v3.24.0), imports src/lib unchanged; registered from this
                    checkout's mcp/server.js (mcp/README.md).
                    With SMARTPEN_MCP_WRITES=1 also edit_transcript / undo_transcript_edit, which ask the running app
                    (core/app-client.js) and never write a file (v3.18.0)
@@ -96,7 +98,10 @@ each launch opens the Library on its home. Left panel tabs, Library views, the r
                 "checked": null /* null | true (DONE) | false (TODO); the box is not in text */,
                 /* "marker": "WAITING" | "CANCELLED"   optional, set by hand: WAITING (v3.4.0) only beside
                    checked: false, CANCELLED (v3.5.0) only beside checked: true */
-                "yBounds": { "minY": 1.6, "maxY": 8.6 } }]
+                "yBounds": { "minY": 1.6, "maxY": 8.6 } },
+              /* a sketch line (v3.24.0): */
+              { "id": "…", "kind": "sketch", "text": "Floor plan", "indentLevel": 1, "parentId": "…",
+                "checked": null, "yBounds": null, "bounds": { "minX": 12.1, "maxX": 48.7, "minY": 60.2, "maxY": 91.0 } }]
   },
   "strokes": [
     { "id": "s1765313505107", "startTime": 0, "endTime": 0, "lineId": "…|null",
@@ -106,6 +111,16 @@ each launch opens the Library on its home. Left panel tabs, Library views, the r
 }
 ```
 
+- **`kind` / `bounds`** (v3.24.0, spec Phase E; `lib/line-kinds.js`): a transcript line with `kind: "sketch"` stands for a
+  drawing: `text` is its label ("Sketch" when none), `bounds` the Ncode box of its linked strokes (recomputed on every
+  save), `yBounds` always null, `checked` always null, no `marker`. Its strokes link to it by `lineId`, so they are never
+  sent to MyScript. Any other `kind` is read the same way (E.7): shown, kept, never matched, never edited as text. An
+  older build shows the label as plain text. Copy a line with `kindFields()` (as `markerField()` for markers).
+- **Scan `sketches`** (v3.24.0): each record has `sketches: [{ id, label, lineIndex }]` (sketch lines, at most 20,
+  label clipped to 80), built in main by `electron/task-summary.cjs` `buildSketchSummary()`, mirroring
+  `lib/line-kinds.js` (change both). `transcriptionText` writes a sketch line as `[sketch] label` (`lineScanText`, same
+  mirror), so word search finds labels and block scope from text equals scope from lines.
+- The stroke flag **`sketch: true`** is labelled **Pressure ink** in the UI since v3.24.0 (spec E.9); the stored name stays.
 - **`textless: true`** (v3.20.0, "Not text") marks ink left out of transcripts on purpose: never sent to MyScript,
   never matched to a line, always `lineId: null`. Written only when true, like `sketch`; older builds ignore it.
 - **Point tuples are variable length:** `[x, y]`, `[x, y, ts]` or `[x, y, ts|null, force]`. Force is written for
@@ -332,7 +347,8 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   pages or with unsaved changes on the page. Ink not sent is unlinked when the page was untrustworthy before the save
   and keeps its links when it was trustworthy (`planRelink` `trusted`, decided by the save from the disk), so a
   table can be relinked a column at a time. Kind lines are never aligned
-  (`textLines`), so Phase E's sketch lines need no change here.
+  (`textLines`) and their ink is never sent. The review's ink left over offers **Make sketch** (v3.24.0): every row
+  marked so becomes ONE sketch line, labelled "Sketch", placed by y, in Relink's own write.
 - **Moved lines keep their place.** A line stored out of place pairs with its reading elsewhere (`movedPairs`) as a
   confirm row marked `moved`; linking it writes only `yBounds` and ink. A page with one is never saved by the bulk run
   without review. A line merged by hand takes several consecutive MyScript lines (`alignLinesJoined`, union of
@@ -350,6 +366,38 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   (`stores/textless.js`); otherwise the Editor's next save would put the old links back, or a Not text flag would read
   as unsaved. The canvas keys strokes by the integer NCode page, so a **letter-suffixed page is refused while its page
   number is on the canvas** (`suffixOnCanvas`).
+
+### Sketch lines (v3.24.0, docs/TRANSCRIPT-STRUCTURE-SPEC.md Phase E)
+
+- **One write path: `lib/viewer/sketch-lines.js` `saveSketchLine()`** (make, rename, add / remove strokes, remove).
+  Immediate, like a task tick: reads the page, changes one line and the given strokes' `lineId` (disk ids), recomputes
+  `bounds`, bumps `metadata.lastUpdated` — **never `transcript.lastTranscribed`** (a sketch is no MyScript match) —
+  `savePage()`, then `syncCanvasAfterPageWrite(book, page, { strokes, links, sketchIds, textlessCleared })` (the
+  Editor's copy takes the links so Transcribe skips the ink and nothing reads as unsaved), then `refreshAfterSave()`.
+  Refused under Relink's guards (`pageGuardState`: a Library draft, any transcript editor open, a pending Editor
+  transcription, a Reset) and `suffixOnCanvas`; re-checked after the read. The only other writer of a new sketch line
+  is Relink's Make sketch, inside Relink's own `savePageToFolder({ relink })`.
+- **No stroke is ever deleted, no point moved.** Remove strokes / Remove sketch / deleting a sketch line in any editor
+  only unlink its ink, and never flag it Not text (the ink choice is about text lines: `withoutKindIds`,
+  `deletedBaseIds`, `unflaggable` in `applyEditorLines`). A stroke taken into a sketch loses `textless` (a textless
+  stroke is in no line). Pressure ink (`sketch: true`) only from Make sketch's checkbox (off by default).
+- **Every transcript path keeps sketch lines**: the merge (kept in place; ink linked to a kind line is never matched to
+  a new line), `applyEditorLines` (kind and box kept; a cleared label reads "Sketch", **never an emptied-line
+  delete**; never a task), Reset + replace (`transcript-reset.js` unlinks only text-line ink, reading the page's kind
+  lines; the replacing transcript keeps the sketches, `reinsertKindLines` by y, their ink keeps its link), Relink
+  (never aligned, never sent), Library Edit and the Pages tab (`cloneLines` / `normaliseLine` /
+  `buildEditedTranscript` carry `kindFields`; Merge and Split never take a sketch; Delete asks first).
+- **Claude never creates or deletes one** (`lib/mcp-edits.js`): set_text renames a sketch (no task parsing), move and
+  set_indent are allowed, delete is refused; insert makes text lines only; another kind's text is never edited.
+  `untouchedChanged` compares `kind` too.
+- **Task summaries skip kind lines** (never a task, a head, or a project hint), in BOTH `lib/tasks.js` and
+  `electron/task-summary.cjs` (one fixture tests both).
+- **Scans stay metadata-only**: `sketches` is capped and scalar; a sketch's tags come from block scope over
+  `transcriptionText` (`lib/sketch-search.js`), never a page read. Crop thumbnails go through `viewer/thumbs.js`
+  (`get(book, pageId, rotation, lineId)`, keyed by page + line id), only when on screen, never the page cache.
+- **Placement** (`placeKindLine`): under the nearest text line above the ink (by its linked ink, in the page's reading
+  frame), one level deeper, after its deeper lines already above the sketch, only when the page is trustworthy; else
+  at the end, level 0.
 
 ### Tasks (v3.4.0)
 
@@ -529,7 +577,7 @@ The full list (per feature: rotation, volumes, tags, retime, tasks, print, LogSe
   apps). Print to a printer is `print:toPrinter` through the Windows dialog, never silent. Verify print output by
   rendering the job's HTML with `printToPDF` from a scratch process.
 - Several components are over the ~300-line guideline (StrokeCanvas ~2,810, TranscriptionView ~720, TranscriptionEditorModal ~490, CreatePageDialog,
-  SaveConfirmDialog, PageCard, BooksTab, PenMemoryDialog, …); don't grow them, split when touching.
+  SaveConfirmDialog, PageCard, BooksTab, PenMemoryDialog, TranscriptPane ~330, PageSpreadView ~320, …); don't grow them, split when touching.
 - Main-process and renderer tracing is behind `lib/debug.js` (`localStorage['smartpen-debug'] = '1'`, or the dev
   server). Never log MyScript keys or the HMAC, not even fragments.
 - Neo page backgrounds are a spike (see [docs/CHANGELOG.md](docs/CHANGELOG.md), "Neo page backgrounds"): images are
@@ -551,7 +599,7 @@ The full list (per feature: rotation, volumes, tags, retime, tasks, print, LogSe
 | [docs/PAGE-TAGS-SPEC.md](docs/PAGE-TAGS-SPEC.md) | **v3.1.0** page tags (built), with [mockups](docs/TAGS-UI-MOCKUPS.html) |
 | [docs/MCP-SERVER-SPEC.md](docs/MCP-SERVER-SPEC.md), [mcp/README.md](mcp/README.md) | The read-only MCP server: decisions (spec); tools, caps and setup (README) |
 | [docs/MCP-WRITE-SPEC.md](docs/MCP-WRITE-SPEC.md) | **v3.18.0** transcript edits from Claude through the running app (built) |
-| [docs/TRANSCRIPT-STRUCTURE-SPEC.md](docs/TRANSCRIPT-STRUCTURE-SPEC.md) | Delete lines + Not text (A, v3.20.0), Relink (B, v3.21.0), tag types (C, v3.22.0), block scope and people (D, v3.23.0) built; sketches (E) to come |
+| [docs/TRANSCRIPT-STRUCTURE-SPEC.md](docs/TRANSCRIPT-STRUCTURE-SPEC.md) | Delete lines + Not text (A, v3.20.0), Relink (B, v3.21.0), tag types (C, v3.22.0), block scope and people (D, v3.23.0), sketch lines (E, v3.24.0) built |
 | [docs/NEOSMARTPEN-SDK-USAGE.md](docs/NEOSMARTPEN-SDK-USAGE.md) | Pen SDK usage |
 | [docs/EDITOR-IMPORT-SPEC.md](docs/EDITOR-IMPORT-SPEC.md) | The handwriting editor's import formats, which the JSON / Markdown exports follow |
 | [docs/Archive/ARCHIVE-INDEX.md](docs/Archive/ARCHIVE-INDEX.md) | Superseded v1 / LogSeq-era specs, reviews and implementation logs |

@@ -1,8 +1,9 @@
 # Transcript structure: delete lines, relink, tag types, people, sketches — spec
 
 Status: **decisions settled** (Josh, 2026-11-19); Phase A built (v3.20.0, branch `phase-a-delete-lines`), Phase B built
-(v3.21.0, branch `phase-b-relink`; Make sketch in B.4 waits for Phase E), Phase C built (v3.22.0, branch
-`phase-c-tag-types`), Phase D built (v3.23.0, branch `phase-d-block-scope`), E not started. Phase E waits for a mockup Josh approves. Five phases, each a release that leaves the app working and
+(v3.21.0, branch `phase-b-relink`; its Make sketch came with Phase E), Phase C built (v3.22.0, branch
+`phase-c-tag-types`), Phase D built (v3.23.0, branch `phase-d-block-scope`), Phase E built (v3.24.0, branch
+`phase-e-sketch-lines`, to the mockup Josh approved on 2026-11-20). Five phases, each a release that leaves the app working and
 tested. Background and mockups: the "Tag Types and Transcription" deep dive (17 Nov 2026), whose numbers are repeated
 here where they matter.
 
@@ -325,6 +326,14 @@ from both implementations over one fixture. `tasks.test.js`: `people`, grouping,
 ---
 
 ## Phase E — Sketch lines (3.24)
+
+Built in v3.24.0. Where the build settles something this section leaves open: Relink's Make sketch puts every leftover
+row marked so into ONE sketch line; deleting a sketch (Remove sketch, or Delete in an editor) only unlinks its ink,
+never Not text; a stroke taken into a sketch loses Not text; the Editor's Make sketch takes selected strokes that are in
+a text line without asking (the reader's box asks, per line); with no text line above its ink a sketch goes first;
+Print this sketch prints its ink on its page's paper through the Print dialog (a selection item); a sketch's tags
+include the page's Topics; search words inside `has:sketch` match a label or one of the sketch's tags. CLAUDE.md "Data
+formats" documents `kind`, `bounds` and the scan's `sketches`.
 
 ### E.1 Today
 

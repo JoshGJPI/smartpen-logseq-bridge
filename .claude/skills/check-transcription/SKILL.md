@@ -114,7 +114,12 @@ it is never counted as ink in no line or as `not transcribed`, so don't report i
 - one written row in two colours;
 - dark text (ink in no batch: not transcribed at all, e.g. written on another day); the key says how many dark
   strokes are Not text (left out on purpose);
-- sketch ink coloured as a text line (harmless for text, clutters Ink + text).
+- sketch ink coloured as a text line (harmless for text, clutters Ink + text): suggest **Make sketch** (step 7).
+
+A **sketch line** (v3.24.0) reads `#n [sketch] label (k strokes)` in `get_transcript`: a drawing Josh labelled. It is
+not text: `check_transcript` leaves it out of the comparison ("N sketch line(s) not compared"), never correct its
+label's wording as a transcription error, and don't list it as missing from your reading. See it with
+`render_page {book, page, line}`; `list_sketches` finds them by project or person.
 
 ### 7. Report, per page
 1. **Corrections**, by stored line number (`#n` from the diff), with the exact replacement text, ready to type into
@@ -125,8 +130,13 @@ it is never counted as ink in no line or as `not transcribed`, so don't report i
    Edit (Delete, or Ctrl+Shift+K in the dialog) with **Not text**, so its ink is never sent again; ink in no line
    that isn't text (a drawing, a stray mark): Editor, select it → ⋯ (or right-click) → **Leave out of transcripts**.
    Your own `delete` op only unlinks the ink, which the next Transcribe sends again, so suggest these instead for
-   junk lines. Ink in no line on an old page with unreliable links: **Relink** (above) first; afterwards its review
-   offers each leftover piece of ink as Add as new line, Not text or Leave unlinked. To
+   junk lines. Ink in no line that is a **drawing** (a plan, a detail, a section): suggest **Make sketch** (v3.24.0:
+   Editor, select it → ⋯ → Make sketch…, or the Library reader in Ink + text → Mark sketch, drag a box), with a
+   label (the page's project number, "Floor plan"); its ink is linked to the sketch line, never sent to MyScript, and
+   the sketch is searchable (`has:sketch 6226-001`). A drawing a text line swallowed (one line with far too many
+   strokes, LINKS BROKEN?): the reader's box offers that line's strokes to take into the sketch. Ink in no line on an
+   old page with unreliable links: **Relink** (above) first; afterwards its review offers each leftover piece of ink as
+   Add as new line, Not text, Make sketch or Leave unlinked. To
    re-transcribe a page: Editor, load the whole page (by page, not by date), Transcripts tab → "Re-transcribe a saved
    page" → ↺ Re-transcribe (unlinks its strokes so they are sent again), select the text strokes with any drawing
    deselected, Transcribe, Save. The new run replaces the saved transcript (task states carry over where the text
