@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import {
   markerField, markerOf, isClosedState, taskStateOf, withTaskState, toggledState, stateLabel, buildTaskRows, taskCounts,
   filterTaskRows, groupTaskRows, searchTaskRows, summaryWithState, taskMenuChoices, NOT_A_TASK, isTaskState, isLineState, taskKey, parseTaskFilter,
-  parseTaskGroup, latestTaskRows, NO_PROJECT, NO_DATE,
+  parseTaskGroup, latestTaskRows, NO_PROJECT, NO_DATE, NO_PERSON, personOpenItems, agendaMarkdown, buildTaskSummary,
   parseShownStates, toggleShownState, isDefaultShown, rowsInStates, taskRowsForTag, DEFAULT_SHOWN_STATES,
   TASK_STATES, TASK_STATE_CHIPS, TASK_FILTERS
 } from '../tasks.js';
@@ -306,5 +306,95 @@ describe('taskRowsForTag (the tasks on a tag page, v3.12.0)', () => {
   it('copes with nothing', () => {
     expect(taskRowsForTag(rows, '')).toEqual([]);
     expect(taskRowsForTag(null, '2237-011')).toEqual([]);
+  });
+});
+
+describe('people on tasks (v3.23.0, D.3)', () => {
+  const info = {
+    rich: { type: 'person', label: 'Rich' },
+    tom: { type: 'person', label: 'Tom', aliases: ['Thomas'] },
+    loren: { type: 'person', label: 'Loren' }
+  };
+  const L = (id, text, indentLevel = 0, extra = {}) => ({ id, text, indentLevel, parentId: null, checked: null, ...extra });
+  const pageLines = [
+    L('h1', '10:00 5444-006 Rich update', 0),
+    L('t1', 'Finalize column location', 1, { checked: false }),
+    L('t2', 'Send RFI to Thomas', 1, { checked: false, marker: 'WAITING' }),
+    L('h2', '11:00 Site walk', 0),
+    L('t3', 'Pour schedule', 1, { checked: false }),
+    L('t4', 'rich mix check', 0, { checked: true })
+  ];
+  const otherLines = [L('t9', 'Loren will reach out to Brady', 0, { checked: false, marker: 'WAITING' }), L('t8', 'Loren call', 0, { checked: false })];
+  const text = (lines) => lines.map((l) => `${'  '.repeat(l.indentLevel)}${l.text}`).join('\n');
+  const rec = (pageId, lines) => ({ book: '3017', page: Number(pageId), pageId, transcriptionText: text(lines), tasks: buildTaskSummary(lines) });
+  const records = [rec('170', pageLines), rec('171', otherLines)];
+  const tags = { '3017/170': ['rich', 'tom', '5444-006'], '3017/171': ['beam'] };
+  const rows = buildTaskRows(records, { tags, info });
+  const by = Object.fromEntries(rows.map((r) => [r.lineId, r]));
+
+  it('people are the Person tags on the page whose blocks hold the task', () => {
+    expect(by.t1.people).toEqual(['rich']);
+    expect(by.t2.people).toEqual(['rich', 'tom']);   // under Rich's block, and names Thomas
+    expect(by.t3.people).toEqual([]);
+    expect(by.t4.people).toEqual([]);                 // "rich mix": case-sensitive
+    expect(by.t9.people).toEqual([]);                 // names Loren, but the page has no Loren tag
+    expect(by.t1.project).toBe('5444-006');           // project unchanged
+  });
+
+  it('a person named nowhere on the page covers the whole page', () => {
+    const r = buildTaskRows(records, { tags: { ...tags, '3017/171': ['rich'] }, info });
+    expect(r.filter((x) => x.pageId === '171').map((x) => x.people)).toEqual([['rich'], ['rich']]);
+  });
+
+  it('hand corrections: an added root among the heads, a removed one', () => {
+    const blocks = { '3017/170': { tom: { add: ['h2'] }, rich: { remove: ['h1'] } } };
+    const r = Object.fromEntries(buildTaskRows(records, { tags, info, blocks }).map((x) => [x.lineId, x]));
+    expect(r.t3.people).toEqual(['tom']);
+    // From scan text alone the removed root is dropped, but the whole-page fallback can't be seen (the
+    // text has no ids): that is why stores/tag-scope.js reads corrected pages (next test).
+    expect(r.t1.people).toEqual([]);
+  });
+
+  it('with lines read for a corrected page, the covered ids decide', () => {
+    const blocks = { '3017/170': { rich: { remove: ['h1'] } } };
+    const scopeLines = new Map([['3017/170', pageLines]]);
+    const r = Object.fromEntries(buildTaskRows(records, { tags, info, blocks, scopeLines }).map((x) => [x.lineId, x]));
+    expect(r.t3.people).toContain('rich');   // its one root removed: Rich covers the whole page again
+  });
+
+  it('Group by → Person lists a task under each of its people, "No person" last', () => {
+    const groups = groupTaskRows(rows, 'person');
+    expect(groups.map((g) => [g.id, g.rows.map((x) => x.lineId)])).toEqual([
+      ['rich', ['t1', 't2']], ['tom', ['t2']], ['', expect.arrayContaining(['t3', 't4', 't8', 't9'])]
+    ]);
+    expect(groups[groups.length - 1].label).toBe(NO_PERSON);
+    expect(parseTaskGroup('person')).toBe('person');
+  });
+
+  it('person: in the search, by key, display name or alias, case-insensitive', () => {
+    const ids = (q) => searchTaskRows(rows, q, (b) => b, info).map((r) => r.lineId).sort();
+    expect(ids('person:tom')).toEqual(['t2']);
+    expect(ids('person:thomas')).toEqual(['t2']);
+    expect(ids('person:Rich')).toEqual(['t1', 't2']);
+    expect(ids('person:rich column')).toEqual(['t1']);
+    expect(ids('person:nobody')).toEqual([]);
+    expect(ids('project:5444-006 send')).toEqual(['t2']);
+    expect(ids('Tom')).toEqual(['t2']);   // a person's display name is a word in the row too
+  });
+
+  it('a Person page’s open items: open tasks in their blocks, plus WAITING tasks naming them anywhere', () => {
+    const open = (t) => personOpenItems(rows, t, info).map((r) => r.lineId).sort();
+    expect(open('rich')).toEqual(['t1', 't2']);
+    expect(open('loren')).toEqual(['t9']);   // WAITING naming Loren on an untagged page; not the TODO t8
+    expect(open('tom')).toEqual(['t2']);
+    expect(personOpenItems(rows, '5444-006', info)).toEqual([]);
+  });
+
+  it('Copy agenda: TODO / WAITING lines, grouped under their project', () => {
+    expect(agendaMarkdown(personOpenItems(rows, 'rich', info))).toBe(
+      '- [[5444-006]]\n\t- TODO Finalize column location\n\t- WAITING Send RFI to Thomas'
+    );
+    expect(agendaMarkdown(personOpenItems(rows, 'loren', info))).toBe('- WAITING Loren will reach out to Brady');
+    expect(agendaMarkdown([])).toBe('');
   });
 });

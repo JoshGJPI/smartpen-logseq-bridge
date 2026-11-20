@@ -7,6 +7,8 @@
 -->
 <script>
   import { bookAliases } from '$stores';
+  import { tagInfo } from '$stores/tags.js';
+  import { tagLabel } from '$lib/tags.js';
   import { shownTaskGroups, taskGroupBy } from '$stores/tasks.js';
   import { taskGroupDomId, TASK_GROUPS } from '$lib/tasks.js';
   import { dayStart } from '$lib/timeline.js';
@@ -17,6 +19,7 @@
 
   function label(g) {
     if (g.kind === 'book') return formatBookName(g.id, $bookAliases, 'alias-only');
+    if (g.kind === 'person' && g.id) return tagLabel(g.id, $tagInfo);
     if (g.kind === 'date' && g.id) {
       return dayStart(g.id)?.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) || g.id;
     }

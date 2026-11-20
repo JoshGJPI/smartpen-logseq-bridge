@@ -16,7 +16,8 @@
 
 import { writable, derived, get } from 'svelte/store';
 import { savedPages } from './saved-pages.js';
-import { pageTags } from './tags.js';
+import { pageTags, tagInfo, tagBlocks } from './tags.js';
+import { scopeLines } from './tag-scope.js';
 import { bookAliases } from './book-aliases.js';
 import { formatBookName } from '$utils/formatting.js';
 import { libraryPageDates } from './library.js';
@@ -33,10 +34,15 @@ import { debug } from '$lib/debug.js';
 /** taskKey → the state the app has set but the scan record may not show yet. */
 export const taskOverrides = writable(new Map());
 
-/** One row per task (lib/tasks.js buildTaskRows), unfiltered and unsorted. */
+/**
+ * One row per task (lib/tasks.js buildTaskRows), unfiltered and unsorted.
+ * v3.23.0: each row's `people` from block scope (tag info, hand corrections,
+ * and lines read only for pages with corrections: stores/tag-scope.js).
+ */
 export const taskRows = derived(
-  [savedPages, pageTags, libraryPageDates, taskOverrides],
-  ([$pages, $tags, $dates, $over]) => buildTaskRows($pages, { tags: $tags, dates: $dates, overrides: $over })
+  [savedPages, pageTags, libraryPageDates, taskOverrides, tagInfo, tagBlocks, scopeLines],
+  ([$pages, $tags, $dates, $over, $info, $blocks, $lines]) =>
+    buildTaskRows($pages, { tags: $tags, dates: $dates, overrides: $over, info: $info, blocks: $blocks, scopeLines: $lines })
 );
 
 /** `{ open, waiting, done, cancelled, all }` */
@@ -65,7 +71,7 @@ export function resetTaskStates() {
 /** The Tasks view's find box (session-only; shared with the left panel's group list, v3.14.0). */
 export const taskQuery = writable('');
 
-/** Group by 'project' | 'date' | 'book'. A per-viewer convenience. */
+/** Group by 'project' | 'person' | 'date' | 'book'. A per-viewer convenience. */
 export const taskGroupBy = writable(parseTaskGroup(readString(TASK_GROUP_KEY)));
 
 export function setTaskGroupBy(id) {
@@ -199,7 +205,7 @@ export function clearTasks() {
  * (v3.14.0, shared so the left panel lists exactly the groups on screen).
  */
 export const shownTaskGroups = derived(
-  [taskRows, taskStatesShown, taskQuery, taskGroupBy, bookAliases],
-  ([$rows, $shown, $q, $by, $aliases]) =>
-    groupTaskRows(searchTaskRows(rowsInStates($rows, $shown), $q, (b) => formatBookName(b, $aliases, 'full')), $by)
+  [taskRows, taskStatesShown, taskQuery, taskGroupBy, bookAliases, tagInfo],
+  ([$rows, $shown, $q, $by, $aliases, $info]) =>
+    groupTaskRows(searchTaskRows(rowsInStates($rows, $shown), $q, (b) => formatBookName(b, $aliases, 'full'), $info), $by)
 );

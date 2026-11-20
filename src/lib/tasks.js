@@ -24,7 +24,9 @@
  */
 
 import { compareBookKeys } from './volumes.js';
-import { isProjectTag, findProjectNumbers, compareTags } from './tags.js';
+import { isProjectTag, findProjectNumbers, compareTags, tagAnswersTo, tagLabel, tagTypeOf } from './tags.js';
+import { linesFromText, peopleForTasks, personNames, textNamesAny } from './tag-scope.js';
+import { extractFacets } from './search-query.js';
 
 export const WAITING = 'WAITING';
 export const CANCELLED = 'CANCELLED';
@@ -42,6 +44,9 @@ export const NOT_A_TASK = 'none';
 /** Longest text a scan summary keeps (the record is display data, not the line). */
 export const TASK_TEXT_MAX = 300;
 export const TASK_PARENT_MAX = 120;
+/** A task's ancestor lines kept in the summary (v3.23.0 `heads`), and each one's text length. */
+export const TASK_HEADS_MAX = 3;
+export const TASK_HEAD_MAX = 80;
 
 /**
  * The marker a line legitimately carries: 'WAITING' beside `checked: false`,
@@ -155,18 +160,24 @@ function projectsIn(text) {
  * last one on any earlier line; null when none. Pattern only (OCR can misread
  * a digit), so buildTaskRows() uses it only when it is one of the page's tags.
  *
+ * `heads` (v3.23.0): the task's ancestor lines by indent (each earlier line
+ * with text and a smaller indent that no line in between closed), the nearest
+ * TASK_HEADS_MAX of them, outermost first, as `{ id, text }` with the text
+ * clipped to TASK_HEAD_MAX. They are exactly the lines whose block (lib/tag-scope.js)
+ * holds the task, so block scope needs no page read (D.3).
+ *
  * MIRRORED in electron/task-summary.cjs (main can't import this ESM module).
  * Change both; task-summary.test.js runs them over one fixture.
  *
  * @param {Array<{id?: string, text?: string, indentLevel?: number, parentId?: string|null, checked?: boolean|null, marker?: string}>} lines
- * @returns {Array<{id: string, text: string, checked: boolean, marker: 'WAITING'|'CANCELLED'|null, parentText: string|null, projectHint: string|null}>}
+ * @returns {Array<{id: string, text: string, checked: boolean, marker: 'WAITING'|'CANCELLED'|null, parentText: string|null, projectHint: string|null, heads: Array<{id: string|null, text: string}>}>}
  */
 export function buildTaskSummary(lines) {
   if (!Array.isArray(lines) || !lines.length) return [];
   const byId = new Map();
   for (const l of lines) if (l && typeof l.id === 'string') byId.set(l.id, l);
   const out = [];
-  const stack = []; // [{ level, text, project }] of earlier lines with text
+  const stack = []; // [{ level, id, text, project }] of earlier lines with text
   let lastProject = null; // the last project number on any earlier line
   for (const l of lines) {
     if (!l || typeof l !== 'object') continue;
@@ -185,11 +196,12 @@ export function buildTaskSummary(lines) {
         checked: l.checked,
         marker: markerOf(l),
         parentText: parent ? clip(parent, TASK_PARENT_MAX) : null,
-        projectHint: hint || lastProject
+        projectHint: hint || lastProject,
+        heads: stack.slice(-TASK_HEADS_MAX).map((h) => ({ id: h.id, text: clip(h.text, TASK_HEAD_MAX) }))
       });
     }
     if (own.length) lastProject = own[own.length - 1];
-    if (typeof l.text === 'string' && l.text.trim()) stack.push({ level, text: l.text, project: own[own.length - 1] || null });
+    if (typeof l.text === 'string' && l.text.trim()) stack.push({ level, id: typeof l.id === 'string' && l.id ? l.id : null, text: l.text, project: own[own.length - 1] || null });
   }
   return out;
 }
@@ -209,8 +221,18 @@ export function normalizeTaskSummary(tasks) {
       checked: t.checked,
       marker: markerOf(t),
       parentText: typeof t.parentText === 'string' && t.parentText ? t.parentText : null,
-      projectHint: isProjectTag(t.projectHint) ? t.projectHint : null
+      projectHint: isProjectTag(t.projectHint) ? t.projectHint : null,
+      heads: normalizeHeads(t.heads)
     }));
+}
+
+/** `heads` as the renderer keeps them: `{ id, text }` with text, at most TASK_HEADS_MAX (older mains: none). */
+function normalizeHeads(heads) {
+  if (!Array.isArray(heads)) return [];
+  return heads
+    .filter((h) => h && typeof h.text === 'string')
+    .slice(-TASK_HEADS_MAX)
+    .map((h) => ({ id: typeof h.id === 'string' && h.id ? h.id : null, text: h.text }));
 }
 
 /** One task's key, unique across the library: `"388v2/151b#<lineId>"`. */
@@ -225,10 +247,19 @@ const idOf = (r) => (r.pageId != null ? String(r.pageId) : String(r.page));
  * else the page's first project tag. `overrides` (taskKey → state) are changes made in the
  * app that the scan doesn't know about yet: they win.
  *
+ * `people` (v3.23.0): the Person tags ON the page whose block scope
+ * (lib/tag-scope.js) holds the task: the task's own text or one of its `heads`
+ * names the person (or was made a root by hand, and not removed by hand), or the
+ * person is named nowhere on the page (the tag then covers the whole page).
+ * Scope comes from the record's `transcriptionText`, or from `scopeLines`
+ * (`pageKey → lines with ids`, read only for pages with hand corrections) when
+ * given. Never from text alone: a page that doesn't carry the tag gives no one.
+ *
  * @param {Array<object>} records  scan records (`tasks` on each)
- * @param {{ tags?: Object<string, string[]>, dates?: Map<string, {first: string, last: string}>, overrides?: Map<string, string> }} [ctx]
+ * @param {{ tags?: Object<string, string[]>, dates?: Map<string, {first: string, last: string}>, overrides?: Map<string, string>,
+ *   info?: Object<string, object>, blocks?: Object<string, object>, scopeLines?: Map<string, Array<object>> }} [ctx]
  */
-export function buildTaskRows(records, { tags = {}, dates = null, overrides = null } = {}) {
+export function buildTaskRows(records, { tags = {}, dates = null, overrides = null, info = {}, blocks = {}, scopeLines = null } = {}) {
   const rows = [];
   for (const r of records || []) {
     if (!r || !Array.isArray(r.tasks) || !r.tasks.length) continue;
@@ -237,6 +268,11 @@ export function buildTaskRows(records, { tags = {}, dates = null, overrides = nu
     const pageTagList = (tags && tags[pageKey]) || [];
     const projects = pageTagList.filter(isProjectTag);
     const when = dates ? dates.get(pageKey) : null;
+    const hasPeople = pageTagList.some((t) => tagTypeOf(t, info) === 'person');
+    const people = hasPeople
+      ? peopleForTasks(r.tasks, (scopeLines && scopeLines.get(pageKey)) || linesFromText(r.transcriptionText),
+        pageTagList, info, (blocks && blocks[pageKey]) || {})
+      : null;
     r.tasks.forEach((t, order) => {
       const key = taskKey(r.book, pageId, t.id);
       const state = (overrides && overrides.get(key)) || taskStateOf(t);
@@ -253,6 +289,8 @@ export function buildTaskRows(records, { tags = {}, dates = null, overrides = nu
         state,
         projects,
         project: (t.projectHint && projects.includes(t.projectHint) ? t.projectHint : projects[0]) || null,
+        people: (people && people.get(t.id)) || [],
+        heads: t.heads || [],
         day: when ? when.first : null,
         lastDay: when ? when.last : null
       });
@@ -367,20 +405,36 @@ const dayWords = (iso) => {
 };
 
 /**
- * Rows whose text, "under" line, notebook, page, tags or dates contain every
- * word of `query` (case-insensitive; blank = all rows). `bookLabel(bookKey)`
+ * Rows whose text, "under" line, notebook, page, tags, people or dates contain
+ * every word of `query` (case-insensitive; blank = all rows). `bookLabel(bookKey)`
  * names the notebook as the UI shows it. A new array.
+ *
+ * v3.23.0: `person:tom` (or `person:"Tom Smith"`) keeps rows whose `people`
+ * hold a tag answering to the value (its key, display name or an alias,
+ * case-insensitive, as the global search's facets); `project:5444-006` rows
+ * whose page carries that project tag. Other facets (`topic:`, `type:`, `is:`)
+ * are read as words.
  * @param {Array<object>} rows
  * @param {string} query
  * @param {(book: string) => string} [bookLabel]
+ * @param {Object<string, object>} [info]  the tag info map (names a person answers to)
  */
-export function searchTaskRows(rows, query, bookLabel = (b) => b) {
-  const words = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
-  if (!words.length) return [...(rows || [])];
+export function searchTaskRows(rows, query, bookLabel = (b) => b, info = {}) {
+  const { text, facets } = extractFacets(query);
+  const used = facets.filter((f) => f.key === 'person' || f.key === 'project');
+  const loose = facets.filter((f) => !used.includes(f)).map((f) => f.value);
+  const words = [...String(text || '').toLowerCase().split(/\s+/), ...loose.map((v) => v.toLowerCase())].filter(Boolean);
+  if (!words.length && !used.length) return [...(rows || [])];
   return (rows || []).filter((r) => {
+    for (const f of used) {
+      const list = f.key === 'person' ? r.people || [] : r.projects || [];
+      if (!list.some((t) => tagAnswersTo(t, info, f.value))) return false;
+    }
+    if (!words.length) return true;
     const hay = [
       r.text, r.parentText, bookLabel(r.book), r.book,
       `p.${r.pageId} page ${r.pageId}`, ...(r.projects || []), r.project,
+      ...(r.people || []).map((t) => tagLabel(t, info)),
       dayWords(r.day), dayWords(r.lastDay)
     ].filter(Boolean).join(' | ').toLowerCase();
     return words.every((w) => hay.includes(w));
@@ -389,6 +443,7 @@ export function searchTaskRows(rows, query, bookLabel = (b) => b) {
 
 export const TASK_GROUPS = [
   { id: 'project', label: 'Project tag' },
+  { id: 'person', label: 'Person' },
   { id: 'date', label: 'Date written' },
   { id: 'book', label: 'Notebook' }
 ];
@@ -431,26 +486,38 @@ export function latestTaskRows(rows, filter = 'open', n = 3) {
 
 export const NO_PROJECT = 'No project tag';
 export const NO_DATE = 'No date';
+export const NO_PERSON = 'No person';
 
 /**
  * Rows in groups: `[{ id, label, kind, rows }]`.
  *   project  by the row's project (its nearest tagged project number, else the page's
  *            first project tag; numbers first, then A to Z; untagged last)
+ *   person   by the row's `people` (v3.23.0): a task in two people's blocks is listed
+ *            under both; A to Z by tag; "No person" last
  *   date     by the page's first written day (newest first; undated last)
  *   book     by notebook (book order)
  * @param {Array<object>} rows
- * @param {'project'|'date'|'book'} by
+ * @param {'project'|'person'|'date'|'book'} by
  */
 export function groupTaskRows(rows, by) {
   const mode = parseTaskGroup(by);
   const groups = new Map();
+  const put = (id, r) => {
+    if (!groups.has(id)) groups.set(id, { id, kind: mode, rows: [] });
+    groups.get(id).rows.push(r);
+  };
   for (const r of [...(rows || [])].sort(compareTaskRows)) {
+    if (mode === 'person') {
+      const people = r.people || [];
+      if (!people.length) put('', r);
+      for (const p of people) put(p, r);
+      continue;
+    }
     let id;
     if (mode === 'project') id = r.project || '';
     else if (mode === 'date') id = r.day || '';
     else id = r.book;
-    if (!groups.has(id)) groups.set(id, { id, kind: mode, rows: [] });
-    groups.get(id).rows.push(r);
+    put(id, r);
   }
   const list = [...groups.values()];
   list.sort((a, b) => {
@@ -461,7 +528,7 @@ export function groupTaskRows(rows, by) {
   });
   return list.map((g) => ({
     ...g,
-    label: g.id || (mode === 'project' ? NO_PROJECT : NO_DATE)
+    label: g.id || (mode === 'project' ? NO_PROJECT : mode === 'person' ? NO_PERSON : NO_DATE)
   }));
 }
 
@@ -505,4 +572,49 @@ export function taskMenuChoices(state) {
   if (state === 'waiting') return [DONE, { state: 'todo', label: 'Clear WAITING (back to TODO)' }, CANCEL, NONE];
   if (state === 'cancelled') return [{ state: 'todo', label: 'Restore (back to TODO)' }, DONE, WAIT, NONE];
   return [DONE, WAIT, CANCEL, NONE];
+}
+
+/**
+ * A Person page's open items (v3.23.0, D.2): open tasks (TODO, WAITING) inside
+ * the person's blocks on any page (`row.people`), plus WAITING tasks on any page
+ * whose own text names the person (display name or alias, whole word,
+ * case-sensitive: "WAITING Loren will reach out to Brady"). In compareTaskRows
+ * order. A new array.
+ * @param {Array<object>} rows  buildTaskRows() rows
+ * @param {string} tag  a Person tag
+ * @param {Object<string, object>} info
+ */
+export function personOpenItems(rows, tag, info) {
+  const names = personNames(tag, info);
+  if (!names.length) return [];
+  return (rows || [])
+    .filter((r) => (r.state === 'todo' || r.state === 'waiting')
+      && ((r.people || []).includes(tag) || (r.state === 'waiting' && textNamesAny(r.text, names))))
+    .sort(compareTaskRows);
+}
+
+/**
+ * Open items as indented markdown for a meeting or a LogSeq page (D.2 "Copy
+ * agenda"): one `- TODO …` / `- WAITING …` per task, under its project's
+ * `[[number]]` when it has one (tab indent, as the transcript copies), tasks
+ * with no project first. Copy only: the app writes nothing to LogSeq.
+ * @param {Array<object>} rows  personOpenItems()
+ * @returns {string}  '' when there is nothing
+ */
+export function agendaMarkdown(rows) {
+  const loose = [];
+  const byProject = new Map();
+  for (const r of rows || []) {
+    const line = `${r.state === 'waiting' ? 'WAITING' : 'TODO'} ${String(r.text || '').trim()}`;
+    if (r.project) {
+      if (!byProject.has(r.project)) byProject.set(r.project, []);
+      byProject.get(r.project).push(line);
+    } else loose.push(line);
+  }
+  const out = loose.map((l) => `- ${l}`);
+  for (const p of [...byProject.keys()].sort(compareTags)) {
+    out.push(`- [[${p}]]`);
+    for (const l of byProject.get(p)) out.push(`\t- ${l}`);
+  }
+  return out.join('\n');
 }

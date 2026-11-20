@@ -11,6 +11,9 @@
   record's `transcriptionText` (no page read), minus the page's tags and its
   dismissals; ✓ tags this page only, ✕ dismisses for this page and stays
   dismissed. Nothing is tagged without a click.
+
+  Block scope (v3.23.0): ScopeToggles lists the page's Person and Project tags;
+  picking one marks the lines it covers in the transcript.
 -->
 <script>
   import { pageTags, dismissedTags, setPageTagList, dismissSuggestion } from '$stores/tags.js';
@@ -18,6 +21,7 @@
   import { recordTagKey, suggestProjectNumbers, splitSuggestionLine } from '$lib/tags.js';
   import TagChip from './TagChip.svelte';
   import TagInput from './TagInput.svelte';
+  import ScopeToggles from './ScopeToggles.svelte';
 
   /** Scan records on screen: one page, or both pages of a spread (nulls ignored). */
   export let records = [];
@@ -67,6 +71,10 @@
       <p class="hint">Enter adds · Backspace removes the last · a keyword, or a project number.</p>
     {/if}
   </section>
+
+  {#if $dataFolderReady && record}
+    <ScopeToggles {record} tagKeyOf={focusKey} {tags} />
+  {/if}
 
   {#if $dataFolderReady}
     <section class="pts-sug">

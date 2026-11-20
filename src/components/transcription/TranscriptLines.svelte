@@ -16,6 +16,12 @@
   Top- and second-level lines carry a copy button (shown on hover) that copies
   that line and everything nested under it (`onCopyLine(index)`).
 
+  Block scope (v3.23.0, docs/TRANSCRIPT-STRUCTURE-SPEC.md D.4): with task markers
+  on, a line's ⋯ menu also offers Tag this block… (TagBlockDialog) and, on a
+  root, Not this person / Not this project (stores/tags.js untagBlock); and when
+  a Person or Project tag is picked in the page's tag strip (scopeTagShown), a
+  faint bar in the tag's colour marks the lines it covers (lib/tag-scope.js).
+
   Empty state: "Transcribe in Editor" only when MyScript is configured
   (transcribing is an Editor action: the button loads the page there, and the
   capture bar's Transcribe does the rest); otherwise it says where to add a key.
@@ -26,6 +32,10 @@
   import { taskStateOf, taskKey, isClosedState, NOT_A_TASK } from '$lib/tasks.js';
   import TaskBox from '../tasks/TaskBox.svelte';
   import TaskMenu from '../tasks/TaskMenu.svelte';
+  import { pageTags, tagInfo, tagBlocks, untagBlock } from '$stores/tags.js';
+  import { scopeTagShown, openTagBlockDialog } from '$stores/tag-scope.js';
+  import { tagKey, tagTypeOf, tagLabel } from '$lib/tags.js';
+  import { coveredLineIds, rootsOnLine } from '$lib/tag-scope.js';
 
   export let lines = [];
   /** (index) => void: copy that line and its children; null hides the buttons. */
@@ -48,6 +58,22 @@
   export let taskLock = '';
 
   $: interactive = taskBook != null && taskPageId != null;
+
+  // Block scope on this page (v3.23.0): corrections, the tag picked in the strip, its covered lines.
+  $: pageKey = interactive ? tagKey(taskBook, taskPageId) : null;
+  $: onPage = (pageKey && $pageTags[pageKey]) || [];
+  $: corrections = (pageKey && $tagBlocks[pageKey]) || {};
+  $: barTag = $scopeTagShown && $scopeTagShown.key === pageKey && onPage.includes($scopeTagShown.tag) ? $scopeTagShown.tag : null;
+  $: barIds = barTag ? new Set(coveredLineIds(lines, [barTag], $tagInfo, corrections)[barTag] || []) : null;
+  $: barType = barTag ? tagTypeOf(barTag, $tagInfo) : null;
+  $: blockItems = (line) => [
+    { label: 'Tag this block…', title: 'Make this line the head of a person’s or project’s block', onSelect: () => openTagBlockDialog(taskBook, taskPageId, line) },
+    ...rootsOnLine(lines, line.id, onPage, $tagInfo, corrections).map((r) => ({
+      label: `${tagTypeOf(r.tag, $tagInfo) === 'person' ? 'Not this person' : 'Not this project'} (${tagLabel(r.tag, $tagInfo)})`,
+      title: 'This line names the tag by accident: it no longer heads a block',
+      onSelect: () => untagBlock(taskBook, taskPageId, r.tag, line.id, { byText: r.byText })
+    }))
+  ];
   // An override of Not a task shows the line plain while the write runs.
   $: stateOf = (line) => {
     const over = interactive && $taskOverrides.get(taskKey(taskBook, taskPageId, line.id));
@@ -90,6 +116,8 @@
         class="tl-line"
         class:hot={hotId === line.id}
         class:focus={focusId === line.id}
+        class:scoped={!!barIds && barIds.has(line.id)}
+        class:sp={barType === 'person'}
         use:scrollTo={focusId === line.id}
         style="padding-left: {(line.indentLevel || 0) * 1.5}rem"
         on:mouseenter={() => hover(line)}
@@ -105,7 +133,7 @@
         {#if interactive && (stateOf(line) || (line.text || '').trim())}
           <!-- A plain line's menu offers Make task. -->
           <span class="tl-task-menu">
-            <TaskMenu state={stateOf(line)} lock={taskLock}
+            <TaskMenu state={stateOf(line)} lock={taskLock} extra={(line.text || '').trim() ? blockItems(line) : []}
               onSet={(s) => changeTask(taskBook, taskPageId, line.id, s,
                 { from: stateOf(line) || NOT_A_TASK, allowPlain: !stateOf(line) })} />
           </span>
@@ -156,6 +184,9 @@
   .linked .tl-line { cursor: default; }
   .linked .tl-line.hot { background: #eef3ff; }
   .tl-line.focus { background: #fff6d6; box-shadow: inset 3px 0 0 #e0b400; }
+  /* Block scope (v3.23.0): a faint bar in the tag's colour (project teal, person violet). */
+  .tl-line.scoped { background-image: linear-gradient(to right, rgba(15, 118, 110, 0.35) 3px, transparent 3px); }
+  .tl-line.scoped.sp { background-image: linear-gradient(to right, rgba(106, 63, 168, 0.35) 3px, transparent 3px); }
   .tl-marker {
     flex-shrink: 0;
     color: #bbb;

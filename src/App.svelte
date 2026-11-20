@@ -14,6 +14,7 @@
   import BluetoothDevicePicker from './components/dialog/BluetoothDevicePicker.svelte';
   import PrintDialog from './components/dialog/PrintDialog.svelte';
   import RelinkDialog from './components/dialog/RelinkDialog.svelte';
+  import TagBlockDialog from './components/tags/TagBlockDialog.svelte';
   import McpEditToast from './components/layout/McpEditToast.svelte';
   import { initMcpEdits } from '$stores/mcp-edits.js';
 
@@ -286,6 +287,7 @@
   <BluetoothDevicePicker />
   <PrintDialog />
   <RelinkDialog />
+  <TagBlockDialog />
   <McpEditToast />
 </div>
 

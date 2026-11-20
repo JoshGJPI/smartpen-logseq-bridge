@@ -16,7 +16,8 @@ import { getTags, patchTags } from '$lib/storage/local-store.js';
 import {
   pageTags, dismissedTags, tagIndex, tagStatsList, loadTags, clearTags, setPageTagList,
   addTagToPages, removeTagFromPages, renameTag, mergeTags, deleteTag, dismissSuggestion,
-  resetDismissed, tagsFor, carryTagsForMoves, tagUndo, undoTagChange, tagInfo, setTagInfo, setTagType
+  resetDismissed, tagsFor, carryTagsForMoves, tagUndo, undoTagChange, tagInfo, setTagInfo, setTagType,
+  tagBlocks, tagBlock, untagBlock
 } from '$stores/tags.js';
 import { logMessages } from '$stores/ui.js';
 
@@ -457,5 +458,138 @@ describe('coordinator QA fixes: one write, merge rule, info-only tags (v3.22.0)'
     expect(get(tagInfo)).toEqual({});
     expect(get(tagUndo).label).toBe('Removed the details of “tom”');
     expect(patchTags).toHaveBeenLastCalledWith({ pages: {}, dismissed: {}, info: { tom: null } });
+  });
+});
+
+describe('block corrections (v3.23.0)', () => {
+  beforeEach(() => {
+    tagInfo.set({ rich: { type: 'person', label: 'Rich' } });
+    tagBlocks.set({});
+    tagUndo.set(null);
+  });
+
+  it('loadTags reads the blocks section, normalized; clearTags empties it', async () => {
+    vi.mocked(getTags).mockResolvedValue({
+      version: 1, state: 'ok', pages: {}, dismissed: {}, info: {},
+      blocks: { '3017/170': { rich: { add: ['l1', 'l1'] } }, junk: { rich: { add: ['x'] } } }
+    });
+    await loadTags();
+    expect(get(tagBlocks)).toEqual({ '3017/170': { rich: { add: ['l1'] } } });
+    clearTags();
+    expect(get(tagBlocks)).toEqual({});
+  });
+
+  it('Tag this block adds the tag to the page and the root in ONE write', async () => {
+    expect(await tagBlock('3017', '170', 'rich', 'l5')).toBe(true);
+    expect(patchTags).toHaveBeenCalledTimes(1);
+    expect(patchTags).toHaveBeenCalledWith({
+      pages: { '3017/170': ['rich'] }, dismissed: {}, blocks: { '3017/170': { rich: { add: ['l5'] } } }
+    });
+    expect(get(pageTags)).toEqual({ '3017/170': ['rich'] });
+  });
+
+  it('Tag this block with a new person writes page, person and root in one patch', async () => {
+    await tagBlock('3017', '170', 'tom', 'l5', { typeAs: { tag: 'tom', type: 'person', label: 'Tom' } });
+    expect(patchTags).toHaveBeenCalledTimes(1);
+    const patch = vi.mocked(patchTags).mock.calls[0][0];
+    expect(patch.pages).toEqual({ '3017/170': ['tom'] });
+    expect(patch.info).toEqual({ tom: { type: 'person', label: 'Tom' } });
+    expect(patch.blocks).toEqual({ '3017/170': { tom: { add: ['l5'] } } });
+  });
+
+  it('Not this person writes a remove only; the page keeps its tag', async () => {
+    pageTags.set({ '3017/170': ['rich'] });
+    await untagBlock('3017', '170', 'rich', 'l1', { byText: true });
+    expect(patchTags).toHaveBeenLastCalledWith({ pages: {}, dismissed: {}, blocks: { '3017/170': { rich: { remove: ['l1'] } } } });
+    expect(get(pageTags)).toEqual({ '3017/170': ['rich'] });
+  });
+
+  it('a failed write rolls back pages and blocks together, and says so', async () => {
+    tagBlocks.set({ '3017/171': { rich: { add: ['z'] } } });
+    vi.mocked(patchTags).mockRejectedValueOnce(new Error('disk full'));
+    expect(await tagBlock('3017', '170', 'rich', 'l5')).toBe(false);
+    expect(get(pageTags)).toEqual({});
+    expect(get(tagBlocks)).toEqual({ '3017/171': { rich: { add: ['z'] } } });
+    expect(lastLog().message).toMatch(/disk full/);
+  });
+
+  it('a rollback leaves a later edit to the same page alone', async () => {
+    let fail;
+    vi.mocked(patchTags).mockImplementationOnce(() => new Promise((_, rej) => { fail = rej; }));
+    const first = tagBlock('3017', '170', 'rich', 'l5');
+    await untagBlock('3017', '170', 'rich', 'l5');   // a later change to the same page entry
+    fail(new Error('nope'));
+    await first;
+    expect(get(tagBlocks)).toEqual({});   // the later state stands, not the first write's
+  });
+
+  it('rename and merge carry block entries in the same write as the pages; undo puts them back', async () => {
+    pageTags.set({ '3017/170': ['thomas', 'tom'], '3017/171': ['thomas'] });
+    tagInfo.set({ tom: { type: 'person', label: 'Tom' }, thomas: { type: 'person', label: 'Thomas' } });
+    tagBlocks.set({ '3017/170': { thomas: { add: ['a'] }, tom: { remove: ['b'] } }, '3017/171': { thomas: { add: ['c'] } } });
+    await mergeTags('thomas', 'tom');
+    expect(patchTags).toHaveBeenCalledTimes(1);
+    expect(get(tagBlocks)).toEqual({ '3017/170': { tom: { add: ['a'], remove: ['b'] } }, '3017/171': { tom: { add: ['c'] } } });
+    expect(vi.mocked(patchTags).mock.calls[0][0].blocks).toEqual({
+      '3017/170': { tom: { add: ['a'], remove: ['b'] } }, '3017/171': { tom: { add: ['c'] } }
+    });
+    await undoTagChange();
+    expect(get(tagBlocks)).toEqual({ '3017/170': { thomas: { add: ['a'] }, tom: { remove: ['b'] } }, '3017/171': { thomas: { add: ['c'] } } });
+  });
+
+  it('delete drops the tag’s block entries in the same write', async () => {
+    pageTags.set({ '3017/170': ['rich'] });
+    tagBlocks.set({ '3017/170': { rich: { add: ['a'] } } });
+    await deleteTag('rich');
+    expect(patchTags).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(patchTags).mock.calls[0][0].blocks).toEqual({ '3017/170': null });
+    expect(get(tagBlocks)).toEqual({});
+  });
+
+  it('a volume move carries a page’s block entries with its tags, in one write', async () => {
+    pageTags.set({ '390/12': ['rich'] });
+    tagBlocks.set({ '390/12': { rich: { add: ['a'] } } });
+    expect(await carryTagsForMoves([{ fromBook: '390', fromPage: 12, toBook: '390v2', toPage: 12 }])).toBe(1);
+    expect(patchTags).toHaveBeenCalledTimes(1);
+    expect(get(tagBlocks)).toEqual({ '390v2/12': { rich: { add: ['a'] } } });
+    expect(vi.mocked(patchTags).mock.calls[0][0].blocks).toEqual({ '390/12': null, '390v2/12': { rich: { add: ['a'] } } });
+  });
+
+  it('tag edits that do not touch blocks send no blocks section', async () => {
+    tagBlocks.set({ '3017/170': { rich: { add: ['a'] } } });
+    await setPageTagList('3017', '171', ['beam']);
+    expect('blocks' in vi.mocked(patchTags).mock.calls[0][0]).toBe(false);
+  });
+});
+
+describe('Mentioned, not tagged (v3.23.0, decision 5)', () => {
+  it('finding mentions never writes; only Tag page’s click tags, that one page', async () => {
+    const { mentionedNotTagged } = await import('$lib/tag-scope.js');
+    pageTags.set({ '3017/170': ['rich'] });
+    tagInfo.set({ rich: { type: 'person', label: 'Rich' } });
+    const records = [
+      { book: '3017', page: 171, pageId: '171', transcriptionText: 'Rich called\n  about the stair' },
+      { book: '3017', page: 172, pageId: '172', transcriptionText: 'Rich update' }
+    ];
+    const found = mentionedNotTagged(records, 'rich', get(tagInfo), get(pageTags));
+    expect(found.map((m) => m.key)).toEqual(['3017/171', '3017/172']);
+    expect(patchTags).not.toHaveBeenCalled();
+    expect(get(pageTags)).toEqual({ '3017/170': ['rich'] });
+    await addTagToPages([found[0].key], 'rich');   // what Tag page calls
+    expect(patchTags).toHaveBeenCalledTimes(1);
+    expect(patchTags).toHaveBeenCalledWith({ pages: { '3017/171': ['rich'] }, dismissed: {} });
+  });
+
+  it('MentionedPages and the Person page tag a page only from a click handler', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const dir = path.resolve(__dirname, '../../components/tags');
+    const src = fs.readFileSync(path.join(dir, 'MentionedPages.svelte'), 'utf8');
+    const calls = src.split('\n').filter((l) => /addTagToPages\(|setPageTagList\(|tagBlock\(/.test(l));
+    expect(calls.length).toBe(1);
+    expect(calls[0]).toMatch(/on:click=\{\(\) => addTagToPages\(\[m\.key\], tag\)\}/);
+    for (const f of ['PersonItems.svelte', 'TagBlocksList.svelte', 'ScopeToggles.svelte']) {
+      expect(fs.readFileSync(path.join(dir, f), 'utf8')).not.toMatch(/addTagToPages|setPageTagList|tagBlock\(/);
+    }
   });
 });

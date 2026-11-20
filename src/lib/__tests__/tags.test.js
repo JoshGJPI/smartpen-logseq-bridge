@@ -11,6 +11,7 @@ import {
   suggestProjectNumbers, splitSuggestionLine, buildTagIndex, recordsForKeys, untaggedRecords,
   tagCards, untaggedCard, sortTagCards, tagStats, filterByTags, filterChoices, rankFilterChoices, tagOptions, tagEnterChoice, backspaceRemovesTag,
   parseTagSort, parseGroupBy, planTagCarry, MAX_TAG_LENGTH,
+  withBlockRoot, withoutBlockRoot, renameTagBlocks, deleteTagBlocks, diffTagBlocks, rollbackBlocksPatch, blockCorrection,
   parseTagView, parseCollapsedGroups, parseTagPageSort, sortTagPageTiles,
   normalizeTagInfo, tagTypeOf, tagLabel, projectKind, tagNames, tagAnswersTo, withTagInfo, withTagType,
   renameTagInfo, deleteTagInfo, diffTagInfo, rollbackInfoPatch, groupByTagType, createRows, sortTagStats,
@@ -129,12 +130,13 @@ describe('normalizeTagsFile', () => {
     })).toEqual({
       pages: { '3017/42': ['P2026-141', 'beam'], '388v2/7': ['2327-018'] },
       dismissed: { '3017/42': ['2327-018'] },
-      info: {}
+      info: {},
+      blocks: {}
     });
   });
 
   it('missing, corrupt or wrongly shaped input is empty', () => {
-    const empty = { pages: {}, dismissed: {}, info: {} };
+    const empty = { pages: {}, dismissed: {}, info: {}, blocks: {} };
     expect(normalizeTagsFile(null)).toEqual(empty);
     expect(normalizeTagsFile('garbage')).toEqual(empty);
     expect(normalizeTagsFile({ pages: [] })).toEqual(empty);
@@ -424,6 +426,7 @@ describe('planTagCarry (volume moves)', () => {
     expect(out).toEqual({
       pages: { '390v2/12': ['beam'] },
       dismissed: { '390v2/12': ['2327-018'] },
+      blocks: {},
       carried: ['390/12']
     });
   });
@@ -817,5 +820,68 @@ describe('coordinator QA fixes (v3.22.0)', () => {
       .toEqual([...stats, { tag: 'tom', pages: 0, notebooks: 0 }]);
     expect(withInfoOnlyTags(stats, {})).toBe(stats);
     expect(withInfoOnlyTags(null, null)).toEqual([]);
+  });
+});
+
+describe('block corrections (v3.23.0)', () => {
+  it('normalizeTagsFile reads blocks: valid keys and tags, cleaned ids, empty entries dropped', () => {
+    const out = normalizeTagsFile({
+      blocks: {
+        '3017/170': { rich: { add: ['l1', 'l1', 7, ''], remove: ['l2', 'l1'] }, Rich: { add: ['x'] }, tom: {} },
+        '388v1/2': { rich: { add: ['x'] } },
+        '3017/171': { tom: { remove: [] } }
+      }
+    });
+    expect(out.blocks).toEqual({ '3017/170': { rich: { add: ['l1'], remove: ['l2'] } } });
+    expect(normalizeTagsFile({ blocks: [] }).blocks).toEqual({});
+  });
+
+  it('withBlockRoot adds a root; on a line named by its text it only stops removing it', () => {
+    let b = withBlockRoot({}, '3017/170', 'loren', 'l5');
+    expect(b).toEqual({ '3017/170': { loren: { add: ['l5'] } } });
+    b = withoutBlockRoot(b, '3017/170', 'loren', 'l5');   // an added root just goes
+    expect(b).toEqual({});
+    b = withoutBlockRoot({}, '3017/170', 'tom', 'l2', true);
+    expect(b).toEqual({ '3017/170': { tom: { remove: ['l2'] } } });
+    b = withBlockRoot(b, '3017/170', 'tom', 'l2', true);
+    expect(b).toEqual({});
+    expect(withBlockRoot({}, '3017/170', 'tom', '')).toEqual({});
+  });
+
+  it('rename moves a tag’s entries; onto a tag with its own on the page (merge) the lists join', () => {
+    const b = {
+      '3017/170': { tom: { add: ['a'] }, thomas: { add: ['b'], remove: ['c'] } },
+      '3017/171': { thomas: { remove: ['d'] } }
+    };
+    expect(renameTagBlocks(b, 'thomas', 'tom')).toEqual({
+      '3017/170': { tom: { add: ['a', 'b'], remove: ['c'] } },
+      '3017/171': { tom: { remove: ['d'] } }
+    });
+    expect(renameTagBlocks(b, 'nobody', 'tom')).toBe(b);
+  });
+
+  it('delete drops a tag’s entries on every page', () => {
+    const b = { '3017/170': { tom: { add: ['a'] }, rich: { add: ['b'] } }, '3017/171': { tom: { remove: ['d'] } } };
+    expect(deleteTagBlocks(b, 'tom')).toEqual({ '3017/170': { rich: { add: ['b'] } } });
+  });
+
+  it('diff and rollback per page; a later edit to the page wins', () => {
+    const prev = { '3017/170': { tom: { add: ['a'] } } };
+    const next = { '3017/171': { rich: { add: ['b'] } } };
+    const patch = diffTagBlocks(prev, next);
+    expect(patch).toEqual({ '3017/170': null, '3017/171': { rich: { add: ['b'] } } });
+    expect(rollbackBlocksPatch(next, patch, prev)).toEqual(prev);
+    const later = { '3017/171': { rich: { add: ['z'] } } };
+    expect(rollbackBlocksPatch(later, patch, prev)).toEqual({ '3017/171': { rich: { add: ['z'] } }, '3017/170': { tom: { add: ['a'] } } });
+    expect(blockCorrection(prev, '3017/170', 'tom')).toEqual({ add: ['a'] });
+    expect(blockCorrection(prev, '3017/170', 'rich')).toBeNull();
+  });
+
+  it('planTagCarry carries block corrections with an emptied page, never over the target’s own', () => {
+    const move = { fromBook: '390', fromPage: 12, toBook: '390v2', toPage: 12 };
+    const out = planTagCarry({ pages: { '390/12': ['tom'] }, dismissed: {}, blocks: { '390/12': { tom: { add: ['l1'] } } } }, [move]);
+    expect(out.blocks).toEqual({ '390v2/12': { tom: { add: ['l1'] } } });
+    const kept = { '390/12': { tom: { add: ['l1'] } }, '390v2/12': { rich: { add: ['x'] } } };
+    expect(planTagCarry({ pages: {}, dismissed: {}, blocks: kept }, [move]).blocks).toEqual(kept);
   });
 });

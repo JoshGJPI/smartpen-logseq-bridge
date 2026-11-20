@@ -25,6 +25,7 @@ import { buildTaskSummary, normalizeTaskSummary } from '../../src/lib/tasks.js';
 import { mightHaveTaskBoxes } from '../../src/lib/storage/convert-task-boxes.js';
 import { isTrustworthyTranscript } from '../../src/lib/viewer/ink-text.js';
 import { linkedStrokeCount, textlessStrokeCount } from './transcript-check.js';
+import { scopeLinesOf } from '../../src/lib/tag-scope.js';
 
 const PAGE_FILE_RE = /^P(\d+)([a-zA-Z]?)\.json$/;
 
@@ -75,6 +76,35 @@ export class Store {
     this.root = root;
     this.cache = new Map();   // "<book>/<pageId>" -> summary
     this.papers = new Map();  // ncodeBook -> readPaper(), cleared per scan
+    this.lines = new Map();   // "<book>/<pageId>" -> { mtimeMs, size, lines }: pages with block corrections only
+  }
+
+  /**
+   * Lines with ids (`{ id, text, indentLevel }`) for the pages that have block-scope
+   * corrections in _tags.json `blocks` (v3.23.0): the scan text has no line ids, so
+   * those pages are read, as the app's stores/tag-scope.js does. Cached per (mtime, size).
+   */
+  scopeLinesFor(blocks) {
+    const out = new Map();
+    for (const key of Object.keys(blocks || {})) {
+      const rec = this.cache.get(key);
+      if (!rec) continue;
+      const have = this.lines.get(key);
+      if (have && have.mtimeMs === rec.mtimeMs && have.size === rec.size) {
+        out.set(key, have.lines);
+        continue;
+      }
+      try {
+        const doc = this.getPage(rec.book, rec.pageId);
+        const lines = scopeLinesOf(doc && doc.transcript && doc.transcript.lines);
+        this.lines.set(key, { mtimeMs: rec.mtimeMs, size: rec.size, lines });
+        out.set(key, lines);
+      } catch {
+        // unreadable: its scope comes from the scan text
+      }
+    }
+    for (const k of [...this.lines.keys()]) if (!out.has(k)) this.lines.delete(k);
+    return out;
   }
 
   /** Every page file on disk, sorted book (compareBookKeys), page, suffix. */
@@ -134,7 +164,10 @@ export class Store {
       orientations: readOrientations(this.root),
       tags: tagsFile.pages,
       // Tag types and details (v3.22.0): the `info` section of _tags.json.
-      tagInfo: tagsFile.info
+      tagInfo: tagsFile.info,
+      // Block-scope corrections (v3.23.0) and the lines they need (pages with corrections only).
+      tagBlocks: tagsFile.blocks,
+      scopeLines: this.scopeLinesFor(tagsFile.blocks)
     };
   }
 

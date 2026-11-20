@@ -148,7 +148,7 @@ describe('sidecars', () => {
     fs.writeFileSync(path.join(empty, 'pages', '_tags.json'), '{not json');
     fs.writeFileSync(manifestPath(empty, 388), '{"frame":{"x0":5,"y0":0,"x1":1,"y1":9},"firstPage":1,"lastPage":2}');
     expect(readAliases(empty)).toEqual({});
-    expect(readTags(empty)).toEqual({ pages: {}, dismissed: {}, info: {} });
+    expect(readTags(empty)).toEqual({ pages: {}, dismissed: {}, info: {}, blocks: {} });
     expect(readOrientations(empty)).toEqual({});
     expect(readPaper(empty, 388)).toBeNull();
     fs.rmSync(empty, { recursive: true });

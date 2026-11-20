@@ -196,3 +196,75 @@ describe('info: a keyword that only ends like a number (v3.22.0)', () => {
     expect(next.info).toEqual({ 'x1234-567': { type: 'person' } });
   });
 });
+
+describe('blocks (v3.23.0)', () => {
+  const file = {
+    version: 1, pages: { '3017/170': ['rich'] }, dismissed: {}, info: { rich: { type: 'person', label: 'Rich' } },
+    blocks: { '3017/170': { rich: { remove: ['l2'] } } }
+  };
+
+  it('sets and removes per-page entries in the same patch as page lists and info', () => {
+    const next = applyTagsPatch(file, {
+      pages: { '3017/171': ['rich'] },
+      info: { tom: { type: 'person', label: 'Tom' } },
+      blocks: { '3017/171': { rich: { add: ['x1', 'x1'] }, tom: { add: [] } }, '3017/170': null }
+    }, guards);
+    expect(next.blocks).toEqual({ '3017/171': { rich: { add: ['x1'] } } });
+    expect(next.pages).toEqual({ '3017/170': ['rich'], '3017/171': ['rich'] });
+    expect(next.info.tom).toEqual({ type: 'person', label: 'Tom' });
+    expect(file.blocks['3017/170']).toBeDefined();   // input untouched
+  });
+
+  it('a patch without blocks leaves the section exactly as it was (a 3.22 writer keeps it)', () => {
+    const next = applyTagsPatch(file, { pages: { '3017/172': ['beam'] }, info: { beam: { aliases: ['girder'] } } }, guards);
+    expect(next.blocks).toBe(file.blocks);
+    expect('blocks' in applyTagsPatch(emptyTagsFile(), { pages: { '3017/1': ['a'] } }, guards)).toBe(false);
+  });
+
+  it('an id in both lists stays an add; an entry left empty is removed', () => {
+    const next = applyTagsPatch(file, { blocks: { '3017/170': { rich: { add: ['l2'], remove: ['l2'] } } } }, guards);
+    expect(next.blocks).toEqual({ '3017/170': { rich: { add: ['l2'] } } });
+    expect(applyTagsPatch(file, { blocks: { '3017/170': {} } }, guards).blocks).toEqual({});
+  });
+
+  it('rejects the whole patch on a bad key, tag, field or id, writing nothing', () => {
+    const bad = [
+      { blocks: { '../x': null } },
+      { blocks: { '388v1/2': null } },                                   // non-canonical book key
+      { blocks: { '3017/170': ['rich'] } },
+      { blocks: { '3017/170': { Rich: { add: ['x'] } } } },              // tag not normalized
+      { blocks: { '3017/170': { rich: { add: 'x' } } } },
+      { blocks: { '3017/170': { rich: { add: [1] } } } },
+      { blocks: { '3017/170': { rich: { add: [''] } } } },
+      { blocks: { '3017/170': { rich: { add: ['x'.repeat(201)] } } } },
+      { blocks: { '3017/170': { rich: { add: ['x'], other: ['y'] } } } },
+      { blocks: { '3017/170': { rich: null } } },
+      { blocks: [] },
+      { pages: { '3017/1': ['ok'] }, blocks: { '3017/170': { BAD: {} } } }   // a good page list does not go through alone
+    ];
+    for (const patch of bad) expect(() => applyTagsPatch(file, patch, guards), JSON.stringify(patch)).toThrow();
+  });
+
+  it('under the lock, block, info and page patches sent together all land', async () => {
+    let disk = serializeTagsFile(file);
+    const withTagsLock = require('../../../electron/page-store.cjs').createLock();
+    const tick = () => new Promise((r) => setTimeout(r, 1));
+    const patchTags = (patch) => withTagsLock(async () => {
+      const { file: f } = parseTagsFile(disk);
+      await tick();
+      const next = applyTagsPatch(f, patch, guards);
+      await tick();
+      disk = serializeTagsFile(next);
+    });
+    await Promise.all([
+      patchTags({ blocks: { '3017/171': { tom: { add: ['a'] } } } }),
+      patchTags({ pages: { '3017/171': ['tom'] } }),
+      patchTags({ blocks: { '3017/170': { rich: { remove: ['l2', 'l3'] } } } }),
+      patchTags({ info: { tom: { type: 'person', label: 'Tom' } } })
+    ]);
+    const { file: out } = parseTagsFile(disk);
+    expect(out.blocks).toEqual({ '3017/170': { rich: { remove: ['l2', 'l3'] } }, '3017/171': { tom: { add: ['a'] } } });
+    expect(out.pages['3017/171']).toEqual(['tom']);
+    expect(out.info.tom).toEqual({ type: 'person', label: 'Tom' });
+  });
+});

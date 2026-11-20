@@ -11,12 +11,20 @@
 
   Tasks (v3.12.0): a tag's page lists its tasks to the right of the grid
   (TagTasksPanel, with the Tasks view's state chips); below it when narrow.
+
+  People and projects (v3.23.0, docs/TRANSCRIPT-STRUCTURE-SPEC.md D.2): a Person
+  tag's page shows its Open items (PersonItems, with Copy agenda) where other
+  tags show their tasks; a Person or Project tag's page lists its Blocks
+  (TagBlocksList) under the grid; a Person's page ends with the pages that name
+  them without the tag (MentionedPages, Tag page by click only). Print… prints
+  the tag's pages through the usual Print dialog (stores/print.js).
 -->
 <script>
   import { onMount } from 'svelte';
   import { savedPages, searchRecords, libraryPageDates, ensureTimelineLoaded, tagPageSort, setTagPageSort } from '$stores';
   import { pageTags, tagIndex, tagInfo } from '$stores/tags.js';
   import { recordsForKeys, untaggedRecords, tagTypeOf, projectKind, sortTagPageTiles, TAG_PAGE_SORT_ORDERS } from '$lib/tags.js';
+  import { openPrintDialog } from '$stores/print.js';
 
   const TYPE_HEADINGS = { person: 'Person', topic: 'Topic' };
   import { pageTiles } from '$lib/library-home.js';
@@ -24,6 +32,9 @@
   import TagChip from './TagChip.svelte';
   import PageGrid from './PageGrid.svelte';
   import TagTasksPanel from './TagTasksPanel.svelte';
+  import PersonItems from './PersonItems.svelte';
+  import TagBlocksList from './TagBlocksList.svelte';
+  import MentionedPages from './MentionedPages.svelte';
 
   /** `{ kind: 'tag', tag }` or `{ kind: 'untagged' }` */
   export let view;
@@ -35,6 +46,12 @@
     : untaggedRecords($savedPages, $pageTags);
   $: tiles = sortTagPageTiles(pageTiles(records, null, $libraryPageDates), $tagPageSort);
   $: notebooks = new Set(records.map((r) => String(r.book))).size;
+  $: type = view.kind === 'tag' ? tagTypeOf(view.tag, $tagInfo) : null;
+
+  const idOf = (r) => (r.pageId != null ? String(r.pageId) : String(r.page));
+  function print() {
+    openPrintDialog(records.map((r) => ({ book: String(r.book), pageId: idOf(r) })));
+  }
 
   onMount(ensureTimelineLoaded);
 </script>
@@ -48,6 +65,9 @@
       <h2>Untagged pages</h2>
     {/if}
     <span class="tp-sum">{records.length} {plural(records.length, 'page')} · {notebooks} {plural(notebooks, 'notebook')}</span>
+    {#if view.kind === 'tag' && records.length}
+      <button type="button" class="tp-print" on:click={print} title="Print this tag's pages to PDF">Print…</button>
+    {/if}
     {#if records.length > 1}
       <div class="tp-sort" role="group" aria-label="Sort pages">
         {#each TAG_PAGE_SORT_ORDERS as o (o.id)}
@@ -70,8 +90,10 @@
     emptyText={view.kind === 'tag' ? 'No page carries this tag any more.' : 'Every page has a tag.'}
   />
   </div>
-  {#if view.kind === 'tag'}<TagTasksPanel tag={view.tag} />{/if}
+  {#if type === 'person'}<PersonItems tag={view.tag} />{:else if view.kind === 'tag'}<TagTasksPanel tag={view.tag} />{/if}
   </div>
+  {#if type === 'person' || type === 'project'}<TagBlocksList tag={view.tag} {records} />{/if}
+  {#if type === 'person'}<MentionedPages tag={view.tag} {onOpen} />{/if}
 </div>
 
 <style>
@@ -82,6 +104,9 @@
   .tp-body { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 20px 24px; }
   .tp-grid { flex: 999 1 520px; min-width: 0; }
   .tp-sum { font-size: 13px; color: #888; }
+  .tp-print { margin-left: auto; padding: 3px 10px; border: 1px solid #ddd; border-radius: 7px; background: #fff; color: #555; font-size: 12px; cursor: pointer; }
+  .tp-print:hover { background: #f2f2f4; color: #333; }
+  .tp-print + .tp-sort { margin-left: 0; }
   .tp-sort { margin-left: auto; display: flex; gap: 2px; padding: 2px; border: 1px solid #ddd; border-radius: 7px; background: #fff; }
   .tp-sort button {
     padding: 3px 10px;

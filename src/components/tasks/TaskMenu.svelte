@@ -2,7 +2,9 @@
   TaskMenu.svelte — a task's "⋯" menu (v3.4.0): the three other states it can
   take, then Not a task (lib/tasks.js taskMenuChoices). The only way to set or
   clear WAITING and CANCELLED, or to make a task a plain line again. On a plain
-  line (`state` null) it offers Make task.
+  line (`state` null) it offers Make task. `extra` items (v3.23.0: the
+  reader's Tag this block… / Not this person) follow the task ones; they are not
+  task writes, so the draft lock leaves them alone.
   OverflowMenu handles outside click, scroll and its keys (which it
   preventDefaults, so the reader behind leaves them alone).
 -->
@@ -16,13 +18,15 @@
   export let onSet = () => {};
   /** Why it can't be used, or '' */
   export let lock = '';
+  /** More items after the task ones: `[{ label, onSelect, title? }]` */
+  export let extra = [];
 
-  $: items = taskMenuChoices(state).map((c) => ({
+  $: items = [...taskMenuChoices(state).map((c) => ({
     label: c.label,
     disabled: !!lock,
     title: lock || null,
     onSelect: () => onSet(c.state)
-  }));
+  })), ...(extra || [])];
 </script>
 
 <span class="tm-wrap"><OverflowMenu {items} label={state ? 'Task state' : 'Make task'} /></span>

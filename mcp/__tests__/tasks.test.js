@@ -218,3 +218,49 @@ describe('parity with the app Tasks view', () => {
     expect(states).toEqual(new Set(['todo', 'waiting', 'done', 'cancelled']));
   });
 });
+
+describe('list_tasks person (v3.23.0)', () => {
+  let proot, ptools;
+  beforeAll(() => {
+    proot = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-people-'));
+    writeFixturePage(proot, '3017', '170', [stroke(t(2026, 11, 2, 9, 0))], [
+      line('h1', '10:00 5444-006 Rich update'),
+      todo('a', 'Finalize column location', { indentLevel: 1 }),
+      todo('b', 'Send RFI to Thomas', { indentLevel: 1 }),
+      line('h2', '11:00 Site walk'),
+      todo('c', 'Pour schedule', { indentLevel: 1 })
+    ]);
+    writeFixturePage(proot, '3017', '171', [stroke(t(2026, 11, 3, 9, 0))], [todo('d', 'rich mix check')]);
+    fs.writeFileSync(path.join(proot, 'pages', '_tags.json'), JSON.stringify({
+      version: 1,
+      pages: { '3017/170': ['rich', 'tom', '5444-006'], '3017/171': ['beam'] },
+      dismissed: {},
+      info: { rich: { type: 'person', label: 'Rich' }, tom: { type: 'person', label: 'Tom', aliases: ['Thomas'] } },
+      blocks: { '3017/170': { tom: { add: ['h2'] } } }
+    }));
+    ptools = createTools(proot);
+  });
+  afterAll(() => fs.rmSync(proot, { recursive: true, force: true }));
+  const pcall = (args) => {
+    const res = ptools.list_tasks(args);
+    if (res.isError) throw new Error(res.content[0].text);
+    const [head, ...rest] = res.content[0].text.split('\n');
+    return { head, body: JSON.parse(rest.join('\n')) };
+  };
+
+  it('filters by a Person tag by key, display name or alias; rows list their people', () => {
+    expect(pcall({ person: 'rich' }).body.map((r) => r.line)).toEqual(['a', 'b']);
+    expect(pcall({ person: 'Thomas' }).body.map((r) => r.line).sort()).toEqual(['b', 'c']);   // c: a root added by hand
+    const row = pcall({ person: 'tom' }).body.find((r) => r.line === 'b');
+    expect(row.people).toEqual(['rich', 'tom']);
+    expect(pcall({ person: 'rich' }).head).toMatch(/person rich/);
+  });
+
+  it('groups by person, and refuses a name no Person tag answers to', () => {
+    const { body } = pcall({ group_by: 'person' });
+    expect(body.map((g) => g.group)).toEqual(['rich', 'tom', 'No person']);
+    const res = ptools.list_tasks({ person: 'nobody' });
+    expect(res.isError).toBe(true);
+    expect(ptools.list_tasks({ person: 'beam' }).isError).toBe(true);   // a topic is not a person
+  });
+});

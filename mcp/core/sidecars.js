@@ -42,7 +42,7 @@ export function readOrientations(root) {
   return normalizeOrientations(readJson(root, '_orientation.json'));
 }
 
-/** `{ pages: {key: [tags]}, dismissed }` */
+/** `{ pages: {key: [tags]}, dismissed, info, blocks }` */
 export function readTags(root) {
   return normalizeTagsFile(readJson(root, '_tags.json'));
 }

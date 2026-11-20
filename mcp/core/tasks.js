@@ -18,11 +18,11 @@ import {
   buildTaskRows, filterTaskRows, groupTaskRows, compareTaskRows, taskCounts, stateLabel
 } from '../../src/lib/tasks.js';
 import { pageDates } from '../../src/lib/library-home.js';
-import { normalizeTag } from '../../src/lib/tags.js';
+import { normalizeTag, tagAnswersTo, tagTypeOf } from '../../src/lib/tags.js';
 import { inRange } from '../../src/lib/timeline.js';
 
 export const TASK_STATE_ARGS = ['open', 'todo', 'waiting', 'done', 'cancelled', 'all'];
-export const TASK_GROUP_ARGS = ['project', 'date', 'book'];
+export const TASK_GROUP_ARGS = ['project', 'person', 'date', 'book'];
 export const UNTAGGED = 'untagged';
 
 const isOpen = (r) => r.state === 'todo' || r.state === 'waiting';
@@ -42,18 +42,33 @@ export function countsOf(rows) {
 
 const tagOf = (t) => normalizeTag(t) || String(t).trim().toLowerCase();
 
-/** Every task row in the folder, exactly as the Tasks view derives them. */
+/** Every task row in the folder, exactly as the Tasks view derives them (people from block scope, v3.23.0). */
 export function allTaskRows(scan, dates = pageDates(scan.index)) {
-  return buildTaskRows(scan.pages, { tags: scan.tags, dates });
+  return buildTaskRows(scan.pages, {
+    tags: scan.tags, dates, info: scan.tagInfo || {}, blocks: scan.tagBlocks || {}, scopeLines: scan.scopeLines || null
+  });
+}
+
+/**
+ * The Person tags a `person` argument names (key, display name or alias,
+ * case-insensitive, as the app's person: facet). Throws when it names none.
+ */
+export function personTags(scan, person) {
+  const info = scan.tagInfo || {};
+  const all = new Set([...Object.values(scan.tags || {}).flat(), ...Object.keys(info)]);
+  const hits = [...all].filter((t) => tagTypeOf(t, info) === 'person' && tagAnswersTo(t, info, person));
+  if (!hits.length) throw new Error(`No Person tag answers to "${person}": list_tags type=person lists them`);
+  return hits;
 }
 
 /**
  * The non-state filters: book, project (the row's project from buildTaskRows:
  * the nearest tagged project number, else the first project tag; 'untagged' for
  * none), tags (all must be on the page), from/to (the page has ink on a local
- * day in range), text (task or parent text, case-insensitive).
+ * day in range), text (task or parent text, case-insensitive), people (v3.23.0:
+ * Person tags, one of which must be in the row's `people`, its block scope).
  */
-export function filterTasks(rows, scan, { book, project, tags, from, to, text } = {}) {
+export function filterTasks(rows, scan, { book, project, tags, from, to, text, people } = {}) {
   const proj = project == null || project === '' ? null
     : String(project).trim().toLowerCase() === UNTAGGED ? UNTAGGED : tagOf(project);
   const want = (Array.isArray(tags) ? tags : tags != null && tags !== '' ? [tags] : []).map(tagOf);
@@ -62,6 +77,7 @@ export function filterTasks(rows, scan, { book, project, tags, from, to, text } 
   return rows.filter((r) => {
     if (book && r.book !== book) return false;
     if (proj === UNTAGGED ? r.project !== null : proj && r.project !== proj) return false;
+    if (people && !people.some((p) => (r.people || []).includes(p))) return false;
     if (want.length) {
       const have = scan.tags[`${r.book}/${r.pageId}`] || [];
       if (!want.every((t) => have.includes(t))) return false;
@@ -91,6 +107,7 @@ export function taskOut(r, scan, bookName) {
     book: r.book,
     page: r.pageId,
     project: r.project || undefined,
+    people: r.people && r.people.length ? r.people : undefined,
     tags: (scan.tags[`${r.book}/${r.pageId}`] || []),
     written: r.day ? (r.day === r.lastDay ? r.day : `${r.day} to ${r.lastDay}`) : undefined,
     line: r.lineId

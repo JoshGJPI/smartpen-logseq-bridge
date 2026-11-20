@@ -6,7 +6,8 @@
  *   { "version": 1,
  *     "pages":     { "<bookKey>/<pageId>": ["P2026-141", "beam"] },
  *     "dismissed": { "<bookKey>/<pageId>": ["2327-018"] },
- *     "info":      { "<tag>": { "type": "person", "label": "Tom", "aliases": ["Thomas"] } } }   (v3.22.0)
+ *     "info":      { "<tag>": { "type": "person", "label": "Tom", "aliases": ["Thomas"] } },   (v3.22.0)
+ *     "blocks":    { "<bookKey>/<pageId>": { "<tag>": { "add": ["<lineId>"], "remove": ["<lineId>"] } } } }   (v3.23.0)
  *
  * The renderer owns the format (src/lib/tags.js normalizes every tag and works
  * out every edit); main applies a PATCH of whole per-page lists, read-merge-
@@ -113,12 +114,56 @@ function checkInfo(rec, tag) {
   return { ...r };
 }
 
+/** Bounds on block corrections (v3.23.0); src/lib/tags.js writes far less. */
+const MAX_BLOCK_ID = 200;
+const MAX_BLOCK_IDS = 500;
+const MAX_BLOCK_TAGS = 200;
+
+function checkIds(list, where) {
+  if (list === undefined) return [];
+  if (!Array.isArray(list) || list.length > MAX_BLOCK_IDS) throw new Error(`Invalid block ids for ${where}`);
+  for (const id of list) {
+    if (typeof id !== 'string' || !id || id.length > MAX_BLOCK_ID) throw new Error(`Invalid block id for ${where}`);
+  }
+  return [...new Set(list)];
+}
+
+/**
+ * A blocks patch value for one page (v3.23.0): null (remove) or
+ * `{ tag: { add?: [lineId], remove?: [lineId] } }`. The renderer owns the
+ * rules (lib/tags.js); main checks the shape: normalized tags, plain string ids,
+ * no other fields. Empty corrections are dropped.
+ */
+function checkBlocksPage(entry, key) {
+  if (entry === null) return null;
+  const e = plainObject(entry);
+  if (!e) throw new Error(`Invalid block corrections for ${key}`);
+  const tags = Object.keys(e);
+  if (tags.length > MAX_BLOCK_TAGS) throw new Error(`Too many block corrections for ${key}`);
+  const out = {};
+  for (const tag of tags) {
+    if (!TAG_SHAPE.test(tag)) throw new Error(`Invalid tag in block corrections for ${key}: ${String(tag).slice(0, 50)}`);
+    const c = plainObject(e[tag]);
+    if (!c || Object.keys(c).some((k) => k !== 'add' && k !== 'remove')) throw new Error(`Invalid block correction for ${key} ${tag}`);
+    const add = checkIds(c.add, `${key} ${tag}`);
+    const remove = checkIds(c.remove, `${key} ${tag}`).filter((id) => !add.includes(id));
+    if (add.length || remove.length) {
+      out[tag] = {};
+      if (add.length) out[tag].add = add;
+      if (remove.length) out[tag].remove = remove;
+    }
+  }
+  return out;
+}
+
 /**
  * Apply `{ pages?: {key: tags[]|null}, dismissed?: {key: tags[]|null},
- * info?: {tag: record|null} }` to a file, returning a new file. Everything is
- * validated before anything is applied, so a bad entry rejects the whole patch
- * (nothing is written). An empty list removes the entry, as null does; an
- * `info` section is created only when a patch sets a record.
+ * info?: {tag: record|null}, blocks?: {key: {tag: {add, remove}}|null} }` to a
+ * file, returning a new file. Everything is validated before anything is
+ * applied, so a bad entry rejects the whole patch (nothing is written). An empty
+ * list removes the entry, as null does; an `info` or `blocks` section is
+ * created only when a patch sets something, and a patch without it leaves the
+ * section exactly as it was.
  */
 function applyTagsPatch(file, patch, guards) {
   const p = plainObject(patch);
@@ -141,6 +186,14 @@ function applyTagsPatch(file, patch, guards) {
       infoChecked.push([tag, checkInfo(entries[tag], tag)]);
     }
   }
+  const blocksChecked = [];
+  if (p.blocks != null) {
+    const entries = plainObject(p.blocks);
+    if (!entries) throw new Error('Invalid tags patch: blocks');
+    for (const key of Object.keys(entries)) {
+      blocksChecked.push([checkKey(key, guards), checkBlocksPage(entries[key], key)]);
+    }
+  }
   const next = { ...file, pages: { ...(file.pages || {}) }, dismissed: { ...(file.dismissed || {}) } };
   for (const [section, key, list] of checked) {
     if (list && list.length) next[section][key] = list;
@@ -153,6 +206,14 @@ function applyTagsPatch(file, patch, guards) {
       else delete info[tag];
     }
     next.info = info;
+  }
+  if (blocksChecked.length) {
+    const blocks = { ...(plainObject(file.blocks) || {}) };
+    for (const [key, entry] of blocksChecked) {
+      if (entry && Object.keys(entry).length) blocks[key] = entry;
+      else delete blocks[key];
+    }
+    next.blocks = blocks;
   }
   return next;
 }

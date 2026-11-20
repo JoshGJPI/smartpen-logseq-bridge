@@ -16,8 +16,12 @@
  *   }
  *
  * `info` (v3.22.0) holds a tag's type and details, keyed by the normalized tag
- * (see "Tag info" below). A tag with no details has no entry. Phase D's
- * `blocks` will be another top-level sibling.
+ * (see "Tag info" below). A tag with no details has no entry.
+ *
+ * `blocks` (v3.23.0, Phase D) holds hand corrections to block scope
+ * (lib/tag-scope.js), per page key and tag:
+ *   "blocks": { "3017/170": { "rich": { "add": ["<lineId>"], "remove": ["<lineId>"] } } }
+ * (see "Block corrections" below). No entry = scope from the text alone.
  *
  * This module owns the format: normalizing a tag, the per-page lists, every
  * edit (add, remove, rename, merge, delete) as a map → map function, the patch
@@ -155,7 +159,8 @@ export function normalizeTagsFile(raw) {
   return {
     pages: normalizeMap(ok ? raw.pages : null),
     dismissed: normalizeMap(ok ? raw.dismissed : null),
-    info: normalizeInfoMap(ok ? raw.info : null)
+    info: normalizeInfoMap(ok ? raw.info : null),
+    blocks: normalizeBlocksMap(ok ? raw.blocks : null)
   };
 }
 
@@ -435,6 +440,178 @@ export function rollbackInfoPatch(info, patch, prev) {
 }
 
 /* ============================================================
+ *  Block corrections (v3.23.0, Phase D)
+ * ============================================================ */
+
+/*
+ * `blocks`: `{ "<pageKey>": { "<tag>": { add: [lineId], remove: [lineId] } } }`.
+ * Only for tags with block scope (projects and people; lib/tag-scope.js reads
+ * them). *add* makes a line a root although the tag's name isn't written there;
+ * *remove* drops a root whose text matched by accident. A line id is in at most
+ * one of the two lists. Ids that are no longer on the page are ignored by
+ * tag-scope, never cleaned up here (there is no page read in this module).
+ * Same file and lock as page tags: a rename, merge, delete or volume carry moves
+ * or drops a tag's entries in the same write as its pages.
+ */
+
+/** Longest line id kept, and most ids per list (far above real use). */
+export const MAX_BLOCK_ID = 200;
+export const MAX_BLOCK_IDS = 500;
+
+function cleanIds(list) {
+  const out = [];
+  for (const id of Array.isArray(list) ? list : []) {
+    if (typeof id !== 'string' || !id || id.length > MAX_BLOCK_ID || out.includes(id)) continue;
+    out.push(id);
+    if (out.length >= MAX_BLOCK_IDS) break;
+  }
+  return out;
+}
+
+/** One `{ add, remove }` as stored, or null when both are empty. An id in both lists stays in `add` only. */
+export function normalizeBlockCorrection(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const add = cleanIds(raw.add);
+  const remove = cleanIds(raw.remove).filter((id) => !add.includes(id));
+  if (!add.length && !remove.length) return null;
+  const out = {};
+  if (add.length) out.add = add;
+  if (remove.length) out.remove = remove;
+  return out;
+}
+
+/** One page's entry (`{ tag: correction }`) as stored, or null when empty. Tags must be normalized. */
+export function normalizeBlocksPage(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out = {};
+  for (const tag of Object.keys(raw)) {
+    if (normalizeTag(tag) !== tag) continue;
+    const c = normalizeBlockCorrection(raw[tag]);
+    if (c) out[tag] = c;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/** The `blocks` map as stored: valid page keys, normalized entries, empty ones dropped. */
+export function normalizeBlocksMap(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const key of Object.keys(raw)) {
+    const parsed = parseTagKey(key);
+    if (!parsed) continue;
+    const entry = normalizeBlocksPage(raw[key]);
+    if (entry) out[`${parsed.book}/${parsed.pageId}`] = entry;
+  }
+  return out;
+}
+
+/** One page's correction for one tag, or null. */
+export function blockCorrection(blocks, key, tag) {
+  const page = blocks && hasOwn(blocks, key) ? blocks[key] : null;
+  return (page && hasOwn(page, tag) && page[tag]) || null;
+}
+
+function withBlockCorrection(blocks, key, tag, correction) {
+  const next = { ...(blocks || {}) };
+  const page = { ...(next[key] || {}) };
+  const c = normalizeBlockCorrection(correction);
+  if (c) page[tag] = c;
+  else delete page[tag];
+  if (Object.keys(page).length) next[key] = page;
+  else delete next[key];
+  return next;
+}
+
+/**
+ * "Tag this block…" (D.4): make a line a root of `tag` on page `key`. A line
+ * whose text already names the tag (`byText`) just stops being removed; any
+ * other line is added.
+ */
+export function withBlockRoot(blocks, key, tag, lineId, byText = false) {
+  const t = normalizeTag(tag);
+  if (!t || !key || typeof lineId !== 'string' || !lineId) return blocks || {};
+  const cur = blockCorrection(blocks, key, t) || {};
+  const remove = (cur.remove || []).filter((id) => id !== lineId);
+  const add = (cur.add || []).filter((id) => id !== lineId);
+  if (!byText) add.push(lineId);
+  return withBlockCorrection(blocks, key, t, { add, remove });
+}
+
+/**
+ * "Not this person" (D.4): a root stops being one. An added root is just no
+ * longer added; a root by its text is removed.
+ */
+export function withoutBlockRoot(blocks, key, tag, lineId, byText = false) {
+  const t = normalizeTag(tag);
+  if (!t || !key || typeof lineId !== 'string' || !lineId) return blocks || {};
+  const cur = blockCorrection(blocks, key, t) || {};
+  const add = (cur.add || []).filter((id) => id !== lineId);
+  const remove = (cur.remove || []).filter((id) => id !== lineId);
+  if (byText) remove.push(lineId);
+  return withBlockCorrection(blocks, key, t, { add, remove });
+}
+
+/**
+ * Blocks after a rename or merge: each page's entry for `from` moves to `to`;
+ * onto a page that already has one for `to` (a merge) the lists are joined.
+ * Applied in the same write as renameTagInMap.
+ */
+export function renameTagBlocks(blocks, from, to) {
+  const f = normalizeTag(from);
+  const t = normalizeTag(to);
+  if (!f || !t || f === t) return blocks || {};
+  let next = blocks || {};
+  for (const key of Object.keys(next)) {
+    const src = blockCorrection(next, key, f);
+    if (!src) continue;
+    const dst = blockCorrection(next, key, t) || {};
+    next = withBlockCorrection(next, key, f, null);
+    next = withBlockCorrection(next, key, t, {
+      add: [...(dst.add || []), ...(src.add || [])],
+      remove: [...(dst.remove || []), ...(src.remove || [])]
+    });
+  }
+  return next;
+}
+
+/** Blocks with every page's entry for `tag` dropped (the tag was deleted from every page). */
+export function deleteTagBlocks(blocks, tag) {
+  const t = normalizeTag(tag);
+  if (!t) return blocks || {};
+  let next = blocks || {};
+  for (const key of Object.keys(next)) {
+    if (blockCorrection(next, key, t)) next = withBlockCorrection(next, key, t, null);
+  }
+  return next;
+}
+
+/** The page entries that differ, as main applies them: `{ key: entry }` to set, `{ key: null }` to remove. */
+export function diffTagBlocks(prev, next) {
+  const out = {};
+  const p = prev || {};
+  const n = next || {};
+  for (const key of new Set([...Object.keys(p), ...Object.keys(n)])) {
+    if (!sameRecord(p[key], n[key])) out[key] = n[key] || null;
+  }
+  return out;
+}
+
+/**
+ * Undo a failed blocks write: each page it set goes back to its previous
+ * entry, but only where the map still holds what that write set.
+ */
+export function rollbackBlocksPatch(blocks, patch, prev) {
+  let next = blocks || {};
+  for (const key of Object.keys(patch || {})) {
+    if (!sameRecord(next[key], patch[key])) continue;
+    next = { ...next };
+    if (prev && prev[key]) next[key] = prev[key];
+    else delete next[key];
+  }
+  return next;
+}
+
+/* ============================================================
  *  Edits: map → map (never mutate the input)
  * ============================================================ */
 
@@ -533,15 +710,18 @@ export function rollbackPatch(map, patch, prev) {
  * Tags after volume moves (v3.1.0). Tags stay with the source page key; only
  * when a move emptied the source page (finalizePageMoves `emptied`: no
  * strokes left, exactly one target) do they follow, and only onto a page that
- * has none, so nothing is ever overwritten. Dismissals follow the same way.
- * @param {{pages: Record<string, string[]>, dismissed: Record<string, string[]>}} maps
+ * has none, so nothing is ever overwritten. Dismissals follow the same way,
+ * and so do block corrections (v3.23.0: their line ids move with the page's
+ * transcript), again only onto a page with none.
+ * @param {{pages: Record<string, string[]>, dismissed: Record<string, string[]>, blocks?: Record<string, object>}} maps
  * @param {Array<{fromBook, fromPage, toBook, toPage}>} moves
- * @returns {{pages: Record<string, string[]>, dismissed: Record<string, string[]>, carried: string[]}}
+ * @returns {{pages: Record<string, string[]>, dismissed: Record<string, string[]>, blocks: Record<string, object>, carried: string[]}}
  *   `carried`: source keys whose tags moved
  */
-export function planTagCarry({ pages = {}, dismissed = {} }, moves) {
+export function planTagCarry({ pages = {}, dismissed = {}, blocks = {} }, moves) {
   let p = pages;
   let d = dismissed;
+  let b = blocks;
   const carried = [];
   for (const m of moves || []) {
     const from = tagKey(m.fromBook, m.fromPage);
@@ -552,8 +732,12 @@ export function planTagCarry({ pages = {}, dismissed = {} }, moves) {
       carried.push(from);
     }
     if (d[from] && !d[to]) d = withPageList(withPageList(d, to, d[from]), from, []);
+    if (b[from] && !b[to]) {
+      b = { ...b, [to]: b[from] };
+      delete b[from];
+    }
   }
-  return { pages: p, dismissed: d, carried };
+  return { pages: p, dismissed: d, blocks: b, carried };
 }
 
 /* ============================================================

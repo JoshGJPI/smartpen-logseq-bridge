@@ -26,7 +26,7 @@ import { isTrustworthyTranscript } from '../../src/lib/viewer/ink-text.js';
 import { buildTagIndex, tagStats, normalizeTag, tagTypeOf, tagLabel, tagAnswersTo, infoOf, TAG_TYPES } from '../../src/lib/tags.js';
 import { taskStateOf, stateLabel, groupTaskRows } from '../../src/lib/tasks.js';
 import {
-  allTaskRows, rowsInState, countsOf, filterTasks, orderTasks, taskOut, openTasksByPage, unconvertedPages,
+  allTaskRows, personTags, rowsInState, countsOf, filterTasks, orderTasks, taskOut, openTasksByPage, unconvertedPages,
   TASK_GROUP_ARGS
 } from './tasks.js';
 
@@ -346,8 +346,12 @@ export function createTools(root) {
       }
       const scan = store.scan();
       const book = args.book ? requireBookKey(args.book) : null;
+      let people = null;
+      if (args.person != null && String(args.person).trim()) {
+        try { people = personTags(scan, String(args.person)); } catch (e) { return fail(e.message); }
+      }
       const scoped = filterTasks(allTaskRows(scan), scan, {
-        book, project: args.project, tags: args.tag, from: range && range.from, to: range && range.to, text: args.text
+        book, project: args.project, tags: args.tag, from: range && range.from, to: range && range.to, text: args.text, people
       });
       const counts = countsOf(scoped);
       const ordered = orderTasks(rowsInState(scoped, state), groupBy);
@@ -366,7 +370,7 @@ export function createTools(root) {
         body = slice.map(out);
       }
       const scope = [
-        book && `book ${book}`, args.project && `project ${args.project}`,
+        book && `book ${book}`, args.project && `project ${args.project}`, people && `person ${people.join(' / ')}`,
         args.tag && `tag ${[].concat(args.tag).join(' + ')}`, range && rangeText(range), args.text && `text "${args.text}"`
       ].filter(Boolean).join(', ');
       const left = ordered.length - offset - slice.length;

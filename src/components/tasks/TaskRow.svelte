@@ -2,7 +2,8 @@
   TaskRow.svelte — one task in the Tasks view (v3.4.0): tick box, text, the
   line it sits under, a link to its page (opens the reader on that line), the
   date written, the project chip (left out when grouped by project, where the
-  group heading names it) and the ⋯ menu that sets / clears WAITING and CANCELLED.
+  group heading names it), the people whose blocks hold it (v3.23.0; left out
+  when grouped by person) and the ⋯ menu that sets / clears WAITING and CANCELLED.
 -->
 <script>
   import { viewerDirtyPages, bookAliases } from '$stores';
@@ -18,6 +19,8 @@
   export let row;
   /** Hide the project chip (the group heading shows it). */
   export let hideProject = false;
+  /** Hide the people chips (grouped by person). */
+  export let hidePeople = false;
   /** (row) => void; default opens the reader on the line */
   export let onOpenPage = openTaskLine;
 
@@ -44,6 +47,9 @@
     {#if row.state !== 'todo'}<span class="mk {row.state}">{stateLabel(row.state)}</span>{/if}
     {#if !hideProject}
       {#each row.projects as p (p)}<TagChip tag={p} />{/each}
+    {/if}
+    {#if !hidePeople}
+      {#each row.people || [] as p (p)}<TagChip tag={p} />{/each}
     {/if}
     <TaskMenu state={row.state} {lock} onSet={(s) => changeTask(row.book, row.pageId, row.lineId, s)} />
   </span>

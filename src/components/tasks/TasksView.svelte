@@ -2,8 +2,10 @@
   TasksView.svelte — Library › Tasks (v3.4.0): every transcript line with a
   TODO / DONE / WAITING / CANCELLED state, across notebooks, shown by state
   (toggle chips with counts, v3.12.0: TaskStateChips) and grouped by project
-  tag, date written or notebook. A project group's heading opens that tag's
+  tag, person (v3.23.0: the Person tags whose blocks hold the task), date
+  written or notebook. A project or person group's heading opens that tag's
   page in the Library (v3.12.0), which lists the same tasks beside its pages.
+  The find box takes `person:tom` (lib/tasks.js searchTaskRows).
   The head (chips, search, Group by) stays at the top while the list scrolls. Opened from the Library home's Tasks card or the header's Tasks
   button (`libraryView: { kind: 'tasks' }`); the breadcrumb's Library goes back.
 
@@ -17,7 +19,7 @@
   import { dataFolderReady } from '$stores/settings.js';
   import { taskRows, taskCountsStore, taskStatesShown, taskGroupBy, setTaskGroupBy, taskQuery, shownTaskGroups } from '$stores/tasks.js';
   import { scanLocalPages } from '$lib/storage/scan.js';
-  import { rowsInStates, stateLabel, taskGroupDomId, TASK_GROUPS, NO_PROJECT } from '$lib/tasks.js';
+  import { rowsInStates, stateLabel, taskGroupDomId, TASK_GROUPS, NO_PROJECT, NO_PERSON } from '$lib/tasks.js';
   import { dayStart } from '$lib/timeline.js';
   import { formatBookName } from '$utils/formatting.js';
   import { plural } from '$lib/plural.js';
@@ -58,7 +60,7 @@
   <div class="tv-head" class:stuck>
     <h2>Tasks</h2>
     <TaskStateChips {counts} />
-    <input class="q" type="search" placeholder="Find in tasks, notebook, page, tag, date…" aria-label="Find tasks"
+    <input class="q" type="search" placeholder="Find in tasks, notebook, page, tag, date… or person:tom" aria-label="Find tasks"
       bind:value={$taskQuery} on:keydown={(e) => { if (e.key === 'Escape' && $taskQuery) { $taskQuery = ''; e.preventDefault(); } }} />
     <span class="grow"></span>
     <label class="sel">Group by
@@ -78,7 +80,7 @@
     {#each groups as g (g.kind + ':' + g.id)}
       <section class="grp" id={taskGroupDomId(g)}>
         <h3>
-          {#if g.kind === 'project' && g.id}
+          {#if (g.kind === 'project' || g.kind === 'person') && g.id}
             <button type="button" class="tag-link" title="Open {g.id}: its pages and tasks"
               on:click={() => openLibraryView({ kind: 'tag', tag: g.id })}><TagChip tag={g.id} /></button>
           {:else}{groupLabel(g)}{/if}
@@ -86,13 +88,15 @@
         </h3>
         <div class="rows">
           {#each g.rows as row (row.key)}
-            <TaskRow {row} hideProject={g.kind === 'project'} />
+            <TaskRow {row} hideProject={g.kind === 'project'} hidePeople={g.kind === 'person'} />
           {/each}
         </div>
       </section>
     {/each}
     {#if $taskGroupBy === 'project' && groups.length && !groups[groups.length - 1].id}
       <p class="note">“{NO_PROJECT}”: tag a page with its project number (Library, the reader’s tag strip) and its tasks move under it.</p>
+    {:else if $taskGroupBy === 'person' && groups.length && !groups[groups.length - 1].id}
+      <p class="note">“{NO_PERSON}”: a task is a person’s when its page carries their Person tag and the task sits in a block that names them (or the page names them nowhere). A task in two people’s blocks is listed under both.</p>
     {/if}
   {/if}
 </div>

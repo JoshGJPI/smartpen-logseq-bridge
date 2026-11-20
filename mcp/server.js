@@ -101,12 +101,13 @@ reg('render_days',
 reg('list_tasks',
   'Tasks written in the notebooks (transcript lines with a box: TODO, DONE, WAITING, CANCELLED), the same rows as the app\'s Tasks view. '
   + 'Default: open tasks (TODO + WAITING), newest page first. Filter by project (the page tag nearest the task in the transcript, else the page\'s first project tag; "untagged" for none), '
-  + 'any page tags (all must match), notebook, days written (pages with ink in from..to) and text; group by project, date or book. '
+  + 'any page tags (all must match), person (the Person tags whose blocks hold the task; each row lists its people), notebook, days written (pages with ink in from..to) and text; group by project, person, date or book. '
   + `Each row has book + page for get_transcript / render_page. ${LIMITS.tasks.limit} rows per call (max ${LIMITS.tasks.maxLimit}); page with offset. `
   + 'Read-only: ticking or changing a task is done in the app. Untranscribed pages have no tasks.',
   { state: z.enum(TASK_STATE_ARGS).optional()
       .describe('open (default) = TODO + WAITING; todo = TODO only; all = every state'),
     project: z.string().optional().describe('Project tag, e.g. P2026-141 or 2327-018 (normalized like the app); "untagged" = pages with no project tag'),
+    person: z.string().optional().describe('A Person tag by key, display name or alias (case-insensitive): tasks in that person\'s blocks on pages carrying the tag (block scope, as the app\'s Group by → Person)'),
     tag: z.union([z.string(), z.array(z.string())]).optional().describe('Page tag(s), any of the page\'s tags; several = all must be on the page'),
     book: book.optional(), from: day.optional(), to: day.optional(),
     text: z.string().optional().describe('Case-insensitive substring of the task or its parent line'),

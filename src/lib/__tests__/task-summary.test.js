@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
 import fixture from './fixtures/task-lines.json';
-import { buildTaskSummary, normalizeTaskSummary, TASK_TEXT_MAX } from '../tasks.js';
+import { buildTaskSummary, normalizeTaskSummary, TASK_TEXT_MAX, TASK_HEAD_MAX } from '../tasks.js';
 import { metaToRecord } from '$lib/storage/scan.js';
 
 const require = createRequire(import.meta.url);
@@ -32,7 +32,7 @@ describe('buildTaskSummary', () => {
   const byId = Object.fromEntries(out.map((t) => [t.id, t]));
 
   it('lists only lines with checked set and an id, in transcript order', () => {
-    expect(out.map((t) => t.id)).toEqual(['t1', 't2', 't3', 't4', 't5', 't6', 't7', 't8', 't9', 't10']);
+    expect(out.map((t) => t.id)).toEqual(['t1', 't2', 't3', 't4', 't5', 't6', 't7', 't8', 't9', 't10', 't11']);
   });
 
   it('keeps the state and WAITING only beside checked: false', () => {
@@ -54,11 +54,37 @@ describe('buildTaskSummary', () => {
     expect(byId.t7.parentText).toBeNull();
   });
 
-  it('stays small: trimmed, clipped text and five fields only', () => {
+  it('stays small: trimmed, clipped text and seven fields only', () => {
     expect(byId.t6.text).toBe('Deeper, under a sub-heading');
     expect(byId.t8.text.length).toBeLessThanOrEqual(TASK_TEXT_MAX);
     expect(byId.t8.text.endsWith('…')).toBe(true);
-    for (const t of out) expect(Object.keys(t).sort()).toEqual(['checked', 'id', 'marker', 'parentText', 'projectHint', 'text']);
+    for (const t of out) expect(Object.keys(t).sort()).toEqual(['checked', 'heads', 'id', 'marker', 'parentText', 'projectHint', 'text']);
+  });
+});
+
+describe('buildTaskSummary: heads (v3.23.0)', () => {
+  const out = buildTaskSummary(fixture.lines);
+  const byId = Object.fromEntries(out.map((t) => [t.id, t]));
+
+  it('main and renderer give the same heads over the shared fixture', () => {
+    const m = Object.fromEntries(main.buildTaskSummary(fixture.lines).map((t) => [t.id, t.heads]));
+    for (const t of out) expect(m[t.id]).toEqual(t.heads);
+  });
+
+  it('are the ancestor lines by indent, outermost first, with ids', () => {
+    expect(byId.t1.heads).toEqual([{ id: 'h1', text: 'Coordination call w/ Troy' }]);
+    expect(byId.t6.heads).toEqual([
+      { id: 'h3', text: 'Site visit' },
+      { id: 't5', text: 'Parent id points at a deleted line' }
+    ]);
+    expect(byId.t7.heads).toEqual([]);
+  });
+
+  it('keep the nearest three, skip lines with no text, and clip each text', () => {
+    const h = byId.t11.heads;
+    expect(h.map((x) => x.id)).toEqual(['d1', 'd3', 'd4']);   // d0 is the fourth ancestor; d2 is empty
+    expect(h[0].text.length).toBeLessThanOrEqual(TASK_HEAD_MAX);
+    expect(h[0].text.endsWith('…')).toBe(true);
   });
 });
 
@@ -126,11 +152,17 @@ describe('normalizeTaskSummary / metaToRecord', () => {
       { text: 'no id', checked: false },
       null
     ])).toEqual([
-      { id: 'a', text: 'x', checked: false, marker: 'WAITING', parentText: null, projectHint: null },
-      { id: 'b', text: 'y', checked: true, marker: null, parentText: null, projectHint: null },
-      { id: 'k', text: 'w', checked: true, marker: 'CANCELLED', parentText: null, projectHint: null },
-      { id: 'm', text: 'v', checked: false, marker: null, parentText: null, projectHint: null }
+      { id: 'a', text: 'x', checked: false, marker: 'WAITING', parentText: null, projectHint: null, heads: [] },
+      { id: 'b', text: 'y', checked: true, marker: null, parentText: null, projectHint: null, heads: [] },
+      { id: 'k', text: 'w', checked: true, marker: 'CANCELLED', parentText: null, projectHint: null, heads: [] },
+      { id: 'm', text: 'v', checked: false, marker: null, parentText: null, projectHint: null, heads: [] }
     ]);
+  });
+
+  it('keeps well-formed heads (at most three), drops malformed ones', () => {
+    const [a] = normalizeTaskSummary([{ id: 'a', text: 'x', checked: false,
+      heads: [{ id: 'h0', text: 'zero' }, null, { id: 5, text: 'no id' }, { id: 'h2', text: 'two' }, { id: 'h3' }, { id: 'h4', text: 'four' }] }]);
+    expect(a.heads).toEqual([{ id: null, text: 'no id' }, { id: 'h2', text: 'two' }, { id: 'h4', text: 'four' }]);
   });
 
   it('keeps a well-formed projectHint, drops anything else', () => {

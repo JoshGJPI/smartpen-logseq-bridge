@@ -9,7 +9,7 @@
  *
  * One entry per transcript line with `checked` set:
  *   { id, text, checked, marker: 'WAITING'|'CANCELLED'|null, parentText: string|null,
- *     projectHint: string|null }
+ *     projectHint: string|null, heads: [{ id, text }] }   (heads: v3.23.0, nearest 3 ancestors, outermost first)
  * Scalar-small on purpose (text clipped); never strokes.
  */
 'use strict';
@@ -18,6 +18,8 @@ const WAITING = 'WAITING';
 const CANCELLED = 'CANCELLED';
 const TASK_TEXT_MAX = 300;
 const TASK_PARENT_MAX = 120;
+const TASK_HEADS_MAX = 3;
+const TASK_HEAD_MAX = 80;
 
 // PROJECT_IN_TEXT_RE / findProjectNumbers() in src/lib/tags.js.
 const PROJECT_IN_TEXT_RE = /(?<![\p{L}\p{N}])([Pp]\s?)?(\d{4})[-‐-―−](\d{3})(?!\d)/gu;
@@ -63,11 +65,12 @@ function buildTaskSummary(lines) {
         checked: l.checked,
         marker: markerOf(l),
         parentText: parent ? clip(parent, TASK_PARENT_MAX) : null,
-        projectHint: hint || lastProject
+        projectHint: hint || lastProject,
+        heads: stack.slice(-TASK_HEADS_MAX).map((h) => ({ id: h.id, text: clip(h.text, TASK_HEAD_MAX) }))
       });
     }
     if (own.length) lastProject = own[own.length - 1];
-    if (typeof l.text === 'string' && l.text.trim()) stack.push({ level, text: l.text, project: own[own.length - 1] || null });
+    if (typeof l.text === 'string' && l.text.trim()) stack.push({ level, id: typeof l.id === 'string' && l.id ? l.id : null, text: l.text, project: own[own.length - 1] || null });
   }
   return out;
 }
