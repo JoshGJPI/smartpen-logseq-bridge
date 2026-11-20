@@ -12,7 +12,9 @@ decision 9 and the "no colours" non-goal no longer hold (§1, §2); the Library'
 three groups, **Projects, People, Topics**, where §6.3 says Projects and Keywords; the tag input offers *Add as Topic*
 (Enter) and *Add as Person* for a new keyword (§6.1); Manage tags has a Type column and a **Details** panel (§6.5); and
 search takes tag facets (`person:`, `topic:`, `project:`, `type:`, `is:job`, `is:proposal`) and finds a tag by its
-label or an alias (§6.6). The rest stands. Was: **specified 2026-10-21, not built.** Mockups: [TAGS-UI-MOCKUPS.html](TAGS-UI-MOCKUPS.html) (live, clickable; the
+label or an alias (§6.6). **Since v3.23.0** (Phase D) a Person or Project tag also covers blocks of the page (hand
+corrections in a `blocks` section of the same file), a Person tag's page has Open items, Blocks and Mentioned, not
+tagged, and every tag page has Print…. The rest stands. Was: **specified 2026-10-21, not built.** Mockups: [TAGS-UI-MOCKUPS.html](TAGS-UI-MOCKUPS.html) (live, clickable; the
 mockups are the visual source of truth, this file is the behavioural one). Ships as **v3.1.0**.
 
 ## 1. Goal

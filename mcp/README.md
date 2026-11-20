@@ -61,7 +61,7 @@ New pages show up without a restart: each call re-stats the folder and re-reads 
 | `list_notebooks` | Book keys, names, page / stroke / transcribed / open-task counts, first and last day, active volume, paper known | text |
 | `list_pages` | One notebook's pages: strokes, days, tags, transcribed, open tasks, rotation. Tag / date filters, paged | text |
 | `list_tags` | Tags with `type` (project / person / topic), `label`, aliases, page, notebook and open-task counts, untagged count; `type` filters (v3.22.0). With `tag` (key, label or alias), that tag's details and pages. Read-only: no tool sets a type | text |
-| `list_tasks` | Task lines (TODO / DONE / WAITING / CANCELLED): the app's Tasks view rows, filtered by state, project, tags, notebook, days, text; grouped; paged | text, ~350 chars a row |
+| `list_tasks` | Task lines (TODO / DONE / WAITING / CANCELLED): the app's Tasks view rows, filtered by state, project, `person` (v3.23.0: key, display name or alias; the Person tags whose blocks hold the task), tags, notebook, days, text; grouped (project, person, date, book); each row lists its `people`; paged | text, ~350 chars a row |
 | `check_transcript` | Without `reference`: the page's written rows from the ink (height, left margin, indent column, possible wraps), no transcript text. With `reference` (Claude's reading as markdown bullets): the stored transcript diffed against it (wording, indent, task state, missing lines, strokes per line). See "Checking a transcription" | text |
 | `get_transcript` | One page's lines, numbered `#n` (the stored line number `edit_transcript` takes), with indent and TODO / DONE / WAITING / CANCELLED; flags pages whose stroke-to-line links are unreliable | text, few KB |
 | `search` | The app's header search: words, dates, notebook names / keys, tags, tag facets `person:` `topic:` `project:` `type:` `is:job` / `is:proposal` (same code, same limits) | text |
@@ -98,9 +98,13 @@ changing a task is done in the app.
 - `project`: the page's **first** project tag, as the app groups (`P2026-141`, `2327-018`, normalized by `normalizeTag`);
   `untagged` = pages with no project tag. `tag` (one or several, all must match) checks every tag on the page.
 - `book`, `from` / `to` (pages with ink on a local day in range), `text` (task or parent line, case-insensitive),
-  `group_by` (`project` | `date` | `book`), `limit` / `offset`.
-- A row: `state`, `text`, `parent`, `notebook`, `book`, `page`, `project`, `tags`, `written`, `line` (empty fields left
-  out). Follow up with `get_transcript` / `render_page` on `book` + `page`; no per-line ink crops (stored `lineId`s are
+  `group_by` (`project` | `person` | `date` | `book`), `limit` / `offset`.
+- `person` (v3.23.0): a Person tag by key, display name or alias (case-insensitive; an unknown name is an error). Keeps
+  the tasks in that person's **blocks** on pages carrying the tag (block scope, `src/lib/tag-scope.js`: the lines naming
+  them, case-sensitive, and everything indented under those; the whole page when the page names them nowhere; hand
+  corrections from `_tags.json` `blocks`, for which those pages are read). A name in text alone never counts.
+- A row: `state`, `text`, `parent`, `notebook`, `book`, `page`, `project`, `people` (v3.23.0), `tags`, `written`,
+  `line` (empty fields left out). Follow up with `get_transcript` / `render_page` on `book` + `page`; no per-line ink crops (stored `lineId`s are
   unreliable before Aug 2026).
 - Only lines whose state is stored are tasks. Pages transcribed before v3.3.0 that still have ☐ / ☑ in their text are
   counted in the reply ("not tasks yet"): run Convert task boxes… in the app.

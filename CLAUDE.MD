@@ -24,10 +24,12 @@ node scripts/fetch-neo-backgrounds.mjs <data-root> 3_27_388   # cache Neo page i
 ```
 electron/main.cjs, preload.cjs   all disk IO + MyScript proxy, exposed as window.storageAPI
 electron/page-store.cjs   book keys, path guards, writeFileAtomic, createLock, PageDoc serializer, page IO (tested from Vitest)
-src/stores/        one store per concern (strokes, selection, pending-changes, viewer, timeline, volumes, tags, ...);
+src/stores/        one store per concern (strokes, selection, pending-changes, viewer, timeline, volumes, tags, ...;
+                   tag-scope: lines read only for pages with block corrections, the reader's scope UI state);
                    the Editor's Save and Transcribe run in canvas-save.js / canvas-transcribe.js (ActionBar only wires them)
 src/lib/           pure logic, no UI, testable without DOM (tags: also tag types and `info`, v3.22.0; tag-details: the
-                   Manage tags Details form; tag-suggestions, task-markers: ☐ / ☑ → TODO / DONE,
+                   Manage tags Details form; tag-scope: block scope of a Person / Project tag (v3.23.0);
+                   tag-suggestions, task-markers: ☐ / ☑ → TODO / DONE,
                    tasks: task state and list, retime, move-lines, canvas-page-targets: what the Editor's rotate and
                    🏷 Tags act on, book-types, canvas-save-plan: which pages a save writes and which deletion marks it
                    settles, canvas-text-view: the Editor's text view, delete-lines: Delete line / block and what it
@@ -43,7 +45,8 @@ src/lib/viewer/    reader helpers: SVG render, page cache, thumbnails, transcrip
                    task-state.js (the one task write path, v3.4.0)
 src/components/    grouped by feature (canvas, dialog, header, viewer, dates, books, tags, transcription, ...)
 mcp/               stdio MCP server over the data folder (10 read-only tools, PNG via @resvg/resvg-wasm, images capped
-                   by pixels), imports src/lib unchanged; registered from this checkout's mcp/server.js (mcp/README.md).
+                   by pixels; list_tasks takes `person`, v3.23.0), imports src/lib unchanged; registered from this
+                   checkout's mcp/server.js (mcp/README.md).
                    With SMARTPEN_MCP_WRITES=1 also edit_transcript / undo_transcript_edit, which ask the running app
                    (core/app-client.js) and never write a file (v3.18.0)
 electron/mcp-endpoint.cjs   main's localhost endpoint for those edits (token, body limit, request ids, 30 s timeout,
@@ -115,7 +118,14 @@ each launch opens the Library on its home. Left panel tabs, Library views, the r
   name, case kept) and `company`; topic `label`; project `name`, `client`, `active` (boolean) and, on a proposal, `job`
   (the job number it became). Keys stay normalized tags (`tom`); capitals live only in `label` and `aliases`.
   `lib/tags.js` `normalizeTagInfo()` owns it (drops other fields, a label equal to the key, a type on a project).
-  Phase D's `blocks` will be another top-level sibling.
+- **`_tags.json` `blocks`** (v3.23.0, spec Phase D; the version stays 1): hand corrections to block scope,
+  `{ "<bookKey>/<pageId>": { "<tag>": { "add": [lineId], "remove": [lineId] } } }`. *add* makes a line a root of the
+  tag although its name isn't written there, *remove* drops a root that matched by accident; an id is in one list at
+  most (an id in both stays an add). Only Person and Project tags have block scope. Ids no longer on the page are
+  ignored, never cleaned. `lib/tags.js` owns it (`normalizeBlocksMap`, `withBlockRoot`, `withoutBlockRoot`, …).
+- **Task summary `heads`** (v3.23.0): each scan `tasks` entry also has `heads: [{ id, text }]`, the task's ancestor
+  lines by indent (earlier lines with text and a smaller indent that no line in between closed), the nearest 3,
+  outermost first, each text clipped to 80. Built in both `lib/tasks.js` and `electron/task-summary.cjs`.
 - `PAGE_DOC_VERSION` stays `"2.0"`. `validatePageDoc()` rejects anything else, so changes must be
   backward-compatible additions.
 - `marker` is written only as `"WAITING"` beside `checked: false` (v3.4.0) or `"CANCELLED"` beside `checked: true`
@@ -242,6 +252,33 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   (`withInfoOnlyTags`) so they can be edited, renamed or deleted.
 - `collapsedTagGroups` holds type ids (`project`, `person`, `topic`); `parseCollapsedGroups()` reads the old
   `projects` / `keywords` as Projects / Topics.
+
+### Block scope and people (v3.23.0, docs/TRANSCRIPT-STRUCTURE-SPEC.md Phase D)
+
+- **A tag covers blocks, never by text alone.** `lib/tag-scope.js` is the one rule: roots are lines naming the tag (a
+  project by `findProjectNumbers()`; a person by display name or alias, whole word, **case-sensitive** (decision 4),
+  possessive allowed; no display name = the key capitalised), a block is a root and every following deeper line, a
+  nested root covers only itself and its children, and no root = the whole page. Scope is computed only for tags ON the
+  page; a name in text never puts a page under a person (decision 5): "Mentioned, not tagged" and "Tag this block…"
+  tag a page only from a click.
+- **`blocks` lives in `_tags.json`, never in a PageDoc**, in the same `storage:patchTags` and lock as pages and info
+  (`tags-sidecar.cjs` `checkBlocksPage`: page keys by main's guards, normalized tags, `add` / `remove` string ids, nothing
+  else; a bad entry rejects the whole patch; a patch without `blocks` leaves the section as it was). `stores/tags.js`
+  `commit()` diffs it with pages, dismissals and info, applies it optimistically and rolls back per page
+  (`rollbackBlocksPatch`); Undo restores it. Rename / merge move a tag's entries (`renameTagBlocks`, lists joined on a
+  merge), delete drops them (`deleteTagBlocks`), and a volume move carries them with the page (`planTagCarry`), each in
+  the same write as the pages. **Tag this block… is one write** (`tagBlock()`: the page's tag, a new person's type and
+  the root together).
+- **No page reads for scope.** The Person page, the Tasks view and the strip read scope from the scan records'
+  `transcriptionText` (`linesFromText()`; it must give the same scope as the lines, tested). Hand corrections need line
+  ids, so `stores/tag-scope.js` `scopeLines` reads ONLY the pages that have a `blocks` entry, with `getPage()` (never
+  the reader's page cache), keeps `{ id, text, indentLevel }`, and reads again when the record's `lastUpdated` changes.
+  Opening a block reads its page for the line id (`openScopeLine`).
+- **People on tasks** come from block scope: `buildTaskRows()` `people` = Person tags on the page whose scope holds the
+  task (its text, a `heads` text, an added root among its heads, or the whole page). `heads` is in BOTH summary
+  builders (change both; `task-summary.test.js` runs them over one fixture). A task's `project` is unchanged.
+- **Ticks only through `changeTask()`**: the Person page's Open items are `TaskRow`s, so task state still has one write
+  path; nothing in Phase D writes a PageDoc.
 
 ### Deleted lines and Not text (v3.20.0, docs/TRANSCRIPT-STRUCTURE-SPEC.md Phase A)
 
@@ -509,7 +546,7 @@ The full list (per feature: rotation, volumes, tags, retime, tasks, print, LogSe
 | [docs/PAGE-TAGS-SPEC.md](docs/PAGE-TAGS-SPEC.md) | **v3.1.0** page tags (built), with [mockups](docs/TAGS-UI-MOCKUPS.html) |
 | [docs/MCP-SERVER-SPEC.md](docs/MCP-SERVER-SPEC.md), [mcp/README.md](mcp/README.md) | The read-only MCP server: decisions (spec); tools, caps and setup (README) |
 | [docs/MCP-WRITE-SPEC.md](docs/MCP-WRITE-SPEC.md) | **v3.18.0** transcript edits from Claude through the running app (built) |
-| [docs/TRANSCRIPT-STRUCTURE-SPEC.md](docs/TRANSCRIPT-STRUCTURE-SPEC.md) | Delete lines + Not text (A, v3.20.0), Relink (B, v3.21.0), tag types (C, v3.22.0) built; people, sketches (D–E) to come |
+| [docs/TRANSCRIPT-STRUCTURE-SPEC.md](docs/TRANSCRIPT-STRUCTURE-SPEC.md) | Delete lines + Not text (A, v3.20.0), Relink (B, v3.21.0), tag types (C, v3.22.0), block scope and people (D, v3.23.0) built; sketches (E) to come |
 | [docs/NEOSMARTPEN-SDK-USAGE.md](docs/NEOSMARTPEN-SDK-USAGE.md) | Pen SDK usage |
 | [docs/EDITOR-IMPORT-SPEC.md](docs/EDITOR-IMPORT-SPEC.md) | The handwriting editor's import formats, which the JSON / Markdown exports follow |
 | [docs/Archive/ARCHIVE-INDEX.md](docs/Archive/ARCHIVE-INDEX.md) | Superseded v1 / LogSeq-era specs, reviews and implementation logs |

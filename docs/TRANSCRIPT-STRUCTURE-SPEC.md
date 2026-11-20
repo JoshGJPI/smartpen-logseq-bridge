@@ -2,7 +2,7 @@
 
 Status: **decisions settled** (Josh, 2026-11-19); Phase A built (v3.20.0, branch `phase-a-delete-lines`), Phase B built
 (v3.21.0, branch `phase-b-relink`; Make sketch in B.4 waits for Phase E), Phase C built (v3.22.0, branch
-`phase-c-tag-types`), D–E not started. Phase E waits for a mockup Josh approves. Five phases, each a release that leaves the app working and
+`phase-c-tag-types`), Phase D built (v3.23.0, branch `phase-d-block-scope`), E not started. Phase E waits for a mockup Josh approves. Five phases, each a release that leaves the app working and
 tested. Background and mockups: the "Tag Types and Transcription" deep dive (17 Nov 2026), whose numbers are repeated
 here where they matter.
 
@@ -252,6 +252,16 @@ patch. `tags-sidecar.test.js`: info applied under the lock, unknown fields kept.
 ---
 
 ## Phase D — Block scope and People (3.23)
+
+Built in v3.23.0. Where the build settles something this section leaves open: a person with no display name is
+matched by its key capitalised ("isaiah" → "Isaiah"), since keys are lowercase and the match is case-sensitive; hand
+corrections need line ids, so the few pages with a `blocks` entry are read once (by `getPage()`, re-read when the page
+is written) and every other page's scope comes from its scan text; a task's `heads` are its ancestors by indent (not
+`parentId`), the same rule as blocks; Group by → Person lists a task under each of its people; Copy agenda groups the
+items under their project's `[[number]]`; the reader's line menu also offers *Not this project* on a project root;
+Tag this block… offers the page's Person and Project tags, every other person, a typed project number or a new person
+(one write); a tag page gains a Print… button (the usual Print dialog with the tag's pages). CLAUDE.md "Data formats"
+documents `blocks` and `heads`.
 
 ### D.1 Block scope
 

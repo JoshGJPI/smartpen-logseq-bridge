@@ -6,6 +6,48 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.23.0 — Block scope, Person pages, people on tasks (November 2026)
+
+Phase D of [TRANSCRIPT-STRUCTURE-SPEC.md](TRANSCRIPT-STRUCTURE-SPEC.md). A Person or Project tag added by hand to a
+page now covers the **blocks** that name it, the way a project number heads a meeting block, so each person gets a
+running list of items, like a standing meeting.
+
+- **Block scope** (`lib/tag-scope.js`, pure): roots are the lines naming the tag (a project by `findProjectNumbers()`;
+  a person by display name or alias as a whole word, **case-sensitive** per decision 4, so "Rich update" names Rich and
+  "rich mix" does not, possessives allowed); a block is the root and every following deeper line; a nested root
+  ("TODO schedule coord. meeting w/ Tom") covers only itself and its children; a tag named nowhere on the page covers
+  the whole page. Topics have none. Scope is computed only for tags on the page: text alone never puts a page under a
+  person (decision 5).
+- **Hand corrections**: `_tags.json` gains `blocks` (per page and tag, `add` / `remove` line ids), in the same patch and
+  lock as pages and info (`tags-sidecar.cjs` checks the shape; `lib/tags.js` owns the rules). Optimistic with per-page
+  rollback, carried by rename / merge (lists joined) / delete and by volume moves, and restored by Undo, each in the
+  same write as the pages. The reader's line ⋯ menu gains **Tag this block…** (one write: the page's tag, a new
+  person's type and the root) and, on a root, **Not this person** / **Not this project**.
+- **No page reads for scope**: scope comes from the scan records' `transcriptionText` (two spaces per level; tested equal
+  to scope from the lines). Corrections name lines by id, which the text lacks, so `stores/tag-scope.js` reads only the
+  pages that have a `blocks` entry (with `getPage()`, never the reader's page cache) and keeps their `{ id, text,
+  indentLevel }` until the page is written again. On the real data folder (367 pages): task people in 7 ms, a tag's
+  blocks in 3 ms, mentions in about 2 ms per name.
+- **Person page** (the tag's Library page): **Open items** (open tasks in the person's blocks on any page, plus WAITING
+  tasks anywhere whose text names them; ticked through `changeTask()`), **Copy agenda** (TODO / WAITING as markdown,
+  under each project's `[[number]]`; clipboard only), **Blocks** newest first (root, children, page, days; a click opens
+  the reader at that line, reading the page for its id), the Pages grid, **Print…** (every tag page has it now: the
+  usual Print dialog), and **Mentioned, not tagged** (pages naming the person without the tag, each with *Tag page*).
+  Project tag pages get Blocks too.
+- **Tasks and people**: the scan's task summary adds `heads` (the nearest 3 ancestor lines by indent, id and text up to
+  80 characters), in both `lib/tasks.js` and `electron/task-summary.cjs`; `buildTaskRows()` rows gain `people`; the
+  Tasks view has **Group by → Person** (a task in two people's blocks shows under both) and `person:` / `project:` in
+  its find box; task rows show their people's chips. MCP `list_tasks` takes `person` and `group_by: person`, and each
+  row lists its people. A task's `project` is unchanged.
+- **Reader**: the tag strip lists the page's Person and Project tags under **Block scope** with their block counts (or
+  "named nowhere: whole page"); picking one marks the lines it covers with a faint bar in the tag's colour.
+- A person with no display name answers to its key **capitalised** (`isaiah` → "Isaiah"): keys are lowercase, and a
+  case-sensitive match on the key would miss the name as written. The one Person tag in the data folder today has no
+  display name.
+- Rejected: storing line ids in the scan records (every page's ids for the few corrected pages); counting removed ids
+  against text matches to guess the whole-page fallback without a read (wrong once a removed line is deleted);
+  global name discovery (decision 5).
+
 ## v3.22.0 — Tag types and details (November 2026)
 
 Phase C of [TRANSCRIPT-STRUCTURE-SPEC.md](TRANSCRIPT-STRUCTURE-SPEC.md). Every tag is now a **Project**, a **Person**
