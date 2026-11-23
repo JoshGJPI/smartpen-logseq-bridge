@@ -132,16 +132,6 @@ export function kindLineIds(lines) {
   return new Set((lines || []).filter(isKindLine).map((l) => l.id).filter(Boolean));
 }
 
-/**
- * `ids` without the ids of kind lines among `lines`: the deleted lines whose
- * ink an ink choice (Not text / transcribe again) is about. A deleted sketch's
- * ink is only unlinked, as Remove sketch does.
- */
-export function withoutKindIds(ids, lines) {
-  const kinds = kindLineIds(lines);
-  return (ids || []).filter((id) => !kinds.has(id));
-}
-
 /* ============================================================
  *  Text forms
  * ============================================================ */

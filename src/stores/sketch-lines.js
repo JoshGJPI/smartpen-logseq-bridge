@@ -9,13 +9,17 @@
  *                 mode 'create' (Mark sketch), 'add' (Add strokes…), 'remove'
  *                 (Remove strokes…), or null
  *
+ *   sketchHover   the reader's hovered sketch row: `{ key: "<book>:<pageId>", lineId }`, or null
+ *   readerSketches  per open reader page (`<book>:<pageId>`): `{ counts: Map<lineId, n>, boxable }`,
+ *                 set by ReaderInk (stroke counts for the SketchRows; boxable = Ink + text)
+ *
  * Every write goes through saveSketchLine (guards, savePage, the canvas copy,
  * refreshAfterSave); this file only reports to the Activity Log.
  */
 import { writable, get } from 'svelte/store';
 import { strokes } from './strokes.js';
 import { selectedIndices } from './selection.js';
-import { onDiskStrokeIds } from './pending-changes.js';
+import { onDiskStrokeIds, deletedIndices } from './pending-changes.js';
 import { log } from './ui.js';
 import { openPrintDialog } from './print.js';
 import { getPage } from '../lib/storage/local-store.js';
@@ -25,16 +29,19 @@ import { plural } from '../lib/plural.js';
 
 export const sketchDialog = writable(null);
 export const sketchMark = writable(null);
+export const sketchHover = writable(null);
+export const readerSketches = writable(new Map());
 
 const where = (book, pageId) => `B${book}/P${pageId}`;
 
 /** The Editor's selection ⋯ → Make sketch…: refused (with the reason logged) for unsaved strokes. */
 export function openMakeSketchFromSelection() {
-  const t = sketchTargets(get(strokes), get(selectedIndices), get(onDiskStrokeIds));
+  const t = sketchTargets(get(strokes), get(selectedIndices), get(onDiskStrokeIds), get(deletedIndices));
   if (!t.ok) {
     log(`Make sketch: ${t.error}`, 'warning');
     return t.error;
   }
+  if (t.marked) log(`Make sketch: ${t.marked} selected ${plural(t.marked, 'stroke')} marked for deletion ${t.marked === 1 ? 'is' : 'are'} left out`, 'info');
   sketchDialog.set({ pages: t.pages });
   return null;
 }
@@ -83,7 +90,8 @@ function describe(op, r, book, pageId) {
     case 'rename': return `Renamed the sketch to ${label} (${where(book, pageId)})`;
     case 'add-strokes': return `Added ${r.taken} ${plural(r.taken, 'stroke')} to ${label} (${where(book, pageId)})`;
     case 'remove-strokes': return `Took ${r.taken} ${plural(r.taken, 'stroke')} out of ${label} (${where(book, pageId)}); they are unlinked, not deleted`;
-    case 'remove': return `Removed a sketch from ${where(book, pageId)}; its ${r.taken} ${plural(r.taken, 'stroke')} are unlinked, not deleted`;
+    case 'remove': return `Removed a sketch from ${where(book, pageId)}; its ${r.taken} ${plural(r.taken, 'stroke')} ${op.ink === 'retry'
+      ? 'are unlinked (the next Transcribe sends them), not deleted' : 'are left out as Not text, not deleted'}`;
     default: return `Sketch saved (${where(book, pageId)})`;
   }
 }

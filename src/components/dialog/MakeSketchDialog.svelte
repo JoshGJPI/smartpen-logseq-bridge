@@ -11,6 +11,10 @@
   on a page whose links can be trusted; else at the end). A selection over
   several pages makes one sketch per page, each with the same label.
 
+  Selected strokes already in a text line or another sketch are offered per line
+  with the reader box's warning (lib/viewer/sketch-lines.js selectionPick): Leave
+  them in #N (the default) or Take them; only what is taken is written.
+
   Make sketch writes at once, page by page, through saveSketchLine (runSketch);
   nothing waits for Save.
 -->
@@ -20,7 +24,7 @@
   import { pageTags, tagInfo } from '$stores/tags.js';
   import { pageOrientations } from '$stores/orientation.js';
   import { getPage } from '$lib/storage/local-store.js';
-  import { previewPlacement } from '$lib/viewer/sketch-lines.js';
+  import { previewPlacement, selectionPick, inLineWarning } from '$lib/viewer/sketch-lines.js';
   import { generateThumbnailSVG } from '$lib/viewer/page-svg.js';
   import { rotationFor } from '$lib/page-orientation.js';
   import { tagKey, tagLabel } from '$lib/tags.js';
@@ -32,9 +36,11 @@
   let label = '';
   let pressure = false;
   let busy = false;
-  /** Per page: { book, pageId, ids, svg, place, trusted, tags, error } */
+  /** Per page: { book, pageId, ids, doc, pick, rot, svg, trusted, tags, error } */
   let pages = [];
   let openedFor = null;
+  /** "<book>/<pageId>" → Set of line ids whose strokes the user takes into the sketch. */
+  let taken = {};
   let field;
 
   $: if ($sketchDialog !== openedFor) open($sketchDialog);
@@ -45,6 +51,7 @@
     pressure = false;
     busy = false;
     pages = [];
+    taken = {};
     if (!d) return;
     const out = [];
     for (const p of d.pages) {
@@ -55,9 +62,9 @@
         if (!doc) { out.push({ ...p, tags, error: 'not found' }); continue; }
         const want = new Set(p.ids);
         out.push({
-          ...p, tags,
+          ...p, tags, doc, rot,
+          pick: selectionPick(doc, p.ids),
           svg: generateThumbnailSVG((doc.strokes || []).filter((s) => want.has(s.id)), 200, 160, undefined, rot),
-          place: previewPlacement(doc, p.ids, rot),
           trusted: isTrustworthyTranscript(doc)
         });
       } catch (err) {
@@ -71,6 +78,15 @@
   }
 
   $: allTags = [...new Set(pages.flatMap((p) => p.tags || []))];
+  const keyOf = (p) => `${p.book}/${p.pageId}`;
+  /** The strokes a page's sketch takes: those in no line, plus the lines the user takes. */
+  $: idsOf = (p) => (p.pick ? [...p.pick.take, ...p.pick.inLines.filter((g) => (taken[keyOf(p)] || new Set()).has(g.lineId)).flatMap((g) => g.ids)] : []);
+  $: placeOf = (p) => (p.doc && idsOf(p).length ? previewPlacement(p.doc, idsOf(p), p.rot) : null);
+  function setTake(p, lineId, on) {
+    const next = new Set(taken[keyOf(p)] || []);
+    on ? next.add(lineId) : next.delete(lineId);
+    taken = { ...taken, [keyOf(p)]: next };
+  }
   $: shown = sketchLabel(label);
 
   function addTag(t) {
@@ -81,9 +97,10 @@
 
   function placeText(p) {
     if (!p.trusted) return 'at the end of the transcript (this page’s lines aren’t linked to its ink, so its place can’t be told; move it in Library Edit)';
-    if (!p.place) return 'at the start of the transcript (no text line above it)';
-    const t = p.place.text.length > 50 ? `${p.place.text.slice(0, 49)}…` : p.place.text;
-    return `under #${p.place.n} “${t}”, one level deeper`;
+    const place = placeOf(p);
+    if (!place) return 'at the start of the transcript (no text line above it)';
+    const t = place.text.length > 50 ? `${place.text.slice(0, 49)}…` : place.text;
+    return `under #${place.n} “${t}”, one level deeper`;
   }
 
   async function make() {
@@ -92,8 +109,8 @@
     const d = openedFor;
     let failed = 0;
     for (const p of pages) {
-      if (p.error) continue;
-      const r = await runSketch(p.book, p.pageId, { op: 'create', strokeIds: p.ids, label, pressure });
+      if (p.error || !idsOf(p).length) continue;
+      const r = await runSketch(p.book, p.pageId, { op: 'create', strokeIds: idsOf(p), label, pressure });
       if (r.error) failed++;
     }
     busy = false;
@@ -149,13 +166,22 @@
         <span class="msk-small">(Pressure ink, off by default)</span></label>
       <div class="msk-where">
         {#each pages as p (p.book + '/' + p.pageId)}
-          <p>{#if pages.length > 1}<b>B{p.book}/P{p.pageId}</b> ({p.ids.length}): {/if}Goes in the transcript {p.error ? '(page could not be read)' : placeText(p)}, as <code>[sketch] {shown}</code>.</p>
+          <p>{#if pages.length > 1}<b>B{p.book}/P{p.pageId}</b> ({idsOf(p).length}): {/if}{#if !p.error && !idsOf(p).length}Nothing to take on this page: every stroke stays in its line.{:else}Goes in the transcript {p.error ? '(page could not be read)' : placeText(p)}, as <code>[sketch] {shown}</code>.{/if}</p>
+          {#each (p.pick && p.pick.inLines) || [] as g (g.lineId)}
+            <div class="msk-warn">
+              <span>{inLineWarning(g)}. Leave them in that {g.sketch ? 'sketch' : 'line'}, or take them into the sketch?</span>
+              <span class="msk-seg">
+                <button type="button" class:sel={!(taken[keyOf(p)] || new Set()).has(g.lineId)} on:click={() => setTake(p, g.lineId, false)}>Leave in #{g.n}</button>
+                <button type="button" class:sel={(taken[keyOf(p)] || new Set()).has(g.lineId)} on:click={() => setTake(p, g.lineId, true)}>Take them</button>
+              </span>
+            </div>
+          {/each}
         {/each}
         <p>Its strokes are linked to it, so Transcribe never sends them. Saved at once, like a task tick.</p>
       </div>
       <div class="msk-actions">
         <button type="button" class="msk-btn" on:click={closeSketchDialog} disabled={busy}>Cancel</button>
-        <button type="button" class="msk-btn primary" on:click={make} disabled={busy || !pages.some((p) => !p.error)}>
+        <button type="button" class="msk-btn primary" on:click={make} disabled={busy || !pages.some((p) => !p.error && idsOf(p).length)}>
           {busy ? 'Making…' : pages.length > 1 ? `Make ${pages.length} sketches` : 'Make sketch'}
         </button>
       </div>
@@ -189,6 +215,10 @@
   .msk-where p { margin: 0 0 4px; }
   .msk-where p:last-child { margin: 0; color: var(--text-secondary, #777); }
   .msk-where code { font-size: 0.78rem; }
+  .msk-warn { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 4px 0 6px; padding: 6px 8px; border-radius: 6px; background: rgba(245, 185, 66, 0.14); border: 1px solid rgba(245, 185, 66, 0.45); color: inherit; }
+  .msk-seg { display: inline-flex; gap: 4px; }
+  .msk-seg button { padding: 3px 9px; border: 1px solid var(--border, #ccc); border-radius: 5px; background: var(--bg-secondary, #fff); color: inherit; font-size: 0.75rem; cursor: pointer; }
+  .msk-seg button.sel { border-color: #b7791f; background: #fdf0d2; color: #222; font-weight: 600; }
   .msk-actions { display: flex; justify-content: flex-end; gap: 10px; }
   .msk-btn { padding: 7px 14px; border-radius: 6px; border: 1px solid var(--border, #ccc); background: var(--bg-tertiary, #f2f2f2); color: inherit; font: inherit; cursor: pointer; }
   .msk-btn.primary { background: #e5546c; border-color: #e5546c; color: #fff; font-weight: 600; }

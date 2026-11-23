@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
 import {
   KIND_SKETCH, SKETCH_SUMMARY_MAX, isKindLine, isSketchLine, sketchLabel, kindFields, normalizeKindLine, strokeBox,
-  withKindBounds, kindLineIds, withoutKindIds, lineScanText, kindMarkdownText, buildSketchSummary, normalizeSketchSummary,
+  withKindBounds, kindLineIds, lineScanText, kindMarkdownText, buildSketchSummary, normalizeSketchSummary,
   placeKindLine, insertKindLine, reinsertKindLines
 } from '../line-kinds.js';
 import { buildTranscriptionText, linesFromText, scopeLinesOf, tagScope } from '../tag-scope.js';
@@ -67,10 +67,9 @@ describe('the format', () => {
     expect(withKindBounds(plain, [])).toBe(plain);
   });
 
-  it('kindLineIds / withoutKindIds', () => {
+  it('kindLineIds', () => {
     const lines = [{ id: 'T' }, sk('S'), { id: 'K', kind: 'table' }];
     expect([...kindLineIds(lines)]).toEqual(['S', 'K']);
-    expect(withoutKindIds(['T', 'S', 'K', 'X'], lines)).toEqual(['T', 'X']);
   });
 });
 

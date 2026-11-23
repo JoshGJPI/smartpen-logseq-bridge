@@ -22,7 +22,7 @@ import { markerField } from '$lib/tasks.js';
 import { keepDiskTaskState } from '$lib/editor-lines.js';
 import { parseTaskMarker } from '$lib/task-markers.js';
 import { relinkAfterEdit } from '$lib/deleted-ink.js';
-import { isKindLine, kindFields, kindLineIds, normalizeKindLine, withKindBounds } from '$lib/line-kinds.js';
+import { isKindLine, kindFields, normalizeKindLine, withKindBounds } from '$lib/line-kinds.js';
 
 /**
  * Recompute each line's parentId from its indentLevel: the parent is the
@@ -127,10 +127,9 @@ export async function saveTranscriptLines(book, page, lines, { base = null, dele
     for (const dead of l.mergedIds || []) if (dead !== l.id && !keptIds.has(dead)) remap.set(dead, l.id);
   }
   // The base lines this edit deleted are the ones gone and not merged away. A
-  // deleted sketch's ink is only unlinked, never flagged Not text (v3.24.0).
-  const kinds = kindLineIds(doc.transcript?.lines || []);
+  // deleted sketch's ink follows the same ink choice (v3.24.0).
   const settled = relinkAfterEdit(doc.strokes || [], {
-    liveIds: keptIds, remap, deletedLineIds: (base || []).map((l) => l && l.id).filter((id) => !kinds.has(id)), deletedInk
+    liveIds: keptIds, remap, deletedLineIds: (base || []).map((l) => l && l.id), deletedInk
   });
   const strokes = settled.strokes;
   normalised = withKindBounds(normalised, strokes);

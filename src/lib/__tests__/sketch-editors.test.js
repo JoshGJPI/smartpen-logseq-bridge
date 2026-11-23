@@ -35,8 +35,8 @@ describe('Library Edit (transcript-draft)', () => {
     expect(mergeIndices(d, new Set(['A', 'C']), -1)).toEqual([0, 2]);
     expect(mergeIndices(d, new Set(['A', 'S']), -1)).toEqual([]);
   });
-  it('a deleted sketch is not the ink choice\'s business', () => {
-    expect(deletedBaseIds([lines()[0]], lines())).toEqual(['C']);
+  it('a deleted sketch counts for the ink choice, like any deleted line', () => {
+    expect(deletedBaseIds([lines()[0]], lines())).toEqual(['S', 'C']);
   });
 });
 
@@ -65,14 +65,18 @@ describe('Library Edit save (saveTranscriptLines)', () => {
     expect(parseTypedTasks([{ id: 'S', kind: 'sketch', text: 'TODO plan', checked: null }], null)[0].checked).toBeNull();
   });
 
-  it('a deleted sketch\'s ink is unlinked, never flagged Not text and never deleted', async () => {
+  it('a deleted sketch\'s ink follows Library Edit\'s ink choice, never deleted', async () => {
     getPage.mockResolvedValue(doc());
     const draft = cloneLines(lines()).filter((l) => l.id !== 'S');
     const r = await saveTranscriptLines('3017', '124', draft, { base: lines(), deletedInk: 'textless' });
     expect(r.strokes).toHaveLength(4);
+    expect(r.strokes.filter((s) => s.textless).map((s) => s.id)).toEqual(['s2', 's3']);
     expect(r.strokes.filter((s) => s.lineId === null).map((s) => s.id)).toEqual(['s2', 's3']);
-    expect(r.strokes.some((s) => s.textless)).toBe(false);
-    expect(r.textlessIds).toEqual([]);
+    expect(r.textlessIds.sort()).toEqual(['s2', 's3']);
+    getPage.mockResolvedValue(doc());
+    const r2 = await saveTranscriptLines('3017', '124', draft, { base: lines(), deletedInk: 'retry' });
+    expect(r2.strokes.some((s) => s.textless)).toBe(false);
+    expect(r2.unlinkedIds.sort()).toEqual(['s2', 's3']);
   });
 });
 

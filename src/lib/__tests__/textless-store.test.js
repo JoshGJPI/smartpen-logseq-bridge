@@ -203,6 +203,24 @@ describe('a sketch write brings a page loaded in the Editor in step (v3.24.0, sy
     expect(get(storageMod.unsavedChanges)).toBe(false);
   });
 
+  it('Remove sketch with Not text: the canvas copies are flagged and unlinked, and nothing reads as unsaved', () => {
+    strokesMod.strokes.set([stroke(1000, { blockUuid: 'SK' }), stroke(2000, { blockUuid: 'SK' }), stroke(3000, { blockUuid: 'L1' })]);
+    const disk = [
+      { id: 's1000', lineId: null, textless: true, points: [[1, 2], [3, 4]] },
+      { id: 's2000', lineId: null, textless: true, points: [[1, 2], [3, 4]] },
+      { id: 's3000', lineId: 'L1', points: [[1, 2], [3, 4]] },
+    ];
+    textless.syncCanvasAfterPageWrite('3017', '124', { strokes: disk, links: { s1000: null, s2000: null }, textlessIds: ['s1000', 's2000'] });
+    const [a, b, c] = get(strokesMod.strokes);
+    expect(a).toMatchObject({ textless: true, blockUuid: null });
+    expect(b).toMatchObject({ textless: true, blockUuid: null });
+    expect(c.blockUuid).toBe('L1');
+    // Transcribe never sends them; the disk index agrees, so no modification.
+    expect(strokesMod.getUntranscribedStrokes(get(strokesMod.strokes))).toEqual([]);
+    expect(get(pending.pendingChanges).get('B3017/P124')?.modifications || []).toEqual([]);
+    expect(get(storageMod.unsavedChanges)).toBe(false);
+  });
+
   it('does nothing for a page not on the canvas', () => {
     expect(textless.syncCanvasAfterPageWrite('3017', '125', { links: { s1000: 'SK' }, sketchIds: ['s1000'] })).toBe(0);
     expect(get(strokesMod.strokes)[0].blockUuid).toBeUndefined();

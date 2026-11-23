@@ -12,7 +12,7 @@
   import { markerField } from '$lib/tasks.js';
   import { buildEditedTranscript } from '$lib/editor-lines.js';
   import { relinkAfterEdit } from '$lib/deleted-ink.js';
-  import { withKindBounds, withoutKindIds } from '$lib/line-kinds.js';
+  import { withKindBounds } from '$lib/line-kinds.js';
   import { refreshAfterSave } from '$lib/storage/refresh.js';
   import TranscriptionPreview from './TranscriptionPreview.svelte';
   import TranscriptionEditorModal from '../dialog/TranscriptionEditorModal.svelte';
@@ -23,6 +23,7 @@
     pageTranscriptions,
     clearPageTranscription,
     resetPageTranscript,
+    resetRefusalText,
     canvasPageKeys,
     isViewerPageDirty,
     transcriptEditorHold,
@@ -162,7 +163,7 @@
   async function handleResetTranscript() {
     const count = await resetPageTranscript(page.book, page.page);
     if (count < 0) {
-      log(`B${page.book}/P${page.page} is only partly loaded: load the whole page before re-transcribing it`, 'warning');
+      log(resetRefusalText(count, page.book, page.page), 'warning');
       return;
     }
 
@@ -204,7 +205,7 @@
 
       // lineId remap, the deleted lines' ink (Not text or unlinked), other dead links scrubbed
       const relinked = relinkAfterEdit(doc.strokes,
-        { liveIds: new Set(newLines.map(l => l.id)), remap: lineIdRemap, deletedLineIds: withoutKindIds(deletedLineIds, doc.transcript?.lines), deletedInk });
+        { liveIds: new Set(newLines.map(l => l.id)), remap: lineIdRemap, deletedLineIds, deletedInk });
 
       const nextDoc = {
         ...doc,

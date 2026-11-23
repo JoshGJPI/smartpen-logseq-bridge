@@ -24,6 +24,17 @@ export const resetPages = writable(new Map());
 
 export const resetKey = (book, page) => `B${book}/P${page}`;
 
+/** resetPageTranscript's refusals. */
+export const RESET_PARTLY_LOADED = -1;
+export const RESET_UNREADABLE = -2;
+
+/** The log line for a refused Reset, or null. */
+export function resetRefusalText(n, book, page) {
+  if (n === RESET_PARTLY_LOADED) return `B${book}/P${page} is only partly loaded: load the whole page (Pages tab) before re-transcribing it`;
+  if (n === RESET_UNREADABLE) return `B${book}/P${page} could not be read, so its sketch lines can't be kept: Reset refused (check the data folder, then try again)`;
+  return null;
+}
+
 const onPage = (book, page) => (s) => s && !s.deleted && s.pageInfo
   && String(s.pageInfo.book) === String(book) && String(s.pageInfo.page) === String(page);
 
@@ -40,10 +51,12 @@ export function strokesOnDisk(book, page) {
  *
  * Only ink of text lines is unlinked (v3.24.0, E.4): a sketch line's ink keeps
  * its link, so Transcribe doesn't send the drawing and the save keeps the
- * sketch (re-placed by y). Which lines are sketches is read from the page.
+ * sketch (re-placed by y). Which lines are sketches is read from the page; a page
+ * that can't be read is refused (RESET_UNREADABLE), never reset blind.
  * @param {{ readPage?: (book: string, page: string) => Promise<object|null> }} [deps]
  * @returns {Promise<number>} strokes unlinked; 0 when the page has no ink on the canvas,
- *   -1 when refused as partly loaded
+ *   RESET_PARTLY_LOADED (-1) when refused as partly loaded, RESET_UNREADABLE (-2) when the page
+ *   couldn't be read (its sketch lines unknown, so their ink would be unlinked and sent)
  */
 export async function resetPageTranscript(book, page, { readPage = getPage } = {}) {
   if (!get(strokes).some(onPage(book, page))) return 0;
@@ -52,12 +65,12 @@ export async function resetPageTranscript(book, page, { readPage = getPage } = {
     const doc = await readPage(String(book), String(page));
     kinds = kindLineIds(doc && doc.transcript && doc.transcript.lines);
   } catch {
-    // unreadable: every link goes, as before sketches
+    return RESET_UNREADABLE;
   }
   const all = get(strokes).filter(onPage(book, page));
   if (!all.length) return 0;
   const total = strokesOnDisk(book, page);
-  if (total != null && all.length < total) return -1;
+  if (total != null && all.length < total) return RESET_PARTLY_LOADED;
   const mine = all.filter((s) => !(s.blockUuid && kinds.has(s.blockUuid)));
   const key = resetKey(book, page);
   resetPages.update((m) => {

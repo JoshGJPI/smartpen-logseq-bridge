@@ -60,9 +60,6 @@
   export let onEditingChange = () => {};
   /** Ink + text, trusted page: (line|null) => void. Passed on to TranscriptLines. */
   export let onHoverLine = null;
-  /** Sketch lines (v3.24.0): id → stroke count, and (line|null) => void lighting a sketch's ink. */
-  export let sketchInk = null;
-  export let onHoverSketch = null;
   /** Ink + text, untrusted page: why lines aren't linked. */
   export let linkNote = '';
   /** Empty state's "Transcribe in Editor"; null hides it. */
@@ -265,7 +262,7 @@
         onDelete={deleteLine} onMerge={merge} onChooseDelete={applyDelete} onCancelDelete={() => (pendingDelete = null)} />
     {:else}
       <TranscriptLines {lines} onCopyLine={copyBranch} {onHoverLine} {linkNote} {onTranscribe} onAddTranscript={startEdit} focusId={focusLineId}
-        taskBook={tasks ? book : null} taskPageId={tasks ? page : null} {taskLock} {sketchInk} {onHoverSketch} />
+        taskBook={tasks ? book : null} taskPageId={tasks ? page : null} {taskLock} />
     {/if}
   </div>
 </div>

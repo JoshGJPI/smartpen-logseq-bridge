@@ -215,6 +215,7 @@ export {
   resetPages,
   resetKey,
   resetPageTranscript,
+  resetRefusalText,
   undoResetPageTranscript,
   isPageReset,
   forgetReset,

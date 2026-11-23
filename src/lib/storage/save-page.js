@@ -80,7 +80,8 @@
  *     - kept by the merge like any line, their ink never matched to a new line;
  *     - in an Edit Transcription result a sketch row keeps its kind and bounds,
  *       its label may change but a cleared label reads "Sketch" (never a
- *       delete); a deleted sketch's ink is only unlinked, never flagged;
+ *       delete); a deleted sketch row's ink follows the dialog's ink choice
+ *       (Not text by default), like a deleted line's;
  *     - a Reset + replace keeps them, re-placed by y, their ink still linked;
  *     - `bounds` is recomputed from the linked strokes on every save.
  *
@@ -442,12 +443,10 @@ function applyEditorLines(existingLines, pageTranscription, storedStrokes, origi
     .filter((id) => id && !live.has(id) && !lineIdRemap.has(id)));
   const deletedInkIds = new Set();
   const unflaggable = new Set();
-  // A deleted sketch's ink is only unlinked, as Remove sketch does (v3.24.0): it was never text.
-  const kindIds = kindLineIds(existingLines);
+  // A deleted sketch row's ink follows the dialog's ink choice like any line's (v3.24.0).
   for (const s of storedStrokes || []) {
     if (s.lineId ? deletedSaved.has(s.lineId) : deletedWins.has(s.id)) deletedInkIds.add(s.id);
     if (!s.lineId && !sent && deletedWins.has(s.id)) unflaggable.add(s.id);
-    if (s.lineId && deletedSaved.has(s.lineId) && kindIds.has(s.lineId)) unflaggable.add(s.id);
   }
   return { lines, lineIdAssignments, lineIdRemap, deletedInkIds, unflaggable };
 }

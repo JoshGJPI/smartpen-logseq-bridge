@@ -123,6 +123,6 @@ export function deletedBaseIds(draft, base) {
     kept.add(l.id);
     for (const id of l.mergedIds || []) kept.add(id);
   }
-  // A deleted sketch's ink is only unlinked (v3.24.0): not the ink choice's business.
-  return (base || []).filter((l) => l && !isKindLine(l)).map((l) => l.id).filter((id) => id && !kept.has(id));
+  // A deleted sketch's ink follows the same choice (v3.24.0).
+  return (base || []).map((l) => l && l.id).filter((id) => id && !kept.has(id));
 }

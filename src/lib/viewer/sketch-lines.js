@@ -26,8 +26,10 @@
  *   rename          { lineId, label }               empty = "Sketch"
  *   add-strokes     { lineId, strokeIds, pressure }
  *   remove-strokes  { lineId, strokeIds }           unlinked, never deleted
- *   remove          { lineId }                      the line goes, its strokes are
- *                   unlinked (never deleted); lines under it move up a level
+ *   remove          { lineId, ink }                 the line goes; lines under it move up
+ *                   a level; its strokes are never deleted: with `ink: 'textless'`
+ *                   (the default, as for a deleted line) flagged Not text, with
+ *                   'retry' only unlinked, so the next Transcribe sends them
  *
  * No stroke is ever deleted, and no point changes. A stroke taken into a sketch
  * loses a "Not text" flag (a textless stroke is in no line); being linked, it is
@@ -48,6 +50,7 @@ import {
   KIND_SKETCH, isKindLine, isSketchLine, sketchLabel, strokeBox, insertKindLine, withKindBounds
 } from '$lib/line-kinds.js';
 import { plural } from '$lib/plural.js';
+import { INK_TEXTLESS, normalizeDeletedInk } from '$lib/deleted-ink.js';
 
 export const SKETCH_OPS = ['create', 'rename', 'add-strokes', 'remove-strokes', 'remove'];
 
@@ -118,7 +121,8 @@ function sketchAt(lines, lineId) {
  * @param {{ now?: string, newId?: () => string, rotation?: number }} [opts]  `rotation`: the page's
  *   display rotation, so "above" means above as the page is read
  * @returns {{ doc: object, lineId: string, line: object|null, changed: boolean,
- *   links: Object<string, string|null>, sketchIds: string[], textlessCleared: string[], taken: number, under: number }}
+ *   links: Object<string, string|null>, sketchIds: string[], textlessCleared: string[], textlessIds: string[],
+ *   taken: number, under: number }}  `textlessIds`: the strokes Remove sketch flagged Not text
  *   `links`: each stroke whose link changed → its line now (null = unlinked)
  */
 export function docWithSketch(doc, op, { now = new Date().toISOString(), newId = newLineId, rotation = 0 } = {}) {
@@ -135,7 +139,9 @@ export function docWithSketch(doc, op, { now = new Date().toISOString(), newId =
   const links = {};
   const sketchIds = [];
   const textlessCleared = [];
+  const textlessIds = [];
   let taken = 0;
+  const flagRemoved = op.op === 'remove' && normalizeDeletedInk(op.ink) === INK_TEXTLESS;
 
   if (op.op === 'create' || op.op === 'add-strokes') {
     const present = strokes0.filter((s) => s && want.has(s.id));
@@ -187,13 +193,19 @@ export function docWithSketch(doc, op, { now = new Date().toISOString(), newId =
       return n;
     }
     const drop = (op.op === 'remove-strokes' && want.has(s.id) && s.lineId === lineId) || (op.op === 'remove' && s.lineId === lineId);
-    if (drop) { links[s.id] = null; taken++; return { ...s, lineId: null }; }
+    if (drop) {
+      links[s.id] = null;
+      taken++;
+      // Remove sketch: the drawing is left out as Not text unless asked to send it again.
+      if (flagRemoved) { textlessIds.push(s.id); return { ...s, lineId: null, textless: true }; }
+      return { ...s, lineId: null };
+    }
     return s;
   });
 
   lines = withKindBounds(lines, newStrokes);
   const line = lines.find((l) => l && l.id === lineId) || null;
-  const changed = taken > 0 || sketchIds.length > 0 || textlessCleared.length > 0 || lines.length !== lines0.length
+  const changed = taken > 0 || textlessIds.length > 0 || sketchIds.length > 0 || textlessCleared.length > 0 || lines.length !== lines0.length
     || lines.some((l, i) => l !== lines0[i]);
   return {
     lineId,
@@ -202,6 +214,7 @@ export function docWithSketch(doc, op, { now = new Date().toISOString(), newId =
     links,
     sketchIds,
     textlessCleared,
+    textlessIds,
     taken,
     under,
     doc: changed ? {
@@ -221,17 +234,24 @@ export function docWithSketch(doc, op, { now = new Date().toISOString(), newId =
  * The Editor's selection as Make sketch targets, one per pen page (E.3:
  * "strokes from several pages make one sketch per page"). Every selected stroke
  * must already be saved as it is: not on disk, retimed, moved to another volume
- * or point-edited without a save → `unsaved` and nothing is made.
+ * or point-edited without a save → `unsaved` and nothing is made. Strokes marked
+ * for deletion (positions in `deletedIndices`) are left out (`marked`).
  *
  * @param {Array} all  the strokes store
  * @param {Iterable<number>} indices  selected positions
  * @param {Map<string, Map<string, object>>} onDisk  onDiskStrokeIds (`B{book}/P{page}` → id → state)
- * @returns {{ ok: boolean, error?: string, unsaved: number, pages: Array<{ book: string, pageId: string, ids: string[] }> }}
+ * @param {Set<number>} [deleted]  deletedIndices: positions marked for deletion
+ * @returns {{ ok: boolean, error?: string, unsaved: number, marked: number, pages: Array<{ book: string, pageId: string, ids: string[] }> }}
  */
-export function sketchTargets(all, indices, onDisk = new Map()) {
-  const picked = [...(indices || [])].map((i) => all && all[i]).filter((s) => s && !s.deleted);
+export function sketchTargets(all, indices, onDisk = new Map(), deleted = new Set()) {
+  const positions = [...(indices || [])];
+  const marked = positions.filter((i) => deleted && deleted.has(i)).length;
+  const picked = positions.filter((i) => !(deleted && deleted.has(i))).map((i) => all && all[i]).filter((s) => s && !s.deleted);
   const onPage = picked.filter((s) => s.pageInfo && s.pageInfo.book != null && s.pageInfo.page != null);
-  if (!onPage.length) return { ok: false, error: 'Select the strokes of the sketch first', unsaved: 0, pages: [] };
+  if (!onPage.length) {
+    const error = marked ? 'The selected strokes are marked for deletion; a sketch takes none of them' : 'Select the strokes of the sketch first';
+    return { ok: false, error, unsaved: 0, marked, pages: [] };
+  }
   const byPage = new Map();
   let unsaved = picked.length - onPage.length;
   for (const s of onPage) {
@@ -243,9 +263,9 @@ export function sketchTargets(all, indices, onDisk = new Map()) {
     byPage.get(key).ids.push(id);
   }
   if (unsaved) {
-    return { ok: false, unsaved, pages: [], error: `${unsaved} of the selected ${plural(picked.length, 'stroke')} ${unsaved === 1 ? 'isn’t' : 'aren’t'} saved yet: Save first` };
+    return { ok: false, unsaved, marked, pages: [], error: `${unsaved} of the selected ${plural(picked.length, 'stroke')} ${unsaved === 1 ? 'isn’t' : 'aren’t'} saved yet: Save first` };
   }
-  return { ok: true, unsaved: 0, pages: [...byPage.values()] };
+  return { ok: true, unsaved: 0, marked, pages: [...byPage.values()] };
 }
 
 /** Is every point of a stored stroke inside the box (Ncode)? */
@@ -269,15 +289,31 @@ function wholly(s, box) {
  * @returns {{ take: string[], inLines: Array<{ lineId: string, n: number, text: string, sketch: boolean, ids: string[] }> }}
  */
 export function boxPick(doc, box, { lineId = null, remove = false } = {}) {
+  if (!box) return { take: [], inLines: [] };
+  const inside = ((doc && doc.strokes) || []).filter((s) => wholly(s, box));
+  if (remove) return { take: inside.filter((s) => lineId && s.lineId === lineId).map((s) => s.id), inLines: [] };
+  return pickByLine(doc, inside.filter((s) => !(lineId && s.lineId === lineId)));
+}
+
+/**
+ * The Editor's Make sketch, one page (v3.24.0): the selected strokes (`ids`, on
+ * disk) split like the reader's box. Those in no line are taken; those in a text
+ * line or another sketch are offered per line with the same warning, left in
+ * their line unless the dialog takes them.
+ * @returns {{ take: string[], inLines: Array<{ lineId: string, n: number, text: string, sketch: boolean, ids: string[] }> }}
+ */
+export function selectionPick(doc, ids) {
+  const want = new Set(ids || []);
+  return pickByLine(doc, ((doc && doc.strokes) || []).filter((s) => s && want.has(s.id)));
+}
+
+/** Strokes in no live line (or Not text) taken; the rest grouped by their line, in line order. */
+function pickByLine(doc, strokes) {
   const lines = (doc && doc.transcript && doc.transcript.lines) || [];
   const idx = new Map(lines.map((l, i) => [l.id, i]));
   const take = [];
   const groups = new Map();
-  if (!box) return { take, inLines: [] };
-  for (const s of (doc && doc.strokes) || []) {
-    if (!wholly(s, box)) continue;
-    if (remove) { if (lineId && s.lineId === lineId) take.push(s.id); continue; }
-    if (lineId && s.lineId === lineId) continue;
+  for (const s of strokes) {
     const i = s.lineId && !s.textless ? idx.get(s.lineId) : undefined;
     if (i === undefined) { take.push(s.id); continue; }
     if (!groups.has(s.lineId)) {
@@ -345,7 +381,8 @@ export async function saveSketchLine(book, pageId, op) {
   // The Editor's copy of this page: links (Transcribe skips the sketch's ink),
   // flags, and the on-disk index, so none of it reads as an unsaved change.
   syncCanvasAfterPageWrite(b, p, {
-    strokes: out.doc.strokes, links: out.links, sketchIds: out.sketchIds, textlessCleared: out.textlessCleared
+    strokes: out.doc.strokes, links: out.links, sketchIds: out.sketchIds, textlessCleared: out.textlessCleared,
+    textlessIds: out.textlessIds
   });
   await refreshAfterSave([{ book: b, pageId: p }]);
   return { changed: true, lineId: out.lineId, line: out.line, taken: out.taken };

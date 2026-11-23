@@ -14,7 +14,8 @@
     updatePageTranscriptionLines,
     log,
     pageTranscriptionCount,
-    resetPageTranscript
+    resetPageTranscript,
+    resetRefusalText
   } from '$stores';
   import { bookAliases, viewerMode } from '$stores';
   // v2.0: folder-backed transcript edits
@@ -171,7 +172,7 @@
     const { book, page } = pageData.pageInfo;
     const n = await resetPageTranscript(book, page);
     if (n < 0) {
-      log(`B${book}/P${page} is only partly loaded: load the whole page (Pages tab) before re-transcribing it`, 'warning');
+      log(resetRefusalText(n, book, page), 'warning');
       return;
     }
     clearPageTranscription(pageData.pageKey);

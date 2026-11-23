@@ -1420,25 +1420,32 @@ describe('savePageToFolder — sketch lines survive every transcript path', () =
     expect(written().transcript.lines[1]).toMatchObject({ text: 'TODO plan', checked: null });
   });
 
-  it('a sketch deleted in the dialog unlinks its ink and never flags it Not text, whatever the ink choice', async () => {
-    getPage.mockResolvedValue(page());
-    const r = await savePageToFolder({
+  it('a sketch deleted in the dialog: its ink follows the ink choice (Not text by default), never deleted', async () => {
+    const save = (deletedInk) => savePageToFolder({
       book: '3017', page: 42, activeStrokes: [],
       pageTranscription: {
-        editorBaseIds: ['A', 'SK', 'B'], deletedLineIds: ['SK'], deletedInk: 'textless',
+        editorBaseIds: ['A', 'SK', 'B'], deletedLineIds: ['SK'], deletedInk,
         lines: [{ text: 'site visit', blockUuid: 'A' }, { text: 'need heater', blockUuid: 'B' }]
       }
     });
-    const out = written();
+    getPage.mockResolvedValue(page());
+    const r = await save(undefined);   // the default
+    let out = written();
     expect(out.transcript.lines.map((l) => l.id)).toEqual(['A', 'B']);
     expect(out.strokes).toHaveLength(4);   // no stroke is ever deleted
+    for (const id of ['s2000', 's2001']) expect(out.strokes.find((x) => x.id === id)).toMatchObject({ lineId: null, textless: true });
+    expect(r.textlessIds.sort()).toEqual(['s2000', 's2001']);
+    // Transcribe it again: only unlinked, so the next Transcribe sends it.
+    getPage.mockResolvedValue(page());
+    const r2 = await save('retry');
+    out = written();
     for (const id of ['s2000', 's2001']) {
       const s = out.strokes.find((x) => x.id === id);
       expect(s.lineId).toBeNull();
       expect(s.textless).toBeUndefined();
     }
-    expect(r.textlessIds).toEqual([]);
-    expect(r.unlinkedIds.sort()).toEqual(['s2000', 's2001']);
+    expect(r2.textlessIds).toEqual([]);
+    expect(r2.unlinkedIds.sort()).toEqual(['s2000', 's2001']);
   });
 
   it('Reset + replace keeps the sketch, re-placed by y under the new line above its ink, its ink still linked', async () => {

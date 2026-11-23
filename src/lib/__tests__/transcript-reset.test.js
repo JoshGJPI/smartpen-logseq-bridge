@@ -10,7 +10,8 @@ import { strokes } from '../../stores/strokes.js';
 import { savedPages } from '../../stores/saved-pages.js';
 import { pageTranscriptions, setPageTranscription, clearTranscription } from '../../stores/transcription.js';
 import {
-  resetPages, resetPageTranscript, undoResetPageTranscript, isPageReset, forgetAllResets
+  resetPages, resetPageTranscript, undoResetPageTranscript, isPageReset, forgetAllResets,
+  resetRefusalText, RESET_UNREADABLE, RESET_PARTLY_LOADED
 } from '../../stores/transcript-reset.js';
 
 const info = (page) => ({ section: 3, owner: 1012, book: '3017', page });
@@ -43,10 +44,14 @@ describe('resetPageTranscript', () => {
     undoResetPageTranscript('3017', 182);
     expect(get(strokes).map((x) => x.blockUuid)).toEqual(['L1', 'SK', null]);
   });
-  it('an unreadable page unlinks everything, as before', async () => {
+  it('a page that can\'t be read is refused, nothing unlinked (its sketch lines are unknown)', async () => {
     strokes.set([s(1, 182, 'L1'), s(2, 182, 'SK'), s(3, 182, null)]);
-    expect(await resetPageTranscript('3017', 182, { readPage: async () => { throw new Error('x'); } })).toBe(3);
-    expect(get(strokes).map((x) => x.blockUuid)).toEqual([null, null, null]);
+    expect(await resetPageTranscript('3017', 182, { readPage: async () => { throw new Error('x'); } })).toBe(RESET_UNREADABLE);
+    expect(get(strokes).map((x) => x.blockUuid)).toEqual(['L1', 'SK', null]);
+    expect(isPageReset('3017', 182)).toBe(false);
+    expect(resetRefusalText(RESET_UNREADABLE, '3017', 182)).toMatch(/could not be read.*Reset refused/);
+    expect(resetRefusalText(RESET_PARTLY_LOADED, '3017', 182)).toMatch(/partly loaded/);
+    expect(resetRefusalText(3, '3017', 182)).toBeNull();
   });
   it('refuses a partly loaded page and a page with no ink', async () => {
     expect(await reset('3017', 183)).toBe(-1);

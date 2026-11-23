@@ -7,8 +7,8 @@
 
   The ⋯ menu (interactive pages only): Rename…, Add strokes…, Remove strokes…
   (the reader's box, stores/sketch-lines.js startSketchMark), Print this sketch,
-  and Remove sketch (asks first: the line goes, its strokes are unlinked, never
-  deleted). Every write goes through lib/viewer/sketch-lines.js saveSketchLine.
+  and Remove sketch (RemoveSketchPrompt: the line goes, its strokes are never
+  deleted, and its ink is Not text by default or, by choice, sent again). Every write goes through lib/viewer/sketch-lines.js saveSketchLine.
 -->
 <script>
   import { tick } from 'svelte';
@@ -16,6 +16,7 @@
   import { plural } from '$lib/plural.js';
   import PageThumb from '../viewer/PageThumb.svelte';
   import OverflowMenu from '../viewer/OverflowMenu.svelte';
+  import RemoveSketchPrompt from './RemoveSketchPrompt.svelte';
 
   export let line;
   /** The stored line number (#n). */
@@ -40,6 +41,7 @@
   const NEEDS_INK = 'Switch the reader to Ink + text to draw the box on the page';
 
   let renaming = false;
+  let removing = false;
   let draft = '';
   let field;
 
@@ -50,7 +52,7 @@
     { label: 'Remove strokes…', onSelect: () => startSketchMark(book, pageId, 'remove', line), disabled: !!lock || !boxable,
       title: lock || (boxable ? 'Drag a box on the page: this sketch’s strokes inside it are unlinked (never deleted)' : NEEDS_INK) },
     { label: 'Print this sketch', onSelect: () => printSketch(book, pageId, line.id), title: 'Print its ink on its page’s paper' },
-    { label: 'Remove sketch…', onSelect: remove, disabled: !!lock, title: lock || 'The line goes; its strokes are unlinked, never deleted' }
+    { label: 'Remove sketch…', onSelect: remove, disabled: !!lock, title: lock || 'The line goes; its strokes stay on the page (never deleted), left out as Not text unless you choose otherwise' }
   ];
 
   async function startRename() {
@@ -73,13 +75,19 @@
     else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); renaming = false; }
   }
 
-  async function remove() {
-    const ok = typeof window === 'undefined' || window.confirm(
-      `Remove the sketch “${line.text}”?\n\nThe line goes from the transcript; its ${count ?? ''} ${plural(count || 0, 'stroke')} stay on the page, unlinked (never deleted).`);
-    if (ok) await runSketch(book, pageId, { op: 'remove', lineId: line.id });
+  function remove() {
+    removing = true;
+  }
+
+  async function confirmRemove(ink) {
+    removing = false;
+    await runSketch(book, pageId, { op: 'remove', lineId: line.id, ink });
   }
 </script>
 
+{#if removing}
+  <RemoveSketchPrompt label={line.text} {count} onConfirm={confirmRemove} onCancel={() => (removing = false)} />
+{/if}
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div class="sk-row" class:hot class:focus style="padding-left: {(line.indentLevel || 0) * 1.5}rem"
   on:mouseenter={() => onHover && onHover(line)} on:mouseleave={() => onHover && onHover(null)}>

@@ -22,11 +22,7 @@
   A task tick (lib/viewer/task-state.js, from here or the Tasks view) patches
   this page's doc from `lastTaskWrite`, so the transcript follows at once. A
   page written elsewhere (refreshAfterSave: an Editor save, Claude's edits) is
-  read again from `lastPageWrite`.
-
-  Sketch lines (v3.24.0): their links are exact (made by hand), so a sketch row
-  lights its ink and a search hit on one marks it on any page; Ink + text offers
-  Mark sketch (SketchMarkLayer, PageInk's box mode).
+  read again from `lastPageWrite`. Sketch lines (v3.24.0): ReaderInk wraps PageInk.
 -->
 <script>
   import { tick } from 'svelte';
@@ -39,13 +35,10 @@
   import { pageDayGroups } from '$lib/viewer/page-sittings.js';
   import { isTrustworthyTranscript, strokesByLine } from '$lib/viewer/ink-text.js';
   import PageHeader from './PageHeader.svelte';
-  import PageInk from './PageInk.svelte';
+  import ReaderInk from './ReaderInk.svelte';
   import TranscriptPane from './TranscriptPane.svelte';
   import PageTurnButtons from './PageTurnButtons.svelte';
   import { openRelink } from '$stores/relink.js';
-  import { isKindLine } from '$lib/line-kinds.js';
-  import SketchMarkLayer from './SketchMarkLayer.svelte';
-  import { stopSketchMark } from '$stores/sketch-lines.js';
 
   /** store record: lightweight { book, page, pageId, strokeCount, ... } — NO strokes */
   export let record;
@@ -176,19 +169,8 @@
   $: focusLineId = !focus || !doc ? null
     : focus.lineId ? (lines.some((l) => l.id === focus.lineId) ? focus.lineId : null)
     : trusted ? matchingLineId(lines, focus.tokens) : null;
-  // Sketch lines' ink (any kind): linked by hand, so lit on any page.
-  $: kindInk = lines.some(isKindLine) ? strokesByLine(strokes, lines.filter(isKindLine)) : new Map();
-  $: sketchInk = new Map(lines.filter(isKindLine).map((l) => [l.id, (kindInk.get(l.id) || []).length]));
-  $: focusInk = focusLineId && (trusted || kindInk.has(focusLineId)) ? strokesByLine(strokes, lines).get(focusLineId) : null;
+  $: focusInk = focusLineId && (trusted || lines.some((l) => l.id === focusLineId && l.kind)) ? strokesByLine(strokes, lines).get(focusLineId) : null; // a sketch's ink: any page
   $: focusHighlight = focusInk && focusInk.length ? { strokes: focusInk } : null;
-
-  function hoverSketch(line) {
-    const list = line ? kindInk.get(line.id) : null;
-    lineHighlight = list && list.length ? { strokes: list } : null;
-  }
-
-  let markLayer = null;
-  let boxMode = null;
 
   function hoverLine(line) {
     const list = line && lineInk ? lineInk.get(line.id) : null;
@@ -233,7 +215,7 @@
         {#if loadingDoc}
           <div class="pv-empty">Loading…</div>
         {:else if doc}
-          <PageInk
+          <ReaderInk
             bind:this={ink}
             bind:zoom={inkZoom}
             book={record.book}
@@ -241,14 +223,8 @@
             {strokes}
             {dayModel}
             highlight={dayHighlight || lineHighlight || focusHighlight}
-            onOpenDay={openTimelineDay}
-            {boxMode}
-            onBox={(b) => markLayer && markLayer.pick(b)}
-            onBoxCancel={stopSketchMark}
+            onOpenDay={openTimelineDay} {doc} {lines} inktext={contentMode === 'inktext'}
           />
-          {#if contentMode === 'inktext'}
-            <SketchMarkLayer bind:this={markLayer} bind:boxMode book={record.book} {pageId} {doc} />
-          {/if}
         {:else if loadError}
           <div class="pv-empty">Could not read this page: {loadError}</div>
         {/if}
@@ -264,8 +240,6 @@
           onSaved={handleSaved}
           {onEditingChange}
           onHoverLine={linkable ? hoverLine : null}
-          {sketchInk}
-          onHoverSketch={contentMode === 'inktext' ? hoverSketch : null}
           {linkNote}
           {focusLineId}
           tasks

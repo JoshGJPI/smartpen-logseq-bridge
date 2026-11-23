@@ -23,8 +23,8 @@
   faint bar in the tag's colour marks the lines it covers (lib/tag-scope.js).
 
   Sketch lines (v3.24.0, Phase E) are SketchRows: thumbnail, label, stroke count
-  (`sketchInk`) and the block they sit in; hovering one lights its ink on any page
-  (`onHoverSketch`: a sketch's links are exact). Another line `kind` (E.7) shows
+  (stores/sketch-lines.js `readerSketches`, from ReaderInk) and the block they sit
+  in; hovering one lights its ink on any page (`sketchHover`: a sketch's links are exact). Another line `kind` (E.7) shows
   as `[kind] text`, read only.
 
   Empty state: "Transcribe in Editor" only when MyScript is configured
@@ -43,6 +43,7 @@
   import { coveredLineIds, rootsOnLine, pageScopes } from '$lib/tag-scope.js';
   import { isKindLine, isSketchLine, lineScanText } from '$lib/line-kinds.js';
   import SketchRow from './SketchRow.svelte';
+  import { readerSketches, sketchHover } from '$stores/sketch-lines.js';
 
   export let lines = [];
   /** (index) => void: copy that line and its children; null hides the buttons. */
@@ -63,10 +64,8 @@
   export let taskPageId = null;
   /** Why task markers can't be clicked now, or ''. */
   export let taskLock = '';
-  /** Sketch line id → its stroke count (v3.24.0), or null. */
-  export let sketchInk = null;
-  /** (line|null) => void: a sketch row hovered (lights its ink on any page), or null. */
-  export let onHoverSketch = null;
+  // Sketch rows (v3.24.0): counts and Ink + text from the page's ReaderInk.
+  $: inkHere = interactive ? $readerSketches.get(`${taskBook}:${taskPageId}`) : null;
 
   $: interactive = taskBook != null && taskPageId != null;
 
@@ -138,9 +137,9 @@
   <div class="tl" class:linked={!!onHoverLine} role="list" on:mouseleave={() => hover(null)}>
     {#each lines as line, i (line.id)}
       {#if isSketchLine(line)}
-        <SketchRow {line} n={i + 1} book={taskBook} pageId={taskPageId} count={sketchInk ? sketchInk.get(line.id) || 0 : null}
-          context={contextOf(i)} {interactive} lock={taskLock} boxable={!!onHoverSketch} hot={hotId === line.id} focus={focusId === line.id}
-          onHover={onHoverSketch ? (l) => { hotId = l ? l.id : null; onHoverSketch(l); } : null} />
+        <SketchRow {line} n={i + 1} book={taskBook} pageId={taskPageId} count={inkHere ? inkHere.counts.get(line.id) || 0 : null}
+          context={contextOf(i)} {interactive} lock={taskLock} boxable={!!(inkHere && inkHere.boxable)} hot={!!$sketchHover && $sketchHover.lineId === line.id} focus={focusId === line.id}
+          onHover={interactive ? (l) => sketchHover.set(l ? { key: `${taskBook}:${taskPageId}`, lineId: l.id } : null) : null} />
       {:else if isKindLine(line)}
         <div role="listitem" class="tl-line" style="padding-left: {(line.indentLevel || 0) * 1.5}rem">
           <span class="tl-marker">▣</span><span class="tl-text tl-kind">{lineScanText(line)}</span>

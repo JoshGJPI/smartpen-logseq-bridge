@@ -19,7 +19,7 @@ import { refreshAfterSave } from '$lib/storage/refresh.js';
 import { pageGuardState, suffixOnCanvas } from '$stores/page-guards.js';
 import { syncCanvasAfterPageWrite } from '$stores/textless.js';
 import {
-  docWithSketch, sketchRefusal, sketchTargets, boxPick, inLineWarning, previewPlacement, saveSketchLine, SketchError
+  docWithSketch, sketchRefusal, sketchTargets, boxPick, selectionPick, inLineWarning, previewPlacement, saveSketchLine, SketchError
 } from '../viewer/sketch-lines.js';
 import { isTrustworthyTranscript } from '../viewer/ink-text.js';
 
@@ -149,10 +149,24 @@ describe('docWithSketch: change and remove', () => {
     expect(out.doc.transcript.lines[1].bounds).toEqual({ minX: 30, maxX: 34, minY: 42, maxY: 55 });
   });
 
+  it('remove sketch: its ink is Not text by default (never sent again); Transcribe it again only unlinks', () => {
+    const doc = made();
+    const out = docWithSketch(doc, { op: 'remove', lineId: 'SK' }, opts);
+    expect(out.doc.strokes).toHaveLength(doc.strokes.length);
+    for (const id of ['s5', 's6']) expect(out.doc.strokes.find((s) => s.id === id)).toMatchObject({ lineId: null, textless: true });
+    expect(out.textlessIds).toEqual(['s5', 's6']);
+    const retry = docWithSketch(doc, { op: 'remove', lineId: 'SK', ink: 'retry' }, opts);
+    expect(retry.doc.strokes.filter((s) => s.textless).map((s) => s.id)).toEqual(['s7']);   // only the page's own Not text
+    expect(retry.textlessIds).toEqual([]);
+    expect(retry.links).toEqual({ s5: null, s6: null });
+    // Remove strokes only unlinks (they may go elsewhere).
+    expect(docWithSketch(doc, { op: 'remove-strokes', lineId: 'SK', strokeIds: ['s5'] }, opts).textlessIds).toEqual([]);
+  });
+
   it('remove sketch: the line goes, its strokes are unlinked (never deleted), lines under it move up', () => {
     const doc = made();
     doc.transcript.lines.splice(2, 0, { id: 'C', text: 'note on the plan', indentLevel: 2, parentId: 'SK', checked: null, yBounds: null });
-    const out = docWithSketch(doc, { op: 'remove', lineId: 'SK' }, opts);
+    const out = docWithSketch(doc, { op: 'remove', lineId: 'SK', ink: 'retry' }, opts);
     expect(out.doc.transcript.lines.map((l) => l.id)).toEqual(['A', 'C', 'B']);
     expect(out.doc.transcript.lines[1]).toMatchObject({ indentLevel: 1, parentId: 'A' });
     expect(out.doc.strokes).toHaveLength(doc.strokes.length);
@@ -173,7 +187,7 @@ describe('sketchTargets: the Editor\'s selection (one sketch per page; unsaved â
   it('groups saved strokes by page', () => {
     const all = [cs(1, 124), cs(2, 124), cs(3, 125)];
     expect(sketchTargets(all, [0, 1, 2], onDisk)).toEqual({
-      ok: true, unsaved: 0,
+      ok: true, unsaved: 0, marked: 0,
       pages: [{ book: '3017', pageId: '124', ids: ['s1', 's2'] }, { book: '3017', pageId: '125', ids: ['s3'] }]
     });
   });
@@ -187,8 +201,32 @@ describe('sketchTargets: the Editor\'s selection (one sketch per page; unsaved â
     }
   });
 
+  it('strokes marked for deletion (deletedIndices) are left out, never taken', () => {
+    const all = [cs(1, 124), cs(2, 124), cs(3, 125)];
+    const r = sketchTargets(all, [0, 1, 2], onDisk, new Set([1, 2]));
+    expect(r).toMatchObject({ ok: true, marked: 2, pages: [{ book: '3017', pageId: '124', ids: ['s1'] }] });
+    const none = sketchTargets(all, [1, 2], onDisk, new Set([1, 2]));
+    expect(none.ok).toBe(false);
+    expect(none.error).toMatch(/marked for deletion/);
+    // An unsaved stroke marked for deletion doesn't block the rest.
+    expect(sketchTargets([cs(1, 124), cs(9, 124)], [0, 1], onDisk, new Set([1])).ok).toBe(true);
+  });
+
   it('nothing selected', () => {
     expect(sketchTargets([], [], onDisk).ok).toBe(false);
+  });
+});
+
+describe('selectionPick: the Editor\'s Make sketch warns about linked strokes', () => {
+  it('takes strokes in no line (and Not text ink); groups text-line and sketch strokes per line', () => {
+    const doc = docWithSketch(page(), { op: 'create', strokeIds: ['s6'], label: 'Plan' }, opts).doc;
+    const r = selectionPick(doc, ['s5', 's7', 's8', 's9', 's6', 's1']);
+    expect(r.take.sort()).toEqual(['s5', 's7']);
+    expect(r.inLines.map((g) => [g.lineId, g.n, g.sketch, g.ids])).toEqual([
+      ['A', 1, false, ['s1']], ['SK', 2, true, ['s6']], ['B', 3, false, ['s8', 's9']]
+    ]);
+    expect(inLineWarning(r.inLines[2])).toBe('2 strokes are in line #3 (â€œNeed hot water heaterâ€)');
+    expect(selectionPick(doc, [])).toEqual({ take: [], inLines: [] });
   });
 });
 
@@ -240,6 +278,15 @@ describe('saveSketchLine: the one write path', () => {
     }));
     expect(refreshAfterSave).toHaveBeenCalledWith([{ book: '3017', pageId: '124' }]);
     expect(savePage.mock.invocationCallOrder[0]).toBeLessThan(syncCanvasAfterPageWrite.mock.invocationCallOrder[0]);
+  });
+
+  it('Remove sketch hands its Not text ink to the canvas sync', async () => {
+    getPage.mockResolvedValue(docWithSketch(page(), { op: 'create', strokeIds: ['s5', 's6'], label: 'Plan' }, opts).doc);
+    await saveSketchLine('3017', '124', { op: 'remove', lineId: 'SK' });
+    expect(syncCanvasAfterPageWrite).toHaveBeenCalledWith('3017', '124', expect.objectContaining({
+      links: { s5: null, s6: null }, textlessIds: ['s5', 's6']
+    }));
+    expect(refreshAfterSave).toHaveBeenCalled();
   });
 
   it('is refused under Relink\'s guards and the suffixed-page rule, nothing written', async () => {

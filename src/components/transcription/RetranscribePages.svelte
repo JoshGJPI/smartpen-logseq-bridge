@@ -13,7 +13,7 @@
 <script>
   import { derived } from 'svelte/store';
   import { strokes, savedPages, bookAliases, log } from '$stores';
-  import { resetPages, resetKey, resetPageTranscript, undoResetPageTranscript, strokesOnDisk } from '$stores/transcript-reset.js';
+  import { resetPages, resetKey, resetPageTranscript, undoResetPageTranscript, strokesOnDisk, resetRefusalText } from '$stores/transcript-reset.js';
   import { compareBookKeys } from '$lib/volumes.js';
   import { formatBookName } from '$utils/formatting.js';
 
@@ -41,7 +41,7 @@
 
   async function reset(p) {
     const n = await resetPageTranscript(p.book, p.page);
-    if (n < 0) return log(`B${p.book}/P${p.page} is only partly loaded: load the whole page (Pages tab) before re-transcribing it`, 'warning');
+    if (n < 0) return log(resetRefusalText(n, p.book, p.page), 'warning');
     log(`Re-transcribe B${p.book}/P${p.page}: ${n} stroke(s) unlinked. Select its text, Transcribe, then Save to replace the saved transcript.`, 'info');
   }
 
