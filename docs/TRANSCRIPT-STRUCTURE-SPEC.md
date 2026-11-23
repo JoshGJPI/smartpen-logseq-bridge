@@ -328,9 +328,9 @@ from both implementations over one fixture. `tasks.test.js`: `people`, grouping,
 ## Phase E — Sketch lines (3.24)
 
 Built in v3.24.0. Where the build settles something this section leaves open: Relink's Make sketch puts every leftover
-row marked so into ONE sketch line; deleting a sketch (Remove sketch, or Delete in an editor) only unlinks its ink,
-never Not text; a stroke taken into a sketch loses Not text; the Editor's Make sketch takes selected strokes that are in
-a text line without asking (the reader's box asks, per line); with no text line above its ink a sketch goes first;
+row marked so into ONE sketch line; deleting a sketch (Remove sketch, or Delete in an editor) gives its ink the
+usual ink choice, Not text by default (Josh, 2026-11-23); a stroke taken into a sketch loses Not text; the Editor's Make sketch, like the reader's box, offers selected strokes
+already in a text line per line, left there unless taken; with no text line above its ink a sketch goes first;
 Print this sketch prints its ink on its page's paper through the Print dialog (a selection item); a sketch's tags
 include the page's Topics; search words inside `has:sketch` match a label or one of the sketch's tags. CLAUDE.md "Data
 formats" documents `kind`, `bounds` and the scan's `sketches`.

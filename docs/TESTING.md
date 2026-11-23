@@ -3,7 +3,7 @@
 ## Automated unit tests
 
 Run with `npm test` (single pass) or `npm run test:watch` (watch mode).
-Framework: **Vitest 4.1.1**, environment: **happy-dom**. Last counted run (2026-11-20, v3.24.0): 108 files, 2,362 tests, all passing (`npx vitest run --exclude '**/.claude/**' --exclude '**/node_modules/**'`). 99 files are in `src/lib/__tests__/` and 9 in `mcp/__tests__/`.
+Framework: **Vitest 4.1.1**, environment: **happy-dom**. Last counted run (2026-11-20, v3.24.0): 108 files, 2,367 tests, all passing (`npx vitest run --exclude '**/.claude/**' --exclude '**/node_modules/**'`). 99 files are in `src/lib/__tests__/` and 9 in `mcp/__tests__/`.
 
 Existing test files (all in `src/lib/__tests__/`):
 
@@ -202,11 +202,18 @@ When making changes, also verify manually:
   count and "in the 6226-001 block"; hover → its ink lights on the page (also on an unlinked page). ⋯ → Rename… (Enter)
   → the label changes everywhere; Add strokes… → drag a box around a stray mark → "Add 1"; Remove strokes… → the
   box's strokes unlinked (the file keeps them); **Print this sketch** → the Print dialog lists the sketch's ink as a
-  selection item (look at its preview only; never Print… / Save PDF…); Remove sketch… → confirm → the line goes, the
-  strokes stay with `lineId: null`. **Mark sketch** (top left of the ink) → drag a box over a drawing that a text line
+  selection item (look at its preview only; never Print… / Save PDF…); Remove sketch… → the prompt offers Not text (default) or Transcribe it
+  again → Remove: the line goes, the strokes stay with `lineId: null` and `textless: true` (with the page also in the
+  Editor: no Unsaved marker, Transcribe's count unchanged); again with Transcribe it again → `lineId: null` only, and
+  Transcribe's count grows by the sketch's strokes. **Mark sketch** (top left of the ink) → drag a box over a drawing that a text line
   swallowed → "N strokes … taken" and "14 strokes are in line #16 …": Leave in #16 / Take them → Make sketch… → the
   dialog. Esc leaves box mode. **Library Edit**: the sketch row has a small thumbnail and an editable label; move and
-  indent it; clear the label and save → "Sketch"; Delete → asks first; save → its strokes unlinked, never Not text.
+  indent it; clear the label and save → "Sketch"; Delete → asks first, and the ink choice appears; save → its strokes
+  Not text (default) or only unlinked (Transcribe again). Make sketch… on a selection that includes a text line's ink
+  (Editor) → the dialog shows "N strokes are in line #N …" with Leave in #N (default) / Take them; Make sketch with
+  Leave writes only the other strokes. Mark strokes for deletion, select them with others → Make sketch leaves them out
+  ("… marked for deletion are left out" in the log). Reset a page whose file is unreadable (rename it away on the copy
+  after loading) → "could not be read … Reset refused" in the log, its strokes keep their links.
   The Editor's **Edit Transcription** (Review → Edit Structure on that page): same row, merge / split off. Copy (the
   line's copy button) → `[sketch: Floor plan]`. **Re-transcribe** that page (Reset, Transcribe the text with the plan
   deselected, Save): the sketch stays, under the new line above it, its ink still linked. **Search**: `has:sketch`

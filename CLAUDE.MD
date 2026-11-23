@@ -377,14 +377,20 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   Refused under Relink's guards (`pageGuardState`: a Library draft, any transcript editor open, a pending Editor
   transcription, a Reset) and `suffixOnCanvas`; re-checked after the read. The only other writer of a new sketch line
   is Relink's Make sketch, inside Relink's own `savePageToFolder({ relink })`.
-- **No stroke is ever deleted, no point moved.** Remove strokes / Remove sketch / deleting a sketch line in any editor
-  only unlink its ink, and never flag it Not text (the ink choice is about text lines: `withoutKindIds`,
-  `deletedBaseIds`, `unflaggable` in `applyEditorLines`). A stroke taken into a sketch loses `textless` (a textless
-  stroke is in no line). Pressure ink (`sketch: true`) only from Make sketch's checkbox (off by default).
+- **No stroke is ever deleted, no point moved.** **Removing a sketch never leaves its drawing to be re-sent**: Remove
+  sketch (`docWithSketch` `remove`, `ink`) and deleting a sketch row in Edit Transcription or Library Edit give its
+  ink the same choice as a deleted line: **Not text** by default (`textless: true`, `lineId: null`; the Editor's copy
+  takes the flag through `syncCanvasAfterPageWrite` `textlessIds`, nothing reads as unsaved), or Transcribe it again
+  (only unlinked). Remove strokes… only unlinks (the strokes may go elsewhere). A stroke taken into a sketch loses
+  `textless` (a textless stroke is in no line). Pressure ink (`sketch: true`) only from Make sketch's checkbox (off by
+  default). Strokes marked for deletion (`deletedIndices`) are never taken (`sketchTargets`).
+- **Make sketch never takes a text line's ink silently**: the reader's box (`boxPick`) and the Editor's selection
+  (`selectionPick`, MakeSketchDialog) offer strokes already in a text line or another sketch per line, with the warning
+  "N strokes are in line #N …", left there unless the user picks Take them.
 - **Every transcript path keeps sketch lines**: the merge (kept in place; ink linked to a kind line is never matched to
   a new line), `applyEditorLines` (kind and box kept; a cleared label reads "Sketch", **never an emptied-line
   delete**; never a task), Reset + replace (`transcript-reset.js` unlinks only text-line ink, reading the page's kind
-  lines; the replacing transcript keeps the sketches, `reinsertKindLines` by y, their ink keeps its link), Relink
+  lines, and **refuses** (`RESET_UNREADABLE`, `resetRefusalText`) when the page can't be read; the replacing transcript keeps the sketches, `reinsertKindLines` by y, their ink keeps its link), Relink
   (never aligned, never sent), Library Edit and the Pages tab (`cloneLines` / `normaliseLine` /
   `buildEditedTranscript` carry `kindFields`; Merge and Split never take a sketch; Delete asks first).
 - **Claude never creates or deletes one** (`lib/mcp-edits.js`): set_text renames a sketch (no task parsing), move and
@@ -392,6 +398,8 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   `untouchedChanged` compares `kind` too.
 - **Task summaries skip kind lines** (never a task, a head, or a project hint), in BOTH `lib/tasks.js` and
   `electron/task-summary.cjs` (one fixture tests both).
+- **The reader's sketch wiring lives in `ReaderInk`** (PageInk + Mark sketch; counts and hover through
+  `stores/sketch-lines.js` `readerSketches` / `sketchHover`), so PageSpreadView and TranscriptPane stay their size.
 - **Scans stay metadata-only**: `sketches` is capped and scalar; a sketch's tags come from block scope over
   `transcriptionText` (`lib/sketch-search.js`), never a page read. Crop thumbnails go through `viewer/thumbs.js`
   (`get(book, pageId, rotation, lineId)`, keyed by page + line id), only when on screen, never the page cache.
@@ -577,7 +585,7 @@ The full list (per feature: rotation, volumes, tags, retime, tasks, print, LogSe
   apps). Print to a printer is `print:toPrinter` through the Windows dialog, never silent. Verify print output by
   rendering the job's HTML with `printToPDF` from a scratch process.
 - Several components are over the ~300-line guideline (StrokeCanvas ~2,810, TranscriptionView ~720, TranscriptionEditorModal ~490, CreatePageDialog,
-  SaveConfirmDialog, PageCard, BooksTab, PenMemoryDialog, TranscriptPane ~330, PageSpreadView ~320, …); don't grow them, split when touching.
+  SaveConfirmDialog, PageCard, BooksTab, PenMemoryDialog, TranscriptPane ~330, …); don't grow them, split when touching.
 - Main-process and renderer tracing is behind `lib/debug.js` (`localStorage['smartpen-debug'] = '1'`, or the dev
   server). Never log MyScript keys or the HMAC, not even fragments.
 - Neo page backgrounds are a spike (see [docs/CHANGELOG.md](docs/CHANGELOG.md), "Neo page backgrounds"): images are

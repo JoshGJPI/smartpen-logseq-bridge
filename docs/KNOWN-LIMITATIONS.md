@@ -52,12 +52,13 @@ Reasons and history for each feature are in [CHANGELOG.md](CHANGELOG.md).
   every transcript line). A sketch is placed under the nearest text line above its ink only where the page's links can
   be trusted; elsewhere it goes at the end (move it in Library Edit). Ink is matched to lines by Y only (Relink, above),
   so on a page transcribed with a drawing in the batch the drawing is already in one or two text lines: Make sketch
-  takes it out of them (the box offers it with a warning naming the line; the Editor's selection takes it without
-  asking). The scan keeps at most 20 sketches per page (search, tag strips and `list_sketches` miss the rest). A
+  takes it out of them (both the reader's box and the Editor's Make sketch offer it with a warning naming the line,
+  left there unless taken). The scan keeps at most 20 sketches per page (search, tag strips and `list_sketches` miss the rest). A
   letter-suffixed page can't take a sketch while its page number is loaded in the Editor. Make sketch refuses strokes
   not saved yet (Save first), and under Relink's guards (a Library draft, a transcript editor open, a pending Editor
-  transcription, a Reset). Deleting a sketch only unlinks its ink (never Not text), so the next Transcribe sends the
-  drawing: mark it Not text if it shouldn't be. A sketch's tags come from block scope; a sketch whose label names a
+  transcription, a Reset). Removing or deleting a sketch marks its ink Not text by default; "Transcribe it again" sends
+  the drawing on the next Transcribe. Remove strokes… only unlinks. Strokes marked for deletion are left out of Make
+  sketch. A Reset is refused while its page can't be read (its sketch lines would be unknown). A sketch's tags come from block scope; a sketch whose label names a
   project is a root of that project (it covers only itself). The reader's Mark sketch / Add / Remove strokes work in
   Ink + text only. Search's word matching of tags inside `has:sketch` is a substring of the tag's key, label or alias
   ("has:sketch 6226" finds 6226-001's sketches).

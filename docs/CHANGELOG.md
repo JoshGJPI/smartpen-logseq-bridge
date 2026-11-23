@@ -37,7 +37,7 @@ is matched to lines by height only, a drawing among notes ends up inside one or 
   drawn only when on screen), a SKETCH badge, the label, its stroke count and the block it is in; hovering lights its
   ink on any page (a sketch's links are exact). Its ⋯: Rename…, Add strokes…, Remove strokes… (the reader's box),
   **Print this sketch** (approved with the mockup: its ink on its page's paper, through the Print dialog as a
-  selection item), Remove sketch… (asks; the line goes, its strokes are unlinked, never deleted). Library Edit and the
+  selection item), Remove sketch… (asks: the line goes, its strokes are never deleted, Not text by default). Library Edit and the
   Edit Transcription dialog show a small thumbnail and an editable label; the row moves and indents, Merge and Split
   never take it, Delete asks first, a cleared label is saved as "Sketch".
 - **Every existing path keeps sketch lines**: the transcript merge (kept in place; ink linked to a sketch is never
@@ -62,9 +62,15 @@ is matched to lines by height only, a drawing among notes ends up inside one or 
   rename and move a sketch, never delete or insert one.
 - **Pressure ink** (E.9): the stroke flag stored as `sketch: true` is labelled Pressure ink in the canvas header, its
   style popover, the save dialog and Settings, so it isn't confused with sketch lines. The stored name stays.
+- **Review fixes** (Josh and the coordinator, 2026-11-23): Remove sketch and deleting a sketch row in either editor give
+  its ink the same choice as a deleted line, **Not text by default** (first built as "only unlinked", which left the
+  drawing to be sent on the next Transcribe); the Editor's Make sketch warns about selected strokes already in a text
+  line or another sketch, per line, like the reader's box (Leave in #N by default); a Reset whose page can't be read is
+  refused instead of unlinking sketch ink blind; strokes marked for deletion are never taken; the reader's sketch
+  wiring moved into `ReaderInk` (stores `readerSketches` / `sketchHover`) so PageSpreadView and TranscriptPane are back
+  to their size.
 - Rejected: a separate sketch store outside the PageDoc (the line must move and indent with the transcript and travel
-  with it); making Remove sketch flag the ink Not text (the mockup says "unlinked"; mark it Not text by hand when a
-  drawing should never be sent); one sketch per leftover row in Relink (a drawing is usually read as several lines).
+  with it); one sketch per leftover row in Relink (a drawing is usually read as several lines).
 
 ## v3.23.0 — Block scope, Person pages, people on tasks (November 2026)
 
