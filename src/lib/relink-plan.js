@@ -42,7 +42,7 @@
  *
  * Pure. Tested in `src/lib/__tests__/relink-plan.test.js` and save-page.test.js.
  */
-import { strokesIntersectingLine } from './storage/line-match.js';
+import { bestLineOfStrokes, strokesInTranscriptionFrame } from './storage/line-match.js';
 import { parseTaskMarker } from './task-markers.js';
 import { KIND_SKETCH, SKETCH_DEFAULT_LABEL, insertKindLine } from './line-kinds.js';
 
@@ -106,20 +106,13 @@ export function planRelink(existingLines, relink, storedStrokes = [], originNcod
 
   // Strokes: only those sent, never one linked to a kind line.
   const sent = new Set((relink && relink.sent) || []);
-  const candidates = (storedStrokes || []).filter((s) => s && sent.has(s.id) && !(s.lineId && kindIds.has(s.lineId)));
-  const best = new Map(); // stroke id → { overlap, j }
-  ms.forEach((line, j) => {
-    if (!usable(line.yBounds)) return;
-    for (const { id, overlap } of strokesIntersectingLine(line, candidates, originNcodeY)) {
-      const held = best.get(id);
-      if (!held || overlap > held.overlap) best.set(id, { overlap, j });
-    }
-  });
+  const candidates = relinkCandidates(storedStrokes, kindIds, sent);
+  const best = bestLineOfStrokes(ms, candidates, originNcodeY);
   const lineIdAssignments = new Map();
   const textlessIds = new Set();
   for (const s of candidates) {
-    const won = best.get(s.id);
-    const o = won ? owner[won.j] : null;
+    const j = best.get(s.id);
+    const o = j != null ? owner[j] : null;
     if (o && o.type === 'textless') {
       textlessIds.add(s.id);
       lineIdAssignments.set(s.id, null);
@@ -214,7 +207,38 @@ function placeNewLines(lines, added, linkOf, msCount) {
   return [...out, ...atEnd];
 }
 
+/** The strokes a relink matches: sent, never textless, never linked to a kind line (plan and preview alike). */
+function relinkCandidates(strokes, kindIds, sent) {
+  return (strokes || []).filter((s) => s && s.textless !== true && sent.has(s.id) && !(s.lineId && kindIds.has(s.lineId)));
+}
+
 function push(map, key, v) {
   if (!map.has(key)) map.set(key, []);
   map.get(key).push(v);
+}
+
+/**
+ * The review's ink preview (v3.27.0): which stored strokes each MyScript line of
+ * a run takes, by the very rule the save uses (`planRelink`: sent strokes in the
+ * run's frame, never textless or linked to a kind line, each to its best line).
+ *
+ * @param {{ strokes?: Array, transcript?: { lines?: Array } }} doc  the PageDoc
+ * @param {{ lines: Array, sent?: string[], heldBack?: string[], rotation?: number, originNcodeY?: number }} run
+ * @returns {{ byMs: string[][], heldBack: string[], unread: string[] }}  byMs[j]: stroke ids of MyScript line j;
+ *   unread: sent strokes no line touches (the save leaves them unlinked)
+ */
+export function relinkInk(doc, run) {
+  const ms = (run && run.lines) || [];
+  const kindIds = new Set(((doc && doc.transcript && doc.transcript.lines) || []).filter((l) => l && l.kind).map((l) => l.id));
+  const candidates = relinkCandidates(doc && doc.strokes, kindIds, new Set((run && run.sent) || []));
+  // As the save does: textless ink is never matched, and the rest is turned into the run's frame.
+  const best = bestLineOfStrokes(ms, strokesInTranscriptionFrame(candidates, run && run.rotation), run && run.originNcodeY);
+  const byMs = ms.map(() => []);
+  const unread = [];
+  for (const s of candidates) {
+    const j = best.get(s.id);
+    if (j != null) byMs[j].push(s.id);
+    else unread.push(s.id);
+  }
+  return { byMs, heldBack: [...((run && run.heldBack) || [])], unread };
 }

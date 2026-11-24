@@ -5,6 +5,7 @@
  * relink-plan.test.js).
  */
 import { yBoundsToNcode } from '$lib/myscript-api.js';
+import { normalizeRotation, rotateStoredPoints } from '$lib/page-orientation.js';
 
 /**
  * How far outside a line's own Y range a stroke may sit and still be counted as
@@ -61,3 +62,38 @@ export function strokesIntersectingLine(line, storedStrokes, originNcodeY, tol =
   return out;
 }
 
+/**
+ * Stored strokes as the transcription saw them: turned upright when the page
+ * was sent rotated (ActionBar records the rotation on the transcription), so
+ * their Y can be compared with the batch's yBounds and origin. A matching-only
+ * copy of `{ id, lineId, points }` — never what is written back.
+ *
+ * @param {Array} storedStrokes
+ * @param {number} [rotation]
+ * @returns {Array}
+ */
+export function strokesInTranscriptionFrame(storedStrokes, rotation) {
+  if (!normalizeRotation(rotation)) return storedStrokes;
+  return storedStrokes.map(s => ({ id: s.id, lineId: s.lineId ?? null, points: rotateStoredPoints(s.points || [], rotation) }));
+}
+
+/**
+ * Which MyScript line each stroke goes to: the line it overlaps most, else the
+ * nearest within the tolerance; a stroke no line touches is left out. The one
+ * rule Relink's plan and its review's ink preview share.
+ *
+ * @param {Array<{yBounds}>} myscriptLines
+ * @param {Array} strokes  in the batch's frame
+ * @param {number} originNcodeY
+ * @returns {Map<string, number>}  stroke id → MyScript line index
+ */
+export function bestLineOfStrokes(myscriptLines, strokes, originNcodeY) {
+  const best = new Map(); // stroke id → { overlap, j }
+  (myscriptLines || []).forEach((line, j) => {
+    for (const { id, overlap } of strokesIntersectingLine(line, strokes, originNcodeY)) {
+      const held = best.get(id);
+      if (!held || overlap > held.overlap) best.set(id, { overlap, j });
+    }
+  });
+  return new Map([...best].map(([id, b]) => [id, b.j]));
+}

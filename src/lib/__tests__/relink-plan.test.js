@@ -10,7 +10,7 @@ vi.mock('$lib/storage/local-store.js', () => ({ getPage: vi.fn(), savePage: vi.f
 vi.mock('$stores/pending-changes.js', () => ({ noteOnDiskStrokeIds: vi.fn() }));
 
 import { planTranscript } from '../storage/save-page.js';
-import { planRelink } from '../relink-plan.js';
+import { planRelink, relinkInk } from '../relink-plan.js';
 import { classifyRelink, buildRelinkSpec, defaultDecisions, LEFTOVER_ADD, LEFTOVER_TEXTLESS, LEFTOVER_JOIN, LEFTOVER_SKETCH } from '../relink.js';
 import { makeOldPage, makeRun, makeMovedPage, makeMergedPage, rowY, mm, ORIGIN } from './fixtures/relink-page.js';
 
@@ -244,5 +244,44 @@ describe('Make sketch on ink left over (v3.24.0, spec B.4 / E.3)', () => {
     const { out, spec } = plan(doc, makeRun(doc));
     expect(spec.sketch).toEqual([]);
     expect(out.lines.some((l) => l.kind)).toBe(false);
+  });
+});
+
+describe('relinkInk: the review ink preview (v3.27.0)', () => {
+  it('gives each MyScript line exactly the strokes the save links to its row', () => {
+    const doc = makeOldPage();
+    const run = makeRun(doc, { overrides: { 7: 'coordinate w/ architekt' } });
+    const { model, out } = plan(doc, run);
+    const ink = relinkInk(doc, run);
+    expect(ink.byMs.length).toBe(run.lines.length);
+    for (const r of model.rows) {
+      if (r.type !== 'matched') continue;
+      const ids = (r.msAll && r.msAll.length ? r.msAll : [r.ms]).flatMap((j) => ink.byMs[j]);
+      const saved = doc.strokes.filter((s) => out.lineIdAssignments.get(s.id) === r.lineId).map((s) => s.id);
+      expect(ids.sort()).toEqual(saved.sort());
+      expect(ids.length).toBeGreaterThan(0);
+    }
+    expect(ink.unread).toEqual([]);
+  });
+
+  it('never offers textless ink, ink of a kind line, or ink not sent; lists held-back ink apart', () => {
+    const doc = makeOldPage();
+    doc.transcript.lines.push({ id: 'K1', kind: 'sketch', text: 'Sketch', indentLevel: 0, parentId: null, checked: null, yBounds: null });
+    doc.strokes[0] = { ...doc.strokes[0], textless: true };
+    doc.strokes[1] = { ...doc.strokes[1], lineId: 'K1' };
+    const run = { ...makeRun(doc), heldBack: [doc.strokes[2].id] };
+    run.sent = run.sent.filter((id) => id !== doc.strokes[2].id && id !== doc.strokes[3].id);
+    const ink = relinkInk(doc, run);
+    const all = new Set([...ink.byMs.flat(), ...ink.unread]);
+    for (const k of [0, 1, 2, 3]) expect(all.has(doc.strokes[k].id)).toBe(false);
+    expect(ink.heldBack).toEqual([doc.strokes[2].id]);
+  });
+
+  it('a sent stroke no line touches is unread; nothing breaks without a doc or run', () => {
+    const doc = makeOldPage();
+    const run = makeRun(doc, { drop: [10] });
+    const ink = relinkInk(doc, run);
+    expect(ink.unread.sort()).toEqual(doc.strokes.slice(30, 33).map((s) => s.id).sort());
+    expect(relinkInk(null, null)).toEqual({ byMs: [], heldBack: [], unread: [] });
   });
 });

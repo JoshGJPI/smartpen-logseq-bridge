@@ -6,6 +6,32 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.27.0 — Pages still to relink; Relink's ink preview (November 2026)
+
+Josh asked (2026-11-24) for a visual cue of how much is left to relink, and for a way to see, while reviewing a
+Relink, which ink goes with which line: underlines and drawings MyScript reads scramble the transcript, so the
+table alone didn't say what would be linked or left alone.
+
+- **Orange = transcribed but not linked to its ink.** A Library page tile's ✓ is orange when
+  `isTrustworthyTranscript()` is false, judged on the doc the thumbnail already reads (`lib/viewer/thumbs.js`
+  `judge` / `peekTrust`, kept per page beside the SVGs; grey until read), so no extra page read. The left panel's
+  Contents dots and counts read a new `linked` field of the capture-date index (`_timeline.json`), computed in main by
+  `electron/ink-trust.cjs` (a CommonJS mirror of `isTrustworthyTranscript()`, parity-tested; change both). It reads
+  the document shell first, so only pages transcribed since Aug 2026 are parsed in full, and the index caches it by
+  mtime + size; `TIMELINE_VERSION` 3 re-reads the index once (under a second on 369 pages). Rejected: the scan
+  record (it parses only the shell, every scan) and reading pages from the panel.
+- **Relink's review shows the ink.** The dialog has the page's ink beside the table (the reader's `PageInk`):
+  hovering a row lights the strokes the save will give that row's MyScript line(s); hovering a count lights every
+  row of that kind ("ink left over" = what stays unlinked); hovering the held-back line lights the underlines, boxes
+  and circles not sent. `lib/relink-plan.js` `relinkInk()` computes it by the save's own rule: `planRelink` and the
+  preview share `relinkCandidates` and `storage/line-match.js` `bestLineOfStrokes` / `strokesInTranscriptionFrame`
+  (moved there from save-page.js, which re-exports it), so the preview can't disagree with what is written.
+- **Workflow.** Mark drawings as sketches first (reader's Mark sketch, Editor's Make sketch): sketch-line ink is
+  never sent, so it can't garble the reading. Decorative ink is already held back; what still slips through shows
+  as ink left over, now visible on hover, and can become a sketch from the row's menu.
+- Left as is: `mergeTranscript` and `applyEditorLines` in save-page.js keep their own best-overlap loops (the core
+  save path; they assign per record as they go).
+
 ## v3.26.0 — Timeline narrowed to tagged blocks; topic block scope (November 2026)
 
 Josh asked (2026-11-24) that a tag-filtered Timeline show only the part of each page that belongs to the tag (the

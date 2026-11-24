@@ -18,6 +18,11 @@
   indent and task state are never changed. While open it holds the page like a
   transcript editor (`transcriptEditorHold()`), so Claude's edits and other
   writers stand down, and a page written since its run is sent again.
+
+  Beside the table, the page's ink (PageInk, v3.27.0): hovering a row lights the
+  strokes the save would give that row's MyScript line(s) (lib/relink-plan.js
+  `relinkInk`, the save's own rule); hovering a count lights every row of that
+  kind, and the held-back line its underlines, boxes and circles.
 -->
 <script>
   import { onDestroy } from 'svelte';
@@ -25,7 +30,9 @@
   import { transcriptEditorHold } from '$stores/viewer.js';
   import { classifyRelink, defaultDecisions, buildRelinkSpec, linkedCount, NO_LINKS, afterRelinkSave, heldBackLabel } from '$lib/relink.js';
   import { isTrustworthyTranscript } from '$lib/viewer/ink-text.js';
+  import { relinkInk } from '$lib/relink-plan.js';
   import RelinkRows from './RelinkRows.svelte';
+  import PageInk from '../viewer/PageInk.svelte';
 
   /** 'again' | 'loading' | 'ask' | 'sending' | 'review' | 'saving' | 'done' | 'error' */
   let phase = 'loading';
@@ -39,6 +46,11 @@
   let staleNote = '';
   /** The page was already linked (a selection pass then keeps the ink it doesn't send). */
   let trusted = false;
+  /** The page's stored strokes and, per MyScript line, the ones the save would link (relinkInk). */
+  let pageStrokes = [];
+  let ink = null;
+  /** What the preview lights: { key, ids } (a row, a count, the held-back ink), or null. */
+  let lit = null;
 
   // Opening the dialog must not count as an editor on the page for its own guards,
   // so the hold is taken only once the run is loaded (relinkRefusal ran by then).
@@ -53,6 +65,8 @@
     opened = k;
     hold.set(null, false);
     run = model = decisions = null;
+    pageStrokes = [];
+    ink = lit = null;
     trusted = false;
     error = staleNote = '';
     if (!k) return;
@@ -82,6 +96,9 @@
     cached = got.cached;
     trusted = isTrustworthyTranscript(got.doc);
     model = classifyRelink(got.doc.transcript.lines, run.lines);
+    pageStrokes = got.doc.strokes || [];
+    ink = relinkInk(got.doc, run);
+    lit = null;
     decisions = defaultDecisions(model);
     hold.set(k, true);
     phase = 'review';
@@ -127,6 +144,26 @@
   $: noinkLabel = selection && trusted ? 'not in this selection' : 'no ink';
   $: held = run && run.heldBack ? run.heldBack.length : 0;
 
+  // Stroke ids of a row: every MyScript line it takes (a line merged by hand takes several).
+  function rowIds(r) {
+    if (!ink || !r) return [];
+    const js = r.msAll && r.msAll.length ? r.msAll : r.ms != null ? [r.ms] : [];
+    return js.flatMap((j) => ink.byMs[j] || []);
+  }
+  function hoverRow(r) {
+    lit = r ? { key: r.lineId || `ms${r.ms}`, ids: rowIds(r) } : null;
+  }
+  function hoverKind(types) {
+    lit = types && model ? { key: null, ids: model.rows.filter((r) => types.includes(r.type)).flatMap(rowIds) } : null;
+  }
+  function hoverHeld(on) {
+    lit = on && ink ? { key: null, ids: ink.heldBack } : null;
+  }
+  $: litSet = lit ? new Set(lit.ids) : null;
+  $: highlight = litSet ? { strokes: pageStrokes.filter((s) => s && litSet.has(s.id)) } : null;
+  $: litNote = !lit ? 'Hover a row to see its ink'
+    : lit.ids.length ? `${lit.ids.length} stroke${lit.ids.length === 1 ? '' : 's'}` : 'No ink for this row';
+
   function summarize(m, d) {
     const fixes = Object.values(d.fixes).reduce((n, list) => n + list.length, 0);
     const add = Object.values(d.leftover).filter((v) => v === 'add').length;
@@ -140,7 +177,7 @@
 
 {#if target}
   <div class="backdrop" on:click={close} role="presentation"></div>
-  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="relink-title">
+  <div class="dialog" class:wide={!!model && (phase === 'review' || phase === 'saving')} role="dialog" aria-modal="true" aria-labelledby="relink-title">
     <div class="head">
       <h2 id="relink-title">Relink {selection ? 'selection on ' : ''}B{target.book}/P{target.pageId}</h2>
       <button class="x" on:click={close} aria-label="Close">✕</button>
@@ -172,24 +209,32 @@
       {:else if phase === 'error'}
         <p class="note warn">{error}</p>
       {:else if model}
+        <!-- svelte-ignore a11y-mouse-events-have-key-events -->
         <p class="counts">
-          <span class="ok">{c.matched} matched</span> ·
-          <span class:attn={c.confirm}>{c.confirm} to confirm{c.moved ? ` (${c.moved} moved)` : ''}</span> ·
+          <span class="ok hov" on:mouseenter={() => hoverKind(['matched'])} on:mouseleave={() => hoverKind(null)}>{c.matched} matched</span> ·
+          <span class="hov" class:attn={c.confirm} on:mouseenter={() => hoverKind(['confirm'])} on:mouseleave={() => hoverKind(null)}>{c.confirm} to confirm{c.moved ? ` (${c.moved} moved)` : ''}</span> ·
           <span>{c.noink} {noinkLabel} (kept)</span> ·
-          <span class:attn={c.leftover}>{c.leftover} ink left over</span> ·
+          <span class="hov" class:attn={c.leftover} on:mouseenter={() => hoverKind(['leftover'])} on:mouseleave={() => hoverKind(null)}>{c.leftover} ink left over</span> ·
           <span>{c.tasks} task{c.tasks === 1 ? '' : 's'} unchanged</span>
           {#if cached}<span class="dim"> · MyScript result from the cache</span>{/if}
         </p>
         {#if held}
+          <!-- svelte-ignore a11y-mouse-events-have-key-events -->
           <label class="held">
-            <span>{heldBackLabel(run.heldBackStats, held)} not sent.</span>
+            <span class="hov" on:mouseenter={() => hoverHeld(true)} on:mouseleave={() => hoverHeld(false)}>{heldBackLabel(run.heldBackStats, held)} not sent.</span>
             <input type="checkbox" bind:checked={decisions.heldBackTextless} disabled={phase === 'saving'} />
             Mark them Not text
             <span class="dim">(otherwise left unlinked)</span>
           </label>
         {/if}
         {#if error}<p class="note warn">{error}</p>{/if}
-        <div class="table"><RelinkRows {model} {noinkLabel} bind:decisions disabled={phase === 'saving'} /></div>
+        <div class="review">
+          <div class="table"><RelinkRows {model} {noinkLabel} bind:decisions disabled={phase === 'saving'} onHover={hoverRow} hot={lit && lit.key} /></div>
+          <div class="ink">
+            <PageInk book={target.book} pageId={target.pageId} strokes={pageStrokes} {highlight} />
+            <span class="ink-note">{litNote}</span>
+          </div>
+        </div>
       {/if}
     </div>
 
@@ -218,13 +263,22 @@
     width: min(1040px, calc(100vw - 48px)); max-height: 86vh; display: flex; flex-direction: column;
     background: var(--bg-primary); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
   }
+  /* The review: table and ink side by side, as tall as the window allows. */
+  .dialog.wide { width: min(1400px, calc(100vw - 48px)); height: 86vh; }
   .head, .foot { display: flex; align-items: center; gap: 10px; padding: 14px 20px; }
   .head { justify-content: space-between; border-bottom: 1px solid var(--border); }
   .head h2 { margin: 0; font-size: 1rem; color: var(--text-primary); }
   .foot { justify-content: flex-end; border-top: 1px solid var(--border); }
   .x { background: transparent; border: none; color: var(--text-secondary); cursor: pointer; font-size: 1rem; }
-  .body { padding: 14px 20px; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
-  .table { overflow-y: auto; min-height: 0; border: 1px solid var(--border); border-radius: 8px; }
+  .body { flex: 1; padding: 14px 20px; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+  .review { flex: 1; min-height: 0; display: flex; gap: 12px; }
+  .table { flex: 1; overflow-y: auto; min-height: 0; border: 1px solid var(--border); border-radius: 8px; }
+  .ink { position: relative; flex: 0 0 34%; display: flex; min-height: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .ink-note {
+    position: absolute; left: 8px; bottom: 6px; padding: 1px 6px; border-radius: 4px;
+    background: rgba(255, 255, 255, 0.85); color: #555; font-size: 0.72rem; pointer-events: none;
+  }
+  .hov { cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; }
   .note { margin: 0 0 10px; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.45; }
   .warn { color: var(--warning); }
   .counts { margin: 0 0 10px; font-size: 0.85rem; color: var(--text-secondary); }

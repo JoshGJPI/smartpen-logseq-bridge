@@ -361,6 +361,10 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   `pageGuardState()` (change both refusals together), plus a trustworthy page, no text lines, no ink to send. The
   dialog takes a `transcriptEditorHold()` while reviewing. The save re-checks the revision: a page written since its
   MyScript run is refused (`stale`) and sent again.
+- **The review's ink preview shows what the save will do** (v3.27.0): hovering a row, a count or the held-back
+  line lights strokes in the dialog's `PageInk`, from `lib/relink-plan.js` `relinkInk()`, which shares
+  `relinkCandidates` and `storage/line-match.js` `bestLineOfStrokes` / `strokesInTranscriptionFrame` with `planRelink`
+  and the save. Never give the preview its own matching rule.
 - **The cache lives in `<userData>/relink-cache/<bookKey>/<pageId>.json`, never in the data folder**, keyed by the
   page's `metadata.lastUpdated` (`cachedRunValid`); dropped after a save. No MyScript request without a click (the
   dialog's Send, or the bulk Run).

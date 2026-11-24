@@ -96,8 +96,7 @@
 import { getPage, savePage, deletePage } from './local-store.js';
 import { emptyPageDoc, computeBounds, PAGE_DOC_VERSION } from './page-doc.js';
 import { pageInfoForDisk } from '$lib/volumes.js';
-import { strokesIntersectingLine } from './line-match.js';
-import { normalizeRotation, rotateStoredPoints } from '$lib/page-orientation.js';
+import { strokesIntersectingLine, strokesInTranscriptionFrame } from './line-match.js';
 import { noteOnDiskStrokeIds } from '$stores/pending-changes.js';
 import { parseTaskMarker, stripTaskMarker } from '$lib/task-markers.js';
 import { taskStateOf, withTaskState } from '$lib/tasks.js';
@@ -590,20 +589,8 @@ export function carryTaskState(oldLines, lines) {
   });
 }
 
-/**
- * Stored strokes as the transcription saw them: turned upright when the page
- * was sent rotated (ActionBar records the rotation on the transcription), so
- * their Y can be compared with the batch's yBounds and origin. A matching-only
- * copy of `{ id, lineId, points }` — never what is written back.
- *
- * @param {Array} storedStrokes
- * @param {number} [rotation]
- * @returns {Array}
- */
-export function strokesInTranscriptionFrame(storedStrokes, rotation) {
-  if (!normalizeRotation(rotation)) return storedStrokes;
-  return storedStrokes.map(s => ({ id: s.id, lineId: s.lineId ?? null, points: rotateStoredPoints(s.points || [], rotation) }));
-}
+// Lives in line-match.js since v3.27.0 (Relink's ink preview uses it too).
+export { strokesInTranscriptionFrame };
 
 /* -----------------------------------------------------------------
  *  Main save entry point

@@ -16,7 +16,9 @@
   lines; its reading shows them joined, a ⏎ where the next one starts.
 
   `decisions` is lib/relink.js defaultDecisions()' shape and is changed in place
-  (bind:decisions). Pure presentation; the dialog saves.
+  (bind:decisions). Pure presentation; the dialog saves. Hovering a row (or
+  focusing inside it) calls `onHover(row)`, and `onHover(null)` on leaving, so
+  the dialog can light that row's ink (v3.27.0).
 -->
 <script>
   import { applyWordFixes, rowLinked, LEFTOVER_LEAVE, LEFTOVER_ADD, LEFTOVER_TEXTLESS, LEFTOVER_JOIN, LEFTOVER_SKETCH } from '$lib/relink.js';
@@ -28,6 +30,12 @@
   export let disabled = false;
   /** What a stored line with no MyScript partner reads as */
   export let noinkLabel = 'no ink';
+  /** (row | null) => void: the row under the pointer, for the dialog's ink preview */
+  export let onHover = () => {};
+  /** The row lit in the preview (its key), for the row's own highlight */
+  export let hot = null;
+
+  const rowKey = (r) => r.lineId || `ms${r.ms}`;
 
   const pct = (s) => `${Math.round((s || 0) * 100)}%`;
 
@@ -86,8 +94,9 @@
     <tr><th class="n">#</th><th>Stored text (kept)</th><th>MyScript read</th><th class="m">Match</th></tr>
   </thead>
   <tbody>
-    {#each model.rows as r (r.lineId || `ms${r.ms}`)}
-      <tr class={r.type} class:off={r.type === 'confirm' && !linked(r)}>
+    {#each model.rows as r (rowKey(r))}
+      <tr class={r.type} class:off={r.type === 'confirm' && !linked(r)} class:hot={hot === rowKey(r)}
+        on:mouseenter={() => onHover(r)} on:mouseleave={() => onHover(null)} on:focusin={() => onHover(r)}>
         <td class="n">{r.n ?? ''}</td>
         <td class="stored" style="padding-left: {8 + r.indentLevel * 14}px">
           {#if r.type === 'leftover'}
@@ -152,6 +161,7 @@
   .reading { color: var(--text-secondary); }
   tr.noink .stored, tr.off .stored { color: var(--text-secondary); }
   tr.leftover { background: rgba(251, 191, 36, 0.04); }
+  tr.hot { background: var(--selected-bg); }
   .none, .dim { color: var(--text-secondary); font-style: italic; }
   .ok { color: var(--success); }
   .moved { font-size: 0.68rem; margin-right: 4px; padding: 0 4px; border-radius: 4px; border: 1px solid var(--border); color: var(--text-secondary); }
