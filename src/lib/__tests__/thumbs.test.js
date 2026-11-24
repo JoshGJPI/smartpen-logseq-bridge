@@ -82,6 +82,30 @@ describe('createThumbLoader', () => {
     expect(t.size()).toBe(0);
   });
 
+  it('judges the doc it reads or peeks, per page, and forgets it on invalidate', async () => {
+    const read = vi.fn(async (b, p) => ({ strokes: [], linked: p === 'a' }));
+    const peek = vi.fn((b, p) => (p === 'c' ? { strokes: [], linked: false } : null));
+    const judge = (doc) => doc.linked;
+    const t = createThumbLoader({ read, peek, render, judge });
+    expect(t.peekTrust('1', 'a')).toBe(null);
+    await t.get('1', 'a', 90);
+    await t.get('1', 'b');
+    await t.get('1', 'c');
+    expect(t.peekTrust('1', 'a')).toBe(true);
+    expect(t.peekTrust('1', 'b')).toBe(false);
+    expect(t.peekTrust('1', 'c')).toBe(false);
+    t.invalidate('1', 'a');
+    expect(t.peekTrust('1', 'a')).toBe(null);
+    t.clear();
+    expect(t.peekTrust('1', 'b')).toBe(null);
+  });
+
+  it('without a judge nothing is judged', async () => {
+    const t = createThumbLoader({ read: async () => ({ strokes: [] }), render });
+    await t.get('1', 'a');
+    expect(t.peekTrust('1', 'a')).toBe(null);
+  });
+
   it('a failed read resolves to "" and the next ask retries', async () => {
     const read = vi.fn().mockRejectedValueOnce(new Error('gone')).mockResolvedValue({ strokes: [1] });
     const t = createThumbLoader({ read, render });

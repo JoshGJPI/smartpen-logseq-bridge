@@ -16,21 +16,29 @@
  * Components ask only for thumbnails that are on screen (PageThumb's
  * IntersectionObserver).
  *
+ * The doc read for a thumbnail is also judged once (`judge`, the app's
+ * `isTrustworthyTranscript`), so a page tile can colour its transcribed ✓ by
+ * whether the lines are linked to the ink, without a read of its own. Kept per
+ * page (not per rotation) beside the SVGs and dropped with them.
+ *
  * Tested in `src/lib/__tests__/thumbs.test.js`.
  */
 
 import { getPage } from '$lib/storage/local-store.js';
 import { peekCachedPage } from './page-cache.js';
 import { generateThumbnailSVG } from './page-svg.js';
+import { isTrustworthyTranscript } from './ink-text.js';
 
 /**
  * @param {{read: (book: string, pageId: string) => Promise<object|null>,
  *          peek?: (book: string, pageId: string) => object|null,
  *          render: (strokes: Array, rotation: number) => string,
+ *          judge?: (doc: object) => boolean,
  *          maxEntries?: number, concurrency?: number}} deps
  */
-export function createThumbLoader({ read, peek = () => null, render, maxEntries = 150, concurrency = 2 }) {
+export function createThumbLoader({ read, peek = () => null, render, judge = null, maxEntries = 150, concurrency = 2 }) {
   const svgs = new Map();     // key -> svg string (insertion order = LRU)
+  const trust = new Map();    // "book/pageId" -> boolean (judge's answer for the doc read)
   const inflight = new Map(); // key -> Promise<string>
   const queue = [];
   let running = 0;
@@ -44,6 +52,14 @@ export function createThumbLoader({ read, peek = () => null, render, maxEntries 
   function remember(key, svg) {
     svgs.set(key, svg);
     while (svgs.size > maxEntries) svgs.delete(svgs.keys().next().value);
+  }
+
+  function note(book, pageId, doc) {
+    if (!judge || !doc) return;
+    const k = `${book}/${pageId}`;
+    trust.delete(k);
+    trust.set(k, !!judge(doc));
+    while (trust.size > maxEntries) trust.delete(trust.keys().next().value);
   }
 
   function pump() {
@@ -76,6 +92,7 @@ export function createThumbLoader({ read, peek = () => null, render, maxEntries 
     const cached = peek(book, pageId);
     if (cached) {
       stats.peeks++;
+      note(book, pageId, cached);
       const svg = render(inkOf(cached.strokes, lineId), rotation);
       remember(key, svg);
       return Promise.resolve(svg);
@@ -86,6 +103,7 @@ export function createThumbLoader({ read, peek = () => null, render, maxEntries 
         try {
           stats.reads++;
           const doc = await read(book, pageId);
+          note(book, pageId, doc);
           const svg = render(inkOf(doc && doc.strokes, lineId), rotation);
           remember(key, svg);
           resolve(svg);
@@ -106,23 +124,34 @@ export function createThumbLoader({ read, peek = () => null, render, maxEntries 
     return svgs.get(keyOf(book, pageId, rotation, lineId)) ?? null;
   }
 
+  /**
+   * Whether the page's transcript is linked to its ink, as judged on the doc
+   * last read for one of its thumbnails; null when no doc has been read.
+   */
+  function peekTrust(book, pageId) {
+    return trust.get(`${book}/${pageId}`) ?? null;
+  }
+
   /** Forget one page's thumbnails, every rotation (the page was re-saved). */
   function invalidate(book, pageId) {
     const prefix = `${book}/${pageId}@`;
     for (const k of [...svgs.keys()]) if (k.startsWith(prefix)) svgs.delete(k);
+    trust.delete(`${book}/${pageId}`);
   }
 
   /** Forget every thumbnail (rescan, data-folder change). */
   function clear() {
     svgs.clear();
+    trust.clear();
   }
 
-  return { get, peekSvg, invalidate, clear, stats, size: () => svgs.size };
+  return { get, peekSvg, peekTrust, invalidate, clear, stats, size: () => svgs.size };
 }
 
 /** The app's loader: 240×180 thumbnails, read through local-store. */
 export const thumbs = createThumbLoader({
   read: (book, pageId) => getPage(book, pageId),
   peek: peekCachedPage,
+  judge: isTrustworthyTranscript,
   render: (strokes, rotation) => generateThumbnailSVG(strokes, 240, 180, undefined, rotation)
 });

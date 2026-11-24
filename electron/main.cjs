@@ -10,6 +10,7 @@ const retimedSidecar = require('./retimed-sidecar.cjs');
 const penMatch = require('./pen-match.cjs');
 const pageStore = require('./page-store.cjs');
 const { buildTaskSummary, buildSketchSummary, lineScanText } = require('./task-summary.cjs');
+const { pageLinked } = require('./ink-trust.cjs');
 const mcpEndpoint = require('./mcp-endpoint.cjs');
 const mcpEditLog = require('./mcp-edit-log.cjs');
 const relinkCache = require('./relink-cache.cjs');
@@ -437,7 +438,8 @@ async function listAllPages(root) {
 // lift them from this source (mcp/__fixtures__/app-side.js).
 
 // 2 (v3.18.0): entries carry `duplicateStrokes`; a version-1 cache is re-read once.
-const TIMELINE_VERSION = 2;
+// 3 (v3.27.0): entries carry `linked` (ink-trust.cjs: true / false, null = no transcript).
+const TIMELINE_VERSION = 3;
 
 function timelinePath(root) {
   return pageStore.sidecarPath(root, '_timeline.json');
@@ -539,6 +541,8 @@ async function buildTimeline(root, { force = false } = {}) {
     try {
       const raw = await fsp.readFile(f.path, 'utf8');
       const info = extractCaptureDays(raw);
+      let linked = null;
+      try { linked = pageLinked(raw); } catch { linked = null; }
       pages[key] = {
         book: f.book,
         page: f.page,
@@ -546,7 +550,9 @@ async function buildTimeline(root, { force = false } = {}) {
         suffix: f.suffix,
         mtimeMs: st.mtimeMs,
         size: st.size,
-        ...info
+        ...info,
+        // Transcript linked to its ink (Library left panel's relink count).
+        linked
       };
       rescanned++;
     } catch (err) {

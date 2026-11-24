@@ -1,7 +1,8 @@
 <!--
   PageTile.svelte — one page in a Library page grid (v3.1.0 page tags;
   mockups 3 and 5): the thumbnail, P12 (with its notebook on the line above when
-  the grid spans notebooks), the days it was written (first–last, v3.11.0), ✓ when transcribed, and the page's tags
+  the grid spans notebooks), the days it was written (first–last, v3.11.0), ✓ when transcribed (orange when its lines
+  are not linked to the ink, as the thumbnail's read found; grey until read), and the page's tags
   (first two, then +N). Tags come from the tags store, never from reading the
   page; the thumbnail keeps PageThumb's on-screen-only loading.
 
@@ -32,6 +33,8 @@
   /** Left off the label chips (a tag's own page, v3.14.0); the tag editor still has it. */
   export let hideTag = null;
 
+  /** From the thumbnail's read: true / false, null until read. */
+  let linked = null;
   let popOpen = false;
   let pop;
   let input;
@@ -40,7 +43,7 @@
   $: labelTags = hideTag ? tags.filter((t) => t !== hideTag) : tags;
   $: shown = labelTags.slice(0, 2);
   $: book = tile.record.book;
-  $: title = `${notebook ? `${notebook}, ` : ''}P${tile.pageId} · ${(tile.record.strokeCount || 0).toLocaleString()} strokes · ${tile.first ? `${writtenRange(tile.first, tile.last)}${tile.days > 1 ? ` (${tile.days} ${plural(tile.days, 'day')})` : ''}` : 'no dated ink'}${tile.transcribed ? ' · transcribed' : ''}${tags.length ? ` · ${tags.join(', ')}` : ''}`;
+  $: title = `${notebook ? `${notebook}, ` : ''}P${tile.pageId} · ${(tile.record.strokeCount || 0).toLocaleString()} strokes · ${tile.first ? `${writtenRange(tile.first, tile.last)}${tile.days > 1 ? ` (${tile.days} ${plural(tile.days, 'day')})` : ''}` : 'no dated ink'}${tile.transcribed ? (linked === false ? ' · transcribed, not linked to ink' : ' · transcribed') : ''}${tags.length ? ` · ${tags.join(', ')}` : ''}`;
   $: if (selecting) popOpen = false;
 
   async function openPop() {
@@ -56,12 +59,12 @@
 
 <div class="pt" class:sel={selected} class:selecting>
   <button type="button" class="pt-open" on:click={onClick} {title} aria-pressed={selecting ? selected : undefined}>
-    <PageThumb {book} pageId={tile.pageId} height="150px" />
+    <PageThumb {book} pageId={tile.pageId} height="150px" bind:linked />
     {#if notebook}<span class="pt-nb">{notebook}</span>{/if}
     <span class="pt-label" class:under={!!notebook}>
       <span class="pt-page">P{tile.pageId}</span>
       {#if tile.first}<span class="pt-date">{tileDateRange(tile.first, tile.last)}</span>{/if}
-      {#if tile.transcribed}<span class="pt-tx" aria-label="transcribed">✓</span>{/if}
+      {#if tile.transcribed}<span class="pt-tx" class:unlinked={linked === false} class:unknown={linked === null} aria-label={linked === false ? 'transcribed, not linked to ink' : 'transcribed'}>✓</span>{/if}
     </span>
     <span class="pt-tags">
       {#each shown as t (t)}<TagChip tag={t} />{/each}
@@ -142,6 +145,8 @@
   .pt-page { font-weight: 600; font-variant-numeric: tabular-nums; flex-shrink: 0; }
   .pt-date { padding: 1px 6px; border-radius: 8px; background: #f2f2f2; color: #666; flex-shrink: 0; }
   .pt-tx { margin-left: auto; color: #2f7d4f; font-weight: 700; }
+  .pt-tx.unlinked { color: #e07b00; }
+  .pt-tx.unknown { color: #bbb; }
   .pt-tags { display: flex; flex-wrap: wrap; gap: 3px; min-height: 19px; padding: 4px 9px 7px; min-width: 0; }
   .pt-n { padding: 1px 6px; border-radius: 99px; background: rgba(0, 0, 0, 0.06); color: #666; font-size: 11px; }
   .pt-none { font-size: 11px; color: #bbb; }

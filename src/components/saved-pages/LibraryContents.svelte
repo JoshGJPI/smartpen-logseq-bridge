@@ -4,7 +4,8 @@
   Pages tab itself (import, export, edit structure) stays with the Editor.
 
   Notebooks and their pages from the metadata-only scan: a dot marks a
-  transcribed page, the open page (both pages of a spread) is highlighted, and a click opens the page
+  transcribed page, orange when its lines are not linked to the ink (still to
+  relink, from the capture-date index's `linked`), the open page (both pages of a spread) is highlighted, and a click opens the page
   in the Library (`openPageInLibrary`, which asks before dropping unsaved
   transcript edits). No page file is read here. Which notebooks are open is
   kept in a store, since this tab is unmounted when the panel collapses.
@@ -19,6 +20,7 @@
     openPageInLibrary, contentsOpenBooks, setContentsBookOpen, readerPages
   } from '$stores';
   import { dataFolderReady } from '$stores/settings.js';
+  import { timelineIndex } from '$stores/timeline.js';
   import { scanLocalPages } from '$lib/storage/scan.js';
   import { buildContents } from '$lib/library-contents.js';
   import { formatBookName } from '$utils/formatting.js';
@@ -30,8 +32,9 @@
 
   $: sel = $viewerSelection;
   $: shownBooks = $bookIds.filter((b) => matchesTypeFilter(b, $bookTypeFilter, $bookTypes) || (sel && String(sel.book) === String(b)));
-  $: contents = buildContents($pagesByBook, shownBooks, (b) => formatBookName(b, $bookAliases, 'alias-only'));
+  $: contents = buildContents($pagesByBook, shownBooks, (b) => formatBookName(b, $bookAliases, 'alias-only'), $timelineIndex);
   $: totalPages = contents.reduce((n, b) => n + b.pages.length, 0);
+  $: totalUnlinked = contents.reduce((n, b) => n + b.unlinked, 0);
 
   // Opening a page opens its notebook here, so the highlight is visible; the
   // notebook can still be folded afterwards.
@@ -66,7 +69,9 @@
   {:else}
     <p class="summary">
       {#if $bookTypeFilter}{typeFilterLabel($bookTypeFilter)} · {/if}{contents.length} {plural(contents.length, 'notebook')} · {totalPages} {plural(totalPages, 'page')}
-      <span class="legend"><i class="dot"></i> transcribed</span>
+      <span class="legend" title="Orange: transcribed, lines not linked to the ink (to relink)">
+        <i class="dot"></i> linked <i class="dot unlinked"></i> {totalUnlinked} to relink
+      </span>
     </p>
     <div class="list" bind:this={listEl}>
       {#each contents as b (b.book)}
@@ -75,7 +80,7 @@
           <button type="button" class="book-head" aria-expanded={open} on:click={() => setContentsBookOpen(b.book)}>
             <span class="chev" class:open>▸</span>
             <span class="name" title={b.name}>{b.name}</span>
-            <span class="count">{b.pages.length} pp · {b.transcribed} <i class="dot"></i></span>
+            <span class="count" title="{b.transcribed} transcribed, {b.unlinked} not linked to the ink">{b.pages.length} pp · {b.transcribed - b.unlinked} <i class="dot"></i>{#if b.unlinked} {b.unlinked} <i class="dot unlinked"></i>{/if}</span>
           </button>
           {#if open}
             <div class="pages">
@@ -85,11 +90,11 @@
                   class="page"
                   class:current={isCurrent(b.book, p.pageId)}
                   aria-current={isCurrent(b.book, p.pageId) ? 'page' : null}
-                  title={`P${p.pageId} · ${p.strokeCount.toLocaleString()} ${plural(p.strokeCount, 'stroke')}${p.transcribed ? ' · transcribed' : ''}`}
+                  title={`P${p.pageId} · ${p.strokeCount.toLocaleString()} ${plural(p.strokeCount, 'stroke')}${p.transcribed ? (p.unlinked ? ' · transcribed, not linked to ink (relink)' : ' · transcribed') : ''}`}
                   on:click={() => openPageInLibrary(b.book, p.pageId)}
                 >
                   P{p.pageId}
-                  {#if p.transcribed}<i class="dot" aria-label="transcribed"></i>{/if}
+                  {#if p.transcribed}<i class="dot" class:unlinked={p.unlinked} aria-label={p.unlinked ? 'transcribed, not linked to ink' : 'transcribed'}></i>{/if}
                 </button>
               {/each}
             </div>
@@ -126,6 +131,7 @@
     border-radius: 50%;
     background: #6ea8fe;
   }
+  .dot.unlinked { background: #f0901e; }
 
   .list {
     flex: 1;

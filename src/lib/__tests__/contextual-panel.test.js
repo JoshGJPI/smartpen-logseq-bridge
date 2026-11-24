@@ -129,13 +129,30 @@ describe('buildContents', () => {
       book: '388',
       name: 'Book 388',
       transcribed: 2,
+      unlinked: 0,
       pages: [
-        { pageId: '1', transcribed: true, strokeCount: 10 },
-        { pageId: '2', transcribed: false, strokeCount: 0 },
-        { pageId: '2b', transcribed: true, strokeCount: 0 }
+        { pageId: '1', transcribed: true, unlinked: false, strokeCount: 10 },
+        { pageId: '2', transcribed: false, unlinked: false, strokeCount: 0 },
+        { pageId: '2b', transcribed: true, unlinked: false, strokeCount: 0 }
       ]
     });
-    expect(out[1].pages).toEqual([{ pageId: '5', transcribed: false, strokeCount: 3 }]);
+    expect(out[1].pages).toEqual([{ pageId: '5', transcribed: false, unlinked: false, strokeCount: 3 }]);
+  });
+
+  it('counts transcribed pages the capture-date index says are not linked to their ink', () => {
+    const timeline = { pages: {
+      '388/1': { linked: false },
+      '388/2': { linked: false },   // not transcribed: never "to relink"
+      '388/2b': { linked: true },
+      '388v2/5': { linked: false }
+    } };
+    const out = buildContents(pagesByBook, ['388', '388v2'], undefined, timeline);
+    expect(out[0].unlinked).toBe(1);
+    expect(out[0].pages.map((p) => p.unlinked)).toEqual([true, false, false]);
+    expect(out[1].unlinked).toBe(0);
+    // A page the index has not seen yet (or no index) is not counted.
+    expect(buildContents(pagesByBook, ['388'], undefined, { pages: {} })[0].unlinked).toBe(0);
+    expect(buildContents(pagesByBook, ['388'])[0].unlinked).toBe(0);
   });
 
   it('defaults the name and tolerates missing input', () => {

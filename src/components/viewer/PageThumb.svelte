@@ -22,6 +22,8 @@
   export let height = '150px';
   /** A sketch line's id: only its ink, cropped to it. */
   export let lineId = null;
+  /** Out (bind:linked): the page's transcript is linked to its ink (true / false), null until read. */
+  export let linked = null;
 
   let el;
   let visible = false;
@@ -34,12 +36,16 @@
   $: if (key !== wanted) {
     wanted = key;
     svg = thumbs.peekSvg(book, pageId, rotation, lineId);
+    linked = thumbs.peekTrust(book, pageId);
   }
   $: if (visible && svg === null) load(key);
 
   async function load(k) {
     const out = await thumbs.get(book, pageId, rotation, lineId);
-    if (k === wanted) svg = out;
+    if (k === wanted) {
+      svg = out;
+      linked = thumbs.peekTrust(book, pageId);
+    }
   }
 
   onMount(() => {

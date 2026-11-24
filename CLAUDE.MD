@@ -154,7 +154,9 @@ each launch opens the Library on its home. Left panel tabs, Library views, the r
   user's variant label and is preserved.
 - Sidecar files in `pages/`: `_aliases.json` (book names, keyed by book key), `_volumes.json` (active volume per
   NCode book; both: missing or corrupt = empty, and a corrupt one is copied to `.corrupt-<ms>` before the next write
-  replaces it, `page-store.cjs` `readSidecarJson`), `_timeline.json` (per-page capture-day histograms; a pure cache, safe to delete), `_orientation.json`
+  replaces it, `page-store.cjs` `readSidecarJson`), `_timeline.json` (per-page capture-day histograms and `linked`, transcript linked to ink: `electron/ink-trust.cjs`
+  mirrors `lib/viewer/ink-text.js` `isTrustworthyTranscript()`, change both; it drives the Library Contents' orange
+  "to relink" dots; a pure cache, safe to delete), `_orientation.json`
   (display rotation per page, `"<bookKey>/<pageId>": 90|180|270`, portrait by absence; missing or corrupt = all portrait),
   `_tags.json` (page tags and dismissed suggestions, `{ version: 1, pages: { "<bookKey>/<pageId>": [tags] }, dismissed:
   {...}, info: {...} }`, untagged by absence; missing or corrupt = no tags, and a corrupt file is replaced only by the next tag change;
