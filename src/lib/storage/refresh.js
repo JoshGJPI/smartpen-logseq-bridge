@@ -25,7 +25,7 @@ import {
   isScanning, clearSavedPages, clearViewerSelection, showLibraryGrid, clearReaderFocus,
   setReaderSequence, gridFilters, notePagesWritten
 } from '$stores';
-import { timelineIndex, loadTimeline, clearTagFilter } from '$stores/timeline.js';
+import { timelineIndex, loadTimeline, clearTagFilter, clearScopeCache } from '$stores/timeline.js';
 import { loadVolumes } from '$stores/volumes.js';
 import { clearTags } from '$stores/tags.js';
 import { clearBookTypes } from '$stores/book-types.js';
@@ -79,6 +79,7 @@ export async function resetForDataFolder() {
   clearSuggestions();
   timelineIndex.set(null);
   clearTagFilter();
+  clearScopeCache();
   clearReaderFocus();
   showLibraryGrid(null);
   clearViewerSelection();

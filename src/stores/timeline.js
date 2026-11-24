@@ -7,7 +7,7 @@
  * and `buildTimeline` in electron/main.cjs for how it is built.
  */
 import { writable, derived, get } from 'svelte/store';
-import { getTimelineIndex } from '$lib/storage/local-store.js';
+import { getTimelineIndex, getPage } from '$lib/storage/local-store.js';
 import {
   dayTotals, timelineExtent, rangeSummary, pagesOnDay, addDays,
   filterIndexByBooks, indexBooks, dayKey
@@ -18,8 +18,10 @@ import { log } from './ui.js';
 import { debug } from '$lib/debug.js';
 import { bookTypes, bookTypeFilter } from './book-types.js';
 import { booksOutsideType, matchesTypeFilter } from '$lib/book-types.js';
-import { filterIndexByTags, indexTags } from '$lib/timeline-tags.js';
-import { pageTags } from './tags.js';
+import { filterIndexByTags, indexTags, scopedStrokes, dayHistogram, scopeIndex } from '$lib/timeline-tags.js';
+import { isTrustworthyTranscript } from '$lib/viewer/ink-text.js';
+import { tagKey, infoOf } from '$lib/tags.js';
+import { pageTags, tagInfo, tagBlocks } from './tags.js';
 
 /** The raw index, or null before the first load. */
 export const timelineIndex = writable(null);
@@ -152,11 +154,90 @@ const timelineIndexByBooks = derived(
     filterIndexByBooks($index, $byType.size ? new Set([...$excluded, ...$byType]) : $excluded)
 );
 
-/** The index as the date features see it — excluded books removed, tag filter applied. */
+/**
+ * Block scope under a tag filter (v3.26.0). Each page carrying a chosen tag is
+ * read once (`getPage`, never the reader's page cache), its strokes narrowed to
+ * the tags' blocks (`scopedStrokes`) and only their capture days kept, so the
+ * activity grid, tallies and feed never count the rest of the page. Cached by
+ * page key; an entry is reused while the file (index `mtimeMs` + `size`), the
+ * page's chosen tags, their info and the page's block corrections are unchanged.
+ * Only the day histogram is kept, never strokes.
+ */
+const scopeCache = new Map();   // page key → { sig, days, why }
+const SCOPE_READS = 4;
+let scopeRun = 0;
+
+/** Pages still being read for block scope (0 when settled). */
+export const timelineScoping = writable(0);
+
+function chosenOnPage(entry, chosen, $pageTags) {
+  const list = ($pageTags && $pageTags[tagKey(entry.book, entry.pageId != null ? entry.pageId : entry.page)]) || [];
+  return list.filter((t) => chosen.has(t)).sort();
+}
+
+function scopeSig(entry, tags, $info, $blocks) {
+  const key = tagKey(entry.book, entry.pageId != null ? entry.pageId : entry.page);
+  return JSON.stringify([entry.mtimeMs ?? null, entry.size ?? null, tags,
+    tags.map((t) => infoOf($info, t)), ($blocks && $blocks[key]) || null]);
+}
+
+async function readScope(key, entry, tags, $info, $blocks) {
+  const pageKey = tagKey(entry.book, entry.pageId != null ? entry.pageId : entry.page);
+  const doc = await getPage(entry.book, entry.pageId != null ? entry.pageId : entry.page);
+  if (!doc) return { days: { ...entry.days }, why: 'unreadable' };
+  const res = scopedStrokes(doc, tags, {
+    info: $info, corrections: ($blocks && $blocks[pageKey]) || {}, trusted: isTrustworthyTranscript(doc)
+  });
+  return { days: res.strokes ? dayHistogram(res.strokes) : { ...entry.days }, why: res.why };
+}
+
+/** The index as the date features see it — excluded books removed, tag filter and block scope applied. */
 export const timelineIndexFiltered = derived(
-  [timelineIndexByBooks, timelineTagFilter, pageTags],
-  ([$index, $tags, $pageTags]) => filterIndexByTags($index, $tags, $pageTags)
+  [timelineIndexByBooks, timelineTagFilter, pageTags, tagInfo, tagBlocks],
+  ([$index, $chosen, $pageTags, $info, $blocks], set) => {
+    const run = ++scopeRun;
+    const byTags = filterIndexByTags($index, $chosen, $pageTags);
+    if (!$chosen || $chosen.size === 0 || !byTags) {
+      timelineScoping.set(0);
+      set(byTags);
+      return;
+    }
+    const lookup = (key, entry) => {
+      const c = scopeCache.get(key);
+      return c && c.sig === scopeSig(entry, chosenOnPage(entry, $chosen, $pageTags), $info, $blocks) ? c : undefined;
+    };
+    const first = scopeIndex(byTags, lookup);
+    set(first.index);
+    timelineScoping.set(first.missing.length);
+    if (!first.missing.length) return;
+
+    const queue = [...first.missing];
+    const worker = async () => {
+      while (queue.length && run === scopeRun) {
+        const key = queue.shift();
+        const entry = byTags.pages[key];
+        const tags = chosenOnPage(entry, $chosen, $pageTags);
+        try {
+          const res = await readScope(key, entry, tags, $info, $blocks);
+          scopeCache.set(key, { sig: scopeSig(entry, tags, $info, $blocks), ...res });
+        } catch (err) {
+          debug('[timeline] block scope read failed', key, err);
+          scopeCache.set(key, { sig: scopeSig(entry, tags, $info, $blocks), days: { ...entry.days }, why: 'unreadable' });
+        }
+        if (run === scopeRun) timelineScoping.update((n) => Math.max(0, n - 1));
+      }
+    };
+    Promise.all(Array.from({ length: Math.min(SCOPE_READS, queue.length) }, worker)).then(() => {
+      if (run === scopeRun) set(scopeIndex(byTags, lookup).index);
+    });
+  },
+  null
 );
+
+/** Forget block-scope results (a data-folder change). */
+export function clearScopeCache() {
+  scopeCache.clear();
+}
 
 /**
  * The tag filter's rows: tags on pages of the included notebooks only (no

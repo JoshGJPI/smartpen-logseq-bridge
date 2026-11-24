@@ -10,6 +10,10 @@
 
   When the day scrolls far away it lets its pages go and holds its measured
   height as a placeholder, so the scroll position doesn't jump.
+
+  Under a tag filter (v3.26.0) the sittings are built from the tagged blocks'
+  strokes only (narrowDayPages); the rest of each page stays grey context, and a
+  page that couldn't be narrowed says so on its strip.
 -->
 <script>
   import { onMount, onDestroy } from 'svelte';
@@ -21,6 +25,10 @@
   import { debug } from '$lib/debug.js';
   import { bookAliases } from '$stores';
   import { formatBookName } from '$utils/formatting.js';
+  import { timelineTagFilter } from '$stores/timeline.js';
+  import { pageTags, tagInfo, tagBlocks } from '$stores/tags.js';
+  import { narrowDayPages } from '$lib/timeline-tags.js';
+  import { isTrustworthyTranscript } from '$lib/viewer/ink-text.js';
 
   /** A 'day' entry from feedSkeleton(). */
   export let item;
@@ -49,7 +57,7 @@
 
   // What this day's ink looked like when it was read; a change (a page saved
   // since) means the cards are stale.
-  $: signature = `${item.strokes}:${item.entries.length}`;
+  $: signature = `${item.strokes}:${item.entries.length}:${[...$timelineTagFilter].sort().join(',')}`;
   $: if (status === 'ready' && loadedFor !== signature) unload();
 
   $: if (active && status === 'idle') load();
@@ -77,13 +85,17 @@
       }));
       if (my !== token) return; // unloaded or destroyed meanwhile
       const present = pages.filter((p) => p.doc);
+      const narrowed = narrowDayPages(present, $timelineTagFilter, {
+        pageTags: $pageTags, info: $tagInfo, blocks: $tagBlocks, trusted: isTrustworthyTranscript
+      });
       const map = new Map();
       for (const p of present) {
-        map.set(`${p.book}/${p.pageId}`, { book: p.book, pageId: p.pageId, ...indexPageStrokes(p.doc) });
+        const why = narrowed.why.get(`${p.book}/${p.pageId}`) || null;
+        map.set(`${p.book}/${p.pageId}`, { book: p.book, pageId: p.pageId, scopeWhy: why, ...indexPageStrokes(p.doc) });
       }
       pagesByKey = map;
-      sessions = daySessions(present, item.day);
-      loadedFor = `${item.strokes}:${entries.length}`;
+      sessions = daySessions(narrowed.pages, item.day);
+      loadedFor = signature;
       status = 'ready';
     } catch (err) {
       if (my !== token) return;

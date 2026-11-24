@@ -36,7 +36,7 @@
         <span class="what">{s.wholePage ? 'named nowhere: whole page' : `${s.blocks.length} ${plural(s.blocks.length, 'block')}`}</span>
       </div>
     {/each}
-    <p class="hint">A line’s ⋯ menu: Tag this block…, Not this person.</p>
+    <p class="hint">A line’s ⋯ menu: Tag this block…, Not this tag.</p>
   </section>
 {/if}
 

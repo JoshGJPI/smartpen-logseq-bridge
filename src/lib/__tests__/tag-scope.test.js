@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  linesFromText, buildTranscriptionText, scopeLinesOf, personNames, nameFromKey, textNamesAny, rootMatcher, hasBlockScope, blockEnd, tagScope,
+  linesFromText, buildTranscriptionText, scopeLinesOf, personNames, topicNames, nameFromKey, textNamesAny, rootMatcher, hasBlockScope, blockEnd, tagScope,
   pageScopes, coveredLineIds, taskInScope, peopleForTasks, blocksOf, tagBlockEntries, mentionedNotTagged, rootsOnLine
 } from '../tag-scope.js';
 import { buildTaskSummary } from '../tasks.js';
@@ -71,9 +71,9 @@ describe('names', () => {
     expect(m('10:00 5444–006')).toBe(true);
     expect(m('15444-006')).toBe(false);
     expect(m('P5444-006')).toBe(false);   // that is the proposal P5444-006
-    expect(rootMatcher('framing', info)).toBeNull();
-    expect(hasBlockScope('framing', info)).toBe(false);
+    expect(hasBlockScope('framing', info)).toBe(true);   // topics too since v3.26.0
     expect(hasBlockScope('rich', info)).toBe(true);
+    expect(rootMatcher('', info)).toBeNull();
   });
 });
 
@@ -108,10 +108,28 @@ describe('tagScope', () => {
     expect(s.blocks).toEqual([]);
   });
 
-  it('topics have no block scope', () => {
-    expect(tagScope(page, 'framing', { info })).toBeNull();
-    expect(pageScopes(page, ['framing', 'rich', '5444-006'], info)).toHaveProperty('rich');
-    expect(Object.keys(pageScopes(page, ['framing', 'rich', '5444-006'], info))).toEqual(['rich', '5444-006']);
+  it('topics have block scope by name, any case, plural allowed (v3.26.0)', () => {
+    const lines = [L('t0', 'Framing review', 0), L('t1', 'joists', 1), L('t2', 'Other', 0), L('t3', 'wall FRAMED', 0), L('t4', 'reframing', 0)];
+    const s = tagScope(lines, 'framing', { info });
+    expect(s.roots).toEqual([0, 3]);   // key and alias; "reframing" is not the whole word
+    expect([...s.covered].sort()).toEqual([0, 1, 3]);
+    expect(tagScope(page, 'framing', { info }).wholePage).toBe(true);   // named nowhere
+    expect(Object.keys(pageScopes(page, ['framing', 'rich', '5444-006'], info))).toEqual(['framing', 'rich', '5444-006']);
+  });
+
+  it('a topic matches its key words with spaces or hyphens, and plurals', () => {
+    expect(topicNames('pen-refill', {})).toEqual(['pen refill']);
+    const m = rootMatcher('pen-refill', {});
+    expect(m('Need pen refills')).toBe(true);
+    expect(m('pen-refill ordered')).toBe(true);
+    expect(m('PEN  REFILL')).toBe(true);
+    expect(m('pen refilling')).toBe(false);
+    const d = rootMatcher('dream', { dream: { label: 'Dream', aliases: ['vision'] } });
+    expect(d('Dreams last night')).toBe(true);
+    expect(d('a Vision for 2027')).toBe(true);
+    expect(d('dreamt')).toBe(false);
+    expect(topicNames('tom', info)).toEqual([]);
+    expect(topicNames('5444-006', info)).toEqual([]);
   });
 
   it('a hand add makes a root where the name is not written', () => {
@@ -170,7 +188,8 @@ describe('tagScope', () => {
 
 describe('coveredLineIds (for Phase E)', () => {
   it('takes lines and returns covered line ids per tag on the page', () => {
-    expect(coveredLineIds(page, ['tom', 'framing'], info)).toEqual({ tom: ['a3', 'a4', 'b2'] });
+    expect(coveredLineIds(page, ['tom'], info)).toEqual({ tom: ['a3', 'a4', 'b2'] });
+    expect(coveredLineIds(page, ['framing'], info).framing).toHaveLength(page.length);   // named nowhere: whole page
     expect(coveredLineIds(page, ['tom'], info, { tom: { remove: ['b2'] } })).toEqual({ tom: ['a3', 'a4'] });
     expect(coveredLineIds(linesFromText(text(page)), ['tom'], info)).toEqual({ tom: [] });   // no ids
   });
@@ -241,7 +260,8 @@ describe('blocks for a tag page (D.2)', () => {
       tag: 'rich', info, dates, blocks: { '3017/170': { rich: { add: ['b0'] } } }, scopeLines: new Map([['3017/170', page]])
     });
     expect(withLines.filter((e) => e.key === '3017/170').map((e) => e.rootId)).toEqual(['a1', 'b0']);
-    expect(tagBlockEntries(recs, { tag: 'framing', info })).toEqual([]);
+    expect(tagBlockEntries(recs, { tag: 'framing', info }).every((e) => e.wholePage)).toBe(true);
+    expect(tagBlockEntries(recs, { tag: '', info })).toEqual([]);
   });
 
   it('mentionedNotTagged: names the person, page not tagged; never anything else', () => {

@@ -27,7 +27,7 @@
   import { typeFilterLabel } from '$lib/book-types.js';
   import BookTypeFilterSelect from '../books/BookTypeFilterSelect.svelte';
   import TagFilterColumn from './TagFilterColumn.svelte';
-  import { timelineTagFilter } from '$stores/timeline.js';
+  import { timelineTagFilter, timelineScoping } from '$stores/timeline.js';
   import { tagInfo } from '$stores/tags.js';
   import { tagLabel } from '$lib/tags.js';
 
@@ -85,7 +85,7 @@
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
     </svg>
-    {label}
+    {label}{#if $timelineScoping > 0}<span class="bf-busy" title="Reading tagged pages to count only their tagged blocks"> · narrowing…</span>{/if}
     <span class="bf-caret" aria-hidden="true">▾</span>
   </button>
 
@@ -142,6 +142,7 @@
 
   .bf-btn:disabled { opacity: 0.5; cursor: default; }
   .bf-caret { font-size: 10px; opacity: 0.7; }
+  .bf-busy { opacity: 0.7; font-weight: 400; }
 
   .bf-menu {
     position: absolute;

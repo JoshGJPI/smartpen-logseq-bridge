@@ -1,11 +1,11 @@
 <!--
   TagBlockDialog.svelte — "Tag this block…" from a transcript line's ⋯ menu in
   the Library reader (v3.23.0, docs/TRANSCRIPT-STRUCTURE-SPEC.md D.4). Picks a
-  Person or Project tag (the page's own first, then every other person, or a
-  typed project number or new person) and makes the line a root of that tag's
+  tag (the page's own first, then every other person and topic, or a typed
+  project number or new person) and makes the line a root of that tag's
   block: stores/tags.js tagBlock() adds the tag to the page when it is missing
   and the `add` root in ONE write to _tags.json (a new person's type too).
-  Topics have no block scope, so they are not offered. Opened through
+  Topics have block scope since v3.26.0, so they are offered too. Opened through
   stores/tag-scope.js tagBlockDialog; one instance, in App.
 -->
 <script>
@@ -23,12 +23,11 @@
   $: key = d ? tagKey(d.book, d.pageId) : null;
   $: onPage = (key && $pageTags[key]) || [];
   $: known = [...new Set([...$tagStatsList.map((s) => s.tag), ...Object.keys($tagInfo)])];
-  $: scoped = (t) => isProjectTag(t) || tagTypeOf(t, $tagInfo) === 'person';
   $: q = text.trim();
   $: matches = (t) => !q || tagAnswersTo(t, $tagInfo, q) || t.includes(normalizeTag(q) || '\u0000')
     || tagLabel(t, $tagInfo).toLowerCase().includes(q.toLowerCase());
-  $: first = onPage.filter(scoped).filter(matches).sort(compareTags);
-  $: people = known.filter((t) => !onPage.includes(t) && tagTypeOf(t, $tagInfo) === 'person' && !isProjectTag(t))
+  $: first = onPage.filter(matches).sort(compareTags);
+  $: people = known.filter((t) => !onPage.includes(t) && !isProjectTag(t))
     .filter(matches).sort(compareTags).slice(0, 12);
   $: typed = normalizeTag(q);
   $: newRow = typed && !known.includes(typed) && !onPage.includes(typed)
@@ -74,13 +73,13 @@
       <h2 id="tbd-h">Tag this block</h2>
       <p class="line" title={d.text}>{d.text}</p>
       <p class="sub">The line and everything indented under it go under the tag. The tag is added to the page if it isn’t there yet.</p>
-      <input bind:this={field} bind:value={text} type="search" placeholder="Person or project number…" aria-label="Find a person or project" />
+      <input bind:this={field} bind:value={text} type="search" placeholder="Person, topic or project number…" aria-label="Find a tag" />
       <div class="opts">
         {#if first.length}<h3>On this page</h3>{/if}
         {#each first as t (t)}
           <button type="button" class="opt" on:click={() => pick(t)}><TagChip tag={t} /></button>
         {/each}
-        {#if people.length}<h3>People</h3>{/if}
+        {#if people.length}<h3>People and topics</h3>{/if}
         {#each people as t (t)}
           <button type="button" class="opt" on:click={() => pick(t)}><TagChip tag={t} /></button>
         {/each}

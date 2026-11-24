@@ -77,9 +77,9 @@
   $: barIds = barTag ? new Set(coveredLineIds(lines, [barTag], $tagInfo, corrections)[barTag] || []) : null;
   $: barType = barTag ? tagTypeOf(barTag, $tagInfo) : null;
   $: blockItems = (line) => [
-    { label: 'Tag this block…', title: 'Make this line the head of a person’s or project’s block', onSelect: () => openTagBlockDialog(taskBook, taskPageId, line) },
+    { label: 'Tag this block…', title: 'Make this line the head of a tag’s block', onSelect: () => openTagBlockDialog(taskBook, taskPageId, line) },
     ...rootsOnLine(lines, line.id, onPage, $tagInfo, corrections).map((r) => ({
-      label: `${tagTypeOf(r.tag, $tagInfo) === 'person' ? 'Not this person' : 'Not this project'} (${tagLabel(r.tag, $tagInfo)})`,
+      label: `Not this ${tagTypeOf(r.tag, $tagInfo)} (${tagLabel(r.tag, $tagInfo)})`,
       title: 'This line names the tag by accident: it no longer heads a block',
       onSelect: () => untagBlock(taskBook, taskPageId, r.tag, line.id, { byText: r.byText })
     }))
@@ -152,6 +152,7 @@
         class:focus={focusId === line.id}
         class:scoped={!!barIds && barIds.has(line.id)}
         class:sp={barType === 'person'}
+        class:st={barType === 'topic'}
         use:scrollTo={focusId === line.id}
         style="padding-left: {(line.indentLevel || 0) * 1.5}rem"
         on:mouseenter={() => hover(line)}
@@ -222,6 +223,7 @@
   /* Block scope (v3.23.0): a faint bar in the tag's colour (project teal, person violet). */
   .tl-line.scoped { background-image: linear-gradient(to right, rgba(15, 118, 110, 0.35) 3px, transparent 3px); }
   .tl-line.scoped.sp { background-image: linear-gradient(to right, rgba(106, 63, 168, 0.35) 3px, transparent 3px); }
+  .tl-line.scoped.st { background-image: linear-gradient(to right, rgba(98, 98, 110, 0.35) 3px, transparent 3px); }
   .tl-marker {
     flex-shrink: 0;
     color: #bbb;

@@ -98,7 +98,12 @@
       theirs: visible.filter((it) => !part.strokes.has(it.stroke))
     };
   });
-  $: greyNote = describeGrey(views.flatMap((v) => v.theirs), part.firstStart);
+  $: greyNote = page.scopeWhy === 'scoped' && views.some((v) => v.theirs.length)
+    ? 'Grey: outside the tagged blocks, or other times'
+    : describeGrey(views.flatMap((v) => v.theirs), part.firstStart);
+  // Under a tag filter (v3.26.0): a page whose ink couldn't be narrowed to the tag's blocks.
+  $: scopeNote = page.scopeWhy === 'untrusted' ? 'Whole sitting shown: relink this page to narrow it to the tag'
+    : page.scopeWhy === 'untranscribed' ? 'Whole sitting shown: not transcribed yet' : '';
 
   // Name when the grey ink was written, when that is one answer — "written
   // 12 Sep" explains a strip at a glance; "other times" is the honest fallback.
@@ -185,6 +190,9 @@
     {/each}
     {#if greyNote}
       <span class="fp-legend"><i></i>{greyNote}</span>
+    {/if}
+    {#if scopeNote}
+      <span class="fp-legend scope">{scopeNote}</span>
     {/if}
   </button>
 </div>
@@ -305,6 +313,7 @@
     pointer-events: none;
   }
 
+  .fp-legend.scope { top: auto; bottom: 8px; color: #8a5a00; border-color: #f0dca6; }
   .fp-legend i {
     width: 14px;
     height: 3px;

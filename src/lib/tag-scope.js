@@ -9,7 +9,9 @@
  *   on the line finds the tag. A person: the display name or an alias as a whole
  *   word, **case-sensitive** (decision 4: "Rich update" names Rich, "rich mix"
  *   does not), a possessive allowed ("Tom's"). A person with no display name
- *   answers to its key capitalised ("isaiah" → "Isaiah"). Topics have no block scope (null).
+ *   answers to its key capitalised ("isaiah" → "Isaiah"). A topic (v3.26.0):
+ *   its key, display name or an alias in ANY case, a hyphen or space between
+ *   words either way, a plural allowed ("dream" roots "Dreams last night").
  * - **Block**: a root and every following line with a deeper indent, up to the
  *   next line at the root's indent or shallower. A root that is itself a child
  *   covers only itself and its own children.
@@ -136,6 +138,45 @@ function namesRe(names) {
   return re;
 }
 
+/**
+ * The names a topic is matched by (v3.26.0): its key with hyphens as spaces,
+ * its display name, then its aliases. Matched in any case (topicMatcher).
+ * People and projects: [].
+ */
+export function topicNames(tag, info) {
+  if (isProjectTag(tag) || tagTypeOf(tag, info) !== 'topic') return [];
+  const rec = infoOf(info, tag);
+  const out = [];
+  for (const n of [String(tag).replace(/[-_]+/g, ' '), rec.label, ...(rec.aliases || [])]) {
+    const t = typeof n === 'string' ? n.trim() : '';
+    if (t && !out.some((o) => o.toLowerCase() === t.toLowerCase())) out.push(t);
+  }
+  return out;
+}
+
+const topicReCache = new Map();
+
+/**
+ * `(text) => boolean` for a topic's names: whole word, any case, words joined by
+ * any run of spaces, hyphens or underscores, a plural (-s / -es) or possessive
+ * allowed. Null when there is no name.
+ */
+export function topicMatcher(names) {
+  const list = (names || []).map((n) => String(n).trim()).filter(Boolean);
+  if (!list.length) return null;
+  const key = list.join('\u0000');
+  let re = topicReCache.get(key);
+  if (!re) {
+    const alts = list
+      .sort((a, b) => b.length - a.length)
+      .map((n) => n.split(/[\s_-]+/).filter(Boolean).map(escapeRe).join('[\\s_-]+'));
+    re = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${alts.join('|')})(?:e?s)?(?![\\p{L}\\p{N}_])`, 'iu');
+    if (topicReCache.size > 500) topicReCache.clear();
+    topicReCache.set(key, re);
+  }
+  return (text) => typeof text === 'string' && !!text && re.test(text);
+}
+
 /** Does `text` name a person by one of `names` (whole word, case-sensitive)? */
 export function textNamesAny(text, names) {
   if (typeof text !== 'string' || !text || !names || !names.length) return false;
@@ -144,21 +185,22 @@ export function textNamesAny(text, names) {
 }
 
 /**
- * A matcher for one tag's roots: `(text) => boolean`, or null for a tag with no
- * block scope (a Topic, or anything that isn't a tag).
+ * A matcher for one tag's roots: `(text) => boolean`, or null for anything that
+ * isn't a tag. Every type has block scope since v3.26.0 (topics by topicMatcher).
  * @param {string} tag
  * @param {Record<string, object>} [info]  the info map
  */
 export function rootMatcher(tag, info) {
   if (isProjectTag(tag)) return (text) => findProjectNumbers(text).some((h) => h.tag === tag);
+  if (tagTypeOf(tag, info) === 'topic') return topicMatcher(topicNames(tag, info));
   const names = personNames(tag, info);
   if (!names.length) return null;
   return (text) => textNamesAny(text, names);
 }
 
-/** True when the tag has block scope: a Project or a Person. */
+/** True when the tag has block scope: every Project, Person and Topic (v3.26.0). */
 export function hasBlockScope(tag, info) {
-  return isProjectTag(tag) || tagTypeOf(tag, info) === 'person';
+  return !!rootMatcher(tag, info);
 }
 
 /* ============================================================

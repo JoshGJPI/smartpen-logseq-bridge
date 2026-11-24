@@ -6,6 +6,38 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.26.0 — Timeline narrowed to tagged blocks; topic block scope (November 2026)
+
+Josh asked (2026-11-24) that a tag-filtered Timeline show only the part of each page that belongs to the tag (the
+project's block, Isaiah's block, the dream entry), and that the rest of a page's ink never adds days to the activity.
+Decisions (asked the same day): topics get block scope by name everywhere; pages whose ink links can't be trusted show
+the whole sitting with a note; other ink in a strip stays grey.
+
+- **Topics have block scope** (`lib/tag-scope.js`): a line naming the topic's key (hyphens as spaces), display name or
+  an alias roots a block, **any case**, plural or possessive allowed ("Dreams last night" roots `dream`; "reframing"
+  does not root `framing`). People stay case-sensitive (decision 4 is about names). No line names it = the whole
+  page, as for the other types. So Tag this block… offers topics, a line's ⋯ says "Not this topic", the strip's
+  Block scope lists topics (grey bar), a topic's tag page lists its blocks, and sketches by topic follow the block.
+- **Which ink is a block's** (`lib/timeline-tags.js` `scopedStrokes`): ink linked to a covered line; unlinked ink
+  (not yet transcribed, Not text, a dangling link) when its centre is inside a block's linked-ink box padded by
+  `SCOPE_PAD` (3 Ncode units: an underline goes with its heading). Box, not band, so a turned page needs no frame
+  maths. Not narrowed (every stroke) when a tag is named nowhere on the page, there is no transcript, or
+  `isTrustworthyTranscript()` is false.
+- **The activity counts only scoped ink.** Under a tag filter `timelineIndexFiltered` replaces each tagged page's day
+  histogram with its scoped one (`scopeIndex`), so the grid, tallies, day list, feed days and date search agree. The
+  store reads each tagged page once with `getPage()` (four at a time, never the reader's page cache), keeps only the
+  histogram, and caches it by page key while the file (`mtimeMs` + `size`), the page's chosen tags, their info and the
+  page's block corrections are unchanged. While pages are read they are **left out** rather than shown at page level
+  (the button says "narrowing…"), so a page-wide day never flashes in. An unreadable page keeps its page-level days.
+- **The cards** (`FeedDay` → `narrowDayPages`): sittings are built from the scoped strokes only, so a strip is cut
+  around the tagged block; the rest of the page stays grey context ("Grey: outside the tagged blocks, or other
+  times"). A page not narrowed for want of links or a transcript says so on its strip.
+- Measured on the data folder: Isaiah's page goes from 714 strokes on 3 days to 137 on 2. Most project pages are
+  still pre-fix transcriptions (29 of 45 for 9999-110, 6 of 7 for 2327-018) and show whole until relinked; the 14
+  `sketch` pages are untranscribed.
+- Left as they were: the tag column's counts are pages at page level; Load range / day / sitting into Editor loads the
+  page's ink for the dates (editing wants the page).
+
 ## v3.25.0 — Timeline tag filter (November 2026)
 
 Josh asked (2026-11-24) to filter the Timeline by tag as well as by notebook and type, with the tags offered narrowed

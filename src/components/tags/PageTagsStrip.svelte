@@ -12,7 +12,7 @@
   dismissals; ✓ tags this page only, ✕ dismisses for this page and stays
   dismissed. Nothing is tagged without a click.
 
-  Block scope (v3.23.0): ScopeToggles lists the page's Person and Project tags;
+  Block scope (v3.23.0): ScopeToggles lists the page's tags (topics too since v3.26.0);
   picking one marks the lines it covers in the transcript.
 -->
 <script>

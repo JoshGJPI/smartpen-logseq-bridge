@@ -35,7 +35,7 @@ src/lib/           pure logic, no UI, testable without DOM (tags: also tag types
                    🏷 Tags act on, book-types, canvas-save-plan: which pages a save writes and which deletion marks it
                    settles, canvas-text-view: the Editor's text view, delete-lines: Delete line / block and what it
                    asks, deleted-ink: the deleted lines' ink and the `textless` flag, line-kinds: sketch lines' format,
-                   box, scan text and placement (v3.24.0), sketch-search: sketches by tag and label; timeline-tags: the Timeline's tag filter (v3.25.0); one line each in
+                   box, scan text and placement (v3.24.0), sketch-search: sketches by tag and label; timeline-tags: the Timeline's tag filter and block scope (v3.25.0, v3.26.0); one line each in
                    docs/ARCHITECTURE.md "Key Libraries")
 src/lib/storage/   PageDoc layer: local-store (IPC facade), save-page, load-page, load-range, scan, page-changes, graph-export,
                    convert-task-boxes (one-off conversion of old transcripts), line-match (stroke ↔ MyScript line, v3.21.0)
@@ -136,7 +136,7 @@ each launch opens the Library on its home. Left panel tabs, Library views, the r
 - **`_tags.json` `blocks`** (v3.23.0, spec Phase D; the version stays 1): hand corrections to block scope,
   `{ "<bookKey>/<pageId>": { "<tag>": { "add": [lineId], "remove": [lineId] } } }`. *add* makes a line a root of the
   tag although its name isn't written there, *remove* drops a root that matched by accident; an id is in one list at
-  most (an id in both stays an add). Only Person and Project tags have block scope. Ids no longer on the page are
+  most (an id in both stays an add). Every tag type has block scope (topics since v3.26.0). Ids no longer on the page are
   ignored, never cleaned. `lib/tags.js` owns it (`normalizeBlocksMap`, `withBlockRoot`, `withoutBlockRoot`, …).
 - **`transcriptionText`** (scan records): two spaces per indent level, then the line's text without its own leading
   spaces (v3.23.0), so it reads back at the stored indent. Built by main `buildTranscriptionText` and its mirror
@@ -275,7 +275,8 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
 
 - **A tag covers blocks, never by text alone.** `lib/tag-scope.js` is the one rule: roots are lines naming the tag (a
   project by `findProjectNumbers()`; a person by display name or alias, whole word, **case-sensitive** (decision 4),
-  possessive allowed; no display name = the key capitalised), a block is a root and every following deeper line, a
+  possessive allowed; no display name = the key capitalised; a topic (v3.26.0) by key, display name or alias, whole
+  word, **any case**, plural allowed), a block is a root and every following deeper line, a
   nested root covers only itself and its children, and no root = the whole page. Scope is computed only for tags ON the
   page; a name in text never puts a page under a person (decision 5): "Mentioned, not tagged" and "Tag this block…"
   tag a page only from a click.
@@ -481,6 +482,11 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
 - Every derived timeline store reads the filtered index (`timelineIndexFiltered`: books and type, then the
   session-only tag filter, v3.25.0); so must any caller that passes `index:` to a date load. The tag column offers
   only tags on pages of the notebooks left in (`timelineTags`).
+- **Under a tag filter the index counts only the tags' blocks** (v3.26.0): each tagged page's day histogram is
+  replaced by its scoped strokes' (`lib/timeline-tags.js` `scopedStrokes` / `scopeIndex`), read once per page with
+  `getPage()` and cached by `mtimeMs` + `size` + tags + info + corrections (histogram only, never strokes). Pages not
+  read yet are left out, never shown at page level. The feed builds sittings from the same scoped strokes
+  (`narrowDayPages`). Untrusted links, no transcript or a tag named nowhere = the whole page.
 
 ### Transcription
 

@@ -97,7 +97,7 @@
   {#if type === 'person'}<PersonItems tag={view.tag} />{:else if view.kind === 'tag'}<TagTasksPanel tag={view.tag} />{/if}
   </div>
   {#if view.kind === 'tag'}<TagSketches tag={view.tag} {records} />{/if}
-  {#if type === 'person' || type === 'project'}<TagBlocksList tag={view.tag} {records} />{/if}
+  <TagBlocksList tag={view.tag} {records} />
   {#if type === 'person'}<MentionedPages tag={view.tag} {onOpen} />{/if}
 </div>
 
