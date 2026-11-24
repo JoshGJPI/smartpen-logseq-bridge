@@ -37,7 +37,7 @@
     importDateRangeFromFolder, importSessionFromFolder, LARGE_LOAD_STROKES
   } from '$lib/storage/load-range.js';
   import {
-    timelineIndex, timelineIndexFiltered, timelineExcludedBooks, timelineTypeExcludedBooks, timelineFiltering, timelineLoading, timelineError,
+    timelineIndex, timelineIndexFiltered, timelineExcludedBooks, timelineTypeExcludedBooks, timelineTagFilter, timelineFiltering, timelineLoading, timelineError,
     timelineRange, timelineDays, timelineSummary, loadTimeline, setTimelineRange,
     setCanvasPageOrder, feedOrder, feedDayInView, feedJumpRequest, navigateTo,
     openPageInLibrary, setActiveTab
@@ -184,9 +184,11 @@
   // Start from the top only when the feed genuinely changes: a new near end
   // (the day it opens on), a new order, or a new book filter. Growing the FAR
   // end — endless scroll, or dragging the grid further back — keeps your place.
+  // A tag filter change counts as a new book filter.
   let lastKey = '';
   $: nearEnd = order === 'oldest' ? range.from : range.to;
-  $: filterKey = [...$timelineExcludedBooks, ...$timelineTypeExcludedBooks].sort().join(',');
+  $: filterKey = [...$timelineExcludedBooks, ...$timelineTypeExcludedBooks].sort().join(',')
+    + '#' + [...$timelineTagFilter].sort().join(',');
   $: feedKey = `${nearEnd}|${order}|${filterKey}`;
   $: if (feedKey !== lastKey) {
     lastKey = feedKey;

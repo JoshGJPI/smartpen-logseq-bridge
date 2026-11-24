@@ -6,6 +6,26 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.25.0 — Timeline tag filter (November 2026)
+
+Josh asked (2026-11-24) to filter the Timeline by tag as well as by notebook and type, with the tags offered narrowed
+to the chosen notebooks so no filter can match nothing.
+
+- **A side column in the book filter** (`TagFilterColumn` beside the book rows; the menu is 520 px wide, each column
+  scrolls on its own). Ticked tags keep pages with **any** of them (a page usually carries one project, so "all of"
+  would mostly empty the feed); none ticked = no tag filter ("Any" clears it). Each row has the tag's type colour,
+  its label, the pages with ink in the range (dimmed at 0) and "Only". A search box appears above 8 tags.
+- **No dead filters**: the rows are tags on pages of the book-and-type-filtered index (`timelineTags`), so a tag
+  found only in left-out notebooks is not offered. A ticked tag whose notebook is then left out stays listed at 0,
+  so it can still be unticked rather than filtering invisibly.
+- **One shared filter, as before**: `timelineIndexFiltered` applies books, then tags, so the feed, the Dates grid
+  and tallies, date search results and a load into the Editor agree. The book counts ignore the tag filter (they
+  say what a book change would do); the tag list depends on the books, never the other way.
+- **Session-only**, unlike the book exclusions: tags are added after writing, so a remembered tag filter would hide
+  today's new, untagged ink on the next launch. A data-folder change clears it.
+- The button reads e.g. "Work · All books · 2327-018" (one tag) or "· 3 tags"; the feed's end notes say "this
+  filter" instead of "these books".
+
 ## v3.24.0 — Sketch lines (November 2026)
 
 Phase E of [TRANSCRIPT-STRUCTURE-SPEC.md](TRANSCRIPT-STRUCTURE-SPEC.md), built to the mockup Josh approved on

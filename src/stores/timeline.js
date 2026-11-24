@@ -18,6 +18,8 @@ import { log } from './ui.js';
 import { debug } from '$lib/debug.js';
 import { bookTypes, bookTypeFilter } from './book-types.js';
 import { booksOutsideType, matchesTypeFilter } from '$lib/book-types.js';
+import { filterIndexByTags, indexTags } from '$lib/timeline-tags.js';
+import { pageTags } from './tags.js';
 
 /** The raw index, or null before the first load. */
 export const timelineIndex = writable(null);
@@ -108,17 +110,62 @@ export const timelineTypeExcludedBooks = derived(
   ([$index, $types, $filter]) => booksOutsideType(indexBooks($index).map((b) => b.book), $filter, $types)
 );
 
-/** True while either the book filter or the type filter leaves a notebook out. */
+/* ------------------------------------------------------------------
+ * Tag filter. Stored as the CHOSEN tags (pages with any of them stay), and
+ * session-only on purpose: a remembered tag filter would hide today's
+ * untagged ink on the next launch. Applied after the book and type filters,
+ * and offers only tags on pages of the notebooks those leave in.
+ * ------------------------------------------------------------------ */
+
+/** Tags the date features are narrowed to; empty = no tag filter. */
+export const timelineTagFilter = writable(new Set());
+
+export function setTagIncluded(tag, included) {
+  timelineTagFilter.update((set) => {
+    const key = String(tag);
+    if (included === set.has(key)) return set;
+    const next = new Set(set);
+    if (included) next.add(key); else next.delete(key);
+    return next;
+  });
+}
+
+/** Narrow to one tag — the tag column's "Only". */
+export function includeOnlyTag(tag) {
+  timelineTagFilter.set(new Set([String(tag)]));
+}
+
+export function clearTagFilter() {
+  if (get(timelineTagFilter).size) timelineTagFilter.set(new Set());
+}
+
+/** True while the book, type or tag filter leaves anything out. */
 export const timelineFiltering = derived(
-  [timelineExcludedBooks, timelineTypeExcludedBooks],
-  ([$excluded, $byType]) => $excluded.size > 0 || $byType.size > 0
+  [timelineExcludedBooks, timelineTypeExcludedBooks, timelineTagFilter],
+  ([$excluded, $byType, $tags]) => $excluded.size > 0 || $byType.size > 0 || $tags.size > 0
 );
 
-/** The index as the date features see it — with excluded books removed. */
-export const timelineIndexFiltered = derived(
+/** The index with excluded books (by hand or by type) removed, before the tag filter. */
+const timelineIndexByBooks = derived(
   [timelineIndex, timelineExcludedBooks, timelineTypeExcludedBooks],
   ([$index, $excluded, $byType]) =>
     filterIndexByBooks($index, $byType.size ? new Set([...$excluded, ...$byType]) : $excluded)
+);
+
+/** The index as the date features see it — excluded books removed, tag filter applied. */
+export const timelineIndexFiltered = derived(
+  [timelineIndexByBooks, timelineTagFilter, pageTags],
+  ([$index, $tags, $pageTags]) => filterIndexByTags($index, $tags, $pageTags)
+);
+
+/**
+ * The tag filter's rows: tags on pages of the included notebooks only (no
+ * filter that could never match), with pages holding ink in the range; chosen
+ * tags are always listed so they can be unticked.
+ */
+export const timelineTags = derived(
+  [timelineIndexByBooks, pageTags, timelineRange, timelineTagFilter],
+  ([$index, $pageTags, $range, $chosen]) => indexTags($index, $pageTags, $range.from, $range.to, $chosen)
 );
 
 /**

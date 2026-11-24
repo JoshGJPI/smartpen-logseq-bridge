@@ -125,7 +125,7 @@ App.svelte (Root)
                                 TaskBox glyphs + TaskMenu, v3.4.0)
     └── TimelineFeed (Timeline — the Dates range as a scrolling feed;
         │             grows the range as you scroll off its end)
-        ├── TimelineHead (‹ RangeMenu › · summary · BookFilterMenu · Load range into Editor)
+        ├── TimelineHead (‹ RangeMenu › · summary · BookFilterMenu (+ TagFilterColumn) · Load range into Editor)
         │   ├── RangeMenu ("Range ▾": From / To, Latest day · 1 · 7 · 30 days)
         │   └── ActivityStrip (the ink as a zoomable strip; the range as a draggable window)
         │       └── StripScroll (its 6 px scroll bar, shown only while zoomed in)
@@ -336,6 +336,13 @@ All state is managed through Svelte stores located in `src/stores/`. Main-proces
   and so must any caller passing `index:` to a date load — that is what keeps the
   grid, tallies, feed and Editor loads agreeing. `timelineIndex` stays raw (the
   book list needs every book)
+  **Tag filter (v3.25.0):** `timelineTagFilter` (a `Set` of CHOSEN tags; pages with
+  any of them stay; session-only, so a remembered filter never hides today's
+  untagged ink on launch; cleared by `resetForDataFolder()`),
+  `setTagIncluded()`/`includeOnlyTag()`/`clearTagFilter()`, and `timelineTags`
+  (the tag column's rows: only tags on pages of the notebooks the book and type
+  filters leave in, plus any chosen tag, with pages in range).
+  `timelineIndexFiltered` = books, then tags (`pageTags` from `stores/tags.js`)
 - `context-ink.js` — `contextInk`: strokes the canvas DRAWS but does not own.
   A date load puts only in-range strokes in `strokes`; the rest of each touched
   page lands here and renders halftoned. Kept out of `strokes` deliberately, so
@@ -473,6 +480,9 @@ All state is managed through Svelte stores located in `src/stores/`. Main-proces
   strokes; `firstDay` is the earliest day *inside* the range), `rangeSummary`,
   `pagesOnDay`, and the book filter's `filterIndexByBooks()` (returns the same
   object when nothing is excluded) and `indexBooks()` (book-key order)
+- `timeline-tags.js` - the Timeline's tag filter (v3.25.0, pure): `filterIndexByTags(index, chosen, pageTags)`
+  (any of; same object when none chosen) and `indexTags(index, pageTags, from, to, keep)` (the tag column's rows,
+  `compareTags` order). Apart from `timeline.js` because `tags.js` → `library-home.js` → `timeline.js`
 - `neo-backgrounds.js` - **Neo printed pages** (pure; shared by the importer script, the store and tests). `parseNproj()`, `frameOfPageItem()` (rectangle inset by `crop_margin`, 72-dpi pt → Ncode via `PT_PER_NCODE` = 6.72), `summarizeNproj()` (one frame per book, `uniform`/`rotated` flags), `buildManifest()`/`normalizeManifest()` (a bad manifest means "no background", never a throw), `pageNumberOfId()`, `manifestCoversPage()`, `frameToBounds()` (the shape `computeStrokeBounds()` returns, so a view can fit the sheet instead of the ink)
 - `page-orientation.js` - **Page rotation** (pure). `ROTATIONS`, `normalizeRotation()` (anything unknown → 0), `rotateBy()`, `rotationLabel()`; sidecar keys `orientationKey()`/`parseOrientationKey()` (book part via `volumes.js`), `normalizeOrientations()`, `rotationFor()`; geometry within a paper FRAME: `rotateFrame()` (same top-left, w/h swapped), `rotationMatrix()` (`[a,b,c,d,e,f]`, SVG `matrix()` / Canvas `transform()` order, optional scale), `svgRotationTransform()` ('' for portrait), `rotatePoint()`/`unrotatePoint()`, `rotateBox()` (exact for right angles), `rotateStoredPoints()`/`rotateCanvasStrokes()` (copies, for MyScript and the transcript preview only). `NOMINAL_FRAME` is the sheet used where no paper is known (Editor, transcription), where only the translation depends on it
 - `transcript-search.js` - Full-text search across transcriptions

@@ -35,7 +35,7 @@ src/lib/           pure logic, no UI, testable without DOM (tags: also tag types
                    🏷 Tags act on, book-types, canvas-save-plan: which pages a save writes and which deletion marks it
                    settles, canvas-text-view: the Editor's text view, delete-lines: Delete line / block and what it
                    asks, deleted-ink: the deleted lines' ink and the `textless` flag, line-kinds: sketch lines' format,
-                   box, scan text and placement (v3.24.0), sketch-search: sketches by tag and label; one line each in
+                   box, scan text and placement (v3.24.0), sketch-search: sketches by tag and label; timeline-tags: the Timeline's tag filter (v3.25.0); one line each in
                    docs/ARCHITECTURE.md "Key Libraries")
 src/lib/storage/   PageDoc layer: local-store (IPC facade), save-page, load-page, load-range, scan, page-changes, graph-export,
                    convert-task-boxes (one-off conversion of old transcripts), line-match (stroke ↔ MyScript line, v3.21.0)
@@ -478,8 +478,9 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   `dayKey`, `canvas-renderer` `captureDayKey`. Ranges are half-open `[startMs, endMs)` via `rangeBoundsMs()`.
 - Capture date comes only from stroke `startTime`. `metadata.lastUpdated` is a file-write time and can differ by
   months.
-- Every derived timeline store reads the book-filtered index (`timelineIndexFiltered`); so must any caller that
-  passes `index:` to a date load.
+- Every derived timeline store reads the filtered index (`timelineIndexFiltered`: books and type, then the
+  session-only tag filter, v3.25.0); so must any caller that passes `index:` to a date load. The tag column offers
+  only tags on pages of the notebooks left in (`timelineTags`).
 
 ### Transcription
 

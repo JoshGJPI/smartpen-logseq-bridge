@@ -28,7 +28,7 @@
 </script>
 
 {#if empty}
-  <div class="fe-title">No ink in {rangeLabel}{filtering ? ' for the selected books' : ''}</div>
+  <div class="fe-title">No ink in {rangeLabel}{filtering ? ' for this filter' : ''}</div>
 {/if}
 {#if hasMore}
   <div class="fe-sub">{order === 'oldest' ? 'Later' : 'Earlier'} days load as you scroll</div>
@@ -43,11 +43,11 @@
 {:else}
   <div class="fe-title">
     {#if !farDay}
-      Nothing written{filtering ? ' in the selected books' : ''} yet
+      Nothing written{filtering ? ' matching this filter' : ''} yet
     {:else if order === 'oldest'}
-      You're up to date — the last ink{filtering ? ' in these books' : ''} is from {longDay(farDay)}
+      You're up to date — the last ink{filtering ? ' matching this filter' : ''} is from {longDay(farDay)}
     {:else}
-      That's everything — the first ink{filtering ? ' in these books' : ''} is from {longDay(farDay)}
+      That's everything — the first ink{filtering ? ' matching this filter' : ''} is from {longDay(farDay)}
     {/if}
   </div>
   {#if !empty}

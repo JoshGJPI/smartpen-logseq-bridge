@@ -58,7 +58,7 @@
       <span class="th-sub">{summaryLine}</span>
     </div>
     <div class="th-actions">
-      <BookFilterMenu theme="light" />
+      <BookFilterMenu theme="light" align="right" />
       <button type="button" class="th-btn" on:click={onLoadRange} disabled={busy || summary.strokes === 0}
         title="Put this range's ink on the Editor canvas">
         {busy ? 'Loading…' : 'Load range into Editor'}

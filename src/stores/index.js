@@ -68,7 +68,13 @@ export {
   timelineBooks,
   setBookIncluded,
   includeAllBooks,
-  includeOnlyBook
+  includeOnlyBook,
+  // Tag filter (v3.25.0, session-only)
+  timelineTagFilter,
+  timelineTags,
+  setTagIncluded,
+  includeOnlyTag,
+  clearTagFilter
 } from './timeline.js';
 
 // Point Edit mode (canvas point handles)
