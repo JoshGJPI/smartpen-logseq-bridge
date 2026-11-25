@@ -7,7 +7,8 @@ import { describe, it, expect } from 'vitest';
 import {
   relinkSendStrokes, textLines, classifyRelink, wordFixes, applyWordFixes, defaultDecisions, buildRelinkSpec,
   relinkNeedsNoReview, relinkRefusal, cachedRunValid, linkedCount, NO_LINKS, runForCache, relinkCandidates, groupCandidates,
-  afterRelinkSave, plausibleMisreading, STALE_NOTE, MATCH_AT, CONFIRM_AT, LEFTOVER_ADD, LEFTOVER_TEXTLESS, LEFTOVER_LEAVE, LEFTOVER_JOIN, rowLinked
+  afterRelinkSave, plausibleMisreading, STALE_NOTE, MATCH_AT, CONFIRM_AT, LEFTOVER_ADD, LEFTOVER_TEXTLESS, LEFTOVER_LEAVE, LEFTOVER_JOIN, rowLinked,
+  reviewRows, leftoverTarget, setLeftoverChoice, reviewCounts, reviewSummary, LEFTOVER_SKETCH
 } from '../relink.js';
 import { editRefusal } from '../mcp-edits.js';
 import { makeOldPage, makeRun, makeMovedPage, makeMergedPage, mm, rowY } from './fixtures/relink-page.js';
@@ -142,7 +143,7 @@ describe('classifyRelink', () => {
     expect(rows.every((r) => r.msAll.length === 1)).toBe(true);
   });
 
-  it('a leftover row names the linked line above it for "Add to #N"; not after a no-ink line', () => {
+  it('a leftover row names the linked line above it for "Add to #N"', () => {
     const doc = makeOldPage();
     const run = makeRun(doc, { extra: [{ text: 'scribble', y: rowY(27) + 6 }] });
     const model = classifyRelink(doc.transcript.lines, run.lines);
@@ -155,23 +156,124 @@ describe('classifyRelink', () => {
     expect(spec.links.find((l) => l.lineId === 'L27').ms).toEqual([27, left.ms]);
     expect(spec.add).toEqual([]);
     expect(spec.texts).toEqual({});
-    // After a no-ink line there is nothing to add to.
+    // After a no-ink line with no shared word, that line is suggested (v3.28.0: it can take the ink).
     const run2 = makeRun(doc, { drop: [27], extra: [{ text: 'qqqq zzzz', y: rowY(27) + 6 }] });
     const left2 = classifyRelink(doc.transcript.lines, run2.lines).rows.find((r) => r.type === 'leftover');
-    expect(left2.joinTo).toBeUndefined();
+    expect(left2.joinTo).toBe('L27');
   });
 
-  it('"Add to #N" on a confirm row set to Don\'t link leaves the ink unlinked', () => {
+  it('"Add to #N" on a confirm row set to Don\'t link gives the line only the added ink', () => {
     const lines = [{ id: 'a', text: 'schedule site meeting' }];
     const ms = [{ text: 'schedule site meetup soon', yBounds: yb(0) }, { text: 'xx yy', yBounds: yb(1) }];
     const model = classifyRelink(lines, ms);
     const left = model.rows.find((r) => r.type === 'leftover');
     expect(left.joinTo).toBe('a');
-    const d = defaultDecisions(model);
-    d.leftover[left.ms] = LEFTOVER_JOIN;
-    d.link.a = false;
-    expect(rowLinked(model, d, 'a')).toBe(false);
-    expect(buildRelinkSpec({ lines: ms }, model, d).links).toEqual([]);
+    const d = setLeftoverChoice(model, { ...defaultDecisions(model), link: { a: false } }, left.ms, LEFTOVER_JOIN);
+    expect(rowLinked(model, d, 'a')).toBe(true);
+    expect(buildRelinkSpec({ lines: ms }, model, d).links).toEqual([{ lineId: 'a', ms: [left.ms] }]);
+  });
+
+  // 2026-11-25, Josh's B553/P1: readings of no-ink lines came back as leftovers with nothing to
+  // add them to, and a lone word belonged to the line BELOW the suggested one.
+  describe('"Add to" any line (v3.28.0)', () => {
+    const lines = [
+      { id: 'a', text: 'Want multiple solution repair options' },
+      { id: 'b', text: 'Press replaced in 2016 - noticed shifting' },
+      { id: 'c', text: 'Tm scope: LP has down days every 2 weeks (6hrs-12hrs down)' },
+      { id: 'd', text: '(6) Cores through 24" slab and testing' },
+      { id: 'e', text: 'GPR' }
+    ];
+    const ms = [
+      { text: 'Want multiple solution repair options', yBounds: yb(0) },
+      { text: 'replaced', yBounds: yb(1) },
+      { text: 'Press replacd in 2016 - noticed shifting', yBounds: yb(2) },
+      { text: 'Tm scope: thought disi, differing weeks (cohrs-hrs down)', yBounds: yb(3) },
+      { text: '(6) Cores', yBounds: yb(4) },
+      { text: 'GPR', yBounds: yb(5) }
+    ];
+    const model = classifyRelink(lines, ms);
+    const leftAt = (j) => model.rows.find((r) => r.type === 'leftover' && r.ms === j);
+
+    it('suggests the nearby line sharing the most words, below or with no ink', () => {
+      expect(model.rows.map((r) => r.type)).toEqual(['matched', 'leftover', 'matched', 'noink', 'noink', 'leftover', 'leftover', 'matched']);
+      expect(leftAt(1)).toMatchObject({ joinTo: 'b', joinToN: 2 });
+      expect(leftAt(3)).toMatchObject({ joinTo: 'c', joinToN: 3 });
+      expect(leftAt(4)).toMatchObject({ joinTo: 'd', joinToN: 4 });
+    });
+
+    it("a no-ink line that takes leftover ink is linked, its text kept, MyScript's words offered", () => {
+      const d = setLeftoverChoice(model, defaultDecisions(model), 3, LEFTOVER_JOIN);
+      const row = reviewRows(model, d).find((r) => r.lineId === 'c');
+      expect(row).toMatchObject({ type: 'noink', added: [3], msAll: [3], reading: ms[3].text });
+      expect(row.fixes.length).toBeGreaterThan(0);
+      expect(reviewRows(model, d).find((r) => r.ms === 3 && r.type === 'leftover').addedTo).toBe(3);
+      expect(linkedCount(model, d)).toBe(linkedCount(model) + 1);
+      const spec = buildRelinkSpec({ lines: ms }, model, d);
+      expect(spec.links.find((l) => l.lineId === 'c')).toEqual({ lineId: 'c', ms: [3] });
+      expect(spec.texts).toEqual({});
+      // A fix taken is written; the rest of the text stays.
+      const d2 = { ...d, fixes: { c: [0] } };
+      expect(buildRelinkSpec({ lines: ms }, model, d2).texts.c).toBe(applyWordFixes(lines[2].text, [row.fixes[0]]));
+    });
+
+    it('any line can be picked; a linked line takes the ink beside its own, in reading order', () => {
+      const d = setLeftoverChoice(model, defaultDecisions(model), 1, LEFTOVER_JOIN, 'a');
+      expect(leftoverTarget(model, d, leftAt(1))).toBe('a');
+      const row = reviewRows(model, d).find((r) => r.lineId === 'a');
+      expect(row).toMatchObject({ msAll: [0, 1], added: [1], reading: `${ms[0].text} replaced`, breaks: [5] });
+      expect(buildRelinkSpec({ lines: ms }, model, d).links.find((l) => l.lineId === 'a').ms).toEqual([0, 1]);
+      // Picked to the line below instead: it moves, and two leftovers can go to one line.
+      let d2 = setLeftoverChoice(model, d, 1, LEFTOVER_JOIN, 'b');
+      d2 = setLeftoverChoice(model, d2, 4, LEFTOVER_JOIN, 'b');
+      const spec = buildRelinkSpec({ lines: ms }, model, d2);
+      expect(spec.links.find((l) => l.lineId === 'a').ms).toEqual([0]);
+      expect(spec.links.find((l) => l.lineId === 'b').ms).toEqual([1, 2, 4]);
+      // Back to Leave unlinked forgets the pick.
+      const d3 = setLeftoverChoice(model, d2, 1, LEFTOVER_LEAVE);
+      expect(d3.joinTo[1]).toBeUndefined();
+      expect(buildRelinkSpec({ lines: ms }, model, d3).links.find((l) => l.lineId === 'b').ms).toEqual([2, 4]);
+    });
+
+    it('a taken fix survives a change that still offers it, and is dropped when it is gone', () => {
+      const base = defaultDecisions(model);
+      const bRow = model.rows.find((r) => r.lineId === 'b');
+      const k = bRow.fixes.findIndex((f) => f.to === 'replacd');
+      expect(k).toBeGreaterThanOrEqual(0);
+      const d = setLeftoverChoice(model, { ...base, fixes: { b: [k] } }, 4, LEFTOVER_JOIN, 'b');
+      const after = reviewRows(model, d).find((r) => r.lineId === 'b');
+      expect(after.fixes[d.fixes.b[0]].to).toBe('replacd');
+      // A no-ink line's fixes go with its added ink.
+      let e = setLeftoverChoice(model, base, 3, LEFTOVER_JOIN);
+      e = { ...e, fixes: { c: [0] } };
+      e = setLeftoverChoice(model, e, 3, LEFTOVER_LEAVE);
+      expect(e.fixes.c).toBeUndefined();
+    });
+
+    it('reviewCounts and reviewSummary follow the choices', () => {
+      const base = defaultDecisions(model);
+      expect(reviewCounts(model, base)).toMatchObject({ matched: 3, noink: 2, given: 0, leftover: 3, unlinked: 3, addedTo: 0, linked: 3 });
+      expect(reviewSummary(reviewCounts(model, base))).toBe('');
+      let d = setLeftoverChoice(model, base, 3, LEFTOVER_JOIN);
+      d = setLeftoverChoice(model, d, 4, LEFTOVER_JOIN);
+      d = setLeftoverChoice(model, d, 1, LEFTOVER_SKETCH);
+      d = { ...d, fixes: { c: [0] } };
+      const k = reviewCounts(model, d);
+      expect(k).toMatchObject({ noink: 0, given: 2, leftover: 3, unlinked: 0, addedTo: 2, sketch: 1, fixes: 1, linked: 5 });
+      expect(k.linked).toBe(linkedCount(model, d));
+      expect(reviewSummary(k)).toBe('1 word fix, 2 leftovers added to lines, 1 sketch (from 1 row)');
+      // Don't link: counted apart, and the line has no ink.
+      const conf = classifyRelink([{ id: 'a', text: 'schedule site meeting' }], [{ text: 'schedule site meetup soon', yBounds: yb(0) }]);
+      const k2 = reviewCounts(conf, { ...defaultDecisions(conf), link: { a: false } });
+      expect(k2).toMatchObject({ confirm: 1, dontLink: 1, noink: 1, linked: 0 });
+      expect(reviewSummary(k2)).toBe('1 not linked');
+      expect(reviewSummary({ ...k2, dontLink: 0, newLines: 2, textless: 1 })).toBe('2 new lines, 1 left out as Not text');
+    });
+
+    it('a pick naming a line not on the page reads as Leave unlinked', () => {
+      const d = { ...defaultDecisions(model), leftover: { 1: LEFTOVER_JOIN }, joinTo: { 1: 'gone' } };
+      expect(leftoverTarget(model, d, leftAt(1))).toBe(null);
+      expect(reviewRows(model, d)).toBe(model.rows);
+    });
   });
 
   it('a reading without usable yBounds cannot link', () => {

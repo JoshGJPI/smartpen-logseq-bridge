@@ -9,19 +9,22 @@
     no ink    the stored line is kept, with no ink ("not in this selection" on a
               selection pass over a page already linked: it keeps its ink)
     leftover  ink MyScript read that no stored line matches: Leave unlinked
-              (default), Add to #N (the linked line above takes its ink, text
-              unchanged), Add as new line, Not text, Make sketch (v3.24.0: every row
-              marked so becomes one sketch line, in the same write).
+              (default), Add as new line, Not text, Make sketch (v3.24.0: every row
+              marked so becomes one sketch line, in the same write), or Add to #N,
+              any stored line, listed in page order under "Add to line" (v3.28.0;
+              none pulled to the top). The line takes the ink beside its own (a no-ink
+              line becomes linked), its text kept; its reading then shows the
+              leftover's words too, each fix offered with Use.
   A stored line merged by hand from several written rows takes several MyScript
   lines; its reading shows them joined, a ⏎ where the next one starts.
 
-  `decisions` is lib/relink.js defaultDecisions()' shape and is changed in place
-  (bind:decisions). Pure presentation; the dialog saves. Hovering a row (or
+  `decisions` is lib/relink.js defaultDecisions()' shape, replaced on each change
+  (bind:decisions). The rows shown are reviewRows(model, decisions). Pure presentation; the dialog saves. Hovering a row (or
   focusing inside it) calls `onHover(row)`, and `onHover(null)` on leaving, so
   the dialog can light that row's ink (v3.27.0).
 -->
 <script>
-  import { applyWordFixes, rowLinked, LEFTOVER_LEAVE, LEFTOVER_ADD, LEFTOVER_TEXTLESS, LEFTOVER_JOIN, LEFTOVER_SKETCH } from '$lib/relink.js';
+  import { applyWordFixes, reviewRows, leftoverTarget, setLeftoverChoice, LEFTOVER_LEAVE, LEFTOVER_ADD, LEFTOVER_TEXTLESS, LEFTOVER_JOIN, LEFTOVER_SKETCH } from '$lib/relink.js';
   import { stripTaskMarker } from '$lib/task-markers.js';
 
   /** classifyRelink() result */
@@ -39,8 +42,9 @@
 
   const pct = (s) => `${Math.round((s || 0) * 100)}%`;
 
+  // Its own reading counts (matched, or confirm on Link), or it was given leftover ink.
   function linked(r) {
-    return r.type === 'matched' || (r.type === 'confirm' && decisions.link[r.lineId] !== false);
+    return r.type === 'matched' || (r.type === 'confirm' && decisions.link[r.lineId] !== false) || !!r.added;
   }
 
   function setLink(r, on) {
@@ -56,10 +60,13 @@
     decisions = decisions;
   }
 
+  /** The select's value: a choice, or `join:<lineId>` for "Add to #N". */
   function setLeftover(r, value) {
-    decisions.leftover[r.ms] = value;
-    decisions = decisions;
+    const join = value.startsWith(`${LEFTOVER_JOIN}:`);
+    decisions = setLeftoverChoice(model, decisions, r.ms, join ? LEFTOVER_JOIN : value, join ? value.slice(LEFTOVER_JOIN.length + 1) : null);
   }
+
+  const clip = (t, n) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
 
   /**
    * MyScript's reading: a task box it read in front (grey, not one of the line's
@@ -80,12 +87,15 @@
     };
   }
 
+  $: rows = reviewRows(model, decisions);
   $: fixesFor = (r) => decisions.fixes[r.lineId] || [];
-  // "Add to #N" only while that line is linked; a choice made before Don't link reads as Leave unlinked.
-  $: canJoin = (r) => !!r.joinTo && rowLinked(model, decisions, r.joinTo);
+  // Every stored text line, for "Add to" another line than the suggested one.
+  $: lineChoices = model.rows.filter((r) => r.lineId).map((r) => ({ id: r.lineId, label: `#${r.n} ${clip(r.text || '', 44)}` }));
   $: leftoverValue = (r) => {
     const v = decisions.leftover[r.ms] || LEFTOVER_LEAVE;
-    return v === LEFTOVER_JOIN && !canJoin(r) ? LEFTOVER_LEAVE : v;
+    if (v !== LEFTOVER_JOIN) return v;
+    const id = leftoverTarget(model, decisions, r);
+    return id ? `${LEFTOVER_JOIN}:${id}` : LEFTOVER_LEAVE;
   };
 </script>
 
@@ -94,13 +104,13 @@
     <tr><th class="n">#</th><th>Stored text (kept)</th><th>MyScript read</th><th class="m">Match</th></tr>
   </thead>
   <tbody>
-    {#each model.rows as r (rowKey(r))}
+    {#each rows as r (rowKey(r))}
       <tr class={r.type} class:off={r.type === 'confirm' && !linked(r)} class:hot={hot === rowKey(r)}
         on:mouseenter={() => onHover(r)} on:mouseleave={() => onHover(null)} on:focusin={() => onHover(r)}>
         <td class="n">{r.n ?? ''}</td>
         <td class="stored" style="padding-left: {8 + r.indentLevel * 14}px">
           {#if r.type === 'leftover'}
-            <span class="none">ink left over</span>
+            <span class="none">ink left over</span>{#if r.addedTo}<span class="to"> → added to #{r.addedTo}</span>{/if}
           {:else}
             {#if r.task}<span class="task" class:closed={r.task === 'DONE' || r.task === 'CANCELLED'}>{r.task}</span>{/if}
             {linked(r) && fixesFor(r).length ? applyWordFixes(r.text, fixesFor(r).map((k) => r.fixes[k])) : r.text}
@@ -133,16 +143,23 @@
               <button class:on={linked(r)} {disabled} on:click={() => setLink(r, true)} title="Similarity {pct(r.sim)}">Link</button>
               <button class:on={!linked(r)} {disabled} on:click={() => setLink(r, false)}>Don't link</button>
             </span>
+          {:else if r.type === 'noink' && r.added}
+            <span class="ok" title="Ink left over added to this line">✓ ink added</span>
           {:else if r.type === 'noink'}
             <span class="dim">{noinkLabel}</span>
           {:else}
             <select value={leftoverValue(r)} {disabled}
               on:change={(e) => setLeftover(r, e.currentTarget.value)} aria-label="Ink left over">
               <option value={LEFTOVER_LEAVE}>Leave unlinked</option>
-              {#if canJoin(r)}<option value={LEFTOVER_JOIN}>Add to #{r.joinToN}</option>{/if}
               <option value={LEFTOVER_ADD}>Add as new line</option>
               <option value={LEFTOVER_TEXTLESS}>Not text</option>
               <option value={LEFTOVER_SKETCH} title="A drawing: every row marked so becomes one sketch line, labelled Sketch (rename it in the reader)">Make sketch</option>
+              <optgroup label="Add to line">
+                <!-- Every line in page order, the suggested one in its place (Josh, 2026-11-25: pulled to the top it confused). -->
+                {#each lineChoices as c (c.id)}
+                  <option value="{LEFTOVER_JOIN}:{c.id}">Add to {c.label}</option>
+                {/each}
+              </optgroup>
             </select>
           {/if}
         </td>
@@ -163,6 +180,7 @@
   tr.leftover { background: rgba(251, 191, 36, 0.04); }
   tr.hot { background: var(--selected-bg); }
   .none, .dim { color: var(--text-secondary); font-style: italic; }
+  .to { color: var(--success); font-size: 0.78rem; }
   .ok { color: var(--success); }
   .moved { font-size: 0.68rem; margin-right: 4px; padding: 0 4px; border-radius: 4px; border: 1px solid var(--border); color: var(--text-secondary); }
   .task {
@@ -183,7 +201,7 @@
   .seg button { padding: 2px 8px; font-size: 0.75rem; border: none; background: transparent; color: var(--text-secondary); cursor: pointer; }
   .seg button.on { background: var(--selected-bg); color: var(--text-primary); box-shadow: inset 0 -2px 0 var(--selected-line); }
   select {
-    font-size: 0.75rem; padding: 2px 4px; border-radius: 6px;
+    max-width: 165px; font-size: 0.75rem; padding: 2px 4px; border-radius: 6px;
     background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border);
   }
 </style>

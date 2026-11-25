@@ -355,7 +355,10 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
 - **Moved lines keep their place.** A line stored out of place pairs with its reading elsewhere (`movedPairs`) as a
   confirm row marked `moved`; linking it writes only `yBounds` and ink. A page with one is never saved by the bulk run
   without review. A line merged by hand takes several consecutive MyScript lines (`alignLinesJoined`, union of
-  their bounds); "Add to #N" gives leftover ink to the linked line above. Neither changes text. A page already linked
+  their bounds); "Add to #N" gives leftover ink to any stored text line (v3.28.0: suggested by shared words
+  nearby, `joinSuggestion`; any other picked from the row's menu; a no-ink line that takes it becomes linked).
+  Neither changes text unless a word fix is taken: the review's rows are `reviewRows(model, decisions)` (a line's
+  reading and fixes include its added ink), and `buildRelinkSpec` reads the same rows, so fixes index them. A page already linked
   is relinked only through the reader's ⋯ → Relink again… after a confirm (`relinkRefusal(…, { again })`).
 - **Guards** (`relinkRefusal`): the same four flags as `editRefusal`, read by one function, `stores/page-guards.js`
   `pageGuardState()` (change both refusals together), plus a trustworthy page, no text lines, no ink to send. The

@@ -20,7 +20,7 @@
  *
  * Tested in `src/lib/__tests__/relink.test.js`.
  */
-import { alignLinesJoined, movedPairs, similarity, norm, sameLetters, editDistance } from './line-align.js';
+import { alignLinesJoined, movedPairs, similarity, norm, words, sameLetters, editDistance } from './line-align.js';
 import { stripTaskMarker } from './task-markers.js';
 import { taskStateOf, stateLabel } from './tasks.js';
 import { isTrustworthyTranscript } from './viewer/ink-text.js';
@@ -35,7 +35,12 @@ export const CONFIRM_AT = 0.6;
 export const LEFTOVER_LEAVE = 'leave';
 export const LEFTOVER_ADD = 'add';
 export const LEFTOVER_TEXTLESS = 'textless';
-/** "Add to #N": the leftover ink goes to the linked stored line above it (its text unchanged). */
+/**
+ * "Add to #N": the leftover ink goes to a stored text line (its text unchanged unless a
+ * word fix is taken). The row suggests one (`joinTo`, the nearby line whose words it
+ * shares most); the review may pick any other (`decisions.joinTo[ms]`, v3.28.0). A line
+ * with no ink that takes it becomes linked to it.
+ */
 export const LEFTOVER_JOIN = 'join';
 /**
  * "Make sketch" (v3.24.0, spec B.4 / E.3): the leftover ink becomes a sketch line.
@@ -235,7 +240,7 @@ export function applyWordFixes(text, fixes) {
  * @property {number|null} ms          index into the MyScript lines (the first; null for noink without partner)
  * @property {number[]} msAll          every MyScript line the row takes (2+ for a line merged by hand)
  * @property {number[]} breaks         word indices of the reading where a further MyScript line starts
- * @property {string} [joinTo]         leftover: the stored line "Add to #N" would give its ink to
+ * @property {string} [joinTo]         leftover: the stored line "Add to #N" suggests (joinSuggestion)
  * @property {number} [joinToN]        leftover: that line's #n
  * @property {string} reading          MyScript's text, its lines joined by spaces ('' when none)
  * @property {number|null} sim         similarity of the pair
@@ -320,17 +325,127 @@ export function classifyRelink(lines, msLines) {
     rows.splice(i, j - i, ...run.filter((r) => r.type === 'noink'), ...run.filter((r) => r.type === 'leftover'));
     i = j;
   }
-  // "Add to #N": a leftover's predecessor in this order, when it is a matched or
-  // confirm row (the dialog offers it only while that line is linked).
-  let prev = null;
-  for (const r of rows) {
-    if (r.type !== 'leftover') { prev = r; continue; }
-    if (prev && (prev.type === 'matched' || prev.type === 'confirm')) {
-      r.joinTo = prev.lineId;
-      r.joinToN = prev.n;
+  // "Add to #N": the nearby stored line the leftover most likely belongs to.
+  rows.forEach((r, i) => {
+    if (r.type !== 'leftover') return;
+    const to = joinSuggestion(rows, i);
+    if (to) { r.joinTo = to.lineId; r.joinToN = to.n; }
+  });
+  return { rows, counts, msTexts: ms.map((l) => l.text) };
+}
+
+/** How far "Add to #N" looks for its suggestion: stored rows back (stopping at a linked one) and forward. */
+const JOIN_BACK = 5, JOIN_AHEAD = 2;
+
+/**
+ * The stored line a leftover row most likely belongs to (v3.28.0; 2026-11-25, Josh's
+ * B553/P1: "replaced" read on its own belonged to the line BELOW, and the readings of
+ * two no-ink lines came back as leftovers with nothing to add them to). Candidates: the
+ * stored rows above it back to and including the nearest linked one (at most JOIN_BACK),
+ * and the next JOIN_AHEAD below. Each scores the share of the leftover's words found in
+ * its stored text; the best wins, a no-ink line over a linked one on a tie, then the
+ * nearer above. With no shared word, the stored row just above.
+ */
+function joinSuggestion(rows, i) {
+  const back = [], ahead = [];
+  for (let k = i - 1; k >= 0 && back.length < JOIN_BACK; k--) {
+    const r = rows[k];
+    if (r.type === 'leftover') continue;
+    back.push(r);
+    if (r.type !== 'noink') break;
+  }
+  for (let k = i + 1; k < rows.length && ahead.length < JOIN_AHEAD; k++) if (rows[k].type !== 'leftover') ahead.push(rows[k]);
+  const want = words(stripTaskMarker(rows[i].reading));
+  let best = null, bestScore = 0;
+  if (want.length) {
+    for (const r of [...back, ...ahead]) {
+      const have = new Set(words(r.text));
+      const score = want.filter((w) => have.has(w)).length / want.length;
+      const tieWin = score === bestScore && best && best.type !== 'noink' && r.type === 'noink';
+      if (score > 0 && (score > bestScore || tieWin)) { best = r; bestScore = score; }
     }
   }
-  return { rows, counts };
+  return best || back[0] || null;
+}
+
+/** The stored line a leftover row's ink goes to under these decisions, or null (not "Add to", or no such line). */
+export function leftoverTarget(model, decisions, r) {
+  if (!r || r.type !== 'leftover' || !decisions) return null;
+  if (((decisions.leftover || {})[r.ms] || LEFTOVER_LEAVE) !== LEFTOVER_JOIN) return null;
+  const id = ((decisions.joinTo || {})[r.ms]) || r.joinTo;
+  return id && ((model && model.rows) || []).some((x) => x.lineId === id) ? id : null;
+}
+
+/** A stored row's own MyScript line(s) count under these decisions (matched, or a confirm row on Link). */
+const ownLinked = (r, decisions) => r.type === 'matched' || (r.type === 'confirm' && decisions.link[r.lineId] !== false);
+
+/**
+ * The rows as the review shows and saves them (v3.28.0): each stored line that takes
+ * leftover ink ("Add to #N") gets those MyScript lines with its own (in reading order),
+ * its reading joined, and its word fixes measured against that joined reading, so a
+ * no-ink line that takes its ink is offered MyScript's words to Use (its text is kept
+ * unless one is taken). Such a row has `added: [ms…]` and is linked; a confirm row on
+ * Don't link takes only the added ink. A leftover row given away has `addedTo` (the
+ * line's #n). Rows without either are the model's own.
+ */
+export function reviewRows(model, decisions) {
+  const rows = (model && model.rows) || [];
+  if (!decisions) return rows;
+  const extra = new Map();
+  const targetOf = new Map();
+  for (const r of rows) {
+    const id = leftoverTarget(model, decisions, r);
+    if (!id) continue;
+    targetOf.set(r.ms, id);
+    if (!extra.has(id)) extra.set(id, []);
+    extra.get(id).push(r.ms);
+  }
+  if (!extra.size) return rows;
+  const texts = model.msTexts || [];
+  const nOf = new Map(rows.filter((r) => r.lineId).map((r) => [r.lineId, r.n]));
+  return rows.map((r) => {
+    if (r.type === 'leftover') return targetOf.has(r.ms) ? { ...r, addedTo: nOf.get(targetOf.get(r.ms)) } : r;
+    const more = r.lineId ? extra.get(r.lineId) : null;
+    if (!more) return r;
+    const own = ownLinked(r, decisions) ? (r.msAll.length ? r.msAll : r.ms != null ? [r.ms] : []) : [];
+    const msAll = [...new Set([...own, ...more])].sort((a, b) => a - b);
+    const lineTexts = msAll.map((k) => String(texts[k] ?? ''));
+    const reading = lineTexts.join(' ');
+    return {
+      ...r, ms: msAll[0], msAll, reading, added: [...more].sort((a, b) => a - b),
+      breaks: msAll.length > 1 ? lineBreaks(lineTexts) : [],
+      fixes: wordFixes(r.text || '', reading)
+    };
+  });
+}
+
+/**
+ * Change one leftover row's choice (and, for "Add to", its line: none = the row's
+ * suggestion). Word fixes taken on a line whose reading this changes are kept where
+ * the same fix is still offered and dropped otherwise (they index the row's fixes).
+ * @returns {Object} the new decisions
+ */
+export function setLeftoverChoice(model, decisions, ms, value, lineId = null) {
+  const before = reviewRows(model, decisions);
+  const next = {
+    ...decisions,
+    leftover: { ...decisions.leftover, [ms]: value },
+    joinTo: { ...(decisions.joinTo || {}) },
+    fixes: { ...decisions.fixes }
+  };
+  if (value === LEFTOVER_JOIN && lineId) next.joinTo[ms] = lineId;
+  else delete next.joinTo[ms];
+  const after = reviewRows(model, next);
+  const fixKey = (f) => `${f.start}:${f.end}:${f.to}`;
+  before.forEach((r, i) => {
+    const a = after[i];
+    if (!r.lineId || r.fixes === a.fixes || !next.fixes[r.lineId]) return;
+    const taken = new Set(next.fixes[r.lineId].map((k) => r.fixes[k]).filter(Boolean).map(fixKey));
+    const kept = a.fixes.map((f, k) => (taken.has(fixKey(f)) ? k : -1)).filter((k) => k >= 0);
+    if (kept.length) next.fixes[r.lineId] = kept;
+    else delete next.fixes[r.lineId];
+  });
+  return next;
 }
 
 /** Word indices (after a leading task box) where the 2nd, 3rd … of several joined lines start. */
@@ -344,10 +459,11 @@ function lineBreaks(texts) {
   return out;
 }
 
-/** Is that stored line linked under these decisions (matched, or a confirm row on Link)? */
+/** Is that stored line linked under these decisions (matched, a confirm row on Link, or a line given leftover ink)? */
 export function rowLinked(model, decisions, lineId) {
-  const r = ((model && model.rows) || []).find((x) => x.lineId === lineId);
-  return !!r && (r.type === 'matched' || (r.type === 'confirm' && decisions.link[r.lineId] !== false));
+  const rows = (model && model.rows) || [];
+  const r = rows.find((x) => x.lineId === lineId);
+  return !!r && (ownLinked(r, decisions) || rows.some((x) => leftoverTarget(model, decisions, x) === lineId));
 }
 
 /** Why a relink that links no stored line is refused (it would mark the page trustworthy with all its ink unlinked). */
@@ -355,8 +471,58 @@ export const NO_LINKS = 'No stored line would be linked to ink, so there is noth
 
 /** How many stored lines a save of these decisions links (Save is offered only above 0). */
 export function linkedCount(model, decisions = defaultDecisions(model)) {
-  return ((model && model.rows) || []).filter((r) => r.type === 'matched'
-    || (r.type === 'confirm' && decisions.link[r.lineId] !== false)).length;
+  return reviewRows(model, decisions).filter((r) => r.lineId && (ownLinked(r, decisions) || r.added)).length;
+}
+
+/**
+ * The review's counts as the choices stand (v3.28.0), for the counts line and the footer:
+ *   matched     matched rows; confirm: confirm rows (moved: of them), dontLink: of them set to Don't link
+ *   noink       stored lines that end with no ink (no-ink rows, and Don't-link rows, given none)
+ *   given       stored lines with no ink of their own that took leftover ink
+ *   leftover    every leftover row; unlinked: still Leave unlinked (an "Add to" naming no line counts here)
+ *   addedTo / newLines / textless / sketch   leftover rows per choice; fixes: word fixes taken; linked: linkedCount
+ *   tasks / kindLines   from the classification (never changed by the review)
+ */
+export function reviewCounts(model, decisions = defaultDecisions(model)) {
+  const c = (model && model.counts) || {};
+  const out = {
+    matched: 0, confirm: 0, moved: c.moved || 0, dontLink: 0, noink: 0, given: 0,
+    leftover: 0, unlinked: 0, addedTo: 0, newLines: 0, textless: 0, sketch: 0,
+    fixes: Object.values(decisions.fixes || {}).reduce((n, l) => n + l.length, 0),
+    linked: 0, tasks: c.tasks || 0, kindLines: c.kindLines || 0
+  };
+  for (const r of reviewRows(model, decisions)) {
+    if (r.type === 'leftover') {
+      out.leftover++;
+      const v = (decisions.leftover || {})[r.ms] || LEFTOVER_LEAVE;
+      if (r.addedTo) out.addedTo++;
+      else if (v === LEFTOVER_ADD && stripTaskMarker(r.reading)) out.newLines++;
+      else if (v === LEFTOVER_TEXTLESS) out.textless++;
+      else if (v === LEFTOVER_SKETCH) out.sketch++;
+      else out.unlinked++;
+      continue;
+    }
+    const own = ownLinked(r, decisions);
+    if (r.type === 'matched') out.matched++;
+    if (r.type === 'confirm') { out.confirm++; if (!own) out.dontLink++; }
+    if (own || r.added) out.linked++;
+    if (!own && r.added) out.given++;
+    if (!own && !r.added) out.noink++;
+  }
+  return out;
+}
+
+/** The footer's "Also: …" list (v3.28.0): what the save does besides linking. '' when nothing. */
+export function reviewSummary(k) {
+  const s = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  return [
+    k.fixes && s(k.fixes, 'word fix', 'word fixes'),
+    k.addedTo && `${s(k.addedTo, 'leftover', 'leftovers')} added to lines`,
+    k.newLines && s(k.newLines, 'new line', 'new lines'),
+    k.sketch && `1 sketch (from ${s(k.sketch, 'row', 'rows')})`,
+    k.textless && `${k.textless} left out as Not text`,
+    k.dontLink && `${k.dontLink} not linked`
+  ].filter(Boolean).join(', ');
 }
 
 /** Shown when a page changed between its MyScript run and the save. */
@@ -385,8 +551,9 @@ export function relinkNeedsNoReview(model) {
 /**
  * The review's starting decisions: confirm rows link, leftover ink stays
  * unlinked, no word fix taken, held-back decorative ink marked Not text.
- * @returns {{ link: Object<string, boolean>, leftover: Object<number, string>, fixes: Object<string, number[]>,
- *   heldBackTextless: boolean }}
+ * @returns {{ link: Object<string, boolean>, leftover: Object<number, string>, joinTo: Object<number, string>,
+ *   fixes: Object<string, number[]>, heldBackTextless: boolean }}  joinTo: the line an "Add to" leftover picked
+ *   (none = the row's suggestion); fixes index reviewRows()' row fixes
  */
 export function defaultDecisions(model) {
   const link = {}, leftover = {};
@@ -394,7 +561,7 @@ export function defaultDecisions(model) {
     if (r.type === 'confirm') link[r.lineId] = true;
     if (r.type === 'leftover') leftover[r.ms] = LEFTOVER_LEAVE;
   }
-  return { link, leftover, fixes: {}, heldBackTextless: true };
+  return { link, leftover, joinTo: {}, fixes: {}, heldBackTextless: true };
 }
 
 /**
@@ -411,12 +578,10 @@ export function defaultDecisions(model) {
  */
 export function buildRelinkSpec(run, model, decisions = defaultDecisions(model)) {
   const links = [], texts = {}, add = [], textless = [], sketch = [];
-  const linkFor = new Map();
-  for (const r of model.rows) {
-    if (r.type === 'matched' || (r.type === 'confirm' && decisions.link[r.lineId] !== false)) {
-      const link = { lineId: r.lineId, ms: [...(r.msAll && r.msAll.length ? r.msAll : [r.ms])] };
-      links.push(link);
-      linkFor.set(r.lineId, link);
+  // reviewRows: a line given leftover ink ("Add to #N") already takes it in msAll.
+  for (const r of reviewRows(model, decisions)) {
+    if (r.lineId && (ownLinked(r, decisions) || r.added)) {
+      links.push({ lineId: r.lineId, ms: [...(r.msAll && r.msAll.length ? r.msAll : [r.ms])] });
       const taken = (decisions.fixes[r.lineId] || []).map((k) => r.fixes[k]).filter(Boolean);
       if (taken.length) {
         const text = applyWordFixes(r.text, taken);
@@ -430,8 +595,6 @@ export function buildRelinkSpec(run, model, decisions = defaultDecisions(model))
     if (choice === LEFTOVER_ADD && stripTaskMarker(r.reading)) add.push(r.ms);
     else if (choice === LEFTOVER_TEXTLESS) textless.push(r.ms);
     else if (choice === LEFTOVER_SKETCH) sketch.push(r.ms);
-    // "Add to #N": only while that line is linked; otherwise the ink stays unlinked.
-    else if (choice === LEFTOVER_JOIN && r.joinTo && linkFor.has(r.joinTo)) linkFor.get(r.joinTo).ms.push(r.ms);
   }
   return {
     revision: run.revision ?? null,

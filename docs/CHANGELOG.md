@@ -6,6 +6,31 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.28.0 — Relink: add leftover ink to any line (November 2026)
+
+Josh's review of B553/P1 (2026-11-25): two stored lines (#27, #28) came back with no ink while their readings sat
+just below as ink left over, with nothing to add them to ("Add to #N" offered only the LINKED line above); and a
+lone "replaced" offered "Add to #13" when it belonged to #14 below.
+
+- **"Add to" any stored text line.** A leftover row's menu lists every stored line in page order under "Add to line"
+  (`decisions.joinTo[ms]`); none is pulled to the top (Josh: a suggested line above the list confused). The line takes the ink beside its own; a no-ink line, or a confirm
+  row on Don't link, takes only the added ink and becomes linked. Several leftovers may go to one line (union of
+  bounds, as for a line merged by hand). The leftover row reads "→ added to #N", the line "✓ ink added".
+- **Its text is kept unless a word fix is taken.** `reviewRows(model, decisions)` gives the rows as reviewed: a line
+  with added ink reads MyScript's lines joined (⏎ between), and its word fixes are measured on that reading, each
+  offered with Use. `buildRelinkSpec` reads the same rows. A change of target keeps a taken fix only where the same
+  fix is still offered (`setLeftoverChoice`).
+- **The suggestion** (`joinSuggestion`): the stored rows above back to the nearest linked one (at most 5) and the
+  next 2 below; the one holding the largest share of the leftover's words wins (a no-ink line on a tie), else the
+  row above. Changed rule: previously only a linked predecessor, and a Don't-link target dropped the ink.
+- Left as is: a MyScript line that glues two written lines together (B553/P1 #16 read with #15's tail) can only go
+  to one line; Relink never splits a reading. Merging two STORED lines stays Library Edit's Merge (Relink never
+  changes line ids).
+- **Counts and footer follow the choices** (`reviewCounts`, `reviewSummary`): "to confirm (N not linked)", no ink
+  counts Don't-link lines and drops lines given ink ("N given ink"), "ink left over (N unlinked)" is amber only while
+  some stay unlinked; the footer adds leftovers added to lines, the sketch (it used to omit Make sketch) and Don't
+  link. Save's "links nothing" check reads the same counts.
+
 ## v3.27.0 — Pages still to relink; Relink's ink preview (November 2026)
 
 Josh asked (2026-11-24) for a visual cue of how much is left to relink, and for a way to see, while reviewing a

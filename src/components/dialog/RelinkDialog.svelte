@@ -28,7 +28,7 @@
   import { onDestroy } from 'svelte';
   import { relinkTarget, closeRelink, getRelinkRun, trySaveRelink } from '$stores/relink.js';
   import { transcriptEditorHold } from '$stores/viewer.js';
-  import { classifyRelink, defaultDecisions, buildRelinkSpec, linkedCount, NO_LINKS, afterRelinkSave, heldBackLabel } from '$lib/relink.js';
+  import { classifyRelink, defaultDecisions, buildRelinkSpec, reviewCounts, reviewSummary, NO_LINKS, afterRelinkSave, heldBackLabel } from '$lib/relink.js';
   import { isTrustworthyTranscript } from '$lib/viewer/ink-text.js';
   import { relinkInk } from '$lib/relink-plan.js';
   import RelinkRows from './RelinkRows.svelte';
@@ -135,10 +135,12 @@
     }
   }
 
-  $: c = model ? model.counts : null;
-  $: changes = decisions && model ? summarize(model, decisions) : '';
+  // Counts as the choices stand (lib/relink.js reviewCounts), for the counts line and the footer.
+  $: c = model && decisions ? reviewCounts(model, decisions) : null;
+  $: changes = c ? reviewSummary(c) : '';
   // Save links nothing to ink → refused (it would mark the page linked with all ink unlinked).
-  $: nLinked = decisions && model ? linkedCount(model, decisions) : 0;
+  $: nLinked = c ? c.linked : 0;
+  const confirmNote = (k) => [k.moved && `${k.moved} moved`, k.dontLink && `${k.dontLink} not linked`].filter(Boolean).join(', ').replace(/^(.+)$/, ' ($1)');
   $: selection = !!(target && target.ids);
   // On a page already linked, a selection pass leaves the other lines (and their ink) as they are.
   $: noinkLabel = selection && trusted ? 'not in this selection' : 'no ink';
@@ -164,13 +166,6 @@
   $: litNote = !lit ? 'Hover a row to see its ink'
     : lit.ids.length ? `${lit.ids.length} stroke${lit.ids.length === 1 ? '' : 's'}` : 'No ink for this row';
 
-  function summarize(m, d) {
-    const fixes = Object.values(d.fixes).reduce((n, list) => n + list.length, 0);
-    const add = Object.values(d.leftover).filter((v) => v === 'add').length;
-    const tl = Object.values(d.leftover).filter((v) => v === 'textless').length;
-    return [fixes && `${fixes} word fix${fixes === 1 ? '' : 'es'}`, add && `${add} new line${add === 1 ? '' : 's'}`,
-      tl && `${tl} left out as Not text`].filter(Boolean).join(', ');
-  }
 </script>
 
 <svelte:window on:keydown={onKey} />
@@ -212,9 +207,10 @@
         <!-- svelte-ignore a11y-mouse-events-have-key-events -->
         <p class="counts">
           <span class="ok hov" on:mouseenter={() => hoverKind(['matched'])} on:mouseleave={() => hoverKind(null)}>{c.matched} matched</span> ·
-          <span class="hov" class:attn={c.confirm} on:mouseenter={() => hoverKind(['confirm'])} on:mouseleave={() => hoverKind(null)}>{c.confirm} to confirm{c.moved ? ` (${c.moved} moved)` : ''}</span> ·
+          <span class="hov" class:attn={c.confirm} on:mouseenter={() => hoverKind(['confirm'])} on:mouseleave={() => hoverKind(null)}>{c.confirm} to confirm{confirmNote(c)}</span> ·
           <span>{c.noink} {noinkLabel} (kept)</span> ·
-          <span class="hov" class:attn={c.leftover} on:mouseenter={() => hoverKind(['leftover'])} on:mouseleave={() => hoverKind(null)}>{c.leftover} ink left over</span> ·
+          {#if c.given}<span class="ok">{c.given} given ink</span> ·{/if}
+          <span class="hov" class:attn={c.unlinked} on:mouseenter={() => hoverKind(['leftover'])} on:mouseleave={() => hoverKind(null)}>{c.leftover} ink left over{c.unlinked < c.leftover ? ` (${c.unlinked} unlinked)` : ''}</span> ·
           <span>{c.tasks} task{c.tasks === 1 ? '' : 's'} unchanged</span>
           {#if cached}<span class="dim"> · MyScript result from the cache</span>{/if}
         </p>
