@@ -9,6 +9,11 @@
 
   Refused while only part of a page is loaded (a by-date load): the replacing
   transcript would have no lines for the ink that isn't on the canvas.
+
+  Edit (v3.30.0, Josh 2026-11-25: no digging in the Pages tab) opens the saved
+  transcript in the Edit Transcription dialog (SavedTranscriptEditor, the Pages
+  tab's own path). Off while the page is reset (its next Transcribe replaces the
+  transcript) or when several saved variants (P151 / P151b) share its number.
 -->
 <script>
   import { derived } from 'svelte/store';
@@ -16,6 +21,7 @@
   import { resetPages, resetKey, resetPageTranscript, undoResetPageTranscript, strokesOnDisk, resetRefusalText } from '$stores/transcript-reset.js';
   import { compareBookKeys } from '$lib/volumes.js';
   import { formatBookName } from '$utils/formatting.js';
+  import SavedTranscriptEditor from '../saved-pages/SavedTranscriptEditor.svelte';
 
   /** Pages on the canvas: loaded and linked stroke counts, page-number order. */
   const canvasPages = derived(strokes, ($strokes) => {
@@ -34,8 +40,25 @@
 
   // $savedPages is read so a rescan updates the loaded / on-disk counts.
   $: rows = ($savedPages, $canvasPages)
-    .map((p) => ({ ...p, total: strokesOnDisk(p.book, p.page), reset: $resetPages.get(p.key) || null }))
+    .map((p) => ({ ...p, total: strokesOnDisk(p.book, p.page), reset: $resetPages.get(p.key) || null, pageId: savedPageId($savedPages, p) }))
     .filter((p) => p.reset || p.linked > 0);
+
+  /** The saved page's id for this canvas page: its only saved variant, else null (the canvas can't tell P151 from P151b). */
+  function savedPageId(records, p) {
+    const ids = (records || []).filter((r) => String(r.book) === p.book && Number(r.page) === Number(p.page))
+      .map((r) => String(r.pageId ?? r.page));
+    return ids.length === 1 ? ids[0] : null;
+  }
+
+  /** key → SavedTranscriptEditor, and the one reading its page */
+  const editors = {};
+  let opening = null;
+
+  async function edit(p) {
+    if (opening || !editors[p.key]) return;
+    opening = p.key;
+    try { await editors[p.key].open(); } finally { opening = null; }
+  }
 
   const label = (p) => `${formatBookName(p.book, $bookAliases, 'full')} / P${p.page}`;
 
@@ -62,9 +85,18 @@
           <span class="name">{label(p)}</span>
           {#if p.reset}
             <span class="state">Unlinked — select its text (leave drawings out), Transcribe, Save</span>
-            <button class="btn-small" on:click={() => undo(p)} title="Put the ink links back; the saved transcript is unchanged">Undo</button>
+            <span class="acts"><button class="btn-small" on:click={() => undo(p)} title="Put the ink links back; the saved transcript is unchanged">Undo</button></span>
           {:else}
             <span class="state">{p.linked} of {p.loaded} strokes linked{partial ? ` · ${p.loaded} of ${p.total} loaded` : ''}</span>
+            <span class="acts">
+            <button
+              class="btn-small"
+              on:click={() => edit(p)}
+              disabled={!p.pageId || opening === p.key}
+              title={p.pageId
+                ? 'Edit the saved transcript: text, indent, merge and split lines, task state (the Edit Transcription dialog)'
+                : 'Several saved variants share this page number (e.g. P151 and P151b): edit it from the Pages tab'}
+            >{opening === p.key ? '⏳' : '✎ Edit'}</button>
             <button
               class="btn-small"
               on:click={() => reset(p)}
@@ -73,6 +105,11 @@
                 ? 'Only part of this page is loaded (a load by date?). Load the whole page from the Pages tab first: the new transcript would have no lines for the rest.'
                 : 'Unlink this page\'s ink so it can be transcribed again; the new transcript replaces the saved one on Save'}
             >↺ Re-transcribe</button>
+            </span>
+            {#if p.pageId}
+              <SavedTranscriptEditor bind:this={editors[p.key]} book={p.book} page={p.page} pageId={p.pageId}
+/>
+            {/if}
           {/if}
         </li>
       {/each}
@@ -102,7 +139,7 @@
   li.reset { outline: 1px solid var(--warning, #e6a23c); }
   .name { font-size: 0.85rem; color: var(--text-primary); }
   .state { grid-column: 1; font-size: 0.72rem; color: var(--text-secondary); }
-  li .btn-small { grid-column: 2; grid-row: 1 / span 2; }
+  li .acts { grid-column: 2; grid-row: 1 / span 2; display: inline-flex; gap: 4px; }
   .btn-small {
     padding: 4px 10px;
     font-size: 0.75rem;

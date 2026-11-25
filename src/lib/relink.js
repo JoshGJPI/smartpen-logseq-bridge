@@ -491,12 +491,14 @@ export function reviewCounts(model, decisions = defaultDecisions(model)) {
     fixes: Object.values(decisions.fixes || {}).reduce((n, l) => n + l.length, 0),
     linked: 0, tasks: c.tasks || 0, kindLines: c.kindLines || 0
   };
+  // A leftover merged into the new line above is part of that line, not a line of its own (v3.30.0).
+  const merged = new Set(addedGroups(model, decisions).flatMap((g) => g.ms.slice(1)));
   for (const r of reviewRows(model, decisions)) {
     if (r.type === 'leftover') {
       out.leftover++;
       const v = (decisions.leftover || {})[r.ms] || LEFTOVER_LEAVE;
       if (r.addedTo) out.addedTo++;
-      else if (v === LEFTOVER_ADD && stripTaskMarker(r.reading)) out.newLines++;
+      else if (v === LEFTOVER_ADD && stripTaskMarker(r.reading)) { if (!merged.has(r.ms)) out.newLines++; }
       else if (v === LEFTOVER_TEXTLESS) out.textless++;
       else if (v === LEFTOVER_SKETCH) out.sketch++;
       else out.unlinked++;
@@ -561,7 +563,108 @@ export function defaultDecisions(model) {
     if (r.type === 'confirm') link[r.lineId] = true;
     if (r.type === 'leftover') leftover[r.ms] = LEFTOVER_LEAVE;
   }
-  return { link, leftover, joinTo: {}, fixes: {}, heldBackTextless: true };
+  return { link, leftover, joinTo: {}, fixes: {}, heldBackTextless: true, newText: {}, newIndent: {}, mergeUp: {} };
+}
+
+/* ----------------------------------------------------------------
+ *  New lines from leftover ink (v3.30.0): edit text, indent, merge
+ * ---------------------------------------------------------------- */
+
+/** Is this leftover row set to "Add as new line" (with something to read)? */
+export function isNewLineRow(decisions, r) {
+  return !!r && r.type === 'leftover' && ((decisions && decisions.leftover) || {})[r.ms] === LEFTOVER_ADD && !!stripTaskMarker(r.reading);
+}
+
+/**
+ * The new lines the review makes, in page order (v3.30.0, Josh 2026-11-25: fix the
+ * untranscribed part of a relinked page in the review). Each "Add as new line" row
+ * is a line of its own unless it is merged into the new line just above it
+ * (`decisions.mergeUp[ms]`; only valid while the row right above is a new line
+ * too). A line's text is what the review typed (`newText[head]`), else MyScript's
+ * readings joined; its indent is `newIndent[head]` (null = placed as before,
+ * lib/relink-plan.js placeNewLines).
+ * @returns {Array<{ head: number, ms: number[], text: string, reading: string, edited: boolean, indent: number|null }>}
+ */
+export function addedGroups(model, decisions) {
+  const rows = (model && model.rows) || [];
+  const out = [];
+  let prevNew = false;
+  for (const r of rows) {
+    const isNew = isNewLineRow(decisions, r);
+    if (isNew && prevNew && (decisions.mergeUp || {})[r.ms] && out.length) {
+      const g = out[out.length - 1];
+      g.ms.push(r.ms);
+      g.reading = `${g.reading} ${r.reading.trim()}`;
+    } else if (isNew) {
+      out.push({ head: r.ms, ms: [r.ms], reading: r.reading.trim(), text: '', edited: false, indent: null });
+    }
+    prevNew = isNew;
+  }
+  for (const g of out) {
+    const typed = (decisions.newText || {})[g.head];
+    g.edited = typeof typed === 'string' && !!typed.trim();
+    g.text = g.edited ? typed.trim() : g.reading;
+    const ind = (decisions.newIndent || {})[g.head];
+    g.indent = Number.isInteger(ind) && ind >= 0 ? ind : null;
+  }
+  return out;
+}
+
+/** Can this row merge into the new line above it (both new lines, adjacent in the review)? */
+export function canMergeUp(model, decisions, r) {
+  const rows = (model && model.rows) || [];
+  const i = rows.indexOf(r) >= 0 ? rows.indexOf(r) : rows.findIndex((x) => x.type === 'leftover' && r && x.ms === r.ms);
+  return i > 0 && isNewLineRow(decisions, rows[i]) && isNewLineRow(decisions, rows[i - 1]);
+}
+
+/**
+ * Merge a new line into the one above (`on`), or split it off again. Typed text on
+ * the line above takes the merged reading on the end (and gives it back on a
+ * split); the merged row's own typed text and indent are dropped.
+ * @returns {Object} the new decisions
+ */
+export function setMergeUp(model, decisions, ms, on) {
+  const before = addedGroups(model, decisions);
+  const next = { ...decisions, mergeUp: { ...(decisions.mergeUp || {}) }, newText: { ...(decisions.newText || {}) }, newIndent: { ...(decisions.newIndent || {}) } };
+  const r = ((model && model.rows) || []).find((x) => x.type === 'leftover' && x.ms === ms);
+  if (!r) return decisions;
+  const reading = r.reading.trim();
+  if (on) {
+    if (!canMergeUp(model, decisions, r)) return decisions;
+    const rows = model.rows;
+    const aboveMs = rows[rows.indexOf(r) - 1].ms;
+    const own = before.find((g) => g.head === ms);
+    const above = before.find((g) => g.ms.includes(aboveMs));
+    next.mergeUp[ms] = true;
+    // Typed text on either side is kept: the line above's text, then this line's (its text covers its own merged rows).
+    if (above && own && (above.edited || own.edited)) next.newText[above.head] = `${above.text} ${own.text}`;
+    delete next.newIndent[ms];
+    delete next.newText[ms];
+  } else {
+    const g = before.find((x) => x.ms.includes(ms) && x.head !== ms);
+    delete next.mergeUp[ms];
+    if (g && (decisions.newText || {})[g.head]) {
+      const t = String(decisions.newText[g.head]).trim();
+      if (t.endsWith(` ${reading}`)) next.newText[g.head] = t.slice(0, -reading.length - 1);
+    }
+  }
+  return next;
+}
+
+/** Type a new line's text, kept as typed (blank is written as MyScript's reading; null forgets it). */
+export function setNewText(decisions, head, text) {
+  const newText = { ...(decisions.newText || {}) };
+  if (typeof text === 'string') newText[head] = text;
+  else delete newText[head];
+  return { ...decisions, newText };
+}
+
+/** Set a new line's indent (null = where it would be placed). */
+export function setNewIndent(decisions, head, indent) {
+  const newIndent = { ...(decisions.newIndent || {}) };
+  if (Number.isInteger(indent) && indent >= 0) newIndent[head] = indent;
+  else delete newIndent[head];
+  return { ...decisions, newIndent };
 }
 
 /**
@@ -589,10 +692,12 @@ export function buildRelinkSpec(run, model, decisions = defaultDecisions(model))
       }
     }
   }
+  // New lines (v3.30.0): one entry per line, its MyScript lines, the text to write, an indent if set.
+  for (const g of addedGroups(model, decisions)) add.push({ ms: [...g.ms], text: g.text, ...(g.indent != null ? { indent: g.indent } : {}) });
   for (const r of model.rows) {
     if (r.type !== 'leftover') continue;
     const choice = decisions.leftover[r.ms] || LEFTOVER_LEAVE;
-    if (choice === LEFTOVER_ADD && stripTaskMarker(r.reading)) add.push(r.ms);
+    if (choice === LEFTOVER_ADD) continue;
     else if (choice === LEFTOVER_TEXTLESS) textless.push(r.ms);
     else if (choice === LEFTOVER_SKETCH) sketch.push(r.ms);
   }

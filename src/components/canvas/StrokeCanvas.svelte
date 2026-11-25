@@ -59,6 +59,7 @@
   import PageSelector from './PageSelector.svelte';
   import SketchActions from './SketchActions.svelte';
   import SelectionTranscriptMenu from './SelectionTranscriptMenu.svelte';
+  import { openMakeSketchFromSelection } from '$stores/sketch-lines.js';
   import CanvasSearch from './CanvasSearch.svelte';
   import EditorEmptyState from './EditorEmptyState.svelte';
   import { editorActionsHost } from '$stores/editor-actions.js';
@@ -1965,15 +1966,16 @@
         >
           {isDetecting ? '⏳ Detecting…' : '🎨 Decorative'}
         </button>
+        <!-- Make sketch sits on the bar (v3.29.0); Duplicate moved into the ⋯ (Ctrl+D still works). -->
         <button
           class="tb-btn tone-accent"
-          on:click={handleDuplicate}
+          on:click={openMakeSketchFromSelection}
           disabled={$selectionCount === 0}
           title={$selectionCount > 0
-            ? `Duplicate ${$selectionCount} selected stroke(s) (Ctrl+D)`
-            : 'Select strokes to duplicate'}
+            ? `Make the ${$selectionCount} selected stroke(s) a sketch line in the transcript (one per page), saved at once. Save the strokes first.`
+            : 'Select the strokes of a drawing to make it a sketch'}
         >
-          🔄 Duplicate
+          🖼 Make sketch…
         </button>
         <button
           class="tb-btn tone-point"
@@ -2024,7 +2026,7 @@
         >
           🕒 Set time…
         </button>
-        <SelectionTranscriptMenu bind:this={selectionMenu} />
+        <SelectionTranscriptMenu bind:this={selectionMenu} onDuplicate={handleDuplicate} />
       </div>
 
       {#if $pastedCount > 0}

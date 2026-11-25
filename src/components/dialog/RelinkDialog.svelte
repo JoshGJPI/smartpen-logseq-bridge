@@ -30,7 +30,7 @@
   import { transcriptEditorHold } from '$stores/viewer.js';
   import { classifyRelink, defaultDecisions, buildRelinkSpec, reviewCounts, reviewSummary, NO_LINKS, afterRelinkSave, heldBackLabel } from '$lib/relink.js';
   import { isTrustworthyTranscript } from '$lib/viewer/ink-text.js';
-  import { relinkInk } from '$lib/relink-plan.js';
+  import { relinkInk, newLinePreview } from '$lib/relink-plan.js';
   import RelinkRows from './RelinkRows.svelte';
   import PageInk from '../viewer/PageInk.svelte';
 
@@ -48,6 +48,8 @@
   let trusted = false;
   /** The page's stored strokes and, per MyScript line, the ones the save would link (relinkInk). */
   let pageStrokes = [];
+  /** The page's stored lines, for where new lines would go (newLinePreview, v3.30.0). */
+  let storedLines = [];
   let ink = null;
   /** What the preview lights: { key, ids } (a row, a count, the held-back ink), or null. */
   let lit = null;
@@ -97,6 +99,7 @@
     trusted = isTrustworthyTranscript(got.doc);
     model = classifyRelink(got.doc.transcript.lines, run.lines);
     pageStrokes = got.doc.strokes || [];
+    storedLines = got.doc.transcript.lines || [];
     ink = relinkInk(got.doc, run);
     lit = null;
     decisions = defaultDecisions(model);
@@ -138,6 +141,8 @@
   // Counts as the choices stand (lib/relink.js reviewCounts), for the counts line and the footer.
   $: c = model && decisions ? reviewCounts(model, decisions) : null;
   $: changes = c ? reviewSummary(c) : '';
+  // Where each new line goes and at what indent, as the save will place it.
+  $: newPlaces = model && decisions && run ? newLinePreview(storedLines, buildRelinkSpec(run, model, decisions)) : new Map();
   // Save links nothing to ink → refused (it would mark the page linked with all ink unlinked).
   $: nLinked = c ? c.linked : 0;
   const confirmNote = (k) => [k.moved && `${k.moved} moved`, k.dontLink && `${k.dontLink} not linked`].filter(Boolean).join(', ').replace(/^(.+)$/, ' ($1)');
@@ -225,7 +230,7 @@
         {/if}
         {#if error}<p class="note warn">{error}</p>{/if}
         <div class="review">
-          <div class="table"><RelinkRows {model} {noinkLabel} bind:decisions disabled={phase === 'saving'} onHover={hoverRow} hot={lit && lit.key} /></div>
+          <div class="table"><RelinkRows {model} {noinkLabel} {newPlaces} bind:decisions disabled={phase === 'saving'} onHover={hoverRow} hot={lit && lit.key} /></div>
           <div class="ink">
             <PageInk book={target.book} pageId={target.pageId} strokes={pageStrokes} {highlight} />
             <span class="ink-note">{litNote}</span>

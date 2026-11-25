@@ -9,13 +9,8 @@
   // Folder-backed Data Explorer
   import { importStrokesFromFolder } from '$lib/storage/load-page.js';
   import { getPage } from '$lib/storage/local-store.js';
-  import { markerField } from '$lib/tasks.js';
-  import { buildEditedTranscript } from '$lib/editor-lines.js';
-  import { relinkAfterEdit } from '$lib/deleted-ink.js';
-  import { withKindBounds } from '$lib/line-kinds.js';
-  import { refreshAfterSave } from '$lib/storage/refresh.js';
   import TranscriptionPreview from './TranscriptionPreview.svelte';
-  import TranscriptionEditorModal from '../dialog/TranscriptionEditorModal.svelte';
+  import SavedTranscriptEditor from './SavedTranscriptEditor.svelte';
   import PageTagsInline from '../tags/PageTagsInline.svelte';
   import { exportPageDocToGraph } from '$lib/storage/graph-export.js';
   import { graphFolderReady } from '$stores/settings.js';
@@ -25,12 +20,8 @@
     resetPageTranscript,
     resetRefusalText,
     canvasPageKeys,
-    isViewerPageDirty,
-    transcriptEditorHold,
-    syncCanvasAfterPageWrite,
     log
   } from '$stores';
-  import { onDestroy } from 'svelte';
 
   export let page; // lightweight page record (no strokes/pageDoc)
 
@@ -43,14 +34,8 @@
   let importing = false;
   let importProgress = { current: 0, total: 0 };
   let editedTranscription = page.transcriptionText || '';
-  let showEditorModal = false;
-  // While the dialog is open Claude's edits are refused on this page (v3.18.0).
-  const editorHold = transcriptEditorHold();
-  $: editorHold.set(`${page.book}:${pageRef}`, showEditorModal);
-  onDestroy(() => editorHold.release());
-  let editorLines = [];
-  /** transcript.lines when the dialog opened, for keepDiskTaskState */
-  let editorBase = [];
+  /** The Edit Transcription dialog for this saved page (SavedTranscriptEditor, v3.30.0) */
+  let editor;
   let loadingLines = false;
   let transcriptExpanded = false;
   let exportingToGraph = false;
@@ -122,39 +107,6 @@
     }
   }
 
-  async function handleOpenEditor() {
-    loadingLines = true;
-    try {
-      // v2.0: read transcript directly from the PageDoc (loaded lazily by pageId)
-      const doc = await getPage(page.book, pageRef);
-      if (!doc || !doc.transcript || !doc.transcript.lines || doc.transcript.lines.length === 0) {
-        alert('No transcription found for this page. Please transcribe it first.');
-        return;
-      }
-
-      // Map TranscriptLine[] → editor's expected line shape.
-      // blockUuid keeps the editor's existing semantics (stable line ID).
-      editorBase = doc.transcript.lines;
-      editorLines = doc.transcript.lines.map(l => ({
-        text: l.text || '',
-        canonical: (l.text || '').trim().toLowerCase(),
-        yBounds: l.yBounds || { minY: 0, maxY: 0 },
-        indentLevel: l.indentLevel || 0,
-        blockUuid: l.id,           // PageDoc TranscriptLine.id → editor blockUuid
-        checked: l.checked,        // preserve TODO/DONE state
-        ...markerField(l),         // and WAITING (v3.4.0)
-        parentId: l.parentId,
-        syncStatus: 'synced'
-      }));
-      showEditorModal = true;
-    } catch (error) {
-      log(`Could not load the transcript of B${page.book}/P${pageRef}: ${error.message}`, 'error');
-      alert(`Failed to load transcription: ${error.message}`);
-    } finally {
-      loadingLines = false;
-    }
-  }
-
   /**
    * Reset transcript — unlinks every loaded stroke of this page and clears any
    * in-memory transcription entry so the page can be re-transcribed; the next
@@ -181,80 +133,14 @@
     log(`Reset transcript for B${page.book}/P${page.page}: ${count} stroke(s) unlinked; the next Transcribe + Save replaces the saved transcript`, 'info');
   }
 
-  async function handleSaveEditor(event) {
-    const { lines: editedLines, deletedLineIds, deletedInk } = event.detail;
-    // A Library draft on this page would write its own copy over this one.
-    if (isViewerPageDirty(String(page.book), String(pageRef))) {
-      alert(`B${page.book}/P${pageRef} has unsaved transcript edits in the Library. Save or cancel them first.`);
-      return;
-    }
-    try {
-      // v2.0: rewrite the PageDoc's transcript section and atomic-write the file.
-      const doc = await getPage(page.book, pageRef);
-      if (!doc) {
-        alert(`Could not load page file for B${page.book}/P${pageRef}`);
-        return;
-      }
-
-      // The dialog's lines, task state from disk where the dialog didn't change
-      // it (a tick made while it was open is kept), merged-away lines' strokes
-      // handed to the survivor.
-      const { lines: newLines, lineIdRemap } = buildEditedTranscript(
-        editedLines, editorBase, doc.transcript?.lines || [], randomId
-      );
-
-      // lineId remap, the deleted lines' ink (Not text or unlinked), other dead links scrubbed
-      const relinked = relinkAfterEdit(doc.strokes,
-        { liveIds: new Set(newLines.map(l => l.id)), remap: lineIdRemap, deletedLineIds, deletedInk });
-
-      const nextDoc = {
-        ...doc,
-        metadata: {
-          ...(doc.metadata || {}),
-          lastUpdated: new Date().toISOString()
-        },
-        transcript: {
-          lastTranscribed: new Date().toISOString(),
-          lines: withKindBounds(newLines, relinked.strokes)
-        },
-        strokes: relinked.strokes
-      };
-
-      // Editor edits already produced the final PageDoc shape, so we write
-      // it directly via savePage (atomic) — bypassing savePageToFolder, which
-      // would re-merge with on-disk content and clobber the handcrafted
-      // transcript.
-      const { savePage } = await import('$lib/storage/local-store.js');
-      await savePage(page.book, pageRef, nextDoc);
-      // This page on the canvas follows the deleted lines' ink (Transcribe sends "Transcribe again" ink).
-      syncCanvasAfterPageWrite(page.book, pageRef, { strokes: relinked.strokes, textlessIds: relinked.textless, unlinkedIds: relinked.unlinked });
-      // The Library, Tasks and the reader's cache hold copies of this page.
-      refreshAfterSave([{ book: page.book, pageId: pageRef }])
-        .catch((e) => log(`Could not refresh the Library after the save: ${e.message}`, 'warning'));
-
-      // Update lightweight record fields only — don't stash the full doc back
-      // onto the record (that's the residency removed in perf #3).
-      editedTranscription = newLines.map(l => '  '.repeat(l.indentLevel || 0) + l.text).join('\n');
-      page.transcriptionText = editedTranscription || null;
-      page.transcribed = !!editedTranscription;
-      page.transcriptLineCount = newLines.length;
-      page.syncStatus = 'synced';
-      showEditorModal = false;
-      log(`Updated transcript for B${page.book}/P${pageRef}: ${newLines.length} line(s)`, 'success');
-    } catch (error) {
-      log(`Could not save the transcript of B${page.book}/P${pageRef}: ${error.message}`, 'error');
-      alert(`Failed to save: ${error.message}`);
-    }
-  }
-
-  function randomId() {
-    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-    const a = new Uint8Array(16);
-    (typeof crypto !== 'undefined' && crypto.getRandomValues ? crypto.getRandomValues(a) : a.fill(Math.floor(Math.random() * 256)));
-    a[6] = (a[6] & 0x0f) | 0x40;
-    a[8] = (a[8] & 0x3f) | 0x80;
-    const hex = [...a].map(b => b.toString(16).padStart(2, '0')).join('');
-    return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+  // After the dialog's save: only the lightweight record fields (never the doc).
+  function afterEdit(e) {
+    const newLines = e.detail.lines;
+    editedTranscription = newLines.map(l => '  '.repeat(l.indentLevel || 0) + l.text).join('\n');
+    page.transcriptionText = editedTranscription || null;
+    page.transcribed = !!editedTranscription;
+    page.transcriptLineCount = newLines.length;
+    page.syncStatus = 'synced';
   }
 </script>
 
@@ -331,7 +217,7 @@
         <div class="section-actions">
           <button
             class="action-btn"
-            on:click={handleOpenEditor}
+            on:click={() => editor.open()}
             disabled={loadingLines}
             title="Edit line structure and merge/split lines"
           >
@@ -352,14 +238,7 @@
 
 </div>
 
-<TranscriptionEditorModal
-  bind:visible={showEditorModal}
-  book={page.book}
-  page={page.page}
-  pageId={pageRef}
-  lines={editorLines}
-  on:save={handleSaveEditor}
-/>
+<SavedTranscriptEditor bind:this={editor} bind:loading={loadingLines} book={page.book} page={page.page} pageId={pageRef} on:saved={afterEdit} />
 
 <style>
   .page-card {

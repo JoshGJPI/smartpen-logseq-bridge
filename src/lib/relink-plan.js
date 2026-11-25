@@ -71,29 +71,13 @@ const sameLineFields = (a, b) => a.id === b.id && a.text === b.text && (a.indent
 export function planRelink(existingLines, relink, storedStrokes = [], originNcodeY = null, { newId = newLineId, trusted = false } = {}) {
   const existing = Array.isArray(existingLines) ? existingLines : [];
   const ms = (relink && relink.myscriptLines) || [];
-  const byId = new Map(existing.map((l) => [l.id, l]));
   const kindIds = new Set(existing.filter((l) => l && l.kind).map((l) => l.id));
 
   // Owner of each MyScript line: a stored line, a new line, Not text, or nothing.
   const owner = ms.map(() => ({ type: 'leave' }));
-  const linkOf = new Map(); // lineId → the MyScript line indices it takes (a line merged by hand takes several)
-  for (const { lineId, ms: raw } of (relink && relink.links) || []) {
-    const l = byId.get(lineId);
-    if (!l || l.kind || linkOf.has(lineId)) continue;
-    const js = (Array.isArray(raw) ? raw : [raw]).filter((j) => ms[j] && usable(ms[j].yBounds) && owner[j].type === 'leave');
-    if (!js.length) continue;
-    for (const j of js) owner[j] = { type: 'line', lineId };
-    linkOf.set(lineId, js);
-  }
-  const added = new Map(); // ms index → new line record
-  for (const j of (relink && relink.add) || []) {
-    if (!ms[j] || owner[j].type !== 'leave') continue;
-    const { checked, text } = parseTaskMarker(String(ms[j].text || '').trim());
-    if (!text.trim()) continue;
-    const rec = { id: newId(), text: text.trim(), indentLevel: 0, parentId: null, checked, yBounds: usable(ms[j].yBounds) ? { minY: ms[j].yBounds.minY, maxY: ms[j].yBounds.maxY } : null };
-    owner[j] = { type: 'line', lineId: rec.id };
-    added.set(j, rec);
-  }
+  // lineId → the MyScript line indices it takes (a line merged by hand takes several)
+  const linkOf = linksOf(existing, relink, ms, owner);
+  const added = newLineRecords(ms, relink, owner, newId);
   for (const j of (relink && relink.textless) || []) {
     if (ms[j] && owner[j].type === 'leave') owner[j] = { type: 'textless' };
   }
@@ -175,6 +159,72 @@ export function planRelink(existingLines, relink, storedStrokes = [], originNcod
 }
 
 /**
+ * The review's new lines (`relink.add`): each entry a MyScript line index (the
+ * reading as is), or (v3.30.0) `{ ms: [j…], text?, indent? }`: one line taking
+ * several MyScript lines (merged in the review), the text the review typed (else the
+ * readings joined) and an indent. A typed task box is read as on transcription.
+ * Marks `owner`. @returns {Map<number, Object>} first MyScript index → the line record
+ */
+function newLineRecords(ms, relink, owner, newId) {
+  const added = new Map();
+  for (const entry of (relink && relink.add) || []) {
+    const js = (typeof entry === 'number' ? [entry] : (entry && entry.ms) || []).filter((j) => ms[j] && owner[j].type === 'leave');
+    if (!js.length) continue;
+    const typed = entry && typeof entry.text === 'string' && entry.text.trim() ? entry.text : null;
+    const { checked, text } = parseTaskMarker(String(typed ?? js.map((j) => String(ms[j].text || '').trim()).join(' ')).trim());
+    if (!text.trim()) continue;
+    const bs = js.map((j) => ms[j].yBounds).filter(usable);
+    const rec = {
+      id: newId(), text: text.trim(), indentLevel: 0, parentId: null, checked,
+      yBounds: bs.length ? { minY: Math.min(...bs.map((b) => b.minY)), maxY: Math.max(...bs.map((b) => b.maxY)) } : null
+    };
+    const indent = entry && Number.isInteger(entry.indent) && entry.indent >= 0 ? entry.indent : null;
+    for (const j of js) owner[j] = { type: 'line', lineId: rec.id };
+    added.set(js[0], { rec, indent });
+  }
+  return added;
+}
+
+/**
+ * Where the new lines would go and at what indent, for the review (v3.30.0): the
+ * same placement the save makes, from the spec alone (no strokes needed).
+ * @returns {Map<number, { indentLevel: number, max: number }>} first MyScript index → its indent, and the
+ *   deepest it may go (one deeper than the line before it)
+ */
+export function newLinePreview(existingLines, relink) {
+  const existing = Array.isArray(existingLines) ? existingLines : [];
+  const ms = (relink && relink.myscriptLines) || [];
+  const owner = ms.map(() => ({ type: 'leave' }));
+  const linkOf = linksOf(existing, relink, ms, owner);
+  const added = newLineRecords(ms, relink, owner, () => '~preview-new');
+  const ids = new Map();
+  let k = 0;
+  for (const [j, a] of added) { a.rec = { ...a.rec, id: `~preview-new${k++}` }; ids.set(a.rec.id, j); }
+  const lines = placeNewLines(existing, added, linkOf, ms.length);
+  const out = new Map();
+  lines.forEach((l, i) => {
+    if (!ids.has(l.id)) return;
+    out.set(ids.get(l.id), { indentLevel: l.indentLevel || 0, max: i > 0 ? (lines[i - 1].indentLevel || 0) + 1 : 0 });
+  });
+  return out;
+}
+
+/** The stored lines the spec links, each to its usable MyScript lines; marks `owner`. */
+function linksOf(existing, relink, ms, owner) {
+  const byId = new Map(existing.map((l) => [l.id, l]));
+  const linkOf = new Map();
+  for (const { lineId, ms: raw } of (relink && relink.links) || []) {
+    const l = byId.get(lineId);
+    if (!l || l.kind || linkOf.has(lineId)) continue;
+    const js = (Array.isArray(raw) ? raw : [raw]).filter((j) => ms[j] && usable(ms[j].yBounds) && owner[j].type === 'leave');
+    if (!js.length) continue;
+    for (const j of js) owner[j] = { type: 'line', lineId };
+    linkOf.set(lineId, js);
+  }
+  return linkOf;
+}
+
+/**
  * Insert "Add as new line" lines by y: after the stored line linked to the
  * nearest MyScript line above (as its first child when that line has children,
  * else as its sibling), else before the line linked to the nearest one below,
@@ -184,7 +234,7 @@ function placeNewLines(lines, added, linkOf, msCount) {
   if (!added.size) return lines;
   const lineAtMs = new Map([...linkOf].flatMap(([id, js]) => js.map((j) => [j, id])));
   const after = new Map(), before = new Map(), atEnd = [];
-  for (const [j, rec] of [...added].sort((a, b) => a[0] - b[0])) {
+  for (const [j, rec] of [...added].sort((a, b) => a[0] - b[0]).map(([k, a]) => [k, { ...a.rec, _indent: a.indent }])) {
     let anchor = null;
     for (let k = j - 1; k >= 0 && anchor === null; k--) if (lineAtMs.has(k)) anchor = lineAtMs.get(k);
     if (anchor !== null) { push(after, anchor, rec); continue; }
@@ -204,7 +254,27 @@ function placeNewLines(lines, added, linkOf, msCount) {
         : { ...rec, indentLevel: l.indentLevel || 0, parentId: l.parentId ?? null });
     }
   });
-  return [...out, ...atEnd];
+  return withTypedIndents([...out, ...atEnd]);
+}
+
+/**
+ * A new line's indent set in the review (v3.30.0): taken, at most one deeper than
+ * the line before it, its parent the nearest line above with a smaller indent.
+ * Only new lines change; `_indent` never reaches disk.
+ */
+function withTypedIndents(lines) {
+  const out = [];
+  for (const l of lines) {
+    if (!l || !('_indent' in l)) { out.push(l); continue; }
+    const { _indent, ...rec } = l;
+    if (_indent == null) { out.push(rec); continue; }
+    const prev = out[out.length - 1];
+    const indentLevel = Math.max(0, Math.min(_indent, prev ? (prev.indentLevel || 0) + 1 : 0));
+    let parentId = null;
+    for (let k = out.length - 1; k >= 0; k--) if ((out[k].indentLevel || 0) < indentLevel) { parentId = out[k].id; break; }
+    out.push({ ...rec, indentLevel, parentId });
+  }
+  return out;
 }
 
 /** The strokes a relink matches: sent, never textless, never linked to a kind line (plan and preview alike). */

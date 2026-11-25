@@ -35,8 +35,11 @@ src/lib/           pure logic, no UI, testable without DOM (tags: also tag types
                    🏷 Tags act on, book-types, canvas-save-plan: which pages a save writes and which deletion marks it
                    settles, canvas-text-view: the Editor's text view, delete-lines: Delete line / block and what it
                    asks, deleted-ink: the deleted lines' ink and the `textless` flag, line-kinds: sketch lines' format,
-                   box, scan text and placement (v3.24.0), sketch-search: sketches by tag and label; timeline-tags: the Timeline's tag filter and block scope (v3.25.0, v3.26.0); one line each in
+                   box, scan text and placement (v3.24.0), sketch-pick: the reader's Mark sketch pick stroke by stroke (v3.29.0),
+                   sketch-search: sketches by tag and label; timeline-tags: the Timeline's tag filter and block scope (v3.25.0, v3.26.0); one line each in
                    docs/ARCHITECTURE.md "Key Libraries")
+src/components/saved-pages/SavedTranscriptEditor.svelte   a saved page's Edit Transcription dialog and its write
+                   (v3.30.0): the Pages tab's Edit and the Transcripts tab's ✎ Edit beside Re-transcribe
 src/lib/storage/   PageDoc layer: local-store (IPC facade), save-page, load-page, load-range, scan, page-changes, graph-export,
                    convert-task-boxes (one-off conversion of old transcripts), line-match (stroke ↔ MyScript line, v3.21.0)
 src/lib/relink.js, relink-plan.js, line-align.js   Relink old pages (v3.21.0, spec Phase B): what is sent, classify,
@@ -334,8 +337,10 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
 
 - **Relink keeps the transcript; Reset replaces it.** `planTranscript(…, { relink })` (`lib/relink-plan.js`) writes
   only linked lines' `yBounds`, the sent strokes' `lineId`, `lastTranscribed` and `lastUpdated`, plus the word fixes
-  the review took and lines from "Add as new line". Never line ids, other text, order, indent, `parentId`, `checked`,
-  `marker` or kind lines, so no task state is carried. No stroke is deleted; leftover ink is unlinked or, by choice,
+  the review took and lines from "Add as new line" (v3.30.0: each with the text the review typed, an indent it set,
+  and several leftover readings merged into one; `add: [{ ms: [j…], text, indent? }]`, bare indices still read). Never
+  an existing line's id, other text, order, indent, `parentId`, `checked`, `marker` or kind lines, so no task state is
+  carried. No stroke is deleted; leftover ink is unlinked or, by choice,
   flagged Not text in the same write. One write path: `savePageToFolder({ relink })`, then `refreshAfterSave()`.
 - **A relink must link at least one line** (`noLinks` in the save, `NO_LINKS` in `saveRelink`, Save disabled in the
   dialog): bumping `lastTranscribed` with nothing linked would make the page read as trustworthy with all its ink
@@ -396,7 +401,9 @@ Breaking these loses data or quietly produces wrong results. The reasoning and h
   default). Strokes marked for deletion (`deletedIndices`) are never taken (`sketchTargets`).
 - **Make sketch never takes a text line's ink silently**: the reader's box (`boxPick`) and the Editor's selection
   (`selectionPick`, MakeSketchDialog) offer strokes already in a text line or another sketch per line, with the warning
-  "N strokes are in line #N …", left there unless the user picks Take them.
+  "N strokes are in line #N …", left there unless the user picks Take them (or, in the reader, clicks the stroke,
+  v3.29.0: `lib/viewer/sketch-pick.js`). Ink taken in the reader reaches the dialog already taken
+  (`openMakeSketch(…, { decided: true })`); never re-ask with Leave as the default there, which dropped it.
 - **Every transcript path keeps sketch lines**: the merge (kept in place; ink linked to a kind line is never matched to
   a new line), `applyEditorLines` (kind and box kept; a cleared label reads "Sketch", **never an emptied-line
   delete**; never a task), Reset + replace (`transcript-reset.js` unlinks only text-line ink, reading the page's kind

@@ -6,6 +6,56 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.30.0 — Relink: edit new lines in the review; Edit in the Transcripts tab (November 2026)
+
+Josh, on B3017/P133 (2026-11-25): the untranscribed part of a page (a meeting added after the first transcription)
+came back from Relink as seven "ink left over" rows. Each needed the select changed to Add as new line, and the new
+lines then had to be fixed (text, indent, a row MyScript split in two) in another editor after the save. The
+Transcripts tab also had only Re-transcribe; Edit meant finding the page in the Pages tab.
+
+- **+ at the end of a leftover's reading** adds it as a new line in one click (the select still has every choice).
+- **A new line is edited in the review** (`dialog/RelinkNewLine.svelte`, state in the review's decisions:
+  `newText`, `newIndent`, `mergeUp`; `lib/relink.js` `addedGroups()` / `setNewText()` / `setNewIndent()` /
+  `setMergeUp()`): its text (MyScript's reading to start; empty = the reading), its indent (Tab / Shift+Tab or ⇤ ⇥,
+  shown where the save puts it, at most one deeper than the line before), and ⤒ Merge into the new line just above
+  (one line, readings joined, both MyScript lines' ink and bounds; Split undoes it, giving back the merged words
+  when the text above was typed). Typed text is kept across a merge.
+- **The save** (`relink-plan.js`): `add` entries may be `{ ms: [j…], text, indent }`; bare indices (older specs)
+  still work. The text is read for a task box as before; an indent is clamped and the new line's parent is the
+  nearest line above with a smaller indent. Existing lines are never changed; the placement rule is unchanged when no
+  indent is set. The review shows each new line at the indent the save will give it (`newLinePreview`, the save's
+  own placement from the spec).
+- Rejected: merging a new line into a STORED line from the review. "Add to #N" already gives a stored line the ink,
+  with word fixes offered; changing a stored line's text further stays Library Edit's job.
+- **Transcripts tab: ✎ Edit beside ↺ Re-transcribe.** It opens the saved transcript in the Edit Transcription dialog,
+  the Pages tab's own path, now one component (`saved-pages/SavedTranscriptEditor.svelte`, moved out of PageCard, so
+  both write the same way and hold the page from Claude's edits). Off while the page is reset (the next Transcribe
+  replaces the transcript) and when several saved variants (P151 / P151b) share the page number.
+
+## v3.29.0 — Mark sketch stroke by stroke; Make sketch on the Editor's bar (November 2026)
+
+Josh, on Study Notes 3 P17 (2026-11-25): the reader's Mark sketch was one box, all or nothing per line, and showed
+nothing on the page, so the granola bowl couldn't be taken without part of "Thank You!", and "5 strokes are in line
+#3" gave no way to see which 5. He also wanted to see the strokes when confirming.
+
+- **The pick is shown on the page** (`lib/viewer/sketch-pick.js` `pickMarks`, PageInk `marks`): the page greys, the
+  strokes going into the sketch are drawn orange, those left in their line blue; in Add / Remove strokes… the
+  sketch's own ink stays in ink.
+- **Refined stroke by stroke.** The box stays up after the first pick: a plain drag starts again, Ctrl-drag adds a
+  box, Shift-drag takes one away (as in the Editor), and a click on a stroke takes it or drops it (`strokeAt`,
+  6 px). A click is a deliberate pick, so an in-line stroke clicked is taken. Per line, Leave / Take still move the
+  line's picked strokes at once; a row reads "11 strokes, 1 taken" for a mix. The middle button pans while the box
+  is up; the panel opens on the half of the pane away from the box (▲ / ▼ moves it).
+- **Fixed: strokes taken in the reader were dropped by the dialog.** The dialog re-split the ids per line with
+  Leave as the default, so "Take them" in the reader then Make sketch wrote only the free strokes unless the line was
+  taken again. From the reader (`openMakeSketch(…, { decided: true })`) the dialog now starts with those lines taken.
+- **The dialog's preview is the page** (`page-svg.js` `generatePickSVG` + `pickFrame`): the whole page greyed with
+  the sketch's strokes orange and ink left in its line blue, beside a close-up of the pick. It follows Leave / Take.
+  It used to draw only the picked strokes on their own, where a stray letter was hard to tell from the drawing.
+- **Make sketch… is on the Editor's toolbar**, where Duplicate was; Duplicate moved into the selection ⋯ (Ctrl+D
+  unchanged). Nothing about the write changed: every sketch still goes through `saveSketchLine()`.
+- Rejected: a lasso in the reader (box + click covers it with less code; the Editor has the full selection tools).
+
 ## v3.28.0 — Relink: add leftover ink to any line (November 2026)
 
 Josh's review of B553/P1 (2026-11-25): two stored lines (#27, #28) came back with no ink while their readings sat

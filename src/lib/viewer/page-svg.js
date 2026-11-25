@@ -165,7 +165,37 @@ export function strokeToWidthRuns(stroke, bounds, profile, scale = NCODE_SCALE) 
  * @returns {string} an `<svg>…</svg>` string (renders "Empty" when no strokes)
  */
 export function generateThumbnailSVG(strokes, maxWidth = 240, maxHeight = 200, strokeColor = '#1a1a2e', rotation = 0) {
-  const bounds = computeStrokeBounds(strokes);
+  return thumbnailSVG(strokes, maxWidth, maxHeight, rotation, () => ({ color: strokeColor, width: 0.3 }));
+}
+
+/**
+ * The Make sketch dialog's preview (v3.29.0): the whole page's ink, greyed, with
+ * the picked strokes drawn on top in colour, so a wrong stroke shows in place.
+ * @param {Array<{id:string, points:number[][]}>} strokes  every stroke of the page
+ * @param {(stroke) => ('taken'|'offered'|null)} roleOf
+ * @param {{minX,maxX,minY,maxY}|null} [frame] the Ncode box to show (a close-up); the page's ink box when null
+ */
+export function generatePickSVG(strokes, roleOf, maxWidth = 260, maxHeight = 320, rotation = 0, frame = null) {
+  const STYLE = { taken: { color: '#e8590c', width: 0.9 }, offered: { color: '#3b82f6', width: 0.8 } };
+  const rank = (s) => (roleOf(s) === 'taken' ? 2 : roleOf(s) === 'offered' ? 1 : 0);
+  const ordered = [...(strokes || [])].sort((a, b) => rank(a) - rank(b));
+  return thumbnailSVG(ordered, maxWidth, maxHeight, rotation, (s) => STYLE[roleOf(s)] || { color: '#c3c7d4', width: 0.4 }, frame);
+}
+
+/**
+ * The close-up for generatePickSVG: the picked strokes' box, grown by `pad` of
+ * its size on each side (at least `min` Ncode units), or null when none.
+ */
+export function pickFrame(strokes, pad = 0.35, min = 4) {
+  const b = computeStrokeBounds(strokes);
+  if (!b) return null;
+  const px = Math.max((b.maxX - b.minX) * pad, min);
+  const py = Math.max((b.maxY - b.minY) * pad, min);
+  return { minX: b.minX - px, maxX: b.maxX + px, minY: b.minY - py, maxY: b.maxY + py };
+}
+
+function thumbnailSVG(strokes, maxWidth, maxHeight, rotation, styleOf, frame = null) {
+  const bounds = frame || computeStrokeBounds(strokes);
   if (!bounds) {
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${maxWidth} ${maxHeight}" width="${maxWidth}" height="${maxHeight}"><text x="${maxWidth / 2}" y="${maxHeight / 2}" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#bbb">Empty</text></svg>`;
   }
@@ -205,7 +235,8 @@ export function generateThumbnailSVG(strokes, maxWidth = 240, maxHeight = 200, s
         return `${i === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
       })
       .join(' ');
-    paths += `<path d="${d}" stroke="${strokeColor}" stroke-width="0.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+    const st = styleOf(stroke);
+    paths += `<path d="${d}" stroke="${st.color}" stroke-width="${st.width}" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
   }
 
   if (turn) paths = `<g transform="${turn}">${paths}</g>`;

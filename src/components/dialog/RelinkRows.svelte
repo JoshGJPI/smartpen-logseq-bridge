@@ -18,13 +18,18 @@
   A stored line merged by hand from several written rows takes several MyScript
   lines; its reading shows them joined, a ⏎ where the next one starts.
 
+  v3.30.0: a + at the end of a leftover's reading adds it as a new line in one
+  click; a new line's row then edits it (RelinkNewLine: text, indent, merge into
+  the new line above), shown at the indent the save will give it (`newPlaces`).
+
   `decisions` is lib/relink.js defaultDecisions()' shape, replaced on each change
   (bind:decisions). The rows shown are reviewRows(model, decisions). Pure presentation; the dialog saves. Hovering a row (or
   focusing inside it) calls `onHover(row)`, and `onHover(null)` on leaving, so
   the dialog can light that row's ink (v3.27.0).
 -->
 <script>
-  import { applyWordFixes, reviewRows, leftoverTarget, setLeftoverChoice, LEFTOVER_LEAVE, LEFTOVER_ADD, LEFTOVER_TEXTLESS, LEFTOVER_JOIN, LEFTOVER_SKETCH } from '$lib/relink.js';
+  import RelinkNewLine from './RelinkNewLine.svelte';
+  import { addedGroups, applyWordFixes, reviewRows, leftoverTarget, setLeftoverChoice, LEFTOVER_LEAVE, LEFTOVER_ADD, LEFTOVER_TEXTLESS, LEFTOVER_JOIN, LEFTOVER_SKETCH } from '$lib/relink.js';
   import { stripTaskMarker } from '$lib/task-markers.js';
 
   /** classifyRelink() result */
@@ -37,6 +42,8 @@
   export let onHover = () => {};
   /** The row lit in the preview (its key), for the row's own highlight */
   export let hot = null;
+  /** lib/relink-plan.js newLinePreview(): first MyScript index of a new line → { indentLevel, max } */
+  export let newPlaces = new Map();
 
   const rowKey = (r) => r.lineId || `ms${r.ms}`;
 
@@ -88,6 +95,8 @@
   }
 
   $: rows = reviewRows(model, decisions);
+  // New lines (v3.30.0): the group each Add-as-new-line row belongs to.
+  $: groupOf = new Map(addedGroups(model, decisions).flatMap((g) => g.ms.map((ms) => [ms, g])));
   $: fixesFor = (r) => decisions.fixes[r.lineId] || [];
   // Every stored text line, for "Add to" another line than the suggested one.
   $: lineChoices = model.rows.filter((r) => r.lineId).map((r) => ({ id: r.lineId, label: `#${r.n} ${clip(r.text || '', 44)}` }));
@@ -109,7 +118,9 @@
         on:mouseenter={() => onHover(r)} on:mouseleave={() => onHover(null)} on:focusin={() => onHover(r)}>
         <td class="n">{r.n ?? ''}</td>
         <td class="stored" style="padding-left: {8 + r.indentLevel * 14}px">
-          {#if r.type === 'leftover'}
+          {#if r.type === 'leftover' && groupOf.has(r.ms)}
+            <RelinkNewLine {model} bind:decisions row={r} group={groupOf.get(r.ms)} place={newPlaces.get(groupOf.get(r.ms).head)} {disabled} />
+          {:else if r.type === 'leftover'}
             <span class="none">ink left over</span>{#if r.addedTo}<span class="to"> → added to #{r.addedTo}</span>{/if}
           {:else}
             {#if r.task}<span class="task" class:closed={r.task === 'DONE' || r.task === 'CANCELLED'}>{r.task}</span>{/if}
@@ -132,6 +143,10 @@
             {/each}
           {:else}
             <span class="none">—</span>
+          {/if}
+          {#if r.type === 'leftover' && !r.addedTo && (decisions.leftover[r.ms] || LEFTOVER_LEAVE) !== LEFTOVER_ADD}
+            <button class="plus" {disabled} on:click={() => setLeftover(r, LEFTOVER_ADD)}
+              title="Add as a new line (then correct its text, indent or merge it in the Stored text column)">+</button>
           {/if}
         </td>
         <td class="m">
@@ -196,6 +211,13 @@
     margin-left: 3px; padding: 0 5px; font-size: 0.7rem; line-height: 1.4; border-radius: 4px; cursor: pointer;
     border: 1px solid var(--warning); background: transparent; color: var(--warning);
   }
+  .plus {
+    float: right; margin-left: 6px; width: 20px; height: 20px; padding: 0; line-height: 18px; font-size: 0.95rem;
+    border-radius: 5px; cursor: pointer; border: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-primary);
+  }
+  .plus:hover:not(:disabled) { border-color: var(--success); color: var(--success); }
+  .plus:disabled { opacity: 0.5; cursor: default; }
+  tr.leftover:has(.nl) { background: rgba(74, 222, 128, 0.05); }
   .use:disabled { opacity: 0.5; cursor: default; }
   .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
   .seg button { padding: 2px 8px; font-size: 0.75rem; border: none; background: transparent; color: var(--text-secondary); cursor: pointer; }

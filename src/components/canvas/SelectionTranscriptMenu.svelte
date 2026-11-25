@@ -14,9 +14,9 @@
   save dialog). Taking strokes back in leaves them unlinked, so the next
   Transcribe sends them.
 
-  Make sketch… (v3.24.0, stores/sketch-lines.js, MakeSketchDialog) makes the
-  selected strokes a sketch line, one per page, saved at once; strokes not saved
-  yet are refused ("Save first").
+  Duplicate (v3.29.0, swapped with Make sketch…, which moved to the toolbar)
+  copies the selection as movable pasted strokes (StrokeCanvas handleDuplicate,
+  `onDuplicate`; Ctrl+D as before).
 
   The menu is position: fixed, so the toolbar's scrolling strip can't clip it.
   Escape closes it before the canvas sees the key.
@@ -27,8 +27,10 @@
   import { log } from '$stores/ui.js';
   import { setStrokesTextless, countTextless } from '$stores/textless.js';
   import { openRelinkSelection } from '$stores/relink.js';
-  import { openMakeSketchFromSelection } from '$stores/sketch-lines.js';
   import { plural } from '$lib/plural.js';
+
+  /** StrokeCanvas's handleDuplicate. */
+  export let onDuplicate = () => {};
 
   let btnEl;
   let menuEl;
@@ -60,9 +62,9 @@
     openRelinkSelection();
   }
 
-  function makeSketch() {
+  function duplicate() {
     at = null;
-    openMakeSketchFromSelection();
+    onDuplicate();
   }
 
   function apply(on) {
@@ -99,7 +101,7 @@
   bind:this={btnEl}
   on:click|stopPropagation={toggle}
   disabled={!hasSelection}
-  title={hasSelection ? 'More for the selected strokes: leave them out of transcripts, take them back in, relink them or make them a sketch (also right-click the canvas)' : 'Select strokes first'}
+  title={hasSelection ? 'More for the selected strokes: leave them out of transcripts, take them back in, relink them or duplicate them (also right-click the canvas)' : 'Select strokes first'}
   aria-haspopup="menu"
   aria-expanded={!!at}
 >⋯</button>
@@ -122,9 +124,9 @@
       title="Send only these strokes (one page) to MyScript and link them to the stored lines they belong to; the text and task state are kept. Save the page first.">
       Relink selection…
     </button>
-    <button class="stm-item" role="menuitem" on:click={makeSketch}
-      title="Make these strokes a sketch line in the transcript (one per page), saved at once: labelled, searchable, never sent to MyScript. Save the strokes first.">
-      Make sketch…
+    <button class="stm-item" role="menuitem" on:click={duplicate} disabled={!hasSelection}
+      title="Copy the selected strokes as movable strokes beside them (Ctrl+D)">
+      Duplicate<span class="stm-n">Ctrl+D</span>
     </button>
   </div>
 {/if}

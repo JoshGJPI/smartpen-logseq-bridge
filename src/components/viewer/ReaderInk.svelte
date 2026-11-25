@@ -30,6 +30,8 @@
   let ink = null;
   let markLayer = null;
   let boxMode = null;
+  /** Mark sketch's pick, drawn in colour (v3.29.0). */
+  let marks = null;
 
   export function zoomBy(factor) { ink && ink.zoomBy(factor); }
   export function fit() { ink && ink.fit(); }
@@ -64,10 +66,12 @@
   {dayModel}
   highlight={shown}
   {onOpenDay}
-  {boxMode}
-  onBox={(b) => markLayer && markLayer.pick(b)}
+  boxMode={inktext ? boxMode : null}
+  marks={inktext ? marks : null}
+  onBox={(b, how, yFrac) => markLayer && markLayer.pick(b, how, yFrac)}
+  onBoxClick={(pt, tol, how) => markLayer && markLayer.click(pt, tol, how)}
   onBoxCancel={stopSketchMark}
 />
 {#if inktext}
-  <SketchMarkLayer bind:this={markLayer} bind:boxMode {book} {pageId} {doc} />
+  <SketchMarkLayer bind:this={markLayer} bind:boxMode bind:marks {book} {pageId} {doc} />
 {/if}

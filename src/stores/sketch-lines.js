@@ -46,10 +46,15 @@ export function openMakeSketchFromSelection() {
   return null;
 }
 
-/** Make sketch for strokes picked in the reader (a Mark sketch box). */
-export function openMakeSketch(book, pageId, ids) {
+/**
+ * Make sketch for strokes picked in the reader (a Mark sketch box). With
+ * `decided` (v3.29.0) the in-line strokes among `ids` were taken there, stroke by
+ * stroke, so the dialog starts with them taken instead of asking again with
+ * Leave as the default (which dropped them).
+ */
+export function openMakeSketch(book, pageId, ids, { decided = false } = {}) {
   if (!ids || !ids.length) return;
-  sketchDialog.set({ pages: [{ book: String(book), pageId: String(pageId), ids: [...ids] }] });
+  sketchDialog.set({ pages: [{ book: String(book), pageId: String(pageId), ids: [...ids], decided }] });
 }
 
 export function closeSketchDialog() {

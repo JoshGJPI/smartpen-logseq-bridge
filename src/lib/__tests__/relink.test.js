@@ -365,7 +365,7 @@ describe('decisions → the save spec', () => {
     const spec = buildRelinkSpec(run, model, d);
     expect(spec.links.some((l) => l.lineId === confirm.lineId)).toBe(false);
     expect(spec.texts).toEqual({ L05: 'boring plate at top' });
-    expect(spec.add).toEqual([left1.ms]);
+    expect(spec.add).toEqual([{ ms: [left1.ms], text: left1.reading.trim() }]);
     expect(spec.textless).toEqual([left2.ms]);
   });
 

@@ -4,33 +4,50 @@
   ink in Ink + text.
 
   "Mark sketch" puts the page in box mode (stores/sketch-lines.js sketchMark;
-  PageInk draws the box). A box picks the strokes wholly inside it
-  (lib/viewer/sketch-lines.js boxPick): those in no text line are taken; those
-  in a text line (or another sketch) are offered per line with a warning
-  ("14 strokes are in line #16 …"): Leave them in #16 (default) or Take them.
-  Then Make sketch… opens the dialog. A sketch row's Add strokes… / Remove
-  strokes… use the same box: added strokes join that sketch, removed ones are
-  unlinked (never deleted). The page shown is the one on disk (the reader's doc).
+  PageInk draws the box). A box picks the strokes wholly inside it: those in no
+  text line are taken; those in a text line (or another sketch) are offered per
+  line with a warning ("14 strokes are in line #16 …"): Leave them in #16
+  (default) or Take them. Then Make sketch… opens the dialog. A sketch row's Add
+  strokes… / Remove strokes… use the same box: added strokes join that sketch,
+  removed ones are unlinked (never deleted). The page shown is the one on disk.
+
+  Stroke by stroke (v3.29.0, lib/viewer/sketch-pick.js): the box stays up after
+  the first pick, and the page shows the pick (`marks`): taken strokes in
+  orange, offered ones left in their line in blue, the rest greyed. Ctrl-drag
+  adds a box, Shift-drag takes one away, a plain drag starts again, and a click
+  on a stroke takes it or drops it. The middle button pans.
 -->
 <script>
   import { sketchMark, startSketchMark, stopSketchMark, openMakeSketch, runSketch } from '$stores/sketch-lines.js';
-  import { boxPick, inLineWarning } from '$lib/viewer/sketch-lines.js';
+  import { emptyPick, boxIds, applyBox, toggleStroke, setLineTaken, pickGroups, groupWarning, pickedIds, pickMarks, strokeAt } from '$lib/viewer/sketch-pick.js';
   import { plural } from '$lib/plural.js';
 
   export let book;
   export let pageId;
   export let doc = null;
 
-  /** The last box's pick, and which offered lines the user takes. */
-  let picked = null;
-  let takeLines = new Set();
+  let sel = emptyPick();
+  /** A box or click has been made since the mark began (the panel shows). */
+  let touched = false;
   let busy = false;
+  /** The panel sits at the page's foot, or its head when it covers the ink being picked. */
+  let panelTop = false;
 
   $: mark = $sketchMark && $sketchMark.book === String(book) && $sketchMark.pageId === String(pageId) ? $sketchMark : null;
-  $: if (!mark) picked = null;
-  /** PageInk's `boxMode`: the hint while a box is to be drawn, null when not. */
+  let markWas = null;
+  $: if (mark !== markWas) { markWas = mark; sel = emptyPick(); touched = false; }
+  $: opts = mark ? { mode: mark.mode, lineId: mark.lineId } : {};
+
+  /** PageInk's `boxMode`: up for the whole mark, so more boxes and clicks refine the pick. */
   export let boxMode = null;
-  $: boxMode = mark && !picked ? { hint: hintOf(mark) } : null;
+  $: boxMode = mark ? { hint: touched ? '' : hintOf(mark) } : null;
+  /** PageInk's `marks`: the pick in colour over the greyed page. */
+  export let marks = null;
+  $: marks = mark && doc ? shownMarks(pickMarks(doc, sel, opts)) : null;
+  /** Nothing to show yet = no marks, so the page isn't greyed before a pick. */
+  const shownMarks = (m) => (m.taken.length || m.offered.length || m.base.length ? m : null);
+
+  const REFINE = 'Strokes in a line are left there (blue) unless taken. Drag: start again · Ctrl-drag: add · Shift-drag: take away · Click a stroke: take it or drop it · Middle-drag: pan · Esc: stop';
 
   function hintOf(m) {
     if (m.mode === 'add') return `Drag a box around the strokes to add to “${m.label}”`;
@@ -39,26 +56,38 @@
   }
 
   /** PageInk's onBox. */
-  export function pick(box) {
+  export function pick(box, how = 'replace', yFrac = null) {
     if (!mark || !doc) return;
-    picked = boxPick(doc, box, { lineId: mark.lineId, remove: mark.mode === 'remove' });
-    takeLines = new Set();
+    // The panel goes to the half of the pane away from the box, so it never covers the drawing.
+    if (yFrac != null && how === 'replace') panelTop = yFrac > 0.5;
+    sel = applyBox(sel, doc, boxIds(doc, box, opts), how, opts);
+    touched = true;
   }
 
-  function toggleLine(id, on) {
-    const next = new Set(takeLines);
-    on ? next.add(id) : next.delete(id);
-    takeLines = next;
+  /** PageInk's onBoxClick: the stroke under the pointer in or out (Shift only drops). */
+  export function click(pt, tol, how = 'replace') {
+    if (!mark || !doc) return;
+    const id = strokeAt(doc, pt, tol, opts);
+    if (!id) return;
+    if (how === 'subtract' && !sel.chosen.has(id)) return;
+    sel = toggleStroke(sel, id);
+    touched = true;
   }
 
-  $: ids = picked ? [...picked.take, ...picked.inLines.filter((g) => takeLines.has(g.lineId)).flatMap((g) => g.ids)] : [];
+  $: groups = mark && doc ? pickGroups(doc, sel, opts) : [];
+  $: ids = mark && doc ? pickedIds(doc, sel) : [];
+  $: free = ids.length - groups.reduce((n, g) => n + g.taken, 0);
+
+  function setLine(lineId, take) {
+    sel = setLineTaken(sel, doc, lineId, take);
+  }
 
   async function apply() {
     if (!ids.length || busy) return;
     const m = mark;
     if (m.mode === 'create') {
       stopSketchMark();
-      openMakeSketch(book, pageId, ids);
+      openMakeSketch(book, pageId, ids, { decided: true });
       return;
     }
     busy = true;
@@ -67,8 +96,9 @@
     if (!r.error) stopSketchMark();
   }
 
-  function again() {
-    picked = null;
+  function clear() {
+    sel = emptyPick();
+    touched = false;
   }
 
   function toggleMark() {
@@ -84,25 +114,30 @@
   </button>
 {/if}
 
-{#if mark && picked}
-  <div class="sml-panel" role="dialog" aria-label="Strokes in the box">
+{#if mark && touched}
+  <div class="sml-panel" class:top={panelTop} role="dialog" aria-label="Strokes picked">
+    <button type="button" class="sml-move" on:click={() => (panelTop = !panelTop)}
+      title={panelTop ? 'Move this panel to the foot of the page' : 'Move this panel to the head of the page'}>{panelTop ? '▼' : '▲'}</button>
     {#if mark.mode === 'remove'}
-      <p><b>{picked.take.length} {plural(picked.take.length, 'stroke')}</b> of “{mark.label}” in the box: taken out of the sketch, unlinked (never deleted).</p>
+      <p><span class="sw taken"></span><b>{ids.length} {plural(ids.length, 'stroke')}</b> of “{mark.label}” to take out of the sketch: unlinked, never deleted.</p>
     {:else}
-      <p><b>{picked.take.length} {plural(picked.take.length, 'stroke')}</b> wholly inside and in no text line {picked.take.length === 1 ? 'is' : 'are'} taken{#if mark.mode === 'add'} into “{mark.label}”{/if}.</p>
-      {#each picked.inLines as g (g.lineId)}
-        <div class="sml-warn">
-          <span>{inLineWarning(g)}. Leave them in that {g.sketch ? 'sketch' : 'line'}, or take them into {mark.mode === 'add' ? 'this' : 'the'} sketch?</span>
+      <p><span class="sw taken"></span><b>{ids.length} {plural(ids.length, 'stroke')}</b> {mark.mode === 'add' ? `to add to “${mark.label}”` : 'go into the sketch'}{#if free > 0 && free < ids.length}{' '}({free} in no line){/if}.
+        {#if sel.offered.size}<span class="sml-left"><span class="sw offered"></span>{sel.offered.size} left in {plural(sel.offered.size, 'its line', 'their lines')}</span>{/if}</p>
+      {#if groups.length}<p class="sml-sub">In transcript lines: leave them there, or take them into {mark.mode === 'add' ? 'this' : 'the'} sketch</p>{/if}
+      {#each groups as g (g.lineId)}
+        <div class="sml-warn" title={groupWarning(g)}>
+          <span class="sml-gl"><b>#{g.n}</b>{g.sketch ? ' sketch' : ''} “{g.text.length > 28 ? `${g.text.slice(0, 27)}…` : g.text}”: {g.ids.length} {plural(g.ids.length, 'stroke')}{#if g.taken && g.taken < g.ids.length}, {g.taken} taken{/if}</span>
           <span class="sml-choice">
-            <button type="button" class:sel={!takeLines.has(g.lineId)} on:click={() => toggleLine(g.lineId, false)}>Leave in #{g.n}</button>
-            <button type="button" class:sel={takeLines.has(g.lineId)} on:click={() => toggleLine(g.lineId, true)}>Take them</button>
+            <button type="button" class:sel={g.taken === 0} on:click={() => setLine(g.lineId, false)} title="Leave them in #{g.n}">Leave</button>
+            <button type="button" class:sel={g.taken === g.ids.length} on:click={() => setLine(g.lineId, true)} title="Take them out of #{g.n} into the sketch">Take</button>
           </span>
         </div>
       {/each}
     {/if}
+    <p class="sml-tips">{REFINE}</p>
     <div class="sml-actions">
       <button type="button" on:click={stopSketchMark}>Cancel</button>
-      <button type="button" on:click={again}>Draw again</button>
+      <button type="button" on:click={clear} title="Clear the pick and draw again">Clear</button>
       <button type="button" class="primary" disabled={!ids.length || busy} on:click={apply}>
         {mark.mode === 'create' ? `Make sketch… (${ids.length})` : mark.mode === 'add' ? `Add ${ids.length}` : `Take out ${ids.length}`}
       </button>
@@ -119,12 +154,21 @@
   .sml-btn:hover { border-color: #f5b942; color: #222; }
   .sml-btn.on { background: #f5b942; border-color: #f5b942; color: #1c1f2b; font-weight: 600; }
   .sml-panel {
-    position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 22; max-height: 60%; overflow-y: auto;
-    padding: 10px 12px; border: 1px solid #e3d3a8; border-radius: 8px; background: #fffdf6;
+    position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 22; max-height: 42%; overflow-y: auto;
+    padding: 10px 30px 10px 12px; border: 1px solid #e3d3a8; border-radius: 8px; background: #fffdf6;
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18); font-size: 13px; color: #333; line-height: 1.45;
   }
+  .sml-panel.top { bottom: auto; top: 40px; }
+  .sml-move { position: absolute; top: 6px; right: 6px; padding: 0 5px; border: 1px solid #ddd; border-radius: 4px; background: #fff; font-size: 10px; line-height: 18px; color: #666; cursor: pointer; }
   .sml-panel p { margin: 0 0 6px; }
-  .sml-warn { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 6px 0; padding: 6px 8px; border-radius: 6px; background: rgba(245, 185, 66, 0.14); border: 1px solid rgba(245, 185, 66, 0.45); }
+  .sml-sub { margin: 0 0 2px !important; font-size: 12px; color: #555; }
+  .sml-tips { margin: 6px 0 0 !important; font-size: 11px; color: #777; }
+  .sml-left { margin-left: 8px; color: #555; white-space: nowrap; }
+  .sw { display: inline-block; width: 10px; height: 10px; margin-right: 5px; border-radius: 2px; vertical-align: -1px; }
+  .sw.taken { background: #e8590c; }
+  .sw.offered { background: #3b82f6; }
+  .sml-gl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sml-warn { display: flex; align-items: center; gap: 6px 10px; margin: 4px 0; padding: 3px 8px; border-radius: 6px; background: rgba(245, 185, 66, 0.14); border: 1px solid rgba(245, 185, 66, 0.45); }
   .sml-choice { display: inline-flex; gap: 4px; }
   .sml-choice button, .sml-actions button { padding: 4px 10px; border: 1px solid #ddd; border-radius: 5px; background: #fff; font-size: 12px; cursor: pointer; }
   .sml-choice button.sel { border-color: #b7791f; background: #fdf0d2; font-weight: 600; }

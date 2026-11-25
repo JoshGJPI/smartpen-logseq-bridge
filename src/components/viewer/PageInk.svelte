@@ -17,6 +17,9 @@
 
   Box mode (v3.24.0, `boxMode`): BoxSelect covers the canvas and a drag hands
   back a box in Ncode (`onBox`), for Mark sketch and a sketch's Add / Remove strokes.
+  v3.29.0: a click hands back a point (`onBoxClick`), `marks` draws Mark sketch's
+  pick over the greyed page (taken in orange, left-in-line in blue, the sketch's
+  other ink in ink), and the middle button pans while the box is up.
 -->
 <script>
   import { onMount, onDestroy, tick } from 'svelte';
@@ -44,9 +47,13 @@
   export let zoom = 1;
   /** Drag a box instead of panning (v3.24.0): `{ hint }`, or null. */
   export let boxMode = null;
-  /** ({ minX, maxX, minY, maxY } in Ncode) => void */
+  /** ({ minX, maxX, minY, maxY } in Ncode, how, yFrac) => void */
   export let onBox = () => {};
   export let onBoxCancel = () => {};
+  /** ({ x, y }, tolNcode, how) => void: a click in box mode. */
+  export let onBoxClick = null;
+  /** Mark sketch's pick (lib/viewer/sketch-pick.js pickMarks): `{ taken, offered, base }`, or null. */
+  export let marks = null;
 
   /** A screen point in Ncode, through the page's zoom, pan and rotation (null before layout). */
   function toNcode(clientX, clientY) {
@@ -111,7 +118,7 @@
   $: rotation, refit();
   $: strokes, refit();
 
-  $: shown = hotSitting || highlight;
+  $: shown = marks ? null : (hotSitting || highlight);
 
   async function refit() {
     await tick();
@@ -164,7 +171,9 @@
   }
 
   function handleMouseDown(e) {
-    if (e.button !== 0) return;
+    // Left pans; so does the middle button, which is how to pan under the Mark sketch box.
+    if (e.button !== 0 && e.button !== 1) return;
+    if (e.button === 1) e.preventDefault();
     panArmed = true;
     panStart = { x: e.clientX, y: e.clientY, px: panX, py: panY };
   }
@@ -194,7 +203,7 @@
       aria-label="Page strokes — scroll to zoom, drag to pan"
     >
       <div class="pi-transform" style="transform: translate({panX}px, {panY}px) scale({zoom});">
-        <svg bind:this={svgEl} class:paper={!!bg} class:dimmed={!!shown} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {shownWidth.toFixed(2)} {shownHeight.toFixed(2)}" width={shownWidth.toFixed(2)} height={shownHeight.toFixed(2)}>
+        <svg bind:this={svgEl} class:paper={!!bg} class:dimmed={!!shown || !!marks} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {shownWidth.toFixed(2)} {shownHeight.toFixed(2)}" width={shownWidth.toFixed(2)} height={shownHeight.toFixed(2)}>
           <g bind:this={contentEl} transform={contentTransform}>
             {#if bg}
               <!-- The sheet is drawn 1:1 into the frame (Ncode units × NCODE_SCALE),
@@ -213,10 +222,15 @@
               {/if}
             {/each}
             <SittingInk sitting={shown} {viewBounds} />
+            {#if marks}
+              <SittingInk sitting={{ strokes: marks.base }} {viewBounds} />
+              <SittingInk sitting={{ strokes: marks.offered }} {viewBounds} color="#3b82f6" widen={1.6} />
+              <SittingInk sitting={{ strokes: marks.taken }} {viewBounds} color="#e8590c" widen={1.8} />
+            {/if}
           </g>
         </svg>
       </div>
-      {#if boxMode}<BoxSelect {toNcode} {onBox} onCancel={onBoxCancel} hint={boxMode.hint} />{/if}
+      {#if boxMode}<BoxSelect {toNcode} {onBox} onClick={onBoxClick} onCancel={onBoxCancel} hint={boxMode.hint} />{/if}
       <SittingHover {svgEl} frameEl={contentEl} {strokes} {dayModel} {viewBounds} view="{zoom},{panX},{panY}" paused={isPanning} bind:hot={hotSitting} on:open={(e) => onOpenDay(e.detail.day)} />
     </div>
     <!-- One small ⟳ until the page is hovered (v3.14.0); the full control then.

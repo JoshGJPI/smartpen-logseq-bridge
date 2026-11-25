@@ -16,8 +16,11 @@
   export let sitting = null;
   /** { minX, minY } the page's SVG is drawn from. */
   export let viewBounds = null;
-
-  const INK = '#1a1a2e';
+  /** The ink colour (Mark sketch draws its pick in colour, v3.29.0). */
+  export let color = '#1a1a2e';
+  /** Widens each line (a coloured pick reads better a little heavier). */
+  export let widen = 1;
+  $: INK = color;
 </script>
 
 {#if sitting && viewBounds}
@@ -25,10 +28,10 @@
     {#each sitting.strokes as stroke}
       {#if stroke.sketch}
         {#each strokeToWidthRuns(stroke, viewBounds, $sketchProfile) as run}
-          <path d={run.d} stroke={INK} stroke-width={run.width} fill="none" stroke-linecap="round" stroke-linejoin="round" />
+          <path d={run.d} stroke={INK} stroke-width={run.width * widen} fill="none" stroke-linecap="round" stroke-linejoin="round" />
         {/each}
       {:else}
-        <path d={strokeToPathD(stroke, viewBounds)} stroke={INK} stroke-width={DEFAULT_STROKE_WIDTH} fill="none" stroke-linecap="round" stroke-linejoin="round" />
+        <path d={strokeToPathD(stroke, viewBounds)} stroke={INK} stroke-width={DEFAULT_STROKE_WIDTH * widen} fill="none" stroke-linecap="round" stroke-linejoin="round" />
       {/if}
     {/each}
   </g>
