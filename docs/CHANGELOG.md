@@ -6,6 +6,16 @@ file lists have been dropped. Current rules distilled from these entries live in
 CLAUDE.md (Invariants); the store and library map is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## v3.30.1 — Fix: editing a saved page turned its sketches into text (November 2026)
+
+Josh, 2026-11-25: B3017/P132's "Screens Details" sketch showed as a plain line in the reader and both editors. The
+Edit Transcription dialog for a SAVED page (the Pages tab's Edit, and since v3.30.0 the Transcripts tab's ✎ Edit,
+one path: `SavedTranscriptEditor`) built its lines with its own mapping, which left out `kind` and `bounds`. The
+sketch showed as text there, and the save wrote it back as a text line (its ink still linked, `yBounds: null`).
+P132 and P134 lost a sketch this way that day. The dialog now loads lines through `savedLinesForEditor()`, the Review
+tab's helper, which carries `kindFields()`. Pages already flattened are not repaired automatically: a text line with
+`yBounds: null` and linked ink is the trace.
+
 ## v3.30.0 — Relink: edit new lines in the review; Edit in the Transcripts tab (November 2026)
 
 Josh, on B3017/P133 (2026-11-25): the untranscribed part of a page (a meeting added after the first transcription)

@@ -17,8 +17,7 @@
 <script>
   import { createEventDispatcher, onDestroy } from 'svelte';
   import { getPage } from '$lib/storage/local-store.js';
-  import { markerField } from '$lib/tasks.js';
-  import { buildEditedTranscript } from '$lib/editor-lines.js';
+  import { buildEditedTranscript, savedLinesForEditor } from '$lib/editor-lines.js';
   import { relinkAfterEdit } from '$lib/deleted-ink.js';
   import { withKindBounds } from '$lib/line-kinds.js';
   import { refreshAfterSave } from '$lib/storage/refresh.js';
@@ -52,18 +51,9 @@
         return;
       }
       base = doc.transcript.lines;
-      // TranscriptLine → the dialog's line shape; blockUuid is the line id.
-      lines = doc.transcript.lines.map((l) => ({
-        text: l.text || '',
-        canonical: (l.text || '').trim().toLowerCase(),
-        yBounds: l.yBounds || { minY: 0, maxY: 0 },
-        indentLevel: l.indentLevel || 0,
-        blockUuid: l.id,
-        checked: l.checked,
-        ...markerField(l),
-        parentId: l.parentId,
-        syncStatus: 'synced'
-      }));
+      // The dialog's line shape, sketch lines' kind and box included (v3.30.1: this path
+      // had its own copy without them, so a sketch showed as text and saved as text).
+      lines = savedLinesForEditor(doc.transcript.lines);
       visible = true;
     } catch (error) {
       log(`Could not load the transcript of B${book}/P${pageId}: ${error.message}`, 'error');
